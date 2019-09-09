@@ -1,0 +1,34 @@
+{
+  "readOnlyOnce": false,
+  "serverPort": "8888",
+  "uid": "root",
+  "gid": "root",
+
+  "mirakurunPath": "http://host.docker.internal:40772/",
+
+  "dbType": "postgresql",
+  "postgresql": {
+    "host": "postgres",
+    "port": 5432,
+    "user": "postgres",
+    "password": "postgres",
+    "database": "postgres"
+  },
+
+  "ffmpeg": "/bin/true",
+  "ffprobe": "/bin/true",
+
+  "maxEncode": 0,
+  "encode": [],
+
+  "maxStreaming": 1,
+  "mpegTsStreaming": [{"name": "raw"}],
+
+  "recordedFormat": "%YEAR%-%MONTH%-%DAY%-%HOUR%%MIN%-%TYPE%-%CH%-%SID%-%ID%",
+  "recordedHLS": [],
+  "recordedStreaming": {
+    "webm": [],
+    "mp4": [],
+    "mpegTs": []
+  }
+}

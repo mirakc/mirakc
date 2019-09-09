@@ -1,0 +1,28 @@
+version: '3.7'
+
+services:
+  prometheus:
+    image: prom/prometheus
+    container_name: mirakc-prometheus
+    init: true
+    networks:
+      - default-network
+    ports:
+      - 9090:9090
+    volumes:
+      - prometheus-data:/prometheus
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    environment:
+      TZ: $TZ
+    extra_hosts:
+      - target:$TARGET_IP
+
+networks:
+  default-network:
+    name: mirakc_prometheus_network
+    driver: bridge
+
+volumes:
+  prometheus-data:
+    name: mirakc_prometheus_data
+    driver: local

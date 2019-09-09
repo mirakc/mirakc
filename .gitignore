@@ -1,0 +1,5 @@
+/docker/testbed/epgstation/recorded/
+/target
+**/*.rs.bk
+.DS_Store
+.env

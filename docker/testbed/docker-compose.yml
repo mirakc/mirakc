@@ -1,0 +1,49 @@
+version: '3.7'
+
+services:
+  epgstation:
+    image: mirakc-testbed/epgstation
+    build:
+      context: ./epgstation
+    container_name: mirakc-testbed-epgstation
+    init: true
+    networks:
+      - default-network
+    ports:
+      - 8888:8888
+    volumes:
+      - epgstation-data:/opt/epgstation/data
+      - ./epgstation/config:/opt/epgstation/config:ro
+      - ./epgstation/recorded:/opt/epgstation/recorded
+    environment:
+      NODE_ENV: production
+      TZ: $TZ
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:alpine
+    container_name: mirakc-testbed-postgres
+    init: true
+    networks:
+      - default-network
+    expose:
+      - 5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: postgres
+      TZ: $TZ
+
+networks:
+  default-network:
+    name: mirakc_testbed_network
+    driver: bridge
+
+volumes:
+  epgstation-data:
+    name: mirakc_testbed_epgstation_data
+    driver: local
+  pgdata:
+    name: mirakc_testbed_pgdata
+    driver: local

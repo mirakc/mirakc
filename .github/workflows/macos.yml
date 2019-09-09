@@ -1,0 +1,21 @@
+name: macOS
+
+on: [push]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - nightly
+    runs-on: macOS-latest
+    steps:
+      - uses: hecrj/setup-rust-action@v1
+        with:
+          rust-version: ${{ matrix.rust }}
+      - uses: actions/checkout@v1
+      - name: Build
+        run: cargo build -v --release
+      - name: Run tests
+        run: cargo test -v --release
