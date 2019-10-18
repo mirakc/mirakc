@@ -102,7 +102,7 @@ where a Prometheus server was running on the local PC.
 * Receiving TS streams from 4 GR and 4 BS services for 10 minutes
   * `cat` is used as decoder
 * Collecting system metrics by using [Prometheus] and [node_exporter]
-* Counting the number of dropped TS packets by using [aribts]
+* Counting the number of dropped TS packets by using [node-aribts]
 
 The script should be run when the target server is idle.
 
