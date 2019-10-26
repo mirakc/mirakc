@@ -674,7 +674,7 @@ impl EitEvent {
     }
 
     fn is_overnight_event(&self) -> bool {
-        self.start_time.date().succ().day() == self.end_time().day()
+        self.end_time() > self.start_time.date().succ().and_hms(0, 0, 0)
     }
 }
 
@@ -979,11 +979,20 @@ mod tests {
         let event = EitEvent {
             event_id: 0,
             start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 59),
-            duration: Duration::seconds(1),
+            duration: Duration::seconds(2),
             scrambled: false,
             descriptors: Vec::new(),
         };
         assert!(event.is_overnight_event());
+
+        let event = EitEvent {
+            event_id: 0,
+            start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 59),
+            duration: Duration::seconds(1),
+            scrambled: false,
+            descriptors: Vec::new(),
+        };
+        assert!(!event.is_overnight_event());
 
         let event = EitEvent {
             event_id: 0,
