@@ -442,6 +442,7 @@ impl From<(u16, u16, u16)> for EpgScheduleId {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EpgSchedule {
     service: EpgService,
     tables: [Option<Box<EpgTable>>; 32],
@@ -504,6 +505,7 @@ impl EpgSchedule {
 
 #[derive(Default)]
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EpgTable {
     segments: [EpgSegment; 32],
 }
@@ -536,6 +538,7 @@ impl EpgTable {
 
 #[derive(Default)]
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EpgSegment {
     sections: [Option<EpgSection>; 8],
 }
@@ -574,6 +577,7 @@ impl EpgSegment {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EpgSection {
     version: u8,
     events: Vec<EitEvent>,
