@@ -417,6 +417,7 @@ impl EpgScheduleId {
         ((self.0 >> 32) & 0xFFFF) as u16
     }
 
+    #[allow(dead_code)]
     #[inline]
     fn tsid(&self) -> u16 {
         ((self.0 >> 16) & 0xFFFF) as u16
