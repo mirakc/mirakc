@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
+use std::iter::FromIterator;
 use std::path::PathBuf;
 
 use actix::prelude::*;
-use chrono::{Datelike, DateTime, Duration};
+use chrono::{DateTime, Duration};
 use humantime;
 use indexmap::IndexMap;
 use log;
@@ -33,7 +34,6 @@ struct Epg {
     collect_eits: String,
     channels: Vec<ChannelConfig>,
     schedules: HashMap<EpgScheduleId, EpgSchedule>,
-    updated_at: DateTime<Jst>,
     max_elapsed: Option<Duration>,
 }
 
@@ -74,7 +74,6 @@ impl Epg {
             collect_eits: config.tools.collect_eits.clone(),
             channels,
             schedules: HashMap::new(),
-            updated_at: Jst::now(),
             max_elapsed: None,
         }
     }
@@ -94,12 +93,6 @@ impl Epg {
                         for keeping consistency of EPG data");
             self.run_later(ctx, remaining + Duration::seconds(10));
             return;
-        }
-
-        if now.date().day() == self.updated_at.date().day() + 1 {
-            // Save overnight events.  Because the overnight events will be lost
-            // in `epg.update_schedules()`.
-            self.save_overnight_events();
         }
 
         actix::fut::ok::<_, Error, Self>(())
@@ -280,10 +273,27 @@ impl Epg {
     }
 
     fn prepare_schedules(&mut self, services: &[EpgService]) {
+        let mut unused_ids: HashSet<_> =
+            HashSet::from_iter(self.schedules.keys().cloned());
+
         for service in services {
             let id = EpgScheduleId::from(
                 (service.nid, service.tsid, service.sid));
-            self.schedules.entry(id).or_insert(EpgSchedule::new(&service));
+            self.schedules
+                .entry(id)
+                .and_modify(|sched| {
+                    // Save overnight events.  Because the overnight events will
+                    // be lost in `update_tables()`.
+                    sched.save_overnight_events(Jst::midnight());
+                })
+                .or_insert(EpgSchedule::new(&service));
+            unused_ids.remove(&id);
+        }
+
+        // Removing "garbage" schedules.
+        for id in unused_ids.iter() {
+            self.schedules.remove(&id);
+            log::debug!("Removed schedule#{}", id);
         }
     }
 
@@ -316,13 +326,6 @@ impl Epg {
         }
         log::debug!("Collected {} EIT sections", num_sections);
         return Ok(());
-    }
-
-    fn save_overnight_events(&mut self) {
-        for sched in self.schedules.values_mut() {
-            sched.save_overnight_events();
-        }
-        log::info!("Saved overnight events");
     }
 
     fn load_epg_data(&mut self) -> Result<(), Error> {
@@ -445,6 +448,10 @@ impl From<(u16, u16, u16)> for EpgScheduleId {
 #[serde(rename_all = "camelCase")]
 struct EpgSchedule {
     service: EpgService,
+    // In Japan, only the following indexes are used:
+    //
+    //    0 | 8 | 16 | 24 => the former 4 days of 8 days schedule
+    //    1 | 9 | 17 | 25 => the later 4 days of 8 days schedule
     tables: [Option<Box<EpgTable>>; 32],
     overnight_events: Vec<EitEvent>,
 }
@@ -466,15 +473,15 @@ impl EpgSchedule {
         self.tables[i].as_mut().unwrap().update(section);
     }
 
-    fn save_overnight_events(&mut self) {
+    fn save_overnight_events(&mut self, midnight: DateTime<Jst>) {
         let mut events = Vec::new();
-        for i in (0..32).step_by(8) {
-            if let Some(ref table) = self.tables[i] {
-                events = table.collect_overnight_events(events);
+        for table in self.tables.iter() {
+            if let Some(ref table) = table {
+                events = table.collect_overnight_events(midnight, events);
             }
         }
-        log::debug!("Saved {} overnight events of service#{:04X}",
-                    events.len(), self.service.sid);
+        log::debug!("Saved {} overnight events of schedule#{}",
+                    events.len(), self.service.schedule_id());
         self.overnight_events = events;
     }
 
@@ -506,7 +513,13 @@ impl EpgSchedule {
 #[derive(Default)]
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+// A table contains TV program information about 4 days of a TV program
+// schedule.
 struct EpgTable {
+    // Segments are stored in chronological order.
+    //
+    // The first 8 consecutive segments contains TV program information for the
+    // first day.
     segments: [EpgSegment; 32],
 }
 
@@ -518,10 +531,11 @@ impl EpgTable {
 
     fn collect_overnight_events(
         &self,
+        midnight: DateTime<Jst>,
         mut events: Vec<EitEvent>
     ) -> Vec<EitEvent> {
-        for i in 0..8 {
-            events = self.segments[i].collect_overnight_events(events);
+        for segment in self.segments.iter() {
+            events = segment.collect_overnight_events(midnight, events);
         }
         events
     }
@@ -539,7 +553,10 @@ impl EpgTable {
 #[derive(Default)]
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+// A segment contains TV program information about 3 hours of a TV program
+// schedule.
 struct EpgSegment {
+    // Sections are stored in chronological order.
     sections: [Option<EpgSection>; 8],
 }
 
@@ -554,13 +571,17 @@ impl EpgSegment {
         self.sections[i] = Some(EpgSection::from(section));
     }
 
-    fn collect_overnight_events(&self, events: Vec<EitEvent>) -> Vec<EitEvent> {
+    fn collect_overnight_events(
+        &self,
+        midnight: DateTime<Jst>,
+        events: Vec<EitEvent>
+    ) -> Vec<EitEvent> {
         self.sections
             .iter()
             .filter(|section| section.is_some())
             .map(|section| section.as_ref().unwrap())
             .fold(events, |events_, section| {
-                section.collect_overnight_events(events_)
+                section.collect_overnight_events(midnight, events_)
             })
     }
 
@@ -580,19 +601,22 @@ impl EpgSegment {
 #[serde(rename_all = "camelCase")]
 struct EpgSection {
     version: u8,
+    // Events are stored in chronological order.
     events: Vec<EitEvent>,
 }
 
 impl EpgSection {
-    fn collect_overnight_events(&self, events: Vec<EitEvent>) -> Vec<EitEvent> {
-        self.events
-            .iter()
-            .fold(events, |mut events_, event| {
-                if event.is_overnight_event() {
-                    events_.push(event.clone());
-                }
-                events_
-            })
+    fn collect_overnight_events(
+        &self,
+        midnight: DateTime<Jst>,
+        mut events: Vec<EitEvent>
+    ) -> Vec<EitEvent> {
+        for event in self.events.iter() {
+            if event.is_overnight_event(midnight) {
+                events.push(event.clone());
+            }
+        }
+        events
     }
 
     fn collect_epg_programs(
@@ -677,8 +701,8 @@ impl EitEvent {
         self.start_time + self.duration
     }
 
-    fn is_overnight_event(&self) -> bool {
-        self.end_time() > self.start_time.date().succ().and_hms(0, 0, 0)
+    fn is_overnight_event(&self, midnight: DateTime<Jst>) -> bool {
+        self.start_time < midnight && self.end_time() > midnight
     }
 }
 
@@ -781,6 +805,13 @@ pub struct EpgService {
     channel: EpgChannel,
 }
 
+impl EpgService {
+    #[inline]
+    fn schedule_id(&self) -> EpgScheduleId {
+        EpgScheduleId::from((self.nid, self.tsid, self.sid))
+    }
+}
+
 impl From<(&EpgChannel, &TsService)> for EpgService {
     fn from((ch, sv): (&EpgChannel, &TsService)) -> Self {
         EpgService {
@@ -850,7 +881,7 @@ impl ProgramModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
+    use chrono::{Date, TimeZone};
 
     fn create_epg_service(
         id: EpgScheduleId, channel_type: ChannelType) -> EpgService {
@@ -899,8 +930,35 @@ mod tests {
     #[test]
     fn test_epg_schedule_save_overnight_events() {
         let mut sched = create_epg_schedule_for_collect_overnight_events_test();
-        sched.save_overnight_events();
+        sched.save_overnight_events(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
+        assert_eq!(sched.overnight_events.len(), 0);
+
+        sched.save_overnight_events(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0));
         assert_eq!(sched.overnight_events.len(), 4);
+
+        sched.save_overnight_events(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0));
+        assert_eq!(sched.overnight_events.len(), 0);
+
+        sched.save_overnight_events(Jst.ymd(2019, 10, 16).and_hms(0, 0, 0));
+        assert_eq!(sched.overnight_events.len(), 0);
+
+        sched.save_overnight_events(Jst.ymd(2019, 10, 17).and_hms(0, 0, 0));
+        assert_eq!(sched.overnight_events.len(), 0);
+
+        sched.save_overnight_events(Jst.ymd(2019, 10, 18).and_hms(0, 0, 0));
+        assert_eq!(sched.overnight_events.len(), 1);
+
+        sched.save_overnight_events(Jst.ymd(2019, 10, 19).and_hms(0, 0, 0));
+        assert_eq!(sched.overnight_events.len(), 0);
+
+        sched.save_overnight_events(Jst.ymd(2019, 10, 20).and_hms(0, 0, 0));
+        assert_eq!(sched.overnight_events.len(), 0);
+
+        sched.save_overnight_events(Jst.ymd(2019, 10, 21).and_hms(0, 0, 0));
+        assert_eq!(sched.overnight_events.len(), 0);
+
+        sched.save_overnight_events(Jst.ymd(2019, 10, 22).and_hms(0, 0, 0));
+        assert_eq!(sched.overnight_events.len(), 0);
     }
 
     #[test]
@@ -923,8 +981,10 @@ mod tests {
 
     #[test]
     fn test_epg_table_collect_overnight_events() {
-        let table = create_epg_table_for_collect_overnight_events_test();
-        let events = table.collect_overnight_events(Vec::new());
+        let table = create_epg_table_for_collect_overnight_events_test(
+            Jst.ymd(2019, 10, 13));
+        let events = table.collect_overnight_events(
+            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 2);
     }
@@ -964,16 +1024,20 @@ mod tests {
 
     #[test]
     fn test_epg_segment_collect_overnight_events() {
-        let segment = create_epg_segment_for_collect_overnight_events_test();
-        let events = segment.collect_overnight_events(Vec::new());
+        let segment = create_epg_segment_for_collect_overnight_events_test(
+            Jst.ymd(2019, 10, 13));
+        let events = segment.collect_overnight_events(
+            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 2);
     }
 
     #[test]
     fn test_epg_section_collect_overnight_events() {
-        let section = create_epg_section_for_collect_overnight_events_test();
-        let events = section.collect_overnight_events(Vec::new());
+        let section = create_epg_section_for_collect_overnight_events_test(
+            Jst.ymd(2019, 10, 13));
+        let events = section.collect_overnight_events(
+            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 2);
     }
@@ -987,7 +1051,14 @@ mod tests {
             scrambled: false,
             descriptors: Vec::new(),
         };
-        assert!(event.is_overnight_event());
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
+        assert!(event.is_overnight_event(
+            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
 
         let event = EitEvent {
             event_id: 0,
@@ -996,7 +1067,14 @@ mod tests {
             scrambled: false,
             descriptors: Vec::new(),
         };
-        assert!(!event.is_overnight_event());
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
 
         let event = EitEvent {
             event_id: 0,
@@ -1005,55 +1083,73 @@ mod tests {
             scrambled: false,
             descriptors: Vec::new(),
         };
-        assert!(!event.is_overnight_event());
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(
+            Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
     }
 
     fn create_epg_schedule_for_collect_overnight_events_test() -> EpgSchedule {
         let id = EpgScheduleId::from((1, 2, 3));
         let mut sched = create_epg_schedule(id, ChannelType::GR);
         sched.tables[0] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test()));
+            create_epg_table_for_collect_overnight_events_test(
+                Jst.ymd(2019, 10, 13))));
         sched.tables[1] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test()));
+            create_epg_table_for_collect_overnight_events_test(
+                Jst.ymd(2019, 10, 17))));
         sched.tables[8] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test()));
+            create_epg_table_for_collect_overnight_events_test(
+                Jst.ymd(2019, 10, 13))));
         sched.tables[16] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test()));
+            create_epg_table_for_collect_overnight_events_test(
+                Jst.ymd(2019, 10, 13))));
         sched.tables[24] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test()));
+            create_epg_table_for_collect_overnight_events_test(
+                Jst.ymd(2019, 10, 13))));
         sched
     }
 
-    fn create_epg_table_for_collect_overnight_events_test() -> EpgTable {
+    fn create_epg_table_for_collect_overnight_events_test(
+        date: Date<Jst>
+    ) -> EpgTable {
         let mut table = EpgTable::default();
         table.segments[7] =
-            create_epg_segment_for_collect_overnight_events_test();
+            create_epg_segment_for_collect_overnight_events_test(date);
         table
     }
 
-    fn create_epg_segment_for_collect_overnight_events_test() -> EpgSegment {
+    fn create_epg_segment_for_collect_overnight_events_test(
+        date: Date<Jst>
+    ) -> EpgSegment {
         let mut segment = EpgSegment::default();
         segment.sections[0] =
             Some(EpgSection { version: 1, events: Vec::new() });
         segment.sections[1] =
-            Some(create_epg_section_for_collect_overnight_events_test());
+            Some(create_epg_section_for_collect_overnight_events_test(date));
         segment
     }
 
-    fn create_epg_section_for_collect_overnight_events_test() -> EpgSection {
+    fn create_epg_section_for_collect_overnight_events_test(
+        date: Date<Jst>
+    ) -> EpgSection {
         EpgSection {
             version: 1,
             events: vec![
                 EitEvent {
                     event_id: 1,
-                    start_time: Jst.ymd(2019, 10, 13).and_hms(23, 0, 0),
+                    start_time: date.and_hms(23, 0, 0),
                     duration: Duration::minutes(30),
                     scrambled: false,
                     descriptors: Vec::new(),
                 },
                 EitEvent {
                     event_id: 2,
-                    start_time: Jst.ymd(2019, 10, 13).and_hms(23, 30, 0),
+                    start_time: date.and_hms(23, 30, 0),
                     duration: Duration::hours(1),
                     scrambled: false,
                     descriptors: Vec::new(),

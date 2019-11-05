@@ -1,7 +1,7 @@
 use std::fmt;
 
 use chrono::{
-    DateTime, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset,
+    Date, DateTime, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset,
     TimeZone, Utc,
 };
 
@@ -14,10 +14,19 @@ use chrono::{
 pub struct Jst;
 
 impl Jst {
-    #[allow(dead_code)]
     #[inline]
     pub fn now() -> DateTime<Jst> {
         Utc::now().with_timezone(&Jst)
+    }
+
+    #[inline]
+    pub fn today() -> Date<Jst> {
+        Self::now().date()
+    }
+
+    #[inline]
+    pub fn midnight() -> DateTime<Jst> {
+        Self::today().and_hms(0, 0, 0)
     }
 }
 
