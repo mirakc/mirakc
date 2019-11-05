@@ -41,7 +41,7 @@ impl Epg {
     #[inline]
     fn scan_services_time_limit(channel_type: ChannelType) -> Duration {
         match channel_type {
-            ChannelType::GR => Duration::seconds(5),
+            ChannelType::GR => Duration::seconds(10),
             ChannelType::BS => Duration::seconds(20),
             _ => Duration::minutes(30),
         }
