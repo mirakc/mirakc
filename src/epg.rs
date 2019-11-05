@@ -90,7 +90,7 @@ impl Epg {
         if remaining < self.estimate_time() {
             log::info!("This task may not be completed this day");
             log::info!("Postpone the task until next day \
-                        for keeping consistency of EPG data");
+                        in order to keep consistency of EPG data");
             self.run_later(ctx, remaining + Duration::seconds(10));
             return;
         }
@@ -335,10 +335,10 @@ impl Epg {
 
     fn load_schedules(&mut self) -> Result<(), Error> {
         let json_path = self.cache_dir.join("schedules.json");
-        log::info!("Loading schedules from {}...", json_path.display());
-        let reader = BufReader::new(File::open(json_path)?);
+        log::debug!("Loading schedules from {}...", json_path.display());
+        let reader = BufReader::new(File::open(&json_path)?);
         self.schedules = serde_json::from_reader(reader)?;
-        log::info!("Loaded");
+        log::info!("Loaded schedules from {}...", json_path.display());
         Ok(())
     }
 
@@ -349,10 +349,10 @@ impl Epg {
 
     fn save_schedules(&self) -> Result<(), Error> {
         let json_path = self.cache_dir.join("schedules.json");
-        log::info!("Saving schedules into {}...", json_path.display());
-        let writer = BufWriter::new(File::create(json_path)?);
+        log::debug!("Saving schedules into {}...", json_path.display());
+        let writer = BufWriter::new(File::create(&json_path)?);
         serde_json::to_writer(writer, &self.schedules)?;
-        log::info!("Saved");
+        log::info!("Saved schedules into {}...", json_path.display());
         Ok(())
     }
 
@@ -369,7 +369,7 @@ impl Epg {
         for sched in self.schedules.values() {
             sched.collect_epg_service(&mut services);
         }
-        log::info!("{} services have been collected", services.len());
+        log::info!("Collected {} services", services.len());
         services
     }
 
@@ -378,7 +378,7 @@ impl Epg {
         for (&sched_id, sched) in self.schedules.iter() {
             sched.collect_epg_programs(sched_id, &mut programs);
         }
-        log::info!("{} programs have been collected", programs.len());
+        log::info!("Collected {} programs", programs.len());
         programs
     }
 
