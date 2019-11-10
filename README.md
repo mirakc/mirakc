@@ -17,7 +17,7 @@ unlike PCs in these days.  Typically, a SBC have a multi-core CPU with low clock
 of less than 2GHz, and only 1..4GB memory.
 
 [Mirakurun] is one of popular DTV tuner servers in Japan.  It's fast enough, but
-consumes much memory.  For example, it consumes about 220MB even when idle.
+consumes much memory.  For example, it consumes more than 150MB even when idle.
 
 When Mirakurun provides 8 TS streams simultaneously,  it consumes nearly 1GB of
 memory which includes memory consumption of descendant processes.  As a result,
@@ -26,9 +26,22 @@ if Mirakurun is executed on a machine like ROCK64 (DRAM: 1GB) which doesn't have
 enough memory.
 
 mirakc is more efficient than Mirakurun.  It can provide at least 8 TS streams
-even on ROCK64 (DRAM: 1GB).
+at the same time even on ROCK64 (DRAM: 1GB).
 
 ## Performance comparison
+
+### After running for 1 day
+
+The following table is a snippet of the result of `docker stats` at idle after
+running for 1 day:
+
+```
+NAME       MEM USAGE / LIMIT    MEM %   NET I/O          BLOCK I/O
+mirakc     29.25MiB / 985.8MiB  2.97%   1.7MB / 1.45GB   27.1MB / 1.46GB
+mirakurun  153.2MiB / 985.8MiB  15.54%  1.71MB / 1.46GB  15.2MB / 30GB
+```
+
+### 8 TS streams at the same time
 
 mirakc is 2/3 lower CPU usage and 1/60 smaller memory consumption than
 Mirakurun:
@@ -333,7 +346,7 @@ API Endpoints listed below have been implemented at this moment:
 * /api/channels/{channel_type}/{channel}/stream
   * Compatible
   * The `decode` query parameter has been supported
-  * The `X-Mirakurun-Priority` HTTP header have been supported
+  * The `X-Mirakurun-Priority` HTTP header has been supported
   * The optional `duration` query parameter (in milliseconads) has been added,
     which is passed to the tuner command
 * /api/services
@@ -342,7 +355,7 @@ API Endpoints listed below have been implemented at this moment:
 * /api/services/{id}/stream
   * Compatible
   * The `decode` query parameter has been supported
-  * The `X-Mirakurun-Priority` HTTP header have been supported
+  * The `X-Mirakurun-Priority` HTTP header has been supported
   * The optional `duration` query parameter (in milliseconads) has been added,
     which is passed to the tuner command
 * /api/programs
@@ -351,7 +364,7 @@ API Endpoints listed below have been implemented at this moment:
 * /api/programs/{id}/stream
   * Compatible
   * The `decode` query parameter has been supported
-  * The `X-Mirakurun-Priority` HTTP header have been supported
+  * The `X-Mirakurun-Priority` HTTP header has been supported
   * The optional `duration` query parameter (in milliseconads) has been added,
     which is passed to the tuner command
 * /api/tuners
@@ -375,7 +388,8 @@ The endpoints above are required for working with [EPGStation].
 ## TODO
 
 * Use multiple tuners in the EGP task in order to reduce the time
-  * Currently, it takes about 16 minutes
+  * Currently, it takes about 16 minutes for collecting EIT sections of 8 GR
+    channels and 10 BS channels
 * Support to collect logo data
 
 ## mirakc leaks memory?
