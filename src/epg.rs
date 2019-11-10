@@ -235,7 +235,7 @@ impl Epg {
 
         stream
             .map(|(nid, ch), _epg, _ctx| {
-                log::info!("Updating schedules broadcasted on {}...", ch.name);
+                log::info!("Updating schedule of {}...", ch.name);
                 (nid, ch)
             })
             .and_then(|(nid, ch), _epg, _ctx| {
