@@ -23,11 +23,6 @@ impl Jst {
     pub fn today() -> Date<Jst> {
         Self::now().date()
     }
-
-    #[inline]
-    pub fn midnight() -> DateTime<Jst> {
-        Self::today().and_hms(0, 0, 0)
-    }
 }
 
 impl TimeZone for Jst {

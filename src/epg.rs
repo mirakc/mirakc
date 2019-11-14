@@ -227,7 +227,7 @@ impl Epg {
         &mut self,
         services: EpgServices,
     ) -> impl ActorFuture<Item = (), Error = Error, Actor = Self> {
-        self.prepare_schedules(&services);
+        self.prepare_schedules(&services, Jst::now());
 
         let channels = self.collect_channels_for_collecting_programs(&services);
         let stream = futures::stream::iter_ok::<_, Error>(channels);
@@ -272,9 +272,12 @@ impl Epg {
             .finish()
     }
 
-    fn prepare_schedules(&mut self, services: &[EpgService]) {
+    fn prepare_schedules(
+        &mut self, services: &[EpgService], timestamp: DateTime<Jst>) {
         let mut unused_ids: HashSet<_> =
             HashSet::from_iter(self.schedules.keys().cloned());
+
+        let midnight = timestamp.date().and_hms(0, 0, 0);
 
         for service in services {
             let id = EpgScheduleId::from(
@@ -282,9 +285,12 @@ impl Epg {
             self.schedules
                 .entry(id)
                 .and_modify(|sched| {
-                    // Save overnight events.  Because the overnight events will
-                    // be lost in `update_tables()`.
-                    sched.save_overnight_events(Jst::midnight());
+                    if sched.updated_at < midnight {
+                        // Save overnight events.  The overnight events will be
+                        // lost in `update_tables()`.
+                        sched.save_overnight_events(midnight);
+                    }
+                    sched.updated_at = timestamp;
                 })
                 .or_insert(EpgSchedule::new(&service));
             unused_ids.remove(&id);
@@ -455,6 +461,8 @@ struct EpgSchedule {
     //    1 | 9 | 17 | 25 => the later 4 days of 8 days schedule
     tables: [Option<Box<EpgTable>>; 32],
     overnight_events: Vec<EitEvent>,
+    #[serde(with = "serde_jst")]
+    updated_at: DateTime<Jst>,
 }
 
 impl EpgSchedule {
@@ -463,6 +471,7 @@ impl EpgSchedule {
             service: service.clone(),
             tables: Default::default(),
             overnight_events: Vec::new(),
+            updated_at: Jst::now(),
         }
     }
 
@@ -883,41 +892,75 @@ impl ProgramModel {
 mod tests {
     use super::*;
     use chrono::{Date, TimeZone};
+    use serde_yaml;
 
-    fn create_epg_service(
-        id: EpgScheduleId, channel_type: ChannelType) -> EpgService {
-        EpgService {
-            nid: id.nid(),
-            tsid: id.tsid(),
-            sid: id.sid(),
-            service_type: 1,
-            logo_id: 0,
-            remote_control_key_id: 0,
-            name: "Service".to_string(),
-            channel: EpgChannel {
-                name: "Ch".to_string(),
-                channel_type,
-                channel: "ch".to_string(),
-                excluded_services: Vec::new(),
-            }
-        }
-    }
+    #[test]
+    fn test_epg_prepare_schedule() {
+        let sched_id = EpgScheduleId::from((1, 2, 3));
+        let channel_type = ChannelType::GR;
+        let services = vec![create_epg_service(sched_id, channel_type)];
+        let config = create_config();
 
-    fn create_epg_schedule(
-        id: EpgScheduleId, channel_type: ChannelType) -> EpgSchedule {
-        let sv = create_epg_service(id, channel_type);
-        EpgSchedule::new(&sv)
+        let mut epg = Epg::new(&config);
+        epg.prepare_schedules(&services, Jst::now());
+        assert_eq!(epg.schedules.len(), 1);
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+
+        let mut epg = Epg::new(&config);
+        let sched =
+            create_epg_schedule_with_overnight_events(sched_id, channel_type);
+        epg.schedules.insert(sched_id, sched);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 14).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 4);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 15).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 16).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 17).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 18).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 1);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 19).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 20).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 21).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+
+        epg.prepare_schedules(
+            &services, Jst.ymd(2019, 10, 22).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
     }
 
     #[test]
     fn test_epg_schedule_update() {
-        let id = EpgScheduleId::from((1, 2, 3));
-        let mut sched = create_epg_schedule(id, ChannelType::GR);
+        let sched_id = EpgScheduleId::from((1, 2, 3));
+        let mut sched = create_epg_schedule(sched_id, ChannelType::GR);
 
         sched.update(EitSection {
-            original_network_id: 1,
-            transport_stream_id: 2,
-            service_id: 3,
+            original_network_id: sched_id.nid(),
+            transport_stream_id: sched_id.tsid(),
+            service_id: sched_id.sid(),
             table_id: 0x50,
             section_number: 0x00,
             last_section_number: 0xF8,
@@ -930,7 +973,8 @@ mod tests {
 
     #[test]
     fn test_epg_schedule_save_overnight_events() {
-        let mut sched = create_epg_schedule_for_collect_overnight_events_test();
+        let mut sched = create_epg_schedule_with_overnight_events(
+            EpgScheduleId::from((1, 2, 3)), ChannelType::GR);
         sched.save_overnight_events(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
         assert_eq!(sched.overnight_events.len(), 0);
 
@@ -982,7 +1026,7 @@ mod tests {
 
     #[test]
     fn test_epg_table_collect_overnight_events() {
-        let table = create_epg_table_for_collect_overnight_events_test(
+        let table = create_epg_table_with_overnight_events(
             Jst.ymd(2019, 10, 13));
         let events = table.collect_overnight_events(
             Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
@@ -1025,7 +1069,7 @@ mod tests {
 
     #[test]
     fn test_epg_segment_collect_overnight_events() {
-        let segment = create_epg_segment_for_collect_overnight_events_test(
+        let segment = create_epg_segment_with_overnight_events(
             Jst.ymd(2019, 10, 13));
         let events = segment.collect_overnight_events(
             Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
@@ -1035,7 +1079,7 @@ mod tests {
 
     #[test]
     fn test_epg_section_collect_overnight_events() {
-        let section = create_epg_section_for_collect_overnight_events_test(
+        let section = create_epg_section_with_overnight_events(
             Jst.ymd(2019, 10, 13));
         let events = section.collect_overnight_events(
             Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
@@ -1094,50 +1138,75 @@ mod tests {
             Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
     }
 
-    fn create_epg_schedule_for_collect_overnight_events_test() -> EpgSchedule {
-        let id = EpgScheduleId::from((1, 2, 3));
-        let mut sched = create_epg_schedule(id, ChannelType::GR);
+    fn create_config() -> Config {
+        serde_yaml::from_str::<Config>(r#"
+            tools:
+              scan-services: scan-services
+              collect-eits: collect-eits
+              filter-service: filter-service
+              filter-program: filter-program
+            epg-cache-dir: /tmp/epg
+        "#).unwrap()
+    }
+
+    fn create_epg_service(
+        sched_id: EpgScheduleId, channel_type: ChannelType) -> EpgService {
+        EpgService {
+            nid: sched_id.nid(),
+            tsid: sched_id.tsid(),
+            sid: sched_id.sid(),
+            service_type: 1,
+            logo_id: 0,
+            remote_control_key_id: 0,
+            name: "Service".to_string(),
+            channel: EpgChannel {
+                name: "Ch".to_string(),
+                channel_type,
+                channel: "ch".to_string(),
+                excluded_services: Vec::new(),
+            }
+        }
+    }
+
+    fn create_epg_schedule(
+        sched_id: EpgScheduleId, channel_type: ChannelType) -> EpgSchedule {
+        let sv = create_epg_service(sched_id, channel_type);
+        EpgSchedule::new(&sv)
+    }
+
+    fn create_epg_schedule_with_overnight_events(
+        sched_id: EpgScheduleId, channel_type: ChannelType) -> EpgSchedule {
+        let mut sched = create_epg_schedule(sched_id, channel_type);
+        sched.updated_at = Jst.ymd(2019, 10, 13).and_hms(0, 0, 0);
         sched.tables[0] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test(
-                Jst.ymd(2019, 10, 13))));
+            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
         sched.tables[1] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test(
-                Jst.ymd(2019, 10, 17))));
+            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 17))));
         sched.tables[8] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test(
-                Jst.ymd(2019, 10, 13))));
+            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
         sched.tables[16] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test(
-                Jst.ymd(2019, 10, 13))));
+            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
         sched.tables[24] = Some(Box::new(
-            create_epg_table_for_collect_overnight_events_test(
-                Jst.ymd(2019, 10, 13))));
+            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
         sched
     }
 
-    fn create_epg_table_for_collect_overnight_events_test(
-        date: Date<Jst>
-    ) -> EpgTable {
+    fn create_epg_table_with_overnight_events(date: Date<Jst>) -> EpgTable {
         let mut table = EpgTable::default();
-        table.segments[7] =
-            create_epg_segment_for_collect_overnight_events_test(date);
+        table.segments[7] = create_epg_segment_with_overnight_events(date);
         table
     }
 
-    fn create_epg_segment_for_collect_overnight_events_test(
-        date: Date<Jst>
-    ) -> EpgSegment {
+    fn create_epg_segment_with_overnight_events(date: Date<Jst>) -> EpgSegment {
         let mut segment = EpgSegment::default();
         segment.sections[0] =
             Some(EpgSection { version: 1, events: Vec::new() });
         segment.sections[1] =
-            Some(create_epg_section_for_collect_overnight_events_test(date));
+            Some(create_epg_section_with_overnight_events(date));
         segment
     }
 
-    fn create_epg_section_for_collect_overnight_events_test(
-        date: Date<Jst>
-    ) -> EpgSection {
+    fn create_epg_section_with_overnight_events(date: Date<Jst>) -> EpgSection {
         EpgSection {
             version: 1,
             events: vec![
