@@ -150,19 +150,11 @@ fn get_stream<P>(
 where
     P: Into<OpenTunerBy>
 {
-    let duration = query.duration.map(Duration::from);
-    let preprocess = match query.preprocess {
-        Some(preprocess) => preprocess,
-        None => false,
-    };
-
-    let postprocess = match (query.postprocess, query.decode) {
-        (Some(postprocess), _) => postprocess,
-        (None, decode) => decode != 0,  // for compatibility with Mirakurun
-    };
+    let duration = query.duration();
+    let preprocess = query.preprocess();
+    let postprocess = query.postprocess();
     let msg = OpenTunerMessage {
-        by: path.into(),
-        user, duration, preprocess, postprocess,
+        by: path.into(), user, duration, preprocess, postprocess,
     };
     Box::new(
         resource_manager::open_tuner(msg)
@@ -214,7 +206,7 @@ impl Into<OpenTunerBy> for ProgramPath {
 #[serde(rename_all = "kebab-case")]
 struct StreamQuery {
     #[serde(default)]
-    duration: Option<DurationWrapper>,
+    duration: Option<String>,
     #[serde(default)]
     preprocess: Option<bool>,
     #[serde(default)]
@@ -226,18 +218,27 @@ struct StreamQuery {
     decode: u8,  // default: 0
 }
 
-// Unfortunately, `with` field attribute of `serde` doesn't work with `Option`
-// at this moment.  See https://github.com/serde-rs/serde/issues/723.
-//
-// A workaround can be found in:
-// https://github.com/serde-rs/serde/issues/1301#issuecomment-394108486
-//
-// Using a wrapper type with `Option` is a variant of the workaround above.
-#[derive(Deserialize)]
-struct DurationWrapper(#[serde(with = "serde_duration_in_millis")] Duration);
+impl StreamQuery {
+    fn duration(&self) -> Option<Duration> {
+        match self.duration {
+            Some(ref s) => s.parse::<i64>().ok().map(Duration::seconds),
+            None => None,
+        }
+    }
 
-impl From<DurationWrapper> for Duration {
-    fn from(wrapper: DurationWrapper) -> Self { wrapper.0 }
+    fn preprocess(&self) -> bool {
+        match self.preprocess {
+            Some(preprocess) => preprocess,
+            None => false,
+        }
+    }
+
+    fn postprocess(&self) -> bool {
+        match (self.postprocess, self.decode) {
+            (Some(postprocess), _) => postprocess,
+            (None, decode) => decode != 0,  // for compatibility with Mirakurun
+        }
+    }
 }
 
 impl actix_web::FromRequest for TunerUser {
@@ -404,6 +405,12 @@ mod tests {
                                   decode).as_str());
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+
+        let res = get("/api/channels/GR/ch/stream?duration=1");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/channels/GR/ch/stream?duration=-");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
     #[test]
@@ -427,6 +434,12 @@ mod tests {
                                   decode).as_str());
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+
+        let res = get("/api/services/1/stream?duration=1");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/services/1/stream?duration=-");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
     #[test]
@@ -450,5 +463,84 @@ mod tests {
                                   decode).as_str());
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+
+        let res = get("/api/programs/1/stream?duration=1");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/programs/1/stream?duration=-");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[test]
+    fn test_stream_query() {
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "").unwrap().into_inner();
+        assert_eq!(query.duration(), None);
+        assert_eq!(query.preprocess(), false);
+        assert_eq!(query.postprocess(), false);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "duration=1").unwrap().into_inner();
+        assert_eq!(query.duration(), Some(Duration::seconds(1)));
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "duration=-").unwrap().into_inner();
+        assert_eq!(query.duration(), None);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "duration").unwrap().into_inner();
+        assert_eq!(query.duration(), None);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "duration=").unwrap().into_inner();
+        assert_eq!(query.duration(), None);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "preprocess=true").unwrap().into_inner();
+        assert_eq!(query.preprocess(), true);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "preprocess=false").unwrap().into_inner();
+        assert_eq!(query.preprocess(), false);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "preprocess");
+        assert!(query.is_err());
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "preprocess=");
+        assert!(query.is_err());
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "preprocess=1");
+        assert!(query.is_err());
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "postprocess=true").unwrap().into_inner();
+        assert_eq!(query.postprocess(), true);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "postrocess=false").unwrap().into_inner();
+        assert_eq!(query.postprocess(), false);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "decode=1").unwrap().into_inner();
+        assert_eq!(query.postprocess(), true);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "decode=0").unwrap().into_inner();
+        assert_eq!(query.postprocess(), false);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "decode=2").unwrap().into_inner();
+        assert_eq!(query.postprocess(), true);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "postprocess=true&decode=0").unwrap().into_inner();
+        assert_eq!(query.postprocess(), true);
+
+        let query = actix_web::web::Query::<StreamQuery>::from_query(
+            "postprocess=false&decode=1").unwrap().into_inner();
+        assert_eq!(query.postprocess(), false);
     }
 }

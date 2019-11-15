@@ -149,12 +149,12 @@ server:
   #
   # At least, the number of worker threads must be greater than:
   #
-  #   Num(available local tuners) + 1
+  #   Num(available tuners) + 1
   #
   # The default value is a return value from `num_cpus::get()`.
   workers: 4
 
-# Optional definitions of channels used for local tuners.
+# Optional definitions of channels used for tuners.
 channels:
   - name: MX        # An arbitrary name of the channel
     type: GR        # One of channel types in GR, BS, CS and SKY
@@ -183,7 +183,7 @@ channels:
     channel: '27'
     excluded-services: [1408]  # Excludes "ＮＨＫ携帯Ｇ・東京"
 
-# Optional definitions of local tuners.
+# Optional definitions of tuners.
 #
 # Cascading upstream Mirakurun-compatible servers is unsupported.
 tuners:
@@ -204,17 +204,20 @@ tuners:
     #   channel_type
     #     The `type` parameter of a channel defined in the `channels`.
     #
-    #     It can be used when using an upstream Mirakurun-compatible server as a
-    #     tuner like below:
-    #
-    #       curl <BASE_URL>/api/channels/{{channel_type}}/{{channel}}/stream
-    #
     #   duration
     #     A duration to open the tuner in seconds.
     #     '-' means that the tuner is opened until the process terminates.
     #
     command: >-
       recdvb {{channel}} {{duration}} -
+
+  # A tuner can be defined by using an "upstream" Mirakurun-compatible server.
+  # The duration query parameter can work only for mirakc.
+  - name: upstream
+    types: [GR, BS]
+    command: >-
+      curl -sG <BASE-URL>/api/channels/{{channel_type}}/{{channel}}/stream
+      -d duration={{duration}}
 
   - name: Disabled
     types: [GR]
@@ -355,7 +358,7 @@ API Endpoints listed below have been implemented at this moment:
   * Compatible
   * The `decode` query parameter has been supported
   * The `X-Mirakurun-Priority` HTTP header has been supported
-  * The optional `duration` query parameter (in milliseconads) has been added,
+  * The optional `duration` query parameter (in seconds) has been added,
     which is passed to the tuner command
 * /api/services
   * Compatible
@@ -364,7 +367,7 @@ API Endpoints listed below have been implemented at this moment:
   * Compatible
   * The `decode` query parameter has been supported
   * The `X-Mirakurun-Priority` HTTP header has been supported
-  * The optional `duration` query parameter (in milliseconads) has been added,
+  * The optional `duration` query parameter (in seconds) has been added,
     which is passed to the tuner command
 * /api/programs
   * Compatible
@@ -373,7 +376,7 @@ API Endpoints listed below have been implemented at this moment:
   * Compatible
   * The `decode` query parameter has been supported
   * The `X-Mirakurun-Priority` HTTP header has been supported
-  * The optional `duration` query parameter (in milliseconads) has been added,
+  * The optional `duration` query parameter (in seconds) has been added,
     which is passed to the tuner command
 * /api/tuners
   * Compatible
@@ -391,7 +394,7 @@ The endpoints above are required for working with [EPGStation].
     to the users concurrently
 * Reading TS packets from a tuner blocks a thread
   * That is the reason why the `server.workers` configuration must be greater
-    than the total number of local tuners
+    than the total number of tuners
 
 ## TODO
 
