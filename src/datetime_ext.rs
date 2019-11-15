@@ -1,7 +1,7 @@
 use std::fmt;
 
 use chrono::{
-    Date, DateTime, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset,
+    DateTime, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset,
     TimeZone, Utc,
 };
 
