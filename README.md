@@ -201,6 +201,14 @@ tuners:
     #   channel
     #     The `channel` parameter of a channel defined in the `channels`.
     #
+    #   channel_type
+    #     The `type` parameter of a channel defined in the `channels`.
+    #
+    #     It can be used when using an upstream Mirakurun-compatible server as a
+    #     tuner like below:
+    #
+    #       curl <BASE_URL>/api/channels/{{channel_type}}/{{channel}}/stream
+    #
     #   duration
     #     A duration to open the tuner in seconds.
     #     '-' means that the tuner is opened until the process terminates.
