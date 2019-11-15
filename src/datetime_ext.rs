@@ -18,11 +18,6 @@ impl Jst {
     pub fn now() -> DateTime<Jst> {
         Utc::now().with_timezone(&Jst)
     }
-
-    #[inline]
-    pub fn today() -> Date<Jst> {
-        Self::now().date()
-    }
 }
 
 impl TimeZone for Jst {
