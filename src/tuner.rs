@@ -256,7 +256,7 @@ pub struct TunerOutput {
 
 impl TunerOutput {
     #[inline]
-    fn new(
+    pub fn new(
         tuner_index: usize,
         session_id: u64,
         stdout: Option<ChildStdout>,

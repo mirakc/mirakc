@@ -326,7 +326,7 @@ mod tests {
         pub fn open_tuner(
             _: OpenTunerMessage
         ) -> impl Future<Item = TunerOutput, Error = Error> {
-            futures::future::err(Error::Unavailable)
+            futures::future::ok(TunerOutput::new(0, 0, None))
         }
     }
 
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn test_get_channel_stream() {
         let res = get("/api/channels/GR/ch/stream");
-        assert!(res.status() != actix_web::http::StatusCode::OK);
+        assert!(res.status() == actix_web::http::StatusCode::OK);
 
         let res = get("/api/channels/WOWOW/ch/stream");
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -396,7 +396,7 @@ mod tests {
         for (channel_type, decode) in valid_pairs {
             let res = get(format!("/api/channels/{}/ch/stream?decode={}",
                                   channel_type, decode).as_str());
-            assert!(res.status() != actix_web::http::StatusCode::OK);
+            assert!(res.status() == actix_web::http::StatusCode::OK);
         }
 
         for decode in &decode_values {
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn test_get_service_stream() {
         let res = get("/api/services/1/stream");
-        assert!(res.status() != actix_web::http::StatusCode::OK);
+        assert!(res.status() == actix_web::http::StatusCode::OK);
 
         let res = get("/api/services/x/stream");
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -419,7 +419,7 @@ mod tests {
         for decode in &decode_values {
             let res = get(format!("/api/services/1/stream?decode={}",
                                   decode).as_str());
-            assert!(res.status() != actix_web::http::StatusCode::OK);
+            assert!(res.status() == actix_web::http::StatusCode::OK);
         }
 
         for decode in &decode_values {
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn test_get_program_stream() {
         let res = get("/api/programs/1/stream");
-        assert!(res.status() != actix_web::http::StatusCode::OK);
+        assert!(res.status() == actix_web::http::StatusCode::OK);
 
         let res = get("/api/programs/x/stream");
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -442,7 +442,7 @@ mod tests {
         for decode in &decode_values {
             let res = get(format!("/api/programs/1/stream?decode={}",
                                   decode).as_str());
-            assert!(res.status() != actix_web::http::StatusCode::OK);
+            assert!(res.status() == actix_web::http::StatusCode::OK);
         }
 
         for decode in &decode_values {
