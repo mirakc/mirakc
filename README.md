@@ -124,6 +124,36 @@ You can spawn a Prometheus server using a `docker-compose.yml` in the
 before.  See [README.md](./docker/prometheus/README.md) in the folder before
 using it.
 
+## Build a TV recording system with mirakc
+
+First of all, it's recommended to use a Docker image which can be downloaded
+from [DockerHub].  Because you need to install additional programs besides
+mirakc in order to build a TV recording system.  Installation steps using
+`docker` and `docker-compose` is described in [masnagam/docker-mirakc].
+
+You can easily build mirakc with the following command:
+
+```console
+cargo build --release
+```
+
+However, it takes a long time to build mirakc on a SBC.  So, you should
+cross-compile mirakc on a powerful PC.
+
+Additionally, you need to install the following programs:
+
+* A tuner program like `recpt1`
+* [mirakc-arib] which processes TS packets fed from the tuner program
+
+These programs are specified in a configuration YAML file which is explained in
+the next section.
+
+mirakc loads a configuration in the following order:
+
+1. From a file specified with the `-c` (or `--config`) command-line option if
+   specified
+2. From a file specified with the `MIRAKC_CONFIG` environment variable
+
 ## Configuration
 
 Mirakurun uses multiple files and environment variables for configuration.
@@ -470,6 +500,9 @@ shall be dual licensed as above, without any additional terms or conditions.
 [px4_drv]: https://github.com/nns779/px4_drv
 [Prometheus]: https://prometheus.io/
 [node_exporter]: https://github.com/prometheus/node_exporter
+[DockerHub]: https://hub.docker.com/r/masnagam/mirakc
+[masnagam/docker-mirakc]: https://github.com/masnagam/mirakc-arib
+[mirakc-arib]: https://github.com/masnagam/mirakc-arib
 [log]: https://crates.io/crates/log
 [env_logger]: https://crates.io/crates/env_logger
 [EPGStation]: https://github.com/l3tnun/EPGStation
