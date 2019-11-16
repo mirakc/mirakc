@@ -501,7 +501,7 @@ shall be dual licensed as above, without any additional terms or conditions.
 [Prometheus]: https://prometheus.io/
 [node_exporter]: https://github.com/prometheus/node_exporter
 [DockerHub]: https://hub.docker.com/r/masnagam/mirakc
-[masnagam/docker-mirakc]: https://github.com/masnagam/mirakc-arib
+[masnagam/docker-mirakc]: https://github.com/masnagam/docker-mirakc
 [mirakc-arib]: https://github.com/masnagam/mirakc-arib
 [log]: https://crates.io/crates/log
 [env_logger]: https://crates.io/crates/env_logger
