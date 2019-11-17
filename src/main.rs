@@ -20,7 +20,6 @@ use crate::error::Error;
 fn main() -> Result<(), Error> {
     let args = clap::App::new(clap::crate_name!())
         .version(clap::crate_version!())
-        .author(clap::crate_authors!("\n"))
         .about(clap::crate_description!())
         .arg(clap::Arg::with_name("config")
              .short("c")
