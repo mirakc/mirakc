@@ -5,7 +5,6 @@ use futures::future::Future;
 use serde::Deserialize;
 
 use crate::config::Config;
-use crate::datetime_ext::serde_duration_in_millis;
 use crate::error::Error;
 use crate::messages::*;
 use crate::models::*;
@@ -16,6 +15,8 @@ pub fn start(config: &Config) -> Result<(), Error> {
         move || {
             actix_web::App::new()
                 .wrap(actix_web::middleware::Logger::default())
+                .wrap(actix_web::middleware::DefaultHeaders::new()
+                      .header("Server", server_name()))
                 .service(create_api_service())
         })
         .bind((config.server.address.as_str(), config.server.port))?
@@ -30,6 +31,10 @@ cfg_if::cfg_if! {
     } else {
         use crate::resource_manager;
     }
+}
+
+fn server_name() -> String {
+    format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
 }
 
 // rest api
