@@ -328,7 +328,7 @@ tools:
   # The defualt value is '' which means that no preprocess program is applied
   # even when the `preprocess=true` query parameter is specified in a streaming
   # API endpoint.
-  preprocess >-
+  preprocess: >-
     preprocess
 
   # A Mustache template string of a command to process TS packets after a packet
@@ -347,7 +347,7 @@ tools:
   # * The `decode=1` query parameter is specified
   # * The `postprocess` query parameter is NOT specified
   #
-  postprocess >-
+  postprocess: >-
     postprocess
 
 # A string of an absolute path to a folder where EPG-related data is stored.
