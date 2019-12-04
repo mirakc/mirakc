@@ -9,7 +9,7 @@
   "license": "(Apache-2.0 OR MIT)",
   "dependencies": {
     "aribts": "^1.3.5",
-    "commander": "^3.0.1",
+    "commander": "^4.0.1",
     "easy-table": "^1.1.1",
     "ms": "^2.1.2",
     "node-fetch": "^2.6.0",

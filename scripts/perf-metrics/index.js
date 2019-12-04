@@ -13,10 +13,10 @@ const packageJson = require('./package.json');
 
 const HELP = `
 Description:
-  ...
+  Tools for performance measurements
 
 Examples:
-  $ mirakc-perf-metrics stream target.homename | \\
+  $ mirakc-perf-metrics stream http://mirakc:40772 | \\
       mirakc-perf-metrics system cpu \\
         '100 * (1 - avg(irate(node_cpu_seconds_total{mode="idle"}[1m])))' | \\
       mirakc-perf-metrics system memory \\
@@ -36,7 +36,7 @@ program
 
 const STREAM_HELP = `
 Arguments:
-  target    Hostname of the target
+  target    Base URL of the target server
   duration  Duration for measurement like '10s' (default: '10m')
 
 Description:
@@ -146,7 +146,7 @@ function collectMetrics(target, duration, options) {
     console.error(`Reading TS packets from ${channel.name}...`);
     metrics.streams[channel.name] = {};
     const req = http.request(
-      `http://${target}:40772/api/services/${channel.sid}/stream?decode=1`);
+      `${target}/api/services/${channel.sid}/stream?decode=1`);
     req.on('response', (res) => {
       const tsStream = new aribts.TsStream();
       tsStream.on('info', (info) => {
