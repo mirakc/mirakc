@@ -420,6 +420,8 @@ API Endpoints listed below have been implemented at this moment:
 * /api/programs
   * Compatible
   * Query parameters have **NOT** been supported
+* /api/programs/{id}
+  * Compatible
 * /api/programs/{id}/stream
   * Compatible
   * The `decode` query parameter has been supported

@@ -38,6 +38,12 @@ pub fn query_programs(
     ResourceManager::get().send(query).flatten()
 }
 
+pub fn query_program(
+    query: QueryProgramMessage
+) -> impl Future<Item = ProgramModel, Error = Error> {
+    ResourceManager::get().send(query).flatten()
+}
+
 pub fn query_tuners(
     query: QueryTunersMessage
 ) -> impl Future<Item = Vec<TunerModel>, Error = Error> {
@@ -365,6 +371,24 @@ impl Handler<QueryProgramsMessage> for ResourceManager {
         _: &mut Self::Context,
     ) -> Self::Result {
         Ok(self.programs.clone())
+    }
+}
+
+// query program
+
+impl Message for QueryProgramMessage {
+    type Result = Result<ProgramModel, Error>;
+}
+
+impl Handler<QueryProgramMessage> for ResourceManager {
+    type Result = Result<ProgramModel, Error>;
+
+    fn handle(
+        &mut self,
+        msg: QueryProgramMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        self.programs.get(&msg.id).cloned().ok_or(Error::ProgramNotFound)
     }
 }
 

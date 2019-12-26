@@ -17,6 +17,12 @@ pub struct QueryServicesMessage;
 
 pub struct QueryProgramsMessage;
 
+// query program
+
+pub struct QueryProgramMessage {
+    pub id: MirakurunProgramId,
+}
+
 // query tuners
 
 pub struct QueryTunersMessage;

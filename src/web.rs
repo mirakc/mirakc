@@ -2,7 +2,7 @@ use actix_web;
 use cfg_if;
 use chrono::{Duration, Utc};
 use futures::future::Future;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::error::Error;
@@ -42,7 +42,49 @@ fn server_name() -> String {
 type ApiResult = Box<dyn Future<Item = actix_web::HttpResponse,
                                 Error = actix_web::Error>>;
 
-impl actix_web::ResponseError for Error {}
+#[derive(Serialize)]
+struct ErrorBody {
+    pub code: u16,
+    pub reason: Option<&'static str>,
+    pub errors: Vec<u8>,
+}
+
+impl actix_web::ResponseError for Error {
+    fn render_response(&self) -> actix_web::HttpResponse {
+        match *self {
+            Error::Unavailable =>
+                actix_web::HttpResponse::NotFound().json(ErrorBody {
+                    code: actix_web::http::StatusCode::NOT_FOUND.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
+            Error::ServiceNotFound =>
+                actix_web::HttpResponse::NotFound().json(ErrorBody {
+                    code: actix_web::http::StatusCode::NOT_FOUND.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
+            Error::ProgramNotFound =>
+                actix_web::HttpResponse::NotFound().json(ErrorBody {
+                    code: actix_web::http::StatusCode::NOT_FOUND.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
+            Error::TunerAlreadyUsed =>
+                actix_web::HttpResponse::BadRequest().json(ErrorBody {
+                    code: actix_web::http::StatusCode::BAD_REQUEST.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
+            _ =>
+                actix_web::HttpResponse::InternalServerError().json(ErrorBody {
+                    code: actix_web::http::StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
+        }
+    }
+}
 
 fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
     actix_web::web::scope("/api")
@@ -51,6 +93,7 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_channels)
         .service(get_services)
         .service(get_programs)
+        .service(get_program)
         .service(get_tuners)
         .service(get_channel_stream)
         .service(get_service_stream)
@@ -104,6 +147,18 @@ fn get_programs() -> ApiResult {
                 let values: Vec<&ProgramModel> = programs.values().collect();
                 actix_web::HttpResponse::Ok().json(values)
             })
+            .from_err()
+    )
+}
+
+#[actix_web::get("/programs/{id}")]
+fn get_program(
+    id: actix_web::web::Path<MirakurunProgramId>,
+) -> ApiResult {
+    let msg = QueryProgramMessage { id: id.into_inner() };
+    Box::new(
+        resource_manager::query_program(msg)
+            .map(|tuners| actix_web::HttpResponse::Ok().json(tuners))
             .from_err()
     )
 }
@@ -323,6 +378,16 @@ mod tests {
             futures::future::ok(Arc::new(HashMap::new()))
         }
 
+        pub fn query_program(
+            msg: QueryProgramMessage
+        ) -> impl Future<Item = ProgramModel, Error = Error> {
+            match msg.id.value() {
+                1 => futures::future::ok(
+                    ProgramModel::new(EventQuad::from((1, 2, 3, 4)))),
+                _ => futures::future::err(Error::ProgramNotFound),
+            }
+        }
+
         pub fn query_tuners(
             _: QueryTunersMessage
         ) -> impl Future<Item = Vec<TunerModel>, Error = Error> {
@@ -379,6 +444,21 @@ mod tests {
     fn test_get_channels() {
         let res = get("/api/channels");
         assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[test]
+    fn test_get_programs() {
+        let res = get("/api/programs");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[test]
+    fn test_get_program() {
+        let res = get("/api/programs/1");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/programs/2");
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
     #[test]

@@ -262,9 +262,11 @@ impl MirakurunProgramId {
                 + quad.sid().value() as u64 * 100_000
                 + quad.eid().value() as u64)
     }
+
+    pub fn value(&self) -> u64 { self.0 }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgramModel {
     #[serde(skip)]  // for compatibility with Mirakurun
@@ -433,7 +435,7 @@ pub struct TunerUserModel {
 }
 
 #[cfg(test)]
-mod test_heler {
+mod test_helper {
     use super::*;
 
     // Don't move the implementation outside the module.  That break the
@@ -459,6 +461,13 @@ mod test_heler {
         fn from(triple: (u16, u16, u16)) -> ServiceTriple {
             ServiceTriple::new(
                 triple.0.into(), triple.1.into(), triple.2.into())
+        }
+    }
+
+    impl From<(u16, u16, u16, u16)> for EventQuad {
+        fn from(quad: (u16, u16, u16, u16)) -> EventQuad {
+            EventQuad::new(
+                quad.0.into(), quad.1.into(), quad.2.into(), quad.3.into())
         }
     }
 }
