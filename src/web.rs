@@ -190,7 +190,7 @@ impl Into<OpenTunerBy> for ChannelPath {
 }
 
 #[derive(Deserialize)]
-struct ServicePath(u64);
+struct ServicePath(MirakurunServiceId);
 
 impl Into<OpenTunerBy> for ServicePath {
     fn into(self) -> OpenTunerBy {
@@ -199,7 +199,7 @@ impl Into<OpenTunerBy> for ServicePath {
 }
 
 #[derive(Deserialize)]
-struct ProgramPath(u64);
+struct ProgramPath(MirakurunProgramId);
 
 impl Into<OpenTunerBy> for ProgramPath {
     fn into(self) -> OpenTunerBy {
@@ -318,7 +318,7 @@ mod tests {
 
         pub fn query_programs(
             _: QueryProgramsMessage
-        ) -> impl Future<Item = Arc<HashMap<u64, ProgramModel>>,
+        ) -> impl Future<Item = Arc<HashMap<MirakurunProgramId, ProgramModel>>,
                          Error = Error> {
             futures::future::ok(Arc::new(HashMap::new()))
         }

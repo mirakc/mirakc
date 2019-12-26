@@ -270,6 +270,15 @@ tools:
   scan-services: >-
     mirakc-arib scan-services{{#xsids}} --xsid={{.}}{{/xsids}}
 
+  # A Mustache template string of a command to synchronize clock for each
+  # services.
+  #
+  # The command must read TS packets from STDIN, and output a JSON string to
+  # STDOUT.
+  #
+  sync-clock: >-
+    mirakc-arib sync-clock
+
   # A Mustache template string of a command to collect EIT sections in a TS
   # stream.
   #
@@ -296,7 +305,7 @@ tools:
   #     The idenfiter of the service.
   #
   filter-service: >-
-    mirakc-arib filter-packets --sid={{sid}}
+    mirakc-arib filter-service --sid={{sid}}
 
   # A Mustache template string of a command to drop TS packets which are not
   # required for playback of a program in a service.
@@ -312,12 +321,16 @@ tools:
   #   eid
   #     The event identifier of the program.
   #
-  #   until
-  #     The end datetime of the program in the UNIX timestamp represented with
-  #     i64 in Rust.
+  #   clock_pcr
+  #     A PCR value of synchronized clock for the service.
+  #
+  #   clock_time
+  #     A UNIX time (ms) of synchronized clock for the service.
   #
   filter-program: >-
-    mirakc-arib filter-packets --sid={{sid}} --eid={{eid}}
+    mirakc-arib filter-program --sid={{sid}} --eid={{eid}}
+    --clock-pcr={{clock_pcr}} --clock-time={{clock_time}}
+    --start-margin=5000 --end-margin=5000
 
   # A Mustache template string of a command to process TS packets before a
   # packet filter program.
@@ -352,6 +365,11 @@ tools:
 
 # A string of an absolute path to a folder where EPG-related data is stored.
 epg-cache-dir: /path/to/epg
+
+# An optional value to correct clock for each service.
+#
+# The default value is 0.
+pcr_time_correction: -2000  # -2 seconds
 ```
 
 ## Logging

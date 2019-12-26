@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_yaml;
 
 use crate::error::Error;
-use crate::models::ChannelType;
+use crate::models::{ChannelType, ServiceId};
 
 // result
 
@@ -22,6 +22,8 @@ pub struct Config {
     pub tuners: Vec<TunerConfig>,
     pub tools: ToolsConfig,
     pub epg_cache_dir: String,
+    #[serde(default)]
+    pub pcr_time_correction: i64,
 }
 
 impl Config {
@@ -72,7 +74,7 @@ pub struct ChannelConfig {
     pub channel_type: ChannelType,
     pub channel: String,
     #[serde(default)]
-    pub excluded_services: Vec<u16>,
+    pub excluded_services: Vec<ServiceId>,
     #[serde(default)]
     pub disabled: bool,
 }
@@ -92,6 +94,7 @@ pub struct TunerConfig {
 #[serde(rename_all = "kebab-case")]
 pub struct ToolsConfig {
     pub scan_services: String,
+    pub sync_clock: String,
     pub collect_eits: String,
     pub filter_service: String,
     pub filter_program: String,
@@ -113,6 +116,7 @@ mod tests {
             serde_yaml::from_str::<Config>(r#"
                 tools:
                   scan-services: scan-services
+                  sync-clock: sync-clock
                   collect-eits: collect-eits
                   filter-service: filter-service
                   filter-program: filter-program
@@ -124,6 +128,7 @@ mod tests {
                 tuners: vec![],
                 tools: ToolsConfig {
                     scan_services: "scan-services".to_string(),
+                    sync_clock: "sync-clock".to_string(),
                     collect_eits: "collect-eits".to_string(),
                     filter_service: "filter-service".to_string(),
                     filter_program: "filter-program".to_string(),
@@ -131,6 +136,7 @@ mod tests {
                     postprocess: "".to_string(),
                 },
                 epg_cache_dir: "/path/to/epg".to_string(),
+                pcr_time_correction: 0,
             });
     }
 
@@ -139,6 +145,7 @@ mod tests {
         let result = Config::from_reader(r#"
             tools:
               scan-services: scan-services
+              sync-clock: sync-clock
               collect-eits: collect-eits
               filter-service: filter-service
               filter-program: filter-program
@@ -153,6 +160,7 @@ mod tests {
                 tuners: vec![],
                 tools: ToolsConfig {
                     scan_services: "scan-services".to_string(),
+                    sync_clock: "sync-clock".to_string(),
                     collect_eits: "collect-eits".to_string(),
                     filter_service: "filter-service".to_string(),
                     filter_program: "filter-program".to_string(),
@@ -160,6 +168,7 @@ mod tests {
                     postprocess: "".to_string(),
                 },
                 epg_cache_dir: "/path/to/epg".to_string(),
+                pcr_time_correction: 0,
             });
     }
 
@@ -244,7 +253,7 @@ mod tests {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
                 channel: "y".to_string(),
-                excluded_services: vec![100],
+                excluded_services: vec![100.into()],
                 disabled: false,
             });
 
@@ -308,12 +317,14 @@ mod tests {
         assert_eq!(
             serde_yaml::from_str::<ToolsConfig>(r#"
                 scan-services: scan-services
+                sync-clock: sync-clock
                 collect-eits: collect-eits
                 filter-service: filter-service
                 filter-program: filter-program
             "#).unwrap(),
             ToolsConfig {
                 scan_services: "scan-services".to_string(),
+                sync_clock: "sync-clock".to_string(),
                 collect_eits: "collect-eits".to_string(),
                 filter_service: "filter-service".to_string(),
                 filter_program: "filter-program".to_string(),
@@ -324,6 +335,7 @@ mod tests {
         assert_eq!(
             serde_yaml::from_str::<ToolsConfig>(r#"
                 scan-services: scan-services
+                sync-clock: sync-clock
                 collect-eits: collect-eits
                 filter-service: filter-service
                 filter-program: filter-program
@@ -332,6 +344,7 @@ mod tests {
             "#).unwrap(),
             ToolsConfig {
                 scan_services: "scan-services".to_string(),
+                sync_clock: "sync-clock".to_string(),
                 collect_eits: "collect-eits".to_string(),
                 filter_service: "filter-service".to_string(),
                 filter_program: "filter-program".to_string(),

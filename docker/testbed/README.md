@@ -22,6 +22,7 @@ variables:
 ```console
 $ cat .env
 TZ=Asia/Tokyo
+EPGSTATION_RECORDED_PATH=/path/to/epgstation/recorded
 ```
 
 Create containers with networks and volumes, and start them in the background:

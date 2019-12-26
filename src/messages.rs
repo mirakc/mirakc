@@ -25,8 +25,8 @@ pub struct QueryTunersMessage;
 
 pub enum OpenTunerBy {
     Channel { channel_type: ChannelType, channel: String },
-    Service { id: u64 },
-    Program { id: u64 },
+    Service { id: MirakurunServiceId },
+    Program { id: MirakurunProgramId },
 }
 
 pub struct OpenTunerMessage {
@@ -44,9 +44,15 @@ pub struct CloseTunerMessage {
     pub session_id: u64,
 }
 
+// update clocks
+
+pub struct UpdateClocksMessage {
+    pub clocks: HashMap<ServiceTriple, Clock>,
+}
+
 // update epg
 
 pub struct UpdateEpgMessage {
     pub services: Vec<ServiceModel>,
-    pub programs: HashMap<u64, ProgramModel>,
+    pub programs: HashMap<MirakurunProgramId, ProgramModel>,
 }

@@ -14,7 +14,7 @@ services:
     volumes:
       - epgstation-data:/opt/epgstation/data
       - ./epgstation/config:/opt/epgstation/config:ro
-      - ./epgstation/recorded:/opt/epgstation/recorded
+      - $EPGSTATION_RECORDED_PATH:/opt/epgstation/recorded
     environment:
       NODE_ENV: production
       TZ: $TZ

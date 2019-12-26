@@ -14,6 +14,8 @@ pub enum Error {
     Unavailable,
     #[fail(display = "Service not found")]
     ServiceNotFound,
+    #[fail(display = "Clock not synced")]
+    ClockNotSynced,
     #[fail(display = "Program not found")]
     ProgramNotFound,
     #[fail(display = "Tuner already used")]

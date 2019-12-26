@@ -33,7 +33,8 @@ pub fn query_services(
 
 pub fn query_programs(
     query: QueryProgramsMessage
-) -> impl Future<Item = Arc<HashMap<u64, ProgramModel>>, Error = Error> {
+) -> impl Future<Item = Arc<HashMap<MirakurunProgramId, ProgramModel>>,
+                 Error = Error> {
     ResourceManager::get().send(query).flatten()
 }
 
@@ -55,6 +56,15 @@ pub fn close_tuner(
     ResourceManager::get().do_send(msg);
 }
 
+pub fn update_clocks(
+    clocks: HashMap<ServiceTriple, Clock>
+) {
+    let msg = UpdateClocksMessage {
+        clocks: clocks,
+    };
+    ResourceManager::get().do_send(msg);
+}
+
 pub fn update_epg(
     msg: UpdateEpgMessage
 ) {
@@ -66,7 +76,8 @@ struct ResourceManager {
     epg_arbiter: Arbiter,
     tuners: Vec<Tuner>,
     services: Arc<Vec<ServiceModel>>,
-    programs: Arc<HashMap<u64, ProgramModel>>,
+    clocks: HashMap<ServiceTriple, Clock>,
+    programs: Arc<HashMap<MirakurunProgramId, ProgramModel>>,
 }
 
 impl ResourceManager {
@@ -76,6 +87,7 @@ impl ResourceManager {
             epg_arbiter: Arbiter::new(),
             tuners: Vec::new(),
             services: Arc::new(Vec::new()),
+            clocks: HashMap::new(),
             programs: Arc::new(HashMap::new()),
         }
     }
@@ -167,7 +179,7 @@ impl ResourceManager {
 
     fn open_tuner_by_service(
         &mut self,
-        id: u64,
+        id: MirakurunServiceId,
         user: TunerUser,
         duration: Option<Duration>,
         preprocess: bool,
@@ -185,7 +197,7 @@ impl ResourceManager {
         let template =
             mustache::compile_str(&self.config.tools.filter_service)?;
         let data = mustache::MapBuilder::new()
-            .insert_str("sid", sid.to_string())
+            .insert_str("sid", sid.value().to_string())
             .build();
         let cmd = template.render_data_to_string(&data)?;
         Ok(output.pipe(&cmd)?)
@@ -193,30 +205,39 @@ impl ResourceManager {
 
     fn open_tuner_by_program(
         &mut self,
-        id: u64,
+        id: MirakurunProgramId,
         user: TunerUser,
         duration: Option<Duration>,
         preprocess: bool,
     ) -> Result<TunerOutput, Error> {
-        let (sid, eid, until) = match self.programs.get(&id) {
-            Some(prog) => (prog.service_id, prog.event_id, prog.end_at()),
+        let (quad, until) = match self.programs.get(&id) {
+            Some(prog) => (prog.event_quad, prog.end_at()),
             None => return Err(Error::ProgramNotFound),
         };
 
-        let (channel_type, channel) = match self.find_channel_by_sid(sid) {
-            Some(pair) => pair,
-            None => return Err(Error::ServiceNotFound),
-        };
+        let (channel_type, channel) =
+            match self.find_channel_by_sid(quad.sid()) {
+                Some(pair) => pair,
+                None => return Err(Error::ServiceNotFound),
+            };
 
         let output = self.open_tuner_by_channel(
             channel_type, channel, user, duration, preprocess)?;
 
+        let (pcr, time) = match self.clocks.get(&quad.into()) {
+            Some(clock) =>
+                (clock.pcr, clock.time + self.config.pcr_time_correction),
+            None => return Err(Error::ClockNotSynced),
+        };
+
         let template =
             mustache::compile_str(&self.config.tools.filter_program)?;
         let data = mustache::MapBuilder::new()
-            .insert_str("sid", sid.to_string())
-            .insert_str("eid", eid.to_string())
             .insert_str("until", until.to_string())
+            .insert_str("sid", quad.sid().value().to_string())
+            .insert_str("eid", quad.eid().value().to_string())
+            .insert_str("clock_pcr", pcr.to_string())
+            .insert_str("clock_time", time.to_string())
             .build();
         let cmd = template.render_data_to_string(&data)?;
         Ok(output.pipe(&cmd)?)
@@ -235,7 +256,7 @@ impl ResourceManager {
 
     fn find_channel_by_sid(
         &self,
-        sid: u16,
+        sid: ServiceId,
     ) -> Option<(ChannelType, String)> {
         self.services
             .iter()
@@ -332,11 +353,11 @@ impl Handler<QueryServicesMessage> for ResourceManager {
 // query programs
 
 impl Message for QueryProgramsMessage {
-    type Result = Result<Arc<HashMap<u64, ProgramModel>>, Error>;
+    type Result = Result<Arc<HashMap<MirakurunProgramId, ProgramModel>>, Error>;
 }
 
 impl Handler<QueryProgramsMessage> for ResourceManager {
-    type Result = Result<Arc<HashMap<u64, ProgramModel>>, Error>;
+    type Result = Result<Arc<HashMap<MirakurunProgramId, ProgramModel>>, Error>;
 
     fn handle(
         &mut self,
@@ -404,6 +425,25 @@ impl Handler<CloseTunerMessage> for ResourceManager {
         _: &mut Self::Context,
     ) -> Self::Result {
         self.close_tuner(msg.tuner_index, msg.session_id)
+    }
+}
+
+// update clocks
+
+impl Message for UpdateClocksMessage {
+    type Result = ();
+}
+
+impl Handler<UpdateClocksMessage> for ResourceManager {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: UpdateClocksMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::info!("Updated clocks");
+        self.clocks = msg.clocks;
     }
 }
 

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt;
+use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
 use std::iter::FromIterator;
@@ -26,14 +26,14 @@ pub fn start(arbiter: &Arbiter, config: &Config) {
     arbiter.exec_fn(|| { epg.start(); });
 }
 
-type EpgServices = Vec<EpgService>;
-
 struct Epg {
     cache_dir: PathBuf,
     scan_services: String,
+    sync_clock: String,
     collect_eits: String,
     channels: Vec<ChannelConfig>,
-    schedules: HashMap<EpgScheduleId, EpgSchedule>,
+    services: Vec<EpgService>,
+    schedules: HashMap<ServiceTriple, EpgSchedule>,
     max_elapsed: Option<Duration>,
 }
 
@@ -43,7 +43,7 @@ impl Epg {
         match channel_type {
             ChannelType::GR => Duration::seconds(10),
             ChannelType::BS => Duration::seconds(20),
-            _ => Duration::minutes(30),
+            _ => Duration::seconds(30),
         }
     }
 
@@ -71,88 +71,18 @@ impl Epg {
         Epg {
             cache_dir: PathBuf::from(&config.epg_cache_dir),
             scan_services: config.tools.scan_services.clone(),
+            sync_clock: config.tools.sync_clock.clone(),
             collect_eits: config.tools.collect_eits.clone(),
             channels,
+            services: Vec::new(),
             schedules: HashMap::new(),
             max_elapsed: None,
         }
     }
 
-    fn run_later(&mut self, ctx: &mut Context<Self>, duration: Duration) {
-        log::info!("Run after {}", Self::format_duration(duration));
-        ctx.run_later(duration.to_std().unwrap(), Self::run);
-    }
-
-    fn run(&mut self, ctx: &mut Context<Self>) {
+    fn scan_services(&mut self, ctx: &mut Context<Self>) {
         let now = Jst::now();
 
-        let remaining = now.date().succ().and_hms(0, 0, 0) - now;
-        if remaining < self.estimate_time() {
-            log::info!("This task may not be completed this day");
-            log::info!("Postpone the task until next day \
-                        in order to keep consistency of EPG data");
-            self.run_later(ctx, remaining + Duration::seconds(10));
-            return;
-        }
-
-        actix::fut::ok::<_, Error, Self>(())
-            .and_then(|_, epg, _ctx| {
-                epg.scan_services()
-            })
-            .and_then(|services, epg, _ctx| {
-                epg.update_schedules(services)
-            })
-            .and_then(|_, epg, _ctx| {
-                match epg.save_epg_data() {
-                    Ok(_) => actix::fut::ok(()),
-                    Err(err) => actix::fut::err(err),
-                }
-            })
-            .and_then(|_, epg, _ctx| {
-                epg.send_update_epg_message();
-                actix::fut::ok(())
-            })
-            .then(move |result, epg, ctx| {
-                let elapsed = Jst::now() - now;
-                let duration = match result {
-                    Ok(_) => {
-                        log::info!("Done, {} elapsed",
-                                   Self::format_duration(elapsed));
-                        epg.update_max_elapsed(elapsed);
-                        Duration::minutes(15)
-                    }
-                    Err(err) => {
-                        log::error!("Failed: {}", err);
-                        Duration::minutes(5)
-                    }
-                };
-                epg.run_later(ctx, duration);
-                actix::fut::ok(())
-            })
-            .spawn(ctx);
-    }
-
-    fn estimate_time(&self) -> Duration {
-        match self.max_elapsed {
-            Some(max_elapsed) => max_elapsed + Duration::seconds(30),
-            None => Duration::hours(1),
-        }
-    }
-
-    fn update_max_elapsed(&mut self, elapsed: Duration) {
-        let do_update = match self.max_elapsed {
-            Some(max_elapsed) if elapsed <= max_elapsed => false,
-            _ => true,
-        };
-        if do_update {
-            log::info!("Updated the max elapsed time");
-            self.max_elapsed = Some(elapsed);
-        }
-    }
-
-    fn scan_services(
-        &mut self,
-    ) -> impl ActorFuture<Item = EpgServices, Error = Error, Actor = Self> {
         let channels = self.collect_channels_for_scanning_services();
         let stream = futures::stream::iter_ok::<_, Error>(channels);
         let stream = actix::fut::wrap_stream::<_, Self>(stream);
@@ -213,29 +143,146 @@ impl Epg {
                 }
                 actix::fut::ok::<_, Error, Self>(result)
             })
+            .and_then(|services, epg, _ctx| {
+                epg.services = services;
+                match epg.save_services(&epg.services) {
+                    Ok(_) => actix::fut::ok(()),
+                    Err(err) => actix::fut::err(err),
+                }
+            })
+            .then(move |result, _epg, ctx| {
+                let elapsed = Jst::now() - now;
+                let duration = match result {
+                    Ok(_) => {
+                        log::info!("Done, {} elapsed",
+                                   Self::format_duration(elapsed));
+                        Duration::hours(23)
+                    }
+                    Err(err) => {
+                        log::error!("Failed: {}", err);
+                        Duration::hours(1)
+                    }
+                };
+                log::info!("Run after {}", Self::format_duration(duration));
+                ctx.run_later(
+                    duration.to_std().unwrap(), Self::scan_services);
+                actix::fut::ok(())
+            })
+            .wait(ctx);
     }
 
-    fn collect_channels_for_scanning_services(&self) -> Vec<EpgChannel> {
-        self.channels
-            .iter()
-            .cloned()
-            .map(EpgChannel::from)
-            .collect()
+    fn sync_clocks(&mut self, ctx: &mut Context<Self>) {
+        let channels = self.collect_channels_for_scanning_services();
+        let stream = futures::stream::iter_ok::<_, Error>(channels);
+        let stream = actix::fut::wrap_stream::<_, Self>(stream);
+
+        stream
+            .map(|ch, _epg, _ctx| {
+                log::info!("Sync clock for {}...", ch.name);
+                ch
+            })
+            .and_then(|ch, _epg, _ctx| {
+                let msg = OpenTunerMessage {
+                    by: ch.clone().into(),
+                    user: TunerUser::background("epg".to_string()),
+                    duration: None,
+                    preprocess: false,
+                    postprocess: false,
+                };
+
+                let req = resource_manager::open_tuner(msg)
+                    .map(|output| (ch, output));
+
+                actix::fut::wrap_future(req)
+            })
+            .and_then(|(ch, output), epg, _ctx| {
+                let cmd = match Self::make_command(&epg.sync_clock, &ch) {
+                    Ok(cmd) => cmd,
+                    Err(err) => return actix::fut::err(err),
+                };
+                match output.pipe(&cmd) {
+                    Ok(output) => actix::fut::ok((ch, output)),
+                    Err(err) => actix::fut::err(Error::from(err)),
+                }
+            })
+            .and_then(|(_ch, output), _epg, _ctx| {
+                let reader = BufReader::new(output);
+                match serde_json::from_reader::<_, Vec<SyncClock>>(reader) {
+                    Ok(clocks) => {
+                        actix::fut::ok(Some(clocks))
+                    }
+                    Err(_) => {
+                        log::warn!("No data.  Maybe, the broadcast service \
+                                    has been suspended.");
+                        actix::fut::ok(None)
+                    }
+                }
+            })
+            .fold(Vec::new(), |mut result, clocks, _epg, _ctx| {
+                match clocks {
+                    Some(mut clocks) => result.append(&mut clocks),
+                    None => (),
+                }
+                actix::fut::ok::<_, Error, Self>(result)
+            })
+            .and_then(|clocks, epg, _ctx| {
+                let mut clock_map = HashMap::new();
+                for clock in clocks.iter() {
+                    let triple = ServiceTriple::from((
+                        clock.nid, clock.tsid, clock.sid));
+                    clock_map.insert(triple, clock.clock.clone());
+                }
+                match epg.save_clocks(&clock_map) {
+                    Ok(_) => actix::fut::ok(clock_map),
+                    Err(err) => actix::fut::err(err),
+                }
+            })
+            .and_then(|clocks, _epg, _ctx| {
+                resource_manager::update_clocks(clocks);
+                actix::fut::ok(())
+            })
+            .then(move |result, _epg, ctx| {
+                let duration = match result {
+                    Ok(_) => {
+                        log::info!("Done");
+                        Duration::hours(17)
+                    }
+                    Err(err) => {
+                        log::error!("Failed: {}", err);
+                        Duration::hours(1)
+                    }
+                };
+                log::info!("Run after {}", Self::format_duration(duration));
+                ctx.run_later(
+                    duration.to_std().unwrap(), Self::sync_clocks);
+                actix::fut::ok(())
+            })
+            .wait(ctx);
     }
 
-    fn update_schedules(
-        &mut self,
-        services: EpgServices,
-    ) -> impl ActorFuture<Item = (), Error = Error, Actor = Self> {
-        self.prepare_schedules(&services, Jst::now());
+    fn update_schedules(&mut self, ctx: &mut Context<Self>) {
+        let now = Jst::now();
 
-        let channels = self.collect_channels_for_collecting_programs(&services);
+        let remaining = now.date().succ().and_hms(0, 0, 0) - now;
+        if remaining < self.estimate_time() {
+            log::info!("This task may not be completed this day");
+            log::info!("Postpone the task until next day \
+                        in order to keep consistency of EPG data");
+            let duration = remaining + Duration::seconds(10);
+            ctx.run_later(duration.to_std().unwrap(), Self::update_schedules);
+            return;
+        }
+
+        self.prepare_schedules(now);
+
+        let channels =
+            self.collect_channels_for_collecting_programs(&self.services);
         let stream = futures::stream::iter_ok::<_, Error>(channels);
         let stream = actix::fut::wrap_stream::<_, Self>(stream);
 
         stream
             .map(|(nid, ch), _epg, _ctx| {
-                log::info!("Updating schedule of {}...", ch.name);
+                log::info!("Updating schedule for {}...", ch.name);
                 (nid, ch)
             })
             .and_then(|(nid, ch), _epg, _ctx| {
@@ -270,20 +317,75 @@ impl Epg {
                 }
             })
             .finish()
+            .and_then(|_, epg, _ctx| {
+                match epg.save_epg_data() {
+                    Ok(_) => actix::fut::ok(()),
+                    Err(err) => actix::fut::err(err),
+                }
+            })
+            .and_then(|_, epg, _ctx| {
+                epg.send_update_epg_message();
+                actix::fut::ok(())
+            })
+            .then(move |result, epg, ctx| {
+                let elapsed = Jst::now() - now;
+                let duration = match result {
+                    Ok(_) => {
+                        log::info!("Done, {} elapsed",
+                                   Self::format_duration(elapsed));
+                        epg.update_max_elapsed(elapsed);
+                        Duration::minutes(15)
+                    }
+                    Err(err) => {
+                        log::error!("Failed: {}", err);
+                        Duration::minutes(5)
+                    }
+                };
+                log::info!("Run after {}", Self::format_duration(duration));
+                ctx.run_later(
+                    duration.to_std().unwrap(), Self::update_schedules);
+                actix::fut::ok(())
+            })
+            .wait(ctx);
     }
 
-    fn prepare_schedules(
-        &mut self, services: &[EpgService], timestamp: DateTime<Jst>) {
+    fn estimate_time(&self) -> Duration {
+        match self.max_elapsed {
+            Some(max_elapsed) => max_elapsed + Duration::seconds(30),
+            None => Duration::hours(1),
+        }
+    }
+
+    fn update_max_elapsed(&mut self, elapsed: Duration) {
+        let do_update = match self.max_elapsed {
+            Some(max_elapsed) if elapsed <= max_elapsed => false,
+            _ => true,
+        };
+        if do_update {
+            log::info!("Updated the max elapsed time");
+            self.max_elapsed = Some(elapsed);
+        }
+    }
+
+    fn collect_channels_for_scanning_services(&self) -> Vec<EpgChannel> {
+        self.channels
+            .iter()
+            .cloned()
+            .map(EpgChannel::from)
+            .collect()
+    }
+
+    fn prepare_schedules(&mut self, timestamp: DateTime<Jst>) {
         let mut unused_ids: HashSet<_> =
             HashSet::from_iter(self.schedules.keys().cloned());
 
         let midnight = timestamp.date().and_hms(0, 0, 0);
 
-        for service in services {
-            let id = EpgScheduleId::from(
+        for service in self.services.iter() {
+            let triple = ServiceTriple::from(
                 (service.nid, service.tsid, service.sid));
             self.schedules
-                .entry(id)
+                .entry(triple)
                 .and_modify(|sched| {
                     if sched.updated_at < midnight {
                         // Save overnight events.  The overnight events will be
@@ -292,8 +394,8 @@ impl Epg {
                     }
                     sched.updated_at = timestamp;
                 })
-                .or_insert(EpgSchedule::new(&service));
-            unused_ids.remove(&id);
+                .or_insert(EpgSchedule::new(triple));
+            unused_ids.remove(&triple);
         }
 
         // Removing "garbage" schedules.
@@ -306,8 +408,8 @@ impl Epg {
     fn collect_channels_for_collecting_programs(
         &self,
         services: &[EpgService],
-    ) -> HashMap<u16, EpgChannel> {
-        let mut map: HashMap<u16, EpgChannel> = HashMap::new();
+    ) -> HashMap<NetworkId, EpgChannel> {
+        let mut map: HashMap<NetworkId, EpgChannel> = HashMap::new();
         for sv in services.iter() {
             map.entry(sv.nid).and_modify(|ch| {
                 ch.excluded_services.extend(&sv.channel.excluded_services);
@@ -323,8 +425,8 @@ impl Epg {
         let mut num_sections = 0;
         while reader.read_line(&mut json)? > 0 {
             let section = serde_json::from_str::<EitSection>(&json)?;
-            let sched_id = section.epg_schedule_id();
-            self.schedules.entry(sched_id).and_modify(|sched| {
+            let triple = section.service_triple();
+            self.schedules.entry(triple).and_modify(|sched| {
                 sched.update(section);
             });
             json.clear();
@@ -339,12 +441,51 @@ impl Epg {
         Ok(())
     }
 
+    fn load_services(&mut self) -> Result<(), Error> {
+        let json_path = self.cache_dir.join("services.json");
+        log::debug!("Loading schedules from {}...", json_path.display());
+        let reader = BufReader::new(File::open(&json_path)?);
+        self.services = serde_json::from_reader(reader)?;
+        log::info!("Loaded services from {}...", json_path.display());
+        Ok(())
+    }
+
+    fn load_clocks(&mut self) -> Result<HashMap<ServiceTriple ,Clock>, Error> {
+        let json_path = self.cache_dir.join("clocks.json");
+        log::debug!("Loading clocks from {}...", json_path.display());
+        let reader = BufReader::new(File::open(&json_path)?);
+        let clocks = serde_json::from_reader(reader)?;
+        log::info!("Loaded clocks from {}...", json_path.display());
+        Ok(clocks)
+    }
+
     fn load_schedules(&mut self) -> Result<(), Error> {
         let json_path = self.cache_dir.join("schedules.json");
         log::debug!("Loading schedules from {}...", json_path.display());
         let reader = BufReader::new(File::open(&json_path)?);
         self.schedules = serde_json::from_reader(reader)?;
         log::info!("Loaded schedules from {}...", json_path.display());
+        Ok(())
+    }
+
+    fn save_services(&self, services: &Vec<EpgService>) -> Result<(), Error> {
+        let json_path = self.cache_dir.join("services.json");
+        log::debug!("Saving services into {}...", json_path.display());
+        let writer = BufWriter::new(File::create(&json_path)?);
+        serde_json::to_writer(writer, services)?;
+        log::info!("Saved services into {}...", json_path.display());
+        Ok(())
+    }
+
+    fn save_clocks(
+        &self,
+        clocks: &HashMap<ServiceTriple, Clock>
+    ) -> Result<(), Error> {
+        let json_path = self.cache_dir.join("clocks.json");
+        log::debug!("Saving clocks into {}...", json_path.display());
+        let writer = BufWriter::new(File::create(&json_path)?);
+        serde_json::to_writer(writer, clocks)?;
+        log::info!("Saved clocks into {}...", json_path.display());
         Ok(())
     }
 
@@ -372,17 +513,19 @@ impl Epg {
 
     fn collect_epg_services(&self) -> Vec<ServiceModel> {
         let mut services: Vec<ServiceModel> = Vec::new();
-        for sched in self.schedules.values() {
-            sched.collect_epg_service(&mut services);
+        for service in self.services.iter() {
+            services.push(service.clone().into());
         }
         log::info!("Collected {} services", services.len());
         services
     }
 
-    fn collect_epg_programs(&self) -> HashMap<u64, ProgramModel> {
-        let mut programs: HashMap<u64, ProgramModel> = HashMap::new();
-        for (&sched_id, sched) in self.schedules.iter() {
-            sched.collect_epg_programs(sched_id, &mut programs);
+    fn collect_epg_programs(
+        &self
+    ) -> HashMap<MirakurunProgramId, ProgramModel> {
+        let mut programs = HashMap::new();
+        for (&triple, sched) in self.schedules.iter() {
+            sched.collect_epg_programs(triple, &mut programs);
         }
         log::info!("Collected {} programs", programs.len());
         programs
@@ -401,11 +544,27 @@ impl Actor for Epg {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         log::info!("Started");
+        match self.load_services() {
+            Ok(_) => (),
+            Err(err) => log::warn!("Failed to load services: {}", err),
+        };
+        match self.load_clocks() {
+            Ok(clocks) => resource_manager::update_clocks(clocks),
+            Err(err) => log::warn!("Failed to load clocks: {}", err),
+        };
         match self.load_epg_data() {
             Ok(_) => self.send_update_epg_message(),
-            Err(err) => log::error!("Failed to load EPG data: {}", err),
+            Err(err) => log::warn!("Failed to load EPG data: {}", err),
         }
-        ctx.run_later(Duration::minutes(0).to_std().unwrap(), Self::run);
+        if env::var_os("MIRAKC_DEBUG_DISABLE_EPG_TASKS").is_some() {
+            return;
+        }
+        ctx.run_later(
+            Duration::seconds(0).to_std().unwrap(), Self::scan_services);
+        ctx.run_later(
+            Duration::seconds(5).to_std().unwrap(), Self::sync_clocks);
+        ctx.run_later(
+            Duration::seconds(10).to_std().unwrap(), Self::update_schedules);
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
@@ -413,48 +572,10 @@ impl Actor for Epg {
     }
 }
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
-struct EpgScheduleId(u64);
-
-impl EpgScheduleId {
-    #[inline]
-    fn nid(&self) -> u16 {
-        ((self.0 >> 32) & 0xFFFF) as u16
-    }
-
-    #[allow(dead_code)]
-    #[inline]
-    fn tsid(&self) -> u16 {
-        ((self.0 >> 16) & 0xFFFF) as u16
-    }
-
-    #[inline]
-    fn sid(&self) -> u16 {
-        (self.0 & 0xFFFF) as u16
-    }
-}
-
-impl fmt::Display for EpgScheduleId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:012X}", self.0)
-    }
-}
-
-impl From<(u16, u16, u16)> for EpgScheduleId {
-    #[inline]
-    fn from(triple: (u16, u16, u16)) -> Self {
-        EpgScheduleId(
-            (triple.0 as u64) << 32 |
-            (triple.1 as u64) << 16 |
-            (triple.2 as u64)       )
-    }
-}
-
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EpgSchedule {
-    service: EpgService,
+    service_triple: ServiceTriple,
     // In Japan, only the following indexes are used:
     //
     //    0 | 8 | 16 | 24 => the former 4 days of 8 days schedule
@@ -466,9 +587,9 @@ struct EpgSchedule {
 }
 
 impl EpgSchedule {
-    fn new(service: &EpgService) -> EpgSchedule {
+    fn new(triple: ServiceTriple) -> EpgSchedule {
         EpgSchedule {
-            service: service.clone(),
+            service_triple: triple,
             tables: Default::default(),
             overnight_events: Vec::new(),
             updated_at: Jst::now(),
@@ -491,30 +612,24 @@ impl EpgSchedule {
             }
         }
         log::debug!("Saved {} overnight events of schedule#{}",
-                    events.len(), self.service.schedule_id());
+                    events.len(), self.service_triple);
         self.overnight_events = events;
-    }
-
-    fn collect_epg_service(&self, services: &mut Vec<ServiceModel>) {
-        services.push(self.service.clone().into());
     }
 
     fn collect_epg_programs(
         &self,
-        sched_id: EpgScheduleId,
-        programs: &mut HashMap<u64, ProgramModel>) {
-        let sid = sched_id.sid();
-        let nid = sched_id.nid();
+        triple: ServiceTriple,
+        programs: &mut HashMap<MirakurunProgramId, ProgramModel>) {
         for event in self.overnight_events.iter() {
-            let eid = event.event_id;
+            let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
-                .entry(ProgramModel::make_id(eid, sid, nid))
-                .or_insert(ProgramModel::new(eid, sid, nid))
+                .entry(MirakurunProgramId::new(quad))
+                .or_insert(ProgramModel::new(quad))
                 .update(event);
         }
         for table in self.tables.iter() {
             if let Some(table) = table {
-                table.collect_epg_programs(sched_id, programs)
+                table.collect_epg_programs(triple, programs)
             }
         }
     }
@@ -552,10 +667,10 @@ impl EpgTable {
 
     fn collect_epg_programs(
         &self,
-        sched_id: EpgScheduleId,
-        programs: &mut HashMap<u64, ProgramModel>) {
+        triple: ServiceTriple,
+        programs: &mut HashMap<MirakurunProgramId, ProgramModel>) {
         for segment in self.segments.iter() {
-            segment.collect_epg_programs(sched_id, programs)
+            segment.collect_epg_programs(triple, programs)
         }
     }
 }
@@ -597,11 +712,11 @@ impl EpgSegment {
 
     fn collect_epg_programs(
         &self,
-        sched_id: EpgScheduleId,
-        programs: &mut HashMap<u64, ProgramModel>) {
+        triple: ServiceTriple,
+        programs: &mut HashMap<MirakurunProgramId, ProgramModel>) {
         for section in self.sections.iter() {
             if let Some(section) = section {
-                section.collect_epg_programs(sched_id, programs)
+                section.collect_epg_programs(triple, programs)
             }
         }
     }
@@ -631,15 +746,13 @@ impl EpgSection {
 
     fn collect_epg_programs(
         &self,
-        sched_id: EpgScheduleId,
-        programs: &mut HashMap<u64, ProgramModel>) {
-        let sid = sched_id.sid();
-        let nid = sched_id.nid();
+        triple: ServiceTriple,
+        programs: &mut HashMap<MirakurunProgramId, ProgramModel>) {
         for event in self.events.iter() {
-            let eid = event.event_id;
+            let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
-                .entry(ProgramModel::make_id(eid, sid, nid))
-                .or_insert(ProgramModel::new(eid, sid, nid))
+                .entry(MirakurunProgramId::new(quad))
+                .or_insert(ProgramModel::new(quad))
                 .update(event);
         }
     }
@@ -658,9 +771,9 @@ impl From<EitSection> for EpgSection {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EitSection {
-    original_network_id: u16,
-    transport_stream_id: u16,
-    service_id: u16,
+    original_network_id: NetworkId,
+    transport_stream_id: TransportStreamId,
+    service_id: ServiceId,
     table_id: u16,
     section_number: u8,
     last_section_number: u8,
@@ -686,7 +799,7 @@ impl EitSection {
         self.segment_last_section_number as usize % 8
     }
 
-    fn epg_schedule_id(&self) -> EpgScheduleId {
+    fn service_triple(&self) -> ServiceTriple {
         (self.original_network_id,
          self.transport_stream_id,
          self.service_id).into()
@@ -697,7 +810,7 @@ impl EitSection {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EitEvent {
-    event_id: u16,
+    event_id: EventId,
     #[serde(with = "serde_jst")]
     start_time: DateTime<Jst>,
     #[serde(with = "serde_duration_in_millis")]
@@ -752,7 +865,7 @@ pub struct EpgChannel {
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
     pub channel: String,
-    pub excluded_services: Vec<u16>,
+    pub excluded_services: Vec<ServiceId>,
 }
 
 impl From<ChannelConfig> for EpgChannel {
@@ -787,9 +900,9 @@ impl Into<ServiceChannelModel> for EpgChannel {
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TsService {
-    nid: u16,
-    tsid: u16,
-    sid: u16,
+    nid: NetworkId,
+    tsid: TransportStreamId,
+    sid: ServiceId,
     #[serde(rename = "type")]
     service_type: u16,
     #[serde(default)]
@@ -802,9 +915,9 @@ pub struct TsService {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpgService {
-    nid: u16,
-    tsid: u16,
-    sid: u16,
+    nid: NetworkId,
+    tsid: TransportStreamId,
+    sid: ServiceId,
     #[serde(rename = "type")]
     service_type: u16,
     #[serde(default)]
@@ -813,13 +926,6 @@ pub struct EpgService {
     remote_control_key_id: u16,
     name: String,
     channel: EpgChannel,
-}
-
-impl EpgService {
-    #[inline]
-    fn schedule_id(&self) -> EpgScheduleId {
-        EpgScheduleId::from((self.nid, self.tsid, self.sid))
-    }
 }
 
 impl From<(&EpgChannel, &TsService)> for EpgService {
@@ -840,7 +946,7 @@ impl From<(&EpgChannel, &TsService)> for EpgService {
 impl Into<ServiceModel> for EpgService {
     fn into(self) -> ServiceModel {
         ServiceModel {
-            id: ServiceModel::make_id(self.sid, self.nid),
+            id: MirakurunServiceId::new((self.nid, self.tsid, self.sid).into()),
             service_id: self.sid,
             network_id: self.nid,
             service_type: self.service_type,
@@ -851,6 +957,15 @@ impl Into<ServiceModel> for EpgService {
             has_logo_data: false,
         }
     }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncClock {
+    nid: NetworkId,
+    tsid: TransportStreamId,
+    sid: ServiceId,
+    clock: Clock,
 }
 
 impl ProgramModel {
@@ -896,71 +1011,61 @@ mod tests {
 
     #[test]
     fn test_epg_prepare_schedule() {
-        let sched_id = EpgScheduleId::from((1, 2, 3));
+        let triple = ServiceTriple::from((1, 2, 3));
         let channel_type = ChannelType::GR;
-        let services = vec![create_epg_service(sched_id, channel_type)];
         let config = create_config();
 
         let mut epg = Epg::new(&config);
-        epg.prepare_schedules(&services, Jst::now());
+        epg.services = vec![create_epg_service(triple, channel_type)];
+        epg.prepare_schedules(Jst::now());
         assert_eq!(epg.schedules.len(), 1);
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
         let mut epg = Epg::new(&config);
-        let sched =
-            create_epg_schedule_with_overnight_events(sched_id, channel_type);
-        epg.schedules.insert(sched_id, sched);
+        epg.services = vec![create_epg_service(triple, channel_type)];
+        let sched = create_epg_schedule_with_overnight_events(triple);
+        epg.schedules.insert(triple, sched);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 14).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 4);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 4);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 15).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 16).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 16).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 17).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 17).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 18).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 1);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 18).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 1);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 19).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 19).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 20).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 20).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 21).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 21).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(
-            &services, Jst.ymd(2019, 10, 22).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&sched_id].overnight_events.len(), 0);
+        epg.prepare_schedules(Jst.ymd(2019, 10, 22).and_hms(0, 0, 0));
+        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
     }
 
     #[test]
     fn test_epg_schedule_update() {
-        let sched_id = EpgScheduleId::from((1, 2, 3));
-        let mut sched = create_epg_schedule(sched_id, ChannelType::GR);
+        let triple = ServiceTriple::from((1, 2, 3));
+        let mut sched = create_epg_schedule(triple);
 
         sched.update(EitSection {
-            original_network_id: sched_id.nid(),
-            transport_stream_id: sched_id.tsid(),
-            service_id: sched_id.sid(),
+            original_network_id: triple.nid(),
+            transport_stream_id: triple.tsid(),
+            service_id: triple.sid(),
             table_id: 0x50,
             section_number: 0x00,
             last_section_number: 0xF8,
@@ -974,7 +1079,7 @@ mod tests {
     #[test]
     fn test_epg_schedule_save_overnight_events() {
         let mut sched = create_epg_schedule_with_overnight_events(
-            EpgScheduleId::from((1, 2, 3)), ChannelType::GR);
+            ServiceTriple::from((1, 2, 3)));
         sched.save_overnight_events(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
         assert_eq!(sched.overnight_events.len(), 0);
 
@@ -1011,9 +1116,9 @@ mod tests {
         let mut table: EpgTable = Default::default();
 
         table.update(EitSection {
-            original_network_id: 1,
-            transport_stream_id: 2,
-            service_id: 3,
+            original_network_id: 1.into(),
+            transport_stream_id: 2.into(),
+            service_id: 3.into(),
             table_id: 0x50,
             section_number: 0x00,
             last_section_number: 0xF8,
@@ -1031,7 +1136,7 @@ mod tests {
         let events = table.collect_overnight_events(
             Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id, 2);
+        assert_eq!(events[0].event_id, 2.into());
     }
 
     #[test]
@@ -1039,9 +1144,9 @@ mod tests {
         let mut segment: EpgSegment = Default::default();
 
         segment.update(EitSection {
-            original_network_id: 1,
-            transport_stream_id: 2,
-            service_id: 3,
+            original_network_id: 1.into(),
+            transport_stream_id: 2.into(),
+            service_id: 3.into(),
             table_id: 0x50,
             section_number: 0x01,
             last_section_number: 0xF8,
@@ -1053,9 +1158,9 @@ mod tests {
         assert!(segment.sections[1].is_some());
 
         segment.update(EitSection {
-            original_network_id: 1,
-            transport_stream_id: 2,
-            service_id: 3,
+            original_network_id: 1.into(),
+            transport_stream_id: 2.into(),
+            service_id: 3.into(),
             table_id: 0x50,
             section_number: 0x00,
             last_section_number: 0xF8,
@@ -1074,7 +1179,7 @@ mod tests {
         let events = segment.collect_overnight_events(
             Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id, 2);
+        assert_eq!(events[0].event_id, 2.into());
     }
 
     #[test]
@@ -1084,13 +1189,13 @@ mod tests {
         let events = section.collect_overnight_events(
             Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id, 2);
+        assert_eq!(events[0].event_id, 2.into());
     }
 
     #[test]
     fn test_eit_event_is_overnight_event() {
         let event = EitEvent {
-            event_id: 0,
+            event_id: 0.into(),
             start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 59),
             duration: Duration::seconds(2),
             scrambled: false,
@@ -1106,7 +1211,7 @@ mod tests {
             Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
 
         let event = EitEvent {
-            event_id: 0,
+            event_id: 0.into(),
             start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 59),
             duration: Duration::seconds(1),
             scrambled: false,
@@ -1122,7 +1227,7 @@ mod tests {
             Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
 
         let event = EitEvent {
-            event_id: 0,
+            event_id: 0.into(),
             start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 58),
             duration: Duration::seconds(1),
             scrambled: false,
@@ -1142,6 +1247,7 @@ mod tests {
         serde_yaml::from_str::<Config>(r#"
             tools:
               scan-services: scan-services
+              sync-clock: sync-clock
               collect-eits: collect-eits
               filter-service: filter-service
               filter-program: filter-program
@@ -1150,11 +1256,11 @@ mod tests {
     }
 
     fn create_epg_service(
-        sched_id: EpgScheduleId, channel_type: ChannelType) -> EpgService {
+        triple: ServiceTriple, channel_type: ChannelType) -> EpgService {
         EpgService {
-            nid: sched_id.nid(),
-            tsid: sched_id.tsid(),
-            sid: sched_id.sid(),
+            nid: triple.nid(),
+            tsid: triple.tsid(),
+            sid: triple.sid(),
             service_type: 1,
             logo_id: 0,
             remote_control_key_id: 0,
@@ -1168,15 +1274,14 @@ mod tests {
         }
     }
 
-    fn create_epg_schedule(
-        sched_id: EpgScheduleId, channel_type: ChannelType) -> EpgSchedule {
-        let sv = create_epg_service(sched_id, channel_type);
-        EpgSchedule::new(&sv)
+    fn create_epg_schedule(triple: ServiceTriple) -> EpgSchedule {
+        EpgSchedule::new(triple)
     }
 
     fn create_epg_schedule_with_overnight_events(
-        sched_id: EpgScheduleId, channel_type: ChannelType) -> EpgSchedule {
-        let mut sched = create_epg_schedule(sched_id, channel_type);
+        triple: ServiceTriple
+    ) -> EpgSchedule {
+        let mut sched = create_epg_schedule(triple);
         sched.updated_at = Jst.ymd(2019, 10, 13).and_hms(0, 0, 0);
         sched.tables[0] = Some(Box::new(
             create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
@@ -1211,14 +1316,14 @@ mod tests {
             version: 1,
             events: vec![
                 EitEvent {
-                    event_id: 1,
+                    event_id: 1.into(),
                     start_time: date.and_hms(23, 0, 0),
                     duration: Duration::minutes(30),
                     scrambled: false,
                     descriptors: Vec::new(),
                 },
                 EitEvent {
-                    event_id: 2,
+                    event_id: 2.into(),
                     start_time: date.and_hms(23, 30, 0),
                     duration: Duration::hours(1),
                     scrambled: false,
