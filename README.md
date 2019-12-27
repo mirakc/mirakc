@@ -186,32 +186,17 @@ server:
 
 # Optional definitions of channels used for tuners.
 channels:
-  - name: MX        # An arbitrary name of the channel
+  - name: NHK E     # An arbitrary name of the channel
     type: GR        # One of channel types in GR, BS, CS and SKY
-    channel: '20'   # A channel parameter used in a tuner command
-    disabled: true  # default: false
-  - name: CX
-    type: GR
-    channel: '21'
-  - name: TBS
-    type: GR
-    channel: '22'
-  - name: TX
-    type: GR
-    channel: '23'
-  - name: EX
-    type: GR
-    channel: '24'
-  - name: NTV
-    type: GR
-    channel: '25'
-  - name: NHK E
-    type: GR
-    channel: '26'
+    channel: '26'   # A channel parameter used in a tuner command
   - name: NHK G
     type: GR
     channel: '27'
-    excluded-services: [1408]  # Excludes "ＮＨＫ携帯Ｇ・東京"
+    disabled: true  # default: false
+  - name: 放送大学
+    type: BS
+    channel: BS11_2
+    excluded-services: [531]  # Excludes "放送大学ラジオ"
 
 # Optional definitions of tuners.
 #
