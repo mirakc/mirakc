@@ -10,7 +10,6 @@ use chrono::{DateTime, Duration};
 use humantime;
 use indexmap::IndexMap;
 use log;
-use mustache;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Config, ChannelConfig};
@@ -108,11 +107,7 @@ impl Epg {
                 actix::fut::wrap_future(req)
             })
             .and_then(|(ch, output), epg, _ctx| {
-                let cmd = match Self::make_command(&epg.scan_services, &ch) {
-                    Ok(cmd) => cmd,
-                    Err(err) => return actix::fut::err(err),
-                };
-                match output.pipe(&cmd) {
+                match output.pipe(&epg.scan_services) {
                     Ok(output) => actix::fut::ok((ch, output)),
                     Err(err) => actix::fut::err(Error::from(err)),
                 }
@@ -196,11 +191,7 @@ impl Epg {
                 actix::fut::wrap_future(req)
             })
             .and_then(|(ch, output), epg, _ctx| {
-                let cmd = match Self::make_command(&epg.sync_clock, &ch) {
-                    Ok(cmd) => cmd,
-                    Err(err) => return actix::fut::err(err),
-                };
-                match output.pipe(&cmd) {
+                match output.pipe(&epg.sync_clock) {
                     Ok(output) => actix::fut::ok((ch, output)),
                     Err(err) => actix::fut::err(Error::from(err)),
                 }
@@ -300,12 +291,8 @@ impl Epg {
 
                 actix::fut::wrap_future(req)
             })
-            .and_then(|(_nid, ch, output), epg, _ctx| {
-                let cmd = match Self::make_command(&epg.collect_eits, &ch) {
-                    Ok(cmd) => cmd,
-                    Err(err) => return actix::fut::err(err),
-                };
-                match output.pipe(&cmd) {
+            .and_then(|(_nid, _ch, output), epg, _ctx| {
+                match output.pipe(&epg.collect_eits) {
                     Ok(output) => actix::fut::ok(output),
                     Err(err) => actix::fut::err(Error::from(err)),
                 }
@@ -529,13 +516,6 @@ impl Epg {
         }
         log::info!("Collected {} programs", programs.len());
         programs
-    }
-
-    fn make_command(src: &str, channel: &EpgChannel) -> Result<String, Error> {
-        let template = mustache::compile_str(src)?;
-        let data = mustache::MapBuilder::new()
-            .insert("xsids", &channel.excluded_services)?.build();
-        Ok(template.render_data_to_string(&data)?)
     }
 }
 

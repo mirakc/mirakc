@@ -246,21 +246,14 @@ tools:
   #
   # The command must read TS packets from STDIN, and output a JSON string to
   # STDOUT.
-  #
-  # Template variables:
-  #
-  #   xsids
-  #     A list of identifiers of services which have to be excluded.
-  #
   scan-services: >-
-    mirakc-arib scan-services{{#xsids}} --xsid={{.}}{{/xsids}}
+    mirakc-arib scan-services
 
   # A Mustache template string of a command to synchronize clock for each
   # services.
   #
   # The command must read TS packets from STDIN, and output a JSON string to
   # STDOUT.
-  #
   sync-clock: >-
     mirakc-arib sync-clock
 
@@ -269,14 +262,8 @@ tools:
   #
   # The command must read TS packets from STDIN, and output multiple JSON
   # strings (JSONL) to STDOUT:
-  #
-  # Template variables:
-  #
-  #   xsids
-  #     A list of identifiers of services which have to be excluded.
-  #
   collect-eits: >-
-    mirakc-arib collect-eits{{#xsids}} --xsid={{.}}{{/xsids}}
+    mirakc-arib collect-eits
 
   # A Mustache template string of a command to drop TS packets which are not
   # included in a service.
