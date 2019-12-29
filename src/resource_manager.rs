@@ -230,9 +230,9 @@ impl ResourceManager {
         let output = self.open_tuner_by_channel(
             channel_type, channel, user, duration, preprocess)?;
 
+        // TODO: correct the error of clock.time for each service
         let (pcr, time) = match self.clocks.get(&quad.into()) {
-            Some(clock) =>
-                (clock.pcr, clock.time + self.config.pcr_time_correction),
+            Some(clock) => (clock.pcr, clock.time),
             None => return Err(Error::ClockNotSynced),
         };
 

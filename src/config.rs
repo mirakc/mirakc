@@ -22,8 +22,6 @@ pub struct Config {
     pub tuners: Vec<TunerConfig>,
     pub tools: ToolsConfig,
     pub epg_cache_dir: String,
-    #[serde(default)]
-    pub pcr_time_correction: i64,
 }
 
 impl Config {
@@ -138,7 +136,6 @@ mod tests {
                     postprocess: "".to_string(),
                 },
                 epg_cache_dir: "/path/to/epg".to_string(),
-                pcr_time_correction: 0,
             });
     }
 
@@ -170,7 +167,6 @@ mod tests {
                     postprocess: "".to_string(),
                 },
                 epg_cache_dir: "/path/to/epg".to_string(),
-                pcr_time_correction: 0,
             });
     }
 

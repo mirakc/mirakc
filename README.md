@@ -352,11 +352,6 @@ tools:
 
 # A string of an absolute path to a folder where EPG-related data is stored.
 epg-cache-dir: /path/to/epg
-
-# An optional value to correct clock for each service.
-#
-# The default value is 0.
-pcr_time_correction: -2000  # -2 seconds
 ```
 
 ## Logging
