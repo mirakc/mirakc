@@ -189,14 +189,29 @@ channels:
   - name: NHK E     # An arbitrary name of the channel
     type: GR        # One of channel types in GR, BS, CS and SKY
     channel: '26'   # A channel parameter used in a tuner command
+
+  # Disable NHK G.
+  # `false` by default.
   - name: NHK G
     type: GR
     channel: '27'
-    disabled: true  # default: false
+    disabled: true
+
+  # Use only the service 101.
+  # An empty list by default, which means that all services found are used.
+  # Panics if any of specified services are not found.
+  - name: BS1
+    type: BS
+    channel: BS15_0
+    services: [101]
+
+  # Exclude the service 531.
+  # An empty list by default.
+  # Applied after processing the `services` config.
   - name: 放送大学
     type: BS
     channel: BS11_2
-    excluded-services: [531]  # Excludes "放送大学ラジオ"
+    excluded-services: [531]
 
 # Optional definitions of tuners.
 #

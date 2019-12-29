@@ -74,6 +74,8 @@ pub struct ChannelConfig {
     pub channel_type: ChannelType,
     pub channel: String,
     #[serde(default)]
+    pub services: Vec<ServiceId>,
+    #[serde(default)]
     pub excluded_services: Vec<ServiceId>,
     #[serde(default)]
     pub disabled: bool,
@@ -223,6 +225,7 @@ mod tests {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
                 channel: "y".to_string(),
+                services: vec![],
                 excluded_services: vec![],
                 disabled: false,
             });
@@ -238,6 +241,7 @@ mod tests {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
                 channel: "y".to_string(),
+                services: vec![],
                 excluded_services: vec![],
                 disabled: true,
             });
@@ -253,6 +257,7 @@ mod tests {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
                 channel: "y".to_string(),
+                services: vec![],
                 excluded_services: vec![100.into()],
                 disabled: false,
             });

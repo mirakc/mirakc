@@ -491,30 +491,35 @@ impl Epg {
     }
 
     fn send_update_epg_message(&self) {
-        let msg = UpdateEpgMessage {
-            services: self.collect_epg_services(),
-            programs: self.collect_epg_programs(),
-        };
+        let services = self.export_services();
+        log::info!("Exported {} services", services.len());
+        let programs = self.export_programs();
+        log::info!("Exported {} programs", programs.len());
+        let msg = UpdateEpgMessage { services, programs };
         resource_manager::update_epg(msg);
     }
 
-    fn collect_epg_services(&self) -> Vec<ServiceModel> {
-        let mut services: Vec<ServiceModel> = Vec::new();
-        for service in self.services.iter() {
-            services.push(service.clone().into());
-        }
-        log::info!("Collected {} services", services.len());
-        services
+    fn export_services(&self) -> Vec<ServiceModel> {
+        self.services
+            .iter()
+            .filter(|sv| sv.is_exportable())
+            .cloned()
+            .map(|sv| sv.into())
+            .collect()
     }
 
-    fn collect_epg_programs(
+    fn export_programs(
         &self
     ) -> HashMap<MirakurunProgramId, ProgramModel> {
         let mut programs = HashMap::new();
-        for (&triple, sched) in self.schedules.iter() {
-            sched.collect_epg_programs(triple, &mut programs);
+        for service in self.services.iter().filter(|sv| sv.is_exportable()) {
+            let triple = service.triple();
+            match self.schedules.get(&triple) {
+                Some(sched) =>
+                    sched.collect_epg_programs(triple, &mut programs),
+                None => log::warn!("Schedule not found for {}", triple),
+            }
         }
-        log::info!("Collected {} programs", programs.len());
         programs
     }
 }
@@ -845,6 +850,7 @@ pub struct EpgChannel {
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
     pub channel: String,
+    pub services: Vec<ServiceId>,
     pub excluded_services: Vec<ServiceId>,
 }
 
@@ -854,6 +860,7 @@ impl From<ChannelConfig> for EpgChannel {
             name: config.name,
             channel_type: config.channel_type,
             channel: config.channel,
+            services: config.services,
             excluded_services: config.excluded_services,
         }
     }
@@ -906,6 +913,24 @@ pub struct EpgService {
     remote_control_key_id: u16,
     name: String,
     channel: EpgChannel,
+}
+
+impl EpgService {
+    fn triple(&self) -> ServiceTriple {
+        ServiceTriple::new(self.nid, self.tsid, self.sid)
+    }
+
+    fn is_exportable(&self) -> bool {
+        if !self.channel.services.is_empty() {
+            if !self.channel.services.contains(&self.sid) {
+                return false;
+            }
+        }
+        if self.channel.excluded_services.contains(&self.sid) {
+            return false;
+        }
+        true
+    }
 }
 
 impl From<(&EpgChannel, &TsService)> for EpgService {
@@ -988,6 +1013,30 @@ mod tests {
     use super::*;
     use chrono::{Date, TimeZone};
     use serde_yaml;
+
+    #[test]
+    fn test_epg_service_is_exportable() {
+        let triple = ServiceTriple::from((1, 2, 3));
+
+        let service = create_epg_service(triple, ChannelType::GR);
+        assert!(service.is_exportable());
+
+        let mut service = create_epg_service(triple, ChannelType::GR);
+        service.channel.services = vec![3.into()];
+        assert!(service.is_exportable());
+
+        let mut service = create_epg_service(triple, ChannelType::GR);
+        service.channel.services = vec![4.into()];
+        assert!(!service.is_exportable());
+
+        let mut service = create_epg_service(triple, ChannelType::GR);
+        service.channel.excluded_services = vec![3.into()];
+        assert!(!service.is_exportable());
+
+        let mut service = create_epg_service(triple, ChannelType::GR);
+        service.channel.excluded_services = vec![4.into()];
+        assert!(service.is_exportable());
+    }
 
     #[test]
     fn test_epg_prepare_schedule() {
@@ -1236,7 +1285,9 @@ mod tests {
     }
 
     fn create_epg_service(
-        triple: ServiceTriple, channel_type: ChannelType) -> EpgService {
+        triple: ServiceTriple,
+        channel_type: ChannelType
+    ) -> EpgService {
         EpgService {
             nid: triple.nid(),
             tsid: triple.tsid(),
@@ -1249,6 +1300,7 @@ mod tests {
                 name: "Ch".to_string(),
                 channel_type,
                 channel: "ch".to_string(),
+                services: Vec::new(),
                 excluded_services: Vec::new(),
             }
         }
