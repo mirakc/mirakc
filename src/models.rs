@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Deserialize, Serialize)]
 pub enum ChannelType { GR, BS, CS, SKY }
 
 impl fmt::Display for ChannelType {
@@ -20,7 +21,8 @@ impl fmt::Display for ChannelType {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelModel {
     #[serde(rename = "type")]
@@ -45,7 +47,8 @@ impl MirakurunServiceId {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelServiceModel {
     pub id: MirakurunServiceId,
@@ -54,7 +57,8 @@ pub struct ChannelServiceModel {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceModel {
     pub id: MirakurunServiceId,
@@ -71,7 +75,8 @@ pub struct ServiceModel {
     pub has_logo_data: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceChannelModel {
     #[serde(rename = "type")]
@@ -239,7 +244,8 @@ impl Into<ServiceTriple> for EventQuad {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Clock {
     // 27MHz, 42bits PCR value corresponding to the time
@@ -263,10 +269,12 @@ impl MirakurunProgramId {
                 + quad.eid().value() as u64)
     }
 
+    #[cfg(test)]
     pub fn value(&self) -> u64 { self.0 }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgramModel {
     #[serde(skip)]  // for compatibility with Mirakurun
@@ -320,7 +328,8 @@ impl ProgramModel {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpgVideoInfo {
     #[serde(rename = "type")]
@@ -365,7 +374,8 @@ impl EpgVideoInfo {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpgAudioInfo {
     pub sampling_rate: i32,
@@ -393,7 +403,8 @@ impl EpgAudioInfo {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpgGenre {
     pub lv1: u8,
@@ -408,7 +419,8 @@ impl EpgGenre {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TunerModel {
     pub index: usize,
@@ -425,7 +437,8 @@ pub struct TunerModel {
     pub is_fault: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TunerUserModel {
     pub id: String,
