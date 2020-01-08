@@ -390,6 +390,15 @@ API Endpoints listed below have been implemented at this moment:
   * The `X-Mirakurun-Priority` HTTP header has been supported
   * The optional `duration` query parameter (in seconds) has been added,
     which is passed to the tuner command
+* /api/channels/{channel_type}/{channel}/services/{sid}/stream
+  * Not compatible
+  * Unlike Mirakurun, the `sid` must be a service ID
+    * In Mirakurun, the `sid` is a service ID or an ID of the `ServiceItem`
+      class
+  * The `decode` query parameter has been supported
+  * The `X-Mirakurun-Priority` HTTP header has been supported
+  * The optional `duration` query parameter (in seconds) has been added,
+    which is passed to the tuner command
 * /api/services
   * Compatible
   * Query parameters have **NOT** been supported
@@ -414,7 +423,14 @@ API Endpoints listed below have been implemented at this moment:
   * Compatible
   * Query parameters have **NOT** been supported
 
-The endpoints above are required for working with [EPGStation].
+The endpoints above are enough to run [EPGStation].
+
+It also enough to run [BonDriver_Mirakurun].  It's strongly recommended to
+enable `SERVICE_SPLIT` in `BonDriver_Mirakurun.ini` in order to reduce network
+traffic between mirakc and BonDriver_Mirakurun.  Because the
+`/api/channels/{channel_type}/{channel}/stream` endpoint provides a **raw** TS
+stream which means that all TS packets from a tuner will be sent even though
+some of them don't need for playback.
 
 ## Limitations
 
@@ -427,6 +443,8 @@ The endpoints above are required for working with [EPGStation].
 * Reading TS packets from a tuner blocks a thread
   * That is the reason why the `server.workers` configuration must be greater
     than the total number of tuners
+* mirakc doesn't work with BonDriver_Mirakurun at this moment
+  * See the issue #4 for details
 
 ## TODO
 
@@ -508,5 +526,6 @@ shall be dual licensed as above, without any additional terms or conditions.
 [log]: https://crates.io/crates/log
 [env_logger]: https://crates.io/crates/env_logger
 [EPGStation]: https://github.com/l3tnun/EPGStation
+[BonDriver_Mirakurun]: https://github.com/Chinachu/BonDriver_Mirakurun
 [LICENSE-APACHE]: ./LICENSE-APACHE
 [LICENSE-MIT]: ./LICENSE-MIT

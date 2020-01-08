@@ -31,6 +31,8 @@ pub struct QueryTunersMessage;
 
 pub enum OpenTunerBy {
     Channel { channel_type: ChannelType, channel: String },
+    ChannelService {
+        channel_type: ChannelType, channel: String, sid: ServiceId },
     Service { id: MirakurunServiceId },
     Program { id: MirakurunProgramId },
 }

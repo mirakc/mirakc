@@ -130,6 +130,9 @@ impl ResourceManager {
             OpenTunerBy::Channel { channel_type, channel } =>
                 self.open_tuner_by_channel(
                     channel_type, channel, user, duration, preprocess)?,
+            OpenTunerBy::ChannelService { channel_type, channel, sid } =>
+                self.open_tuner_by_channel_service(
+                    channel_type, channel, sid, user, duration, preprocess)?,
             OpenTunerBy::Service { id } =>
                 self.open_tuner_by_service(id, user, duration, preprocess)?,
             OpenTunerBy::Program { id } =>
@@ -183,6 +186,25 @@ impl ResourceManager {
         }
     }
 
+    fn open_tuner_by_channel_service(
+        &mut self,
+        channel_type: ChannelType,
+        channel: String,
+        sid: ServiceId,
+        user: TunerUser,
+        duration: Option<Duration>,
+        preprocess: bool,
+    ) -> Result<TunerOutput, Error> {
+        match self.services.iter().find(|sv| {
+            sv.service_id  == sid && sv.channel.channel == channel &&
+                sv.channel.channel_type == channel_type
+        }) {
+            Some(_) => self.do_open_tuner_by_service(
+                channel_type, channel, sid, user, duration, preprocess),
+            None => Err(Error::ServiceNotFound),
+        }
+    }
+
     fn open_tuner_by_service(
         &mut self,
         id: MirakurunServiceId,
@@ -197,6 +219,19 @@ impl ResourceManager {
                 None => return Err(Error::ServiceNotFound),
             };
 
+        self.do_open_tuner_by_service(
+            channel_type, channel, sid, user, duration, preprocess)
+    }
+
+    fn do_open_tuner_by_service(
+        &mut self,
+        channel_type: ChannelType,
+        channel: String,
+        sid: ServiceId,
+        user: TunerUser,
+        duration: Option<Duration>,
+        preprocess: bool,
+    ) -> Result<TunerOutput, Error> {
         let output = self.open_tuner_by_channel(
             channel_type, channel, user, duration, preprocess)?;
 

@@ -96,6 +96,7 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_program)
         .service(get_tuners)
         .service(get_channel_stream)
+        .service(get_channel_service_stream)
         .service(get_service_stream)
         .service(get_program_stream)
 }
@@ -182,6 +183,15 @@ fn get_channel_stream(
     get_stream(path.into_inner(), query.into_inner(), user)
 }
 
+#[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
+fn get_channel_service_stream(
+    path: actix_web::web::Path<ChannelServicePath>,
+    query: actix_web::web::Query<StreamQuery>,
+    user: TunerUser
+) -> ApiResult {
+    get_stream(path.into_inner(), query.into_inner(), user)
+}
+
 #[actix_web::get("/services/{sid}/stream")]
 fn get_service_stream(
     path: actix_web::web::Path<ServicePath>,
@@ -240,6 +250,23 @@ impl Into<OpenTunerBy> for ChannelPath {
         OpenTunerBy::Channel {
             channel_type: self.channel_type,
             channel: self.channel,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ChannelServicePath {
+    channel_type: ChannelType,
+    channel: String,
+    sid: ServiceId,
+}
+
+impl Into<OpenTunerBy> for ChannelServicePath {
+    fn into(self) -> OpenTunerBy {
+        OpenTunerBy::ChannelService {
+            channel_type: self.channel_type,
+            channel: self.channel,
+            sid: self.sid,
         }
     }
 }
@@ -495,6 +522,39 @@ mod tests {
         assert!(res.status() == actix_web::http::StatusCode::OK);
 
         let res = get("/api/channels/GR/ch/stream?duration=-");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[test]
+    fn test_get_channel_service_stream() {
+        let res = get("/api/channels/GR/ch/services/1/stream");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/channels/WOWOW/ch/services/1/stream");
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+
+        let decode_values = [0, 1];
+
+        let valid_pairs =
+            ["GR", "BS", "CS", "SKY"].iter().zip(&decode_values);
+        for (channel_type, decode) in valid_pairs {
+            let res = get(format!(
+                "/api/channels/{}/ch/services/1/stream?decode={}",
+                channel_type, decode).as_str());
+            assert!(res.status() == actix_web::http::StatusCode::OK);
+        }
+
+        for decode in &decode_values {
+            let res = get(format!(
+                "/api/channels/WOWOW/ch/services/1/stream?decode={}",
+                decode).as_str());
+            assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+        }
+
+        let res = get("/api/channels/GR/ch/services/1/stream?duration=1");
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/channels/GR/ch/services/1/stream?duration=-");
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
