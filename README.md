@@ -149,7 +149,7 @@ following executables other than mirakc:
 * [curl]
 * [socat]
 
-## From source
+### From source
 
 You can easily build mirakc with the following command:
 
@@ -174,7 +174,7 @@ mirakc loads a configuration in the following order:
    specified
 2. From a file specified with the `MIRAKC_CONFIG` environment variable
 
-## Build a custom Docker image
+### Build a custom Docker image
 
 A custom Docker image for the linux/arm64 architecture can be built with the
 following Dockerfile:
