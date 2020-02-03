@@ -1,16 +1,5 @@
 # mirakc
-FROM rust:slim-buster AS mirakc-build
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update -qq
-RUN apt-get install -y -qq --no-install-recommends \
-    ca-certificates curl {{GXX}}
-
-RUN rustup target add {{RUST_TARGET_TRIPLE}}
-
-RUN mkdir -p /build
-WORKDIR /build
+FROM buildenv AS mirakc-build
 
 ADD . ./
 # See: https://github.com/japaric/rust-cross

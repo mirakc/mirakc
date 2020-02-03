@@ -112,13 +112,21 @@ case $ARCH in
     ;;
 esac
 
+RECDVB_DEPS="autoconf automake ca-certificates curl make pkg-config $GXX"
+RECPT1_DEPS="autoconf automake ca-certificates curl make pkg-config $GXX"
+MIRAKC_ARIB_DEPS="autoconf automake ca-certificates curl cmake dos2unix git libtool make pkg-config $GXX"
+MIRAKC_DEPS="ca-certificates curl $GXX"
+
+DEPS=$(echo "$RECDVB_DEPS $RECPT1_DEPS $MIRAKC_ARIB_DEPS $MIRAKC_DEPS" | \
+         tr ' ' '\n' | sort | uniq | tr '\n' ' ')
+
 render() {
   sed \
     -e "s|{{ARCH}}|$ARCH|g" \
+    -e "s|{{DEPS}}|$DEPS|g" \
     -e "s|{{RECDVB}}|$RECDVB|g" \
     -e "s|{{GCC_HOST_TRIPLE}}|$GCC_HOST_TRIPLE|g" \
     -e "s|{{RUST_TARGET_TRIPLE}}|$RUST_TARGET_TRIPLE|g" \
-    -e "s|{{GXX}}|$GXX|g" \
     -e "s|{{CONFIGURE_HOST}}|$CONFIGURE_HOST|g" \
     -e "s|{{CMAKE_TOOLCHAIN_FILE}}|$CMAKE_TOOLCHAIN_FILE|g" \
     -e "s|{{RUST_LINKER}}|$RUST_LINKER|g"
@@ -126,7 +134,10 @@ render() {
 
 echo "# Dockerfile for $TYPE"
 echo
-cat $BASEDIR/tmpl.deps.dockerfile | render
+cat $BASEDIR/templates/buildenv.dockerfile | render
 echo
 echo
-cat $BASEDIR/tmpl.$TYPE.dockerfile | render
+cat $BASEDIR/templates/deps.dockerfile | render
+echo
+echo
+cat $BASEDIR/templates/$TYPE.dockerfile | render
