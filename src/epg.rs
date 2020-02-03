@@ -56,6 +56,10 @@ pub async fn query_service_by_nid_sid(
 ) -> Result<EpgService, Error> {
     cfg_if::cfg_if! {
         if #[cfg(test)] {
+            // for avoiding warn(dead_code)
+            let _ = QueryServiceMessage::ByNidSid {
+                nid, sid
+            };
             match sid.value() {
                 0 => Err(Error::ServiceNotFound),
                 _ => Ok(EpgService {
@@ -113,6 +117,10 @@ pub async fn query_program_by_nid_sid_eid(
 ) -> Result<MirakurunProgram, Error> {
     cfg_if::cfg_if! {
         if #[cfg(test)] {
+            // for avoiding warn(dead_code)
+            let _ = QueryProgramMessage::ByNidSidEid {
+                nid, sid, eid
+            };
             match eid.value() {
                 0 => Err(Error::ProgramNotFound),
                 _ => Ok(MirakurunProgram::new((nid, 0.into(), sid, eid).into())),

@@ -13,6 +13,7 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::epg;
 use crate::models::*;
+use crate::mpeg_ts_stream::MpegTsStream;
 use crate::tuner;
 
 pub async fn serve(config: Arc<Config>) -> Result<(), Error> {
@@ -160,16 +161,9 @@ async fn get_channel_stream(
         path.channel_type, path.channel.clone(), user).await?;
 
     let filters = make_filters(
-        &config, None, query.pre_filter(), query.post_filter());
+        &config, "".to_string(), query.pre_filter(), query.post_filter());
 
-    if filters.is_empty() {
-        do_streaming(stream)
-    } else {
-        let (input, output) = command_util::spawn_pipeline(
-            filters, stream.id())?;
-        actix::spawn(stream.pipe(input));
-        do_streaming(ChunkStream::new(output, CHUNK_SIZE))
-    }
+    streaming(stream, filters)
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
@@ -218,10 +212,7 @@ async fn get_program_stream(
     let filters = make_program_filters(
         &config, &program, &clock, query.pre_filter(), query.post_filter())?;
 
-    let (input, output) = command_util::spawn_pipeline(
-        filters, stream.id())?;
-    actix::spawn(stream.pipe(input));
-    do_streaming(ChunkStream::new(output, CHUNK_SIZE))
+    streaming(stream, filters)
 }
 
 async fn do_get_service_stream(
@@ -237,10 +228,7 @@ async fn do_get_service_stream(
     let filters = make_service_filters(
         &config, sid, query.pre_filter(), query.post_filter())?;
 
-    let (input, output) = command_util::spawn_pipeline(
-        filters, stream.id())?;
-    actix::spawn(stream.pipe(input));
-    do_streaming(ChunkStream::new(output, CHUNK_SIZE))
+    streaming(stream, filters)
 }
 
 fn make_service_filters(
@@ -251,7 +239,7 @@ fn make_service_filters(
 ) -> Result<Vec<String>, Error> {
     let filter = make_service_filter_command(
         &config.filters.service_filter, sid)?;
-    Ok(make_filters(config, Some(filter), pre_filter, post_filter))
+    Ok(make_filters(config, filter, pre_filter, post_filter))
 }
 
 fn make_program_filters(
@@ -264,12 +252,12 @@ fn make_program_filters(
     let filter = make_program_filter_command(
         &config.filters.program_filter, program.service_id, program.event_id,
         clock)?;
-    Ok(make_filters(config, Some(filter), pre_filter, post_filter))
+    Ok(make_filters(config, filter, pre_filter, post_filter))
 }
 
 fn make_filters(
     config: &Config,
-    filter: Option<String>,
+    filter: String,
     pre_filter: bool,
     post_filter: bool,
 ) -> Vec<String> {
@@ -277,25 +265,38 @@ fn make_filters(
 
     if pre_filter {
         if config.filters.pre_filter.is_empty() {
-            log::warn!("Pre-filter not defined");
+            log::warn!("Pre-filter is required, but not defined");
         } else {
             filters.push(config.filters.pre_filter.clone());
         }
     }
 
-    if let Some(filter) = filter {
+    if filter.is_empty() {
+        log::warn!("Filter not defined");
+    } else {
         filters.push(filter);
     }
 
     if post_filter {
         if config.filters.post_filter.is_empty() {
-            log::warn!("Post-filter not defined");
+            log::warn!("Post-filter is required, but not defined");
         } else {
             filters.push(config.filters.post_filter.clone());
         }
     }
 
     filters
+}
+
+fn streaming(stream: MpegTsStream, filters: Vec<String>) -> ApiResult {
+    if filters.is_empty() {
+        do_streaming(stream)
+    } else {
+        let (input, output) = command_util::spawn_pipeline(
+            filters, stream.id())?;
+        actix::spawn(stream.pipe(input));
+        do_streaming(ChunkStream::new(output, CHUNK_SIZE))
+    }
 }
 
 fn do_streaming<S>(stream: S) -> ApiResult
@@ -449,9 +450,16 @@ mod tests {
         method: actix_web::http::Method,
         uri: &str
     ) -> actix_web::HttpResponse {
+        let mut config = Config::default();
+        // Disable all filters
+        config.filters.pre_filter = String::new();
+        config.filters.service_filter = String::new();
+        config.filters.program_filter = String::new();
+        config.filters.post_filter = String::new();
+
         let mut app = actix_web::test::init_service(
             actix_web::App::new()
-                .data(Arc::new(Config::default()))
+                .data(Arc::new(config))
                 .service(create_api_service())).await;
         let req = actix_web::test::TestRequest::with_uri(uri)
             .method(method).to_request();
