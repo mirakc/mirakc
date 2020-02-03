@@ -49,6 +49,7 @@ jobs:
         run: |-
           docker tag $IMAGE:${VERSION}-${{ matrix.arch }} $IMAGE:${{ matrix.arch }}
           docker push $IMAGE:${{ matrix.arch }}
+        if: env.VERSION != 'master'
   build-multiarch-image:
     runs-on: ubuntu-latest
     needs: build-images
@@ -68,5 +69,7 @@ jobs:
           docker manifest push $IMAGE:$VERSION
       - name: Update the latest tag
         run: |-
+          docker pull $IMAGE:$VERSION
           docker tag $IMAGE:$VERSION $IMAGE
           docker push $IMAGE
+        if: env.VERSION != 'master'
