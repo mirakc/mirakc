@@ -1,0 +1,70 @@
+name: Docker
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - '*'
+
+env:
+  DOCKERHUB_USER: 'masnagam'
+  IMAGE: 'masnagam/mirakc'
+  DOCKER_BUILDKIT: 1
+  DOCKER_CLI_EXPERIMENTAL: enabled
+
+jobs:
+  build-images:
+    strategy:
+      matrix:
+        arch:
+          - amd64
+          - arm32v5
+          - arm32v7
+          - arm64v8
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Set VERSION
+        run: |-
+          echo ::set-env name=VERSION::${GITHUB_REF#refs/*/}
+      - name: Setup QEMU user-mode emulation
+        run: |-
+          sudo apt-get update
+          sudo apt-get install -y qemu qemu-user-static
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+      - name: Build image
+        run: |-
+          ./docker/dockerfile-gen ${{ matrix.arch }} >Dockerfile
+          docker build -t $IMAGE:${VERSION}-${{ matrix.arch }} --no-cache --squash .
+      - name: Login to DockerHub
+        run: |-
+          docker login -u $DOCKERHUB_USER -p ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push image
+        run: |-
+          docker push $IMAGE:${VERSION}-${{ matrix.arch }}
+      - name: Update the latest tag
+        run: |-
+          docker tag $IMAGE:${VERSION}-${{ matrix.arch }} $IMAGE:${{ matrix.arch }}
+          docker push $IMAGE:${{ matrix.arch }}
+  build-multiarch-image:
+    runs-on: ubuntu-latest
+    needs: build-images
+    steps:
+      - name: Set VERSION
+        run: |-
+          echo ::set-env name=VERSION::${GITHUB_REF#refs/*/}
+      - name: Login to DockerHub
+        run: |-
+          docker login -u $DOCKERHUB_USER -p ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Create and push the manifest for the multi-arch image
+        run: |-
+          docker manifest create $IMAGE:$VERSION $IMAGE:${VERSION}-amd64 $IMAGE:${VERSION}-arm32v5 $IMAGE:${VERSION}-arm32v7 $IMAGE:${VERSION}-arm64v8
+          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm32v5 --os linux --arch arm --variant v5
+          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm32v7 --os linux --arch arm --variant v7
+          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm64v8 --os linux --arch arm64 --variant v8
+          docker manifest push $IMAGE:$VERSION
+      - name: Update the latest tag
+        run: |-
+          docker tag $IMAGE:$VERSION $IMAGE
+          docker push $IMAGE
