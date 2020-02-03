@@ -34,9 +34,11 @@ jobs:
           sudo apt-get install -y qemu qemu-user-static
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
       - name: Build image
+        # Experimental features including the --squash option has not been
+        # supported in GitHub Actions at this moment...
         run: |-
           ./docker/dockerfile-gen ${{ matrix.arch }} >Dockerfile
-          docker build -t $IMAGE:${VERSION}-${{ matrix.arch }} --no-cache --squash .
+          docker build -t $IMAGE:${VERSION}-${{ matrix.arch }} --no-cache .
       - name: Login to DockerHub
         run: |-
           docker login -u $DOCKERHUB_USER -p ${{ secrets.DOCKERHUB_TOKEN }}
