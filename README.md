@@ -5,6 +5,8 @@
 [![linux-status](https://github.com/masnagam/mirakc/workflows/Linux/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=Linux)
 [![macos-status](https://github.com/masnagam/mirakc/workflows/macOS/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=macOS)
 [![arm-linux-status](https://github.com/masnagam/mirakc/workflows/ARM-Linux/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=ARM-Linux)
+[![docker-status](https://github.com/masnagam/mirakc/workflows/Docker/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=Docker)
+[![docker-pulls](https://img.shields.io/docker/pulls/masnagam/mirakc)](https://hub.docker.com/r/masnagam/mirakc)
 
 ## Motivation
 
@@ -129,10 +131,25 @@ using it.
 
 ## Build a TV recording system with mirakc
 
-First of all, it's recommended to use a Docker image which can be downloaded
+First of all, it's recommended you to use a Docker image which can be downloaded
 from [DockerHub].  Because you need to install additional programs besides
-mirakc in order to build a TV recording system.  Installation steps using
-`docker` and `docker-compose` is described in [masnagam/docker-mirakc].
+mirakc in order to build a TV recording system.
+
+### Using Docker
+
+See [docker/docker-compose.yml](./docker/docker-compose.yml) and
+[docker/sample-mirakc-config.yml](./docker/sample-mirakc-config.yml).
+
+A [masnagam/docker-mirakc] Docker image for each architecture contains the
+following executables other than mirakc:
+
+* [recdvb] configured without `--enable-b25`
+* [recpt1] configured without `--enable-b25`
+* [mirakc-arib]
+* [curl]
+* [socat]
+
+## From source
 
 You can easily build mirakc with the following command:
 
@@ -140,10 +157,10 @@ You can easily build mirakc with the following command:
 cargo build --release
 ```
 
-However, it takes a long time to build mirakc on a SBC.  So, you should
-cross-compile mirakc on a powerful PC.
+However, it takes a long time to build mirakc on a SBC.  So, it's recommended
+you to cross-compile mirakc on a powerful PC.
 
-Additionally, you need to install the following programs:
+Additionally, it's necessary to install the following programs:
 
 * A tuner program like `recpt1`
 * [mirakc-arib] which processes TS packets fed from the tuner program
@@ -157,7 +174,27 @@ mirakc loads a configuration in the following order:
    specified
 2. From a file specified with the `MIRAKC_CONFIG` environment variable
 
-### Build Docker image for each architecture
+## Build a custom Docker image
+
+A custom Docker image for the linux/arm64 architecture can be built with the
+following Dockerfile:
+
+```Dockerfile
+FROM masnagam/mirakc:arm64
+...
+```
+
+Images for the following architectures have been uploaded to [DockerHub].
+
+* masnagam/mirakc:amd64 (linux/amd64)
+* masnagam/mirakc:armv5 (linux/arm/v5)
+* masnagam/mirakc:armv7 (linux/arm/v7)
+* masnagam/mirakc:arm64 (linux/arm64)
+
+Consult [dockerfile-gen](./docker/dockerfile-gen) if you like to build a Docker
+image for an architecture other than the above.
+
+### Build a Docker image for an architecture
 
 Use `./docker/dockerfile-gen` for creating Dockerfile for each architecture:
 
@@ -167,6 +204,31 @@ docker build -t $(id -un)/mirakc:arm64v8
 ```
 
 See `./docker/dockerfile-gen -h` for supported architecture.
+
+A generated Dockerfile contains multi-stage builds for compiling the
+executables.  The multi-stage builds creates untagged intermediate images like
+below:
+
+```console
+$ docker images --format "{{.Repository}}:{{.Tag}}"
+masnagam/mirakc:arm64v8
+<none>:<none>
+...
+```
+
+The following command removes **all untagged images** including the intermediate
+images:
+
+```console
+$ docker images -f dangling=true -q | xargs docker rmi
+```
+
+The following command transfers the created image to a remote docker daemon
+which can be accessed using SSH:
+
+```console
+$ docker save $(id -un)/mirakc:arm64v8 | docker -H ssh://remote load
+```
 
 ## Configuration
 
@@ -275,6 +337,8 @@ tuners:
     #     A duration to open the tuner in seconds.
     #     '-' means that the tuner is opened until the process terminates.
     #
+    # TODO: '-' is always specified in the duration variable at this moment.
+    #
     command: >-
       recdvb {{channel}} {{duration}} -
 
@@ -294,7 +358,13 @@ tuners:
 # Optional
 # --------
 #
-# TS packet filters.
+# Definitions of filters used in the TS packet pipeline like below:
+#
+#   tuner.command
+#     | filters.pre-filter
+#     | filters.[service|program]-filter
+#     | filters.post-filter
+#     | client
 #
 # Values shown below are default values.
 # So, you don't need to specify any of them normally.
@@ -591,9 +661,12 @@ shall be dual licensed as above, without any additional terms or conditions.
 [px4_drv]: https://github.com/nns779/px4_drv
 [Prometheus]: https://prometheus.io/
 [node_exporter]: https://github.com/prometheus/node_exporter
-[DockerHub]: https://hub.docker.com/r/masnagam/mirakc
-[masnagam/docker-mirakc]: https://github.com/masnagam/docker-mirakc
+[recdvb]: http://cgi1.plala.or.jp/~sat/?x=entry:entry180805-164428
+[recpt1]: https://github.com/stz2012/recpt1
 [mirakc-arib]: https://github.com/masnagam/mirakc-arib
+[curl]: https://curl.haxx.se/docs/manpage.html
+[socat]: http://www.dest-unreach.org/socat/doc/socat.html
+[DockerHub]: https://hub.docker.com/r/masnagam/mirakc
 [log]: https://crates.io/crates/log
 [env_logger]: https://crates.io/crates/env_logger
 [EPGStation]: https://github.com/l3tnun/EPGStation
