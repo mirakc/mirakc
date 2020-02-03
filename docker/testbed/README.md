@@ -2,7 +2,8 @@
 
 ## What's docker-testbed
 
-docker-testbed is an integration test environment for mirakc, built with Docker.
+docker-testbed is an integration test environment for mirakc, built using
+Docker.
 
 The docker-testbed is constructed with several containers listed below:
 

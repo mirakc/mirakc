@@ -30,6 +30,9 @@ at the same time even on ROCK64 (DRAM: 1GB).
 
 ## Performance comparison
 
+Information in sub-sections below is for the old mirack/0.1.0.  We will update
+it soon.
+
 ### After running for 1 day
 
 The following table is a snippet of the result of `docker stats` at idle after
@@ -46,7 +49,7 @@ mirakurun  153.2MiB / 985.8MiB  15.54%  1.71MB / 1.46GB  15.2MB / 30GB
 mirakc is 2/3 lower CPU usage and 1/60 smaller memory consumption than
 Mirakurun:
 
-|          | mirakc@master | Mirakurun@2.11.0 |
+|          | mirakc/0.1.0  | Mirakurun/2.11.0 |
 |----------|---------------|------------------|
 | CPU      | +33..38%      | +37..60%         |
 | Memory   | +10..12MB     | +470MB..800MB    |
@@ -133,7 +136,7 @@ mirakc in order to build a TV recording system.  Installation steps using
 
 You can easily build mirakc with the following command:
 
-```console
+```shell
 cargo build --release
 ```
 
@@ -154,6 +157,17 @@ mirakc loads a configuration in the following order:
    specified
 2. From a file specified with the `MIRAKC_CONFIG` environment variable
 
+### Build Docker image for each architecture
+
+Use `./docker/dockerfile-gen` for creating Dockerfile for each architecture:
+
+```shell
+./docker/dockerfile-gen arm64v8 >Dockerfile
+docker build -t $(id -un)/mirakc:arm64v8
+```
+
+See `./docker/dockerfile-gen -h` for supported architecture.
+
 ## Configuration
 
 Mirakurun uses multiple files and environment variables for configuration.
@@ -162,8 +176,25 @@ For simplicity, mirakc uses a single configuration file in a YAML format like
 below:
 
 ```yaml
-# A parameter having no default value is required.
+# A property having no default value is required.
 
+# Optional
+# --------
+#
+# Configuration for the EPG database.
+#
+epg:
+  # An absolute path to a folder where EPG-related data is stored.
+  #
+  # The default value is `None` which means no data will be saved to filesystem.
+  #
+  cache-dir: /path/to/epg
+
+# Optional
+# --------
+#
+# Configuration for the web API server.
+#
 server:
   # A IP address or hostname to bind.
   #
@@ -175,16 +206,17 @@ server:
   # The default value is 40772.
   port: 12345
 
-  # The number of worker threads used in the server.
-  #
-  # At least, the number of worker threads must be greater than:
-  #
-  #   Num(available tuners) + 1
+  # The number of worker threads used for serving the web API.
   #
   # The default value is a return value from `num_cpus::get()`.
   workers: 4
 
-# Optional definitions of channels used for tuners.
+# Required
+# --------
+#
+# Definitions of channels.
+# At least, one channel must be defined.
+#
 channels:
   - name: NHK E     # An arbitrary name of the channel
     type: GR        # One of channel types in GR, BS, CS and SKY
@@ -208,14 +240,19 @@ channels:
   # Exclude the service 531.
   # An empty list by default.
   # Applied after processing the `services` config.
-  - name: 放送大学
+  - name: OUJ
     type: BS
     channel: BS11_2
     excluded-services: [531]
 
-# Optional definitions of tuners.
+# Required
+# --------
+#
+# Definitions of tuners.
+# At least, one tuner must be defined.
 #
 # Cascading upstream Mirakurun-compatible servers is unsupported.
+#
 tuners:
   - name: GR0  # An arbitrary name of the tuner
 
@@ -229,10 +266,10 @@ tuners:
     # Template variables:
     #
     #   channel
-    #     The `channel` parameter of a channel defined in the `channels`.
+    #     The `channel` property of a channel defined in the `channels`.
     #
     #   channel_type
-    #     The `type` parameter of a channel defined in the `channels`.
+    #     The `type` property of a channel defined in the `channels`.
     #
     #   duration
     #     A duration to open the tuner in seconds.
@@ -254,31 +291,25 @@ tuners:
     command: ''
     disabled: true  # default: false
 
-# Commands to process TS packets.
-tools:
-  # A Mustache template string of a command to scan definitions of services in
-  # a TS stream.
+# Optional
+# --------
+#
+# TS packet filters.
+#
+# Values shown below are default values.
+# So, you don't need to specify any of them normally.
+#
+filters:
+  # A Mustache template string of a command to process TS packets before a
+  # packet filter program.
   #
-  # The command must read TS packets from STDIN, and output a JSON string to
-  # STDOUT.
-  scan-services: >-
-    mirakc-arib scan-services
-
-  # A Mustache template string of a command to synchronize clock for each
-  # services.
+  # The command must read TS packets from STDIN, and output the processed TS
+  # packets to STDOUT.
   #
-  # The command must read TS packets from STDIN, and output a JSON string to
-  # STDOUT.
-  sync-clock: >-
-    mirakc-arib sync-clock
-
-  # A Mustache template string of a command to collect EIT sections in a TS
-  # stream.
-  #
-  # The command must read TS packets from STDIN, and output multiple JSON
-  # strings (JSONL) to STDOUT:
-  collect-eits: >-
-    mirakc-arib collect-eits
+  # The defualt value is '' which means that no pre-filter program is applied
+  # even when the `pre-filter=true` query parameter is specified in a streaming
+  # API endpoint.
+  pre-filter: ''
 
   # A Mustache template string of a command to drop TS packets which are not
   # included in a service.
@@ -291,7 +322,7 @@ tools:
   #   sid
   #     The idenfiter of the service.
   #
-  filter-service: >-
+  service-filter: >-
     mirakc-arib filter-service --sid={{sid}}
 
   # A Mustache template string of a command to drop TS packets which are not
@@ -314,22 +345,10 @@ tools:
   #   clock_time
   #     A UNIX time (ms) of synchronized clock for the service.
   #
-  filter-program: >-
+  program-filter: >-
     mirakc-arib filter-program --sid={{sid}} --eid={{eid}}
     --clock-pcr={{clock_pcr}} --clock-time={{clock_time}}
-    --start-margin=5000 --end-margin=5000
-
-  # A Mustache template string of a command to process TS packets before a
-  # packet filter program.
-  #
-  # The command must read TS packets from STDIN, and output the processed TS
-  # packets to STDOUT.
-  #
-  # The defualt value is '' which means that no preprocess program is applied
-  # even when the `preprocess=true` query parameter is specified in a streaming
-  # API endpoint.
-  preprocess: >-
-    preprocess
+    --start-margin=5000 --end-margin=5000 --pre-streaming
 
   # A Mustache template string of a command to process TS packets after a packet
   # filter program.
@@ -337,21 +356,56 @@ tools:
   # The command must read TS packets from STDIN, and output the processed TS
   # packets to STDOUT.
   #
-  # The defualt value is '' which means that no postprocess command is applied
-  # even when the `postprocess=true` query parameter is specified in a streaming
+  # The defualt value is '' which means that no post-filter command is applied
+  # even when the `post-filter=true` query parameter is specified in a streaming
   # API endpoint.
   #
   # For compatibility with Mirakurun, the command is applied when the following
   # both conditions are met:
   #
   # * The `decode=1` query parameter is specified
-  # * The `postprocess` query parameter is NOT specified
+  # * The `post-filter` query parameter is NOT specified
   #
-  postprocess: >-
-    postprocess
+  post-filter: ''
 
-# A string of an absolute path to a folder where EPG-related data is stored.
-epg-cache-dir: /path/to/epg
+# Optional
+# --------
+#
+# Definitions for background jobs.
+#
+# The `command` property specifies a Mustache string.
+#
+# The `schedule` property specifies a crontab expression of the job schedule.
+# See https://crates.io/crates/cron for details of the format.
+#
+# Values shown below are default values.
+# So, you don't need to specify any of them normally.
+#
+jobs:
+  # The scan-services job scans audio/video services in channels defined by the
+  # `channels`.
+  #
+  # The command must read TS packets from STDIN, and output the result to STDOUT
+  # in a specific JSON format.
+  scan-services:
+    command: mirakc-arib scan-services
+    schedule: '0 31 5 * * * *'  # execute at 05:31 every day
+
+  # The sync-clocks job synchronizes TDT/TOT and PRC value of each service.
+  #
+  # The command must read TS packets from STDIN, and output the result to STDOUT
+  # in a specific JSON format.
+  sync-clocks:
+    command: mirakc-arib sync-clocks
+    schedule: '0 3 12 * * * *'  # execute at 12:03 every day
+
+  # The update-schedules job updates EPG schedules for each service.
+  #
+  # The command must read TS packets from STDIN, and output EIT sections to
+  # STDOUT in a specific line-delimited JSON format (JSONL/JSON Streaming).
+  update-schedules:
+    command: mirakc-arib collect-eits
+    schedule: '0 7,37 * * * * *'  # execute at 7 and 37 minutes every hour
 ```
 
 ## Logging
@@ -360,14 +414,14 @@ mirakc uses [log] and [env_logger] for logging.
 
 Normally, the following configuration is used:
 
-```
+```shell
 RUST_LOG=info
 ```
 
 You can use the following configuration if you like to see more log messages for
 debugging an issue:
 
-```
+```shell
 RUST_LOG=info,mirakc=debug
 ```
 
@@ -388,8 +442,6 @@ API Endpoints listed below have been implemented at this moment:
   * Compatible
   * The `decode` query parameter has been supported
   * The `X-Mirakurun-Priority` HTTP header has been supported
-  * The optional `duration` query parameter (in seconds) has been added,
-    which is passed to the tuner command
 * /api/channels/{channel_type}/{channel}/services/{sid}/stream
   * Not compatible
   * Unlike Mirakurun, the `sid` must be a service ID
@@ -397,28 +449,26 @@ API Endpoints listed below have been implemented at this moment:
       class
   * The `decode` query parameter has been supported
   * The `X-Mirakurun-Priority` HTTP header has been supported
-  * The optional `duration` query parameter (in seconds) has been added,
-    which is passed to the tuner command
 * /api/services
   * Compatible
   * Query parameters have **NOT** been supported
+* /api/services/{id}
+  * Compatible
 * /api/services/{id}/stream
   * Compatible
   * The `decode` query parameter has been supported
   * The `X-Mirakurun-Priority` HTTP header has been supported
-  * The optional `duration` query parameter (in seconds) has been added,
-    which is passed to the tuner command
 * /api/programs
   * Compatible
   * Query parameters have **NOT** been supported
 * /api/programs/{id}
   * Compatible
 * /api/programs/{id}/stream
-  * Compatible
+  * Compatible partially (see below)
   * The `decode` query parameter has been supported
   * The `X-Mirakurun-Priority` HTTP header has been supported
-  * The optional `duration` query parameter (in seconds) has been added,
-    which is passed to the tuner command
+  * PSI/SI packets are sent before the program starts in order to avoid
+    [issue#1313](https://github.com/actix/actix-web/issues/1313) in `actix-web`
 * /api/tuners
   * Compatible
   * Query parameters have **NOT** been supported
@@ -437,12 +487,6 @@ some of them don't need for playback.
 * `CS` and `SKY` channel types are not tested at all
   * In addition, no pay-TV channels are tested because I have no subscription
     for pay-TV
-* A tuner can be used by a single user exclusively
-  * Mirakurun allows to share a tuner with multiple users and deliver TS packets
-    to the users concurrently
-* Reading TS packets from a tuner blocks a thread
-  * That is the reason why the `server.workers` configuration must be greater
-    than the total number of tuners
 * mirakc doesn't work with BonDriver_Mirakurun at this moment
   * See the issue #4 for details
 
@@ -453,7 +497,34 @@ some of them don't need for playback.
     channels and 10 BS channels
 * Support to collect logo data
 
-## mirakc leaks memory?
+## How to debug?
+
+It's recommended to use [VS Code] for debugging.
+
+There are two folders which contains settings regarding VS Code:
+
+* [.devcontainer](./.devcontainer) contains settings for
+  [VS Code Remote Containers]
+* [.vscode](./.vscode) contains basic settings
+
+Before starting to debug using VS Code Remote Containers, you need to create
+Dockerfile with the following command:
+
+```shell
+./docker/dockerfile-gen -d amd64 >.devcontainer/Dockerfile
+```
+
+The following 3 configurations are defined in .vscode/launch.json:
+
+* Debug
+* Debug w/ child processes (Debug + log messages from child processes)
+* Debug unit tests
+
+`SIGPIPE` never stops the debugger.  See ./vscode/settings.json.
+
+## Notes
+
+### mirakc leaks memory?
 
 The memory usage of mirakc may look increasing when it runs for a long time.  If
 you see this, you may suspect that mirakc is leaking memory.  But, don't worry.
@@ -468,10 +539,10 @@ This is the root cause of the increase in memory usage of mirakc.
 There are environment variables to control criteria for freeing unused memory
 blocks as described in [this page](http://man7.org/linux/man-pages/man3/mallopt.3.html).
 
-For example, setting `MALLOC_TRIM_THRESHOLD_=-1` improves the increase in memory
-usage that occurs when accessing the `/api/programs` endpoint.
+For example, setting `MALLOC_TRIM_THRESHOLD_=-1` may improve the increase in
+memory usage that occurs when accessing the `/api/programs` endpoint.
 
-## Why use external commands to process TS packets?
+### Why use external commands to process TS packets?
 
 Unfortunately, there is no **practical** MPEG-TS demuxer written in Rust at this
 moment.
@@ -482,7 +553,7 @@ nothing can be done with mirakc alone.
 For example, mirakc provides an API endpoint which returns a schedule of TV
 programs, but mirakc has no functionality to collect EIT tables from TS streams.
 mirakc just delegates that to an external program which is defined in the
-`tools.collect-eits` property in the configuration YAML file.
+`jobs.update-schedules.command` property in the configuration YAML file.
 
 Of course, this design may make mirakc less efficient because using child
 processes and pipes between them increases CPU and memory usages.  But it's
@@ -527,5 +598,7 @@ shall be dual licensed as above, without any additional terms or conditions.
 [env_logger]: https://crates.io/crates/env_logger
 [EPGStation]: https://github.com/l3tnun/EPGStation
 [BonDriver_Mirakurun]: https://github.com/Chinachu/BonDriver_Mirakurun
+[VS Code]: https://code.visualstudio.com/
+[VS Code Remote Containers]: https://code.visualstudio.com/docs/remote/containers
 [LICENSE-APACHE]: ./LICENSE-APACHE
 [LICENSE-MIT]: ./LICENSE-MIT

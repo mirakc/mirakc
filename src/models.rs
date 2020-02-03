@@ -5,6 +5,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
+use crate::epg::{EpgChannel, EpgService};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[derive(Deserialize, Serialize)]
@@ -21,75 +22,22 @@ impl fmt::Display for ChannelType {
     }
 }
 
-#[derive(Debug)]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelModel {
-    #[serde(rename = "type")]
-    pub channel_type: ChannelType,
-    pub channel: String,
-    pub name: String,
-    pub services: Vec<ChannelServiceModel>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
-pub struct MirakurunServiceId(u64);
-
-impl MirakurunServiceId {
-    #[inline]
-    pub fn new(triple: ServiceTriple) -> Self {
-        // An unique identifier compatible with Mirakurun.
-        // See src/Mirakurun/ServiceItem.ts in Chinachu/Mirakurun.
-        MirakurunServiceId(
-            triple.nid().value() as u64 * 100_000
-                + triple.sid().value() as u64)
-    }
-}
-
-#[derive(Debug)]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelServiceModel {
-    pub id: MirakurunServiceId,
-    pub service_id: ServiceId,
-    pub network_id: NetworkId,
-    pub name: String,
-}
-
-#[derive(Debug)]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ServiceModel {
-    pub id: MirakurunServiceId,
-    pub service_id: ServiceId,
-    pub network_id: NetworkId,
-    #[serde(rename = "type")]
-    pub service_type: u16,
-    #[serde(default)]
-    pub logo_id: i16,
-    #[serde(default)]
-    pub remote_control_key_id: u16,
-    pub name: String,
-    pub channel: ServiceChannelModel,
-    pub has_logo_data: bool,
-}
-
-#[derive(Debug)]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ServiceChannelModel {
-    #[serde(rename = "type")]
-    pub channel_type: ChannelType,
-    pub channel: String,
-}
-
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[derive(Deserialize, Serialize)]
 pub struct NetworkId(u16);
 
 impl NetworkId {
     pub fn value(&self) -> u16 { self.0 }
+}
+
+impl fmt::Display for NetworkId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "NID#{:04X}", self.0)
+    }
+}
+
+impl From<u16> for NetworkId {
+    fn from(value: u16) -> Self { Self(value) }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -100,12 +48,32 @@ impl TransportStreamId {
     pub fn value(&self) -> u16 { self.0 }
 }
 
+impl fmt::Display for TransportStreamId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TSID#{:04X}", self.0)
+    }
+}
+
+impl From<u16> for TransportStreamId {
+    fn from(value: u16) -> Self { Self(value) }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[derive(Deserialize, Serialize)]
 pub struct ServiceId(u16);
 
 impl ServiceId {
     pub fn value(&self) -> u16 { self.0 }
+}
+
+impl fmt::Display for ServiceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SID#{:04X}", self.0)
+    }
+}
+
+impl From<u16> for ServiceId {
+    fn from(value: u16) -> Self { Self(value) }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -116,12 +84,21 @@ impl EventId {
     pub fn value(&self) -> u16 { self.0 }
 }
 
+impl fmt::Display for EventId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "EID#{:04X}", self.0)
+    }
+}
+
+impl From<u16> for EventId {
+    fn from(value: u16) -> Self { Self(value) }
+}
+
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 #[derive(Deserialize, Serialize)]
 pub struct ServiceTriple(u64);
 
 impl ServiceTriple {
-    #[inline]
     pub fn new(
         nid: NetworkId,
         tsid: TransportStreamId,
@@ -133,22 +110,18 @@ impl ServiceTriple {
             (sid.value() as u64)  << 16 )
     }
 
-    #[inline]
     pub fn value(&self) -> u64 {
         self.0
     }
 
-    #[inline]
     pub fn nid(&self) -> NetworkId {
         NetworkId(((self.value() >> 48) & 0xFFFF) as u16)
     }
 
-    #[inline]
     pub fn tsid(&self) -> TransportStreamId {
         TransportStreamId(((self.value() >> 32) & 0xFFFF) as u16)
     }
 
-    #[inline]
     pub fn sid(&self) -> ServiceId {
         ServiceId(((self.value() >> 16) & 0xFFFF) as u16)
     }
@@ -161,11 +134,16 @@ impl fmt::Display for ServiceTriple {
 }
 
 impl From<(NetworkId, TransportStreamId, ServiceId)> for ServiceTriple {
-    #[inline]
     fn from(
         triple: (NetworkId, TransportStreamId, ServiceId)
     ) -> ServiceTriple {
         ServiceTriple::new(triple.0, triple.1, triple.2)
+    }
+}
+
+impl From<EventQuad> for ServiceTriple {
+    fn from(quad: EventQuad) -> Self {
+        ServiceTriple::new(quad.nid(), quad.tsid(), quad.sid())
     }
 }
 
@@ -174,7 +152,6 @@ impl From<(NetworkId, TransportStreamId, ServiceId)> for ServiceTriple {
 pub struct EventQuad(u64);
 
 impl EventQuad {
-    #[inline]
     pub fn new(
         nid: NetworkId,
         tsid: TransportStreamId,
@@ -189,27 +166,22 @@ impl EventQuad {
         )
     }
 
-    #[inline]
     pub fn value(&self) -> u64 {
         self.0
     }
 
-    #[inline]
     pub fn nid(&self) -> NetworkId {
         NetworkId(((self.value() >> 48) & 0xFFFF) as u16)
     }
 
-    #[inline]
     pub fn tsid(&self) -> TransportStreamId {
         TransportStreamId(((self.value() >> 32) & 0xFFFF) as u16)
     }
 
-    #[inline]
     pub fn sid(&self) -> ServiceId {
         ServiceId(((self.value() >> 16) & 0xFFFF) as u16)
     }
 
-    #[inline]
     pub fn eid(&self) -> EventId {
         EventId((self.value() & 0xFFFF) as u16)
     }
@@ -222,25 +194,16 @@ impl fmt::Display for EventQuad {
 }
 
 impl From<(ServiceTriple, EventId)> for EventQuad {
-    #[inline]
     fn from(tuple: (ServiceTriple, EventId)) -> EventQuad {
         EventQuad::new(tuple.0.nid(), tuple.0.tsid(), tuple.0.sid(), tuple.1)
     }
 }
 
 impl From<(NetworkId, TransportStreamId, ServiceId, EventId)> for EventQuad {
-    #[inline]
     fn from(
         quad: (NetworkId, TransportStreamId, ServiceId, EventId)
     ) -> EventQuad {
         EventQuad::new(quad.0, quad.1, quad.2, quad.3)
-    }
-}
-
-impl Into<ServiceTriple> for EventQuad {
-    #[inline]
-    fn into(self) -> ServiceTriple {
-        (self.nid(), self.tsid(), self.sid()).into()
     }
 }
 
@@ -252,80 +215,6 @@ pub struct Clock {
     pub pcr: i64,
     // UNIX time in ms
     pub time: i64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
-pub struct MirakurunProgramId(u64);
-
-impl MirakurunProgramId {
-    #[inline]
-    pub fn new(quad: EventQuad) -> Self {
-        // An unique identifier compatible with Mirakurun.
-        // See src/Mirakurun/ProgramItem.ts#L28 in Chinachu/Mirakurun.
-        MirakurunProgramId(
-            quad.nid().value() as u64 * 100_000 * 100_000
-                + quad.sid().value() as u64 * 100_000
-                + quad.eid().value() as u64)
-    }
-
-    #[cfg(test)]
-    pub fn value(&self) -> u64 { self.0 }
-}
-
-#[derive(Clone, Debug)]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProgramModel {
-    #[serde(skip)]  // for compatibility with Mirakurun
-    pub event_quad: EventQuad,
-    pub id: MirakurunProgramId,
-    pub event_id: EventId,
-    pub service_id: ServiceId,
-    pub network_id: NetworkId,
-    #[serde(with = "serde_jst")]
-    pub start_at: DateTime<Jst>,
-    #[serde(with = "serde_duration_in_millis")]
-    pub duration: Duration,
-    pub is_free: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extended: Option<IndexMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub video: Option<EpgVideoInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<EpgAudioInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub genres: Option<Vec<EpgGenre>>,
-}
-
-impl ProgramModel {
-    pub fn new(quad: EventQuad) -> ProgramModel {
-        ProgramModel {
-            event_quad: quad,
-            id: MirakurunProgramId::new(quad),
-            event_id: quad.eid(),
-            service_id: quad.sid(),
-            network_id: quad.nid(),
-            start_at: Jst.timestamp(0, 0),
-            duration: Duration::minutes(0),
-            is_free: false,
-            name: None,
-            description: None,
-            extended: None,
-            video: None,
-            audio: None,
-            genres: None,
-        }
-    }
-
-    #[inline]
-    pub fn end_at(&self) -> DateTime<Jst> {
-        self.start_at + self.duration
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -419,17 +308,166 @@ impl EpgGenre {
     }
 }
 
+// user
+
+#[derive(Clone)]
+pub enum TunerUserInfo {
+    Job { name: String },
+    Web { remote: Option<String>, agent: Option<String> }
+}
+
+impl TunerUserInfo {
+    fn get_model(&self) -> (String, Option<String>) {
+        match self.clone() {
+            Self::Job { name } => (name, None),
+            Self::Web { remote, agent } => (remote.unwrap_or_default(), agent),
+        }
+    }
+}
+
+impl fmt::Display for TunerUserInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Job { name } => write!(f, "Job({})", name),
+            Self::Web { remote: None, agent: None } =>
+                write!(f, r#"Web"#),
+            Self::Web { remote: Some(remote), agent: None } =>
+                write!(f, r#"Web(remote="{}")"#, remote),
+            Self::Web { remote: None, agent: Some(agent) } =>
+                write!(f, r#"Web(agent="{}")"#, agent),
+            Self::Web { remote: Some(remote), agent: Some(agent) } =>
+                write!(f, r#"Web(remote="{}" agent="{}")"#, remote, agent),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct TunerUser {
+    pub info: TunerUserInfo,
+    pub priority: i32,
+}
+
+impl TunerUser {
+    pub fn get_model(&self) -> MirakurunTunerUser {
+        let (id, agent) = self.info.get_model();
+        MirakurunTunerUser { id, agent, priority: self.priority }
+    }
+}
+
+impl fmt::Display for TunerUser {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} (priority={})", self.info, self.priority)
+    }
+}
+
+// Mirakurun-compatible models
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Deserialize, Serialize)]
+pub struct MirakurunServiceId(u64);
+
+impl MirakurunServiceId {
+    const MAGIC_NUMBER: u64 = 100_000;
+
+    fn new(nid: NetworkId, sid: ServiceId) -> Self {
+        // An unique identifier compatible with Mirakurun.
+        // See src/Mirakurun/ServiceItem.ts in Chinachu/Mirakurun.
+        MirakurunServiceId(
+            nid.value() as u64 * Self::MAGIC_NUMBER + sid.value() as u64)
+    }
+
+    pub fn nid(&self) -> NetworkId {
+        NetworkId::from((self.0 / Self::MAGIC_NUMBER) as u16)
+    }
+
+    pub fn sid(&self) -> ServiceId {
+        ServiceId::from((self.0 % Self::MAGIC_NUMBER) as u16)
+    }
+}
+
+impl fmt::Display for MirakurunServiceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ({} {})", self.0, self.nid(), self.sid())
+    }
+}
+
+impl From<(NetworkId, ServiceId)> for MirakurunServiceId {
+    fn from((nid, sid): (NetworkId, ServiceId)) -> Self {
+        Self::new(nid, sid)
+    }
+}
+
+impl From<ServiceTriple> for MirakurunServiceId {
+    fn from(triple: ServiceTriple) -> Self {
+        Self::new(triple.nid(), triple.sid())
+    }
+}
+
+impl From<EventQuad> for MirakurunServiceId {
+    fn from(quad: EventQuad) -> Self {
+        Self::new(quad.nid(), quad.sid())
+    }
+}
+
+impl From<MirakurunProgramId> for MirakurunServiceId {
+    fn from(id: MirakurunProgramId) -> Self {
+        Self::new(id.nid(), id.sid())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Deserialize, Serialize)]
+pub struct MirakurunProgramId(u64);
+
+impl MirakurunProgramId {
+    const MAGIC_NUMBER: u64 = 100_000;
+
+    pub fn new(nid: NetworkId, sid: ServiceId, eid: EventId) -> Self {
+        // An unique identifier compatible with Mirakurun.
+        // See src/Mirakurun/ProgramItem.ts#L28 in Chinachu/Mirakurun.
+        MirakurunProgramId(
+            nid.value() as u64 * Self::MAGIC_NUMBER * Self::MAGIC_NUMBER
+                + sid.value() as u64 * Self::MAGIC_NUMBER + eid.value() as u64)
+    }
+
+    pub fn nid(&self) -> NetworkId {
+        NetworkId::from(
+            (self.0 / (Self::MAGIC_NUMBER * Self::MAGIC_NUMBER)) as u16)
+    }
+
+    pub fn sid(&self) -> ServiceId {
+        ServiceId::from(
+            ((self.0 / Self::MAGIC_NUMBER) % Self::MAGIC_NUMBER) as u16)
+    }
+
+    pub fn eid(&self) -> EventId {
+        EventId::from((self.0 % Self::MAGIC_NUMBER) as u16)
+    }
+}
+
+impl fmt::Display for MirakurunProgramId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ({} {} {})", self.0, self.nid(), self.sid(), self.eid())
+    }
+}
+
+impl From<EventQuad> for MirakurunProgramId {
+    fn from(quad: EventQuad) -> Self {
+        MirakurunProgramId::new(quad.nid(), quad.sid(), quad.eid())
+    }
+}
+
 #[derive(Debug)]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TunerModel {
+pub struct MirakurunTuner {
     pub index: usize,
     pub name: String,
     #[serde(rename = "types")]
     pub channel_types: Vec<ChannelType>,
     pub command: Option<String>,
     pub pid: Option<u32>,
-    pub users: Vec<TunerUserModel>,
+    pub users: Vec<MirakurunTunerUser>,
     pub is_available: bool,
     pub is_remote: bool,
     pub is_free: bool,
@@ -440,11 +478,138 @@ pub struct TunerModel {
 #[derive(Debug)]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TunerUserModel {
+pub struct MirakurunTunerUser {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
     pub priority: i32,
+}
+
+#[derive(Debug)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MirakurunChannel {
+    #[serde(rename = "type")]
+    pub channel_type: ChannelType,
+    pub channel: String,
+    pub name: String,
+    pub services: Vec<MirakurunChannelService>,
+}
+
+#[derive(Debug)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MirakurunChannelService {
+    pub id: MirakurunServiceId,
+    pub service_id: ServiceId,
+    pub network_id: NetworkId,
+    pub name: String,
+}
+
+#[derive(Debug)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MirakurunService {
+    pub id: MirakurunServiceId,
+    pub service_id: ServiceId,
+    pub network_id: NetworkId,
+    #[serde(rename = "type")]
+    pub service_type: u16,
+    #[serde(default)]
+    pub logo_id: i16,
+    #[serde(default)]
+    pub remote_control_key_id: u16,
+    pub name: String,
+    pub channel: MirakurunServiceChannel,
+    pub has_logo_data: bool,
+}
+
+impl From<EpgService> for MirakurunService {
+    fn from(sv: EpgService) -> Self {
+        Self {
+            id: (sv.nid, sv.sid).into(),
+            service_id: sv.sid,
+            network_id: sv.nid,
+            service_type: sv.service_type,
+            logo_id: sv.logo_id,
+            remote_control_key_id: sv.remote_control_key_id,
+            name: sv.name,
+            channel: sv.channel.into(),
+            has_logo_data: false,
+        }
+    }
+}
+
+#[derive(Debug)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MirakurunServiceChannel {
+    #[serde(rename = "type")]
+    pub channel_type: ChannelType,
+    pub channel: String,
+}
+
+impl From<EpgChannel> for MirakurunServiceChannel {
+    fn from(ch: EpgChannel) -> Self {
+        Self {
+            channel_type: ch.channel_type,
+            channel: ch.channel,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MirakurunProgram {
+    #[serde(skip)]  // for compatibility with Mirakurun
+    pub event_quad: EventQuad,
+    pub id: MirakurunProgramId,
+    pub event_id: EventId,
+    pub service_id: ServiceId,
+    pub network_id: NetworkId,
+    #[serde(with = "serde_jst")]
+    pub start_at: DateTime<Jst>,
+    #[serde(with = "serde_duration_in_millis")]
+    pub duration: Duration,
+    pub is_free: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extended: Option<IndexMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<EpgVideoInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<EpgAudioInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub genres: Option<Vec<EpgGenre>>,
+}
+
+impl MirakurunProgram {
+    pub fn new(quad: EventQuad) -> Self {
+        Self {
+            event_quad: quad,
+            id: quad.into(),
+            event_id: quad.eid(),
+            service_id: quad.sid(),
+            network_id: quad.nid(),
+            start_at: Jst.timestamp(0, 0),
+            duration: Duration::minutes(0),
+            is_free: false,
+            name: None,
+            description: None,
+            extended: None,
+            video: None,
+            audio: None,
+            genres: None,
+        }
+    }
+
+    pub fn _end_at(&self) -> DateTime<Jst> {
+        self.start_at + self.duration
+    }
 }
 
 #[cfg(test)]
@@ -453,22 +618,6 @@ mod test_helper {
 
     // Don't move the implementation outside the module.  That break the
     // type-safeness of integral identifiers like NetworkId.
-
-    impl From<u16> for NetworkId {
-        fn from(value: u16) -> NetworkId { NetworkId(value) }
-    }
-
-    impl From<u16> for TransportStreamId {
-        fn from(value: u16) -> TransportStreamId { TransportStreamId(value) }
-    }
-
-    impl From<u16> for ServiceId {
-        fn from(value: u16) -> ServiceId { ServiceId(value) }
-    }
-
-    impl From<u16> for EventId {
-        fn from(value: u16) -> EventId { EventId(value) }
-    }
 
     impl From<(u16, u16, u16)> for ServiceTriple {
         fn from(triple: (u16, u16, u16)) -> ServiceTriple {
@@ -502,5 +651,27 @@ mod tests {
                 r#"["GR", "BS", "CS", "SKY"]"#).unwrap(),
             vec![ChannelType::GR, ChannelType::BS,
                  ChannelType::CS, ChannelType::SKY]);
+    }
+
+    #[test]
+    fn test_mirakurun_service_id() {
+        let nid = 1.into();
+        let sid = 2.into();
+        let id = MirakurunServiceId::new(nid, sid);
+        assert_eq!(MirakurunServiceId(1_00002), id);
+        assert_eq!(nid, id.nid());
+        assert_eq!(sid, id.sid());
+    }
+
+    #[test]
+    fn test_mirakurun_program_id() {
+        let nid = 1.into();
+        let sid = 2.into();
+        let eid = 3.into();
+        let id = MirakurunProgramId::new(nid, sid, eid);
+        assert_eq!(MirakurunProgramId(1_00002_00003), id);
+        assert_eq!(nid, id.nid());
+        assert_eq!(sid, id.sid());
+        assert_eq!(eid, id.eid());
     }
 }

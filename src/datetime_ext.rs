@@ -14,7 +14,6 @@ use chrono::{
 pub struct Jst;
 
 impl Jst {
-    #[inline]
     pub fn now() -> DateTime<Jst> {
         Utc::now().with_timezone(&Jst)
     }

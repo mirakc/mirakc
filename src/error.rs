@@ -6,23 +6,24 @@ use failure::Fail;
 use mustache;
 use serde_json;
 use serde_yaml;
-use shell_words;
+
+use crate::command_util;
 
 #[derive(Debug, Fail)]
 pub enum Error {
-    #[fail(display = "Unavailable")]
-    Unavailable,
+    #[fail(display = "Tuner unavailable")]
+    TunerUnavailable,
     #[fail(display = "Service not found")]
     ServiceNotFound,
     #[fail(display = "Clock not synced")]
     ClockNotSynced,
     #[fail(display = "Program not found")]
     ProgramNotFound,
-    #[fail(display = "Tuner already used")]
-    TunerAlreadyUsed,
     #[fail(display = "Invalid session")]
     InvalidSession,
-    #[fail(display = "IO error: {}", 0)]
+    #[fail(display = "Command failed: {}", 0)]
+    CommandFailed(command_util::Error),
+    #[fail(display = "std::io::error: {}", 0)]
     IoError(io::Error),
     #[fail(display = "JSON error: {}", 0)]
     JsonError(serde_json::Error),
@@ -32,10 +33,16 @@ pub enum Error {
     MailboxError(actix::MailboxError),
     #[fail(display = "Mustache error: {}", 0)]
     MustacheError(mustache::Error),
-    #[fail(display = "Command parse error: {}", 0)]
-    CommandParseError(shell_words::ParseError),
     #[fail(display = "std::env error: {}", 0)]
     EnvVarError(env::VarError),
+    #[fail(display = "tokio::sync::broadcast error: {:?}", 0)]
+    TokioSyncBroadcastError(tokio::sync::broadcast::RecvError),
+}
+
+impl From<command_util::Error> for Error {
+    fn from(err: command_util::Error) -> Self {
+        Self::CommandFailed(err)
+    }
 }
 
 impl From<io::Error> for Error {
@@ -74,14 +81,14 @@ impl From<mustache::EncoderError> for Error {
     }
 }
 
-impl From<shell_words::ParseError> for Error {
-    fn from(err: shell_words::ParseError) -> Self {
-        Self::CommandParseError(err)
-    }
-}
-
 impl From<env::VarError> for Error {
     fn from(err: env::VarError) -> Self {
         Self::EnvVarError(err)
+    }
+}
+
+impl From<tokio::sync::broadcast::RecvError> for Error {
+    fn from(err: tokio::sync::broadcast::RecvError) -> Self {
+        Self::TokioSyncBroadcastError(err)
     }
 }

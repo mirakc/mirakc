@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet};
-use std::env;
+use std::fmt;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter};
+use std::io::{BufReader, BufWriter};
 use std::iter::FromIterator;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use actix::prelude::*;
 use chrono::{DateTime, Duration};
-use humantime;
 use indexmap::IndexMap;
 use log;
 use serde::{Deserialize, Serialize};
@@ -15,351 +15,217 @@ use serde::{Deserialize, Serialize};
 use crate::config::{Config, ChannelConfig};
 use crate::datetime_ext::*;
 use crate::error::Error;
-use crate::messages::{OpenTunerBy, OpenTunerMessage, UpdateEpgMessage};
+use crate::job;
 use crate::models::*;
-use crate::resource_manager;
-use crate::tuner::{TunerOutput, TunerUser};
 
-pub fn start(arbiter: &Arbiter, config: &Config) {
-    let epg = Epg::new(config);
-    arbiter.exec_fn(|| { epg.start(); });
+pub fn start(config: Arc<Config>) {
+    // Start on a new Arbiter instead of the system Arbiter.
+    //
+    // Epg performs several blocking processes like blow:
+    //
+    //   * Serialization and deserialization using serde
+    //   * Conversions into Mirakurun-compatible models
+    //
+    let addr = Epg::start_in_arbiter(&Arbiter::new(), |_| Epg::new(config));
+    actix::registry::SystemRegistry::set(addr);
+}
+
+pub async fn query_channels() -> Result<Vec<MirakurunChannel>, Error> {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            Ok(Vec::new())
+        } else {
+            Epg::from_registry().send(QueryChannelsMessage).await?
+        }
+    }
+}
+
+pub async fn query_services() -> Result<Vec<EpgService>, Error> {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            Ok(Vec::new())
+        } else {
+            Epg::from_registry().send(QueryServicesMessage).await?
+        }
+    }
+}
+
+pub async fn query_service_by_nid_sid(
+    nid: NetworkId,
+    sid: ServiceId,
+) -> Result<EpgService, Error> {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            match sid.value() {
+                0 => Err(Error::ServiceNotFound),
+                _ => Ok(EpgService {
+                    nid: nid,
+                    tsid: 0.into(),
+                    sid: sid,
+                    service_type: 1,
+                    logo_id: 0,
+                    remote_control_key_id: 0,
+                    name: "test".to_string(),
+                    channel: EpgChannel {
+                        name: "test".to_string(),
+                        channel_type: ChannelType::GR,
+                        channel: "test".to_string(),
+                        services: Vec::new(),
+                        excluded_services: Vec::new(),
+                    },
+                }),
+            }
+        } else {
+            Epg::from_registry().send(QueryServiceMessage::ByNidSid {
+                nid, sid
+            }).await?
+        }
+    }
+}
+
+pub async fn query_clock(triple: ServiceTriple) -> Result<Clock, Error> {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            match triple.sid().value() {
+                0 => Err(Error::ClockNotSynced),
+                _ => Ok(Clock { pcr: 0, time: 0 }),
+            }
+        } else {
+            Epg::from_registry().send(QueryClockMessage { triple }).await?
+        }
+    }
+}
+
+pub async fn query_programs() -> Result<Vec<MirakurunProgram>, Error> {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            Ok(Vec::new())
+        } else {
+            Epg::from_registry().send(QueryProgramsMessage).await?
+        }
+    }
+}
+
+pub async fn query_program_by_nid_sid_eid(
+    nid: NetworkId,
+    sid: ServiceId,
+    eid: EventId,
+) -> Result<MirakurunProgram, Error> {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            match eid.value() {
+                0 => Err(Error::ProgramNotFound),
+                _ => Ok(MirakurunProgram::new((nid, 0.into(), sid, eid).into())),
+            }
+        } else {
+            Epg::from_registry().send(QueryProgramMessage::ByNidSidEid {
+                nid, sid, eid
+            }).await?
+        }
+    }
+}
+
+pub fn update_services(services: Vec<EpgService>) {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            let _ = services;
+        } else {
+            Epg::from_registry().do_send(UpdateServicesMessage { services });
+        }
+    }
+}
+
+pub fn update_clocks(clocks: HashMap<ServiceTriple, Clock>) {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            let _ = clocks;
+        } else {
+            Epg::from_registry().do_send(UpdateClocksMessage { clocks });
+        }
+    }
+}
+
+pub fn update_schedules(sections: Vec<EitSection>) {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            let _ = sections;
+        } else {
+            Epg::from_registry().do_send(UpdateSchedulesMessage { sections });
+        }
+    }
+}
+
+pub fn flush_schedules() {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+        } else {
+            Epg::from_registry().do_send(FlushSchedulesMessage);
+        }
+    }
 }
 
 struct Epg {
-    cache_dir: PathBuf,
-    scan_services: String,
-    sync_clock: String,
-    collect_eits: String,
+    cache_dir: Option<PathBuf>,
     channels: Vec<ChannelConfig>,
     services: Vec<EpgService>,
+    clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
-    max_elapsed: Option<Duration>,
+    programs: HashMap<EventQuad, MirakurunProgram>,
 }
 
 impl Epg {
-    #[inline]
-    fn scan_services_time_limit(channel_type: ChannelType) -> Duration {
-        match channel_type {
-            ChannelType::GR => Duration::seconds(10),
-            ChannelType::BS => Duration::seconds(20),
-            _ => Duration::seconds(30),
-        }
-    }
-
-    #[inline]
-    fn collect_eits_time_limit(channel_type: ChannelType) -> Duration {
-        match channel_type {
-            ChannelType::GR => Duration::minutes(1) + Duration::seconds(10),
-            ChannelType::BS => Duration::minutes(6) + Duration::seconds(30),
-            _ => Duration::minutes(10),
-        }
-    }
-
-    #[inline]
-    fn format_duration(duration: Duration) -> humantime::FormattedDuration {
-        humantime::format_duration(duration.to_std().unwrap())
-    }
-
-    fn new(config: &Config) -> Self {
+    fn new(config: Arc<Config>) -> Self {
         let channels = config.channels
             .iter()
             .filter(|config| !config.disabled)
             .cloned()
             .collect();
 
+        let cache_dir = config.epg.cache_dir.clone().map(PathBuf::from);
         Epg {
-            cache_dir: PathBuf::from(&config.epg_cache_dir),
-            scan_services: config.tools.scan_services.clone(),
-            sync_clock: config.tools.sync_clock.clone(),
-            collect_eits: config.tools.collect_eits.clone(),
+            cache_dir,
             channels,
             services: Vec::new(),
+            clocks: HashMap::new(),
             schedules: HashMap::new(),
-            max_elapsed: None,
+            programs: HashMap::new(),
         }
     }
 
-    fn scan_services(&mut self, ctx: &mut Context<Self>) {
-        let now = Jst::now();
-
-        let channels = self.collect_channels_for_scanning_services();
-        let stream = futures::stream::iter_ok::<_, Error>(channels);
-        let stream = actix::fut::wrap_stream::<_, Self>(stream);
-
-        stream
-            .map(|ch, _epg, _ctx| {
-                log::info!("Scanning services in {}...", ch.name);
-                ch
-            })
-            .and_then(|ch, _epg, _ctx| {
-                let msg = OpenTunerMessage {
-                    by: ch.clone().into(),
-                    user: TunerUser::background("epg".to_string()),
-                    duration: Some(
-                        Self::scan_services_time_limit(ch.channel_type)),
-                    preprocess: false,
-                    postprocess: false,
-                };
-
-                let req = resource_manager::open_tuner(msg)
-                    .map(|output| (ch, output));
-
-                actix::fut::wrap_future(req)
-            })
-            .and_then(|(ch, output), epg, _ctx| {
-                match output.pipe(&epg.scan_services) {
-                    Ok(output) => actix::fut::ok((ch, output)),
-                    Err(err) => actix::fut::err(Error::from(err)),
-                }
-            })
-            .and_then(|(ch, output), _epg, _ctx| {
-                let reader = BufReader::new(output);
-                match serde_json::from_reader::<_, Vec<TsService>>(reader) {
-                    Ok(services) => {
-                        log::info!("Found {} services in {}",
-                                   services.len(), ch.name);
-                        let mut epg_services = Vec::new();
-                        for service in services.iter() {
-                            epg_services.push(EpgService::from((&ch, service)));
-                        }
-                        actix::fut::ok(Some(epg_services))
-                    }
-                    Err(_) => {
-                        log::warn!("No service.  Maybe, the broadcast service \
-                                    has been suspended.");
-                        actix::fut::ok(None)
-                    }
-                }
-            })
-            .fold(Vec::new(), |mut result, services, _epg, _ctx| {
-                match services {
-                    Some(mut services) => result.append(&mut services),
-                    None => (),
-                }
-                actix::fut::ok::<_, Error, Self>(result)
-            })
-            .and_then(|services, epg, _ctx| {
-                epg.services = services;
-                match epg.save_services(&epg.services) {
-                    Ok(_) => actix::fut::ok(()),
-                    Err(err) => actix::fut::err(err),
-                }
-            })
-            .then(move |result, _epg, ctx| {
-                let elapsed = Jst::now() - now;
-                let duration = match result {
-                    Ok(_) => {
-                        log::info!("Done, {} elapsed",
-                                   Self::format_duration(elapsed));
-                        Duration::hours(23)
-                    }
-                    Err(err) => {
-                        log::error!("Failed: {}", err);
-                        Duration::hours(1)
-                    }
-                };
-                log::info!("Run after {}", Self::format_duration(duration));
-                ctx.run_later(
-                    duration.to_std().unwrap(), Self::scan_services);
-                actix::fut::ok(())
-            })
-            .wait(ctx);
-    }
-
-    fn sync_clocks(&mut self, ctx: &mut Context<Self>) {
-        let channels = self.collect_channels_for_scanning_services();
-        let stream = futures::stream::iter_ok::<_, Error>(channels);
-        let stream = actix::fut::wrap_stream::<_, Self>(stream);
-
-        stream
-            .map(|ch, _epg, _ctx| {
-                log::info!("Sync clock for {}...", ch.name);
-                ch
-            })
-            .and_then(|ch, _epg, _ctx| {
-                let msg = OpenTunerMessage {
-                    by: ch.clone().into(),
-                    user: TunerUser::background("epg".to_string()),
-                    duration: None,
-                    preprocess: false,
-                    postprocess: false,
-                };
-
-                let req = resource_manager::open_tuner(msg)
-                    .map(|output| (ch, output));
-
-                actix::fut::wrap_future(req)
-            })
-            .and_then(|(ch, output), epg, _ctx| {
-                match output.pipe(&epg.sync_clock) {
-                    Ok(output) => actix::fut::ok((ch, output)),
-                    Err(err) => actix::fut::err(Error::from(err)),
-                }
-            })
-            .and_then(|(_ch, output), _epg, _ctx| {
-                let reader = BufReader::new(output);
-                match serde_json::from_reader::<_, Vec<SyncClock>>(reader) {
-                    Ok(clocks) => {
-                        actix::fut::ok(Some(clocks))
-                    }
-                    Err(_) => {
-                        log::warn!("No data.  Maybe, the broadcast service \
-                                    has been suspended.");
-                        actix::fut::ok(None)
-                    }
-                }
-            })
-            .fold(Vec::new(), |mut result, clocks, _epg, _ctx| {
-                match clocks {
-                    Some(mut clocks) => result.append(&mut clocks),
-                    None => (),
-                }
-                actix::fut::ok::<_, Error, Self>(result)
-            })
-            .and_then(|clocks, epg, _ctx| {
-                let mut clock_map = HashMap::new();
-                for clock in clocks.iter() {
-                    let triple = ServiceTriple::from((
-                        clock.nid, clock.tsid, clock.sid));
-                    clock_map.insert(triple, clock.clock.clone());
-                }
-                match epg.save_clocks(&clock_map) {
-                    Ok(_) => actix::fut::ok(clock_map),
-                    Err(err) => actix::fut::err(err),
-                }
-            })
-            .and_then(|clocks, _epg, _ctx| {
-                resource_manager::update_clocks(clocks);
-                actix::fut::ok(())
-            })
-            .then(move |result, _epg, ctx| {
-                let duration = match result {
-                    Ok(_) => {
-                        log::info!("Done");
-                        Duration::hours(17)
-                    }
-                    Err(err) => {
-                        log::error!("Failed: {}", err);
-                        Duration::hours(1)
-                    }
-                };
-                log::info!("Run after {}", Self::format_duration(duration));
-                ctx.run_later(
-                    duration.to_std().unwrap(), Self::sync_clocks);
-                actix::fut::ok(())
-            })
-            .wait(ctx);
-    }
-
-    fn update_schedules(&mut self, ctx: &mut Context<Self>) {
-        let now = Jst::now();
-
-        let remaining = now.date().succ().and_hms(0, 0, 0) - now;
-        if remaining < self.estimate_time() {
-            log::info!("This task may not be completed this day");
-            log::info!("Postpone the task until next day \
-                        in order to keep consistency of EPG data");
-            let duration = remaining + Duration::seconds(10);
-            ctx.run_later(duration.to_std().unwrap(), Self::update_schedules);
-            return;
-        }
-
-        self.prepare_schedules(now);
-
-        let channels =
-            self.collect_channels_for_collecting_programs(&self.services);
-        let stream = futures::stream::iter_ok::<_, Error>(channels);
-        let stream = actix::fut::wrap_stream::<_, Self>(stream);
-
-        stream
-            .map(|(nid, ch), _epg, _ctx| {
-                log::info!("Updating schedule for {}...", ch.name);
-                (nid, ch)
-            })
-            .and_then(|(nid, ch), _epg, _ctx| {
-                let msg = OpenTunerMessage {
-                    by: ch.clone().into(),
-                    user: TunerUser::background("epg".to_string()),
-                    duration: Some(
-                        Self::collect_eits_time_limit(ch.channel_type)),
-                    preprocess: false,
-                    postprocess: false,
-                };
-
-                let req = resource_manager::open_tuner(msg)
-                    .map(move |output| (nid, ch, output));
-
-                actix::fut::wrap_future(req)
-            })
-            .and_then(|(_nid, _ch, output), epg, _ctx| {
-                match output.pipe(&epg.collect_eits) {
-                    Ok(output) => actix::fut::ok(output),
-                    Err(err) => actix::fut::err(Error::from(err)),
-                }
-            })
-            .and_then(|output, epg, _ctx| {
-                match epg.update_tables(output) {
-                    Ok(_) => actix::fut::ok(()),
-                    Err(err) => actix::fut::err(err),
-                }
-            })
-            .finish()
-            .and_then(|_, epg, _ctx| {
-                match epg.save_epg_data() {
-                    Ok(_) => actix::fut::ok(()),
-                    Err(err) => actix::fut::err(err),
-                }
-            })
-            .and_then(|_, epg, _ctx| {
-                epg.send_update_epg_message();
-                actix::fut::ok(())
-            })
-            .then(move |result, epg, ctx| {
-                let elapsed = Jst::now() - now;
-                let duration = match result {
-                    Ok(_) => {
-                        log::info!("Done, {} elapsed",
-                                   Self::format_duration(elapsed));
-                        epg.update_max_elapsed(elapsed);
-                        Duration::minutes(15)
-                    }
-                    Err(err) => {
-                        log::error!("Failed: {}", err);
-                        Duration::minutes(5)
-                    }
-                };
-                log::info!("Run after {}", Self::format_duration(duration));
-                ctx.run_later(
-                    duration.to_std().unwrap(), Self::update_schedules);
-                actix::fut::ok(())
-            })
-            .wait(ctx);
-    }
-
-    fn estimate_time(&self) -> Duration {
-        match self.max_elapsed {
-            Some(max_elapsed) => max_elapsed + Duration::seconds(30),
-            None => Duration::hours(1),
+    fn update_services(&mut self, services: Vec<EpgService>) {
+        self.services = services;
+        match self.save_services() {
+            Ok(_) => (),
+            Err(err) => log::error!("Failed to save services: {}", err),
         }
     }
 
-    fn update_max_elapsed(&mut self, elapsed: Duration) {
-        let do_update = match self.max_elapsed {
-            Some(max_elapsed) if elapsed <= max_elapsed => false,
-            _ => true,
-        };
-        if do_update {
-            log::info!("Updated the max elapsed time");
-            self.max_elapsed = Some(elapsed);
+    fn update_clocks(
+        &mut self,
+        clocks: HashMap<ServiceTriple, Clock>) {
+        self.clocks = clocks;
+        match self.save_clocks() {
+            Ok(_) => (),
+            Err(err) => log::error!("Failed to save clocks: {}", err),
         }
     }
 
-    fn collect_channels_for_scanning_services(&self) -> Vec<EpgChannel> {
-        self.channels
-            .iter()
-            .cloned()
-            .map(EpgChannel::from)
-            .collect()
+    fn update_schedules(&mut self, sections: Vec<EitSection>) {
+        self.prepare_schedules(Jst::now());
+        for section in sections.into_iter() {
+            let triple = section.service_triple();
+            self.schedules.entry(triple).and_modify(move |sched| {
+                sched.update(section);
+            });
+        }
+    }
+
+    fn flush_schedules(&mut self) {
+        self.programs = self.export_programs();
+        match self.save_schedules() {
+            Ok(_) => (),
+            Err(err) => log::error!("Failed to save schedules: {}", err),
+        }
     }
 
     fn prepare_schedules(&mut self, timestamp: DateTime<Jst>) {
@@ -369,8 +235,7 @@ impl Epg {
         let midnight = timestamp.date().and_hms(0, 0, 0);
 
         for service in self.services.iter() {
-            let triple = ServiceTriple::from(
-                (service.nid, service.tsid, service.sid));
+            let triple = service.triple();
             self.schedules
                 .entry(triple)
                 .and_modify(|sched| {
@@ -392,125 +257,106 @@ impl Epg {
         }
     }
 
-    fn collect_channels_for_collecting_programs(
-        &self,
-        services: &[EpgService],
-    ) -> HashMap<NetworkId, EpgChannel> {
-        let mut map: HashMap<NetworkId, EpgChannel> = HashMap::new();
-        for sv in services.iter() {
-            map.entry(sv.nid).and_modify(|ch| {
-                ch.excluded_services.extend(&sv.channel.excluded_services);
-            }).or_insert(sv.channel.clone());
-        }
-        map
-    }
-
-    fn update_tables(&mut self, output: TunerOutput) -> Result<(), Error> {
-        // TODO: use async/await
-        let mut reader = BufReader::new(output);
-        let mut json = String::new();
-        let mut num_sections = 0;
-        while reader.read_line(&mut json)? > 0 {
-            let section = serde_json::from_str::<EitSection>(&json)?;
-            let triple = section.service_triple();
-            self.schedules.entry(triple).and_modify(|sched| {
-                sched.update(section);
-            });
-            json.clear();
-            num_sections += 1;
-        }
-        log::debug!("Collected {} EIT sections", num_sections);
-        return Ok(());
-    }
-
-    fn load_epg_data(&mut self) -> Result<(), Error> {
-        self.load_schedules()?;
-        Ok(())
-    }
-
     fn load_services(&mut self) -> Result<(), Error> {
-        let json_path = self.cache_dir.join("services.json");
-        log::debug!("Loading schedules from {}...", json_path.display());
-        let reader = BufReader::new(File::open(&json_path)?);
-        self.services = serde_json::from_reader(reader)?;
-        log::info!("Loaded services from {}...", json_path.display());
+        match self.cache_dir {
+            Some(ref cache_dir) => {
+                let json_path = cache_dir.join("services.json");
+                log::debug!("Loading schedules from {}...",
+                            json_path.display());
+                let reader = BufReader::new(File::open(&json_path)?);
+                self.services = serde_json::from_reader(reader)?;
+                log::info!("Loaded {} services", self.services.len());
+            }
+            None => {
+                log::warn!("No epg.cache-dir specified, skip to load services");
+            }
+        }
         Ok(())
     }
 
-    fn load_clocks(&mut self) -> Result<HashMap<ServiceTriple ,Clock>, Error> {
-        let json_path = self.cache_dir.join("clocks.json");
-        log::debug!("Loading clocks from {}...", json_path.display());
-        let reader = BufReader::new(File::open(&json_path)?);
-        let clocks = serde_json::from_reader(reader)?;
-        log::info!("Loaded clocks from {}...", json_path.display());
-        Ok(clocks)
+    fn load_clocks(&mut self) -> Result<(), Error> {
+        match self.cache_dir {
+            Some(ref cache_dir) => {
+                let json_path = cache_dir.join("clocks.json");
+                log::debug!("Loading clocks from {}...", json_path.display());
+                let reader = BufReader::new(File::open(&json_path)?);
+                self.clocks = serde_json::from_reader(reader)?;
+                log::info!("Loaded {} clocks", self.clocks.len());
+            }
+            None => {
+                log::warn!("No epg.cache-dir specified, skip to load clock");
+            }
+        }
+        Ok(())
     }
 
     fn load_schedules(&mut self) -> Result<(), Error> {
-        let json_path = self.cache_dir.join("schedules.json");
-        log::debug!("Loading schedules from {}...", json_path.display());
-        let reader = BufReader::new(File::open(&json_path)?);
-        self.schedules = serde_json::from_reader(reader)?;
-        log::info!("Loaded schedules from {}...", json_path.display());
+        match self.cache_dir {
+            Some(ref cache_dir) => {
+                let json_path = cache_dir.join("schedules.json");
+                log::debug!("Loading schedules from {}...", json_path.display());
+                let reader = BufReader::new(File::open(&json_path)?);
+                self.schedules = serde_json::from_reader(reader)?;
+                log::info!("Loaded schedules for {} services", self.schedules.len());
+            }
+            None => {
+                log::warn!("No epg.cache-dir specified, skip to load");
+            }
+        }
         Ok(())
     }
 
-    fn save_services(&self, services: &Vec<EpgService>) -> Result<(), Error> {
-        let json_path = self.cache_dir.join("services.json");
-        log::debug!("Saving services into {}...", json_path.display());
-        let writer = BufWriter::new(File::create(&json_path)?);
-        serde_json::to_writer(writer, services)?;
-        log::info!("Saved services into {}...", json_path.display());
+    fn save_services(&self) -> Result<(), Error> {
+        match self.cache_dir {
+            Some(ref cache_dir) => {
+                let json_path = cache_dir.join("services.json");
+                log::debug!("Saving services into {}...", json_path.display());
+                let writer = BufWriter::new(File::create(&json_path)?);
+                serde_json::to_writer(writer, &self.services)?;
+                log::info!("Saved {} services", self.services.len());
+            }
+            None => {
+                log::warn!("No epg.cache-dir specified, skip to save services");
+            }
+        }
         Ok(())
     }
 
-    fn save_clocks(
-        &self,
-        clocks: &HashMap<ServiceTriple, Clock>
-    ) -> Result<(), Error> {
-        let json_path = self.cache_dir.join("clocks.json");
-        log::debug!("Saving clocks into {}...", json_path.display());
-        let writer = BufWriter::new(File::create(&json_path)?);
-        serde_json::to_writer(writer, clocks)?;
-        log::info!("Saved clocks into {}...", json_path.display());
-        Ok(())
-    }
-
-    fn save_epg_data(&self) -> Result<(), Error> {
-        self.save_schedules()?;
+    fn save_clocks(&self) -> Result<(), Error> {
+        match self.cache_dir {
+            Some(ref cache_dir) => {
+                let json_path = cache_dir.join("clocks.json");
+                log::debug!("Saving clocks into {}...", json_path.display());
+                let writer = BufWriter::new(File::create(&json_path)?);
+                serde_json::to_writer(writer, &self.clocks)?;
+                log::info!("Saved {} clocks", self.clocks.len());
+            }
+            None => {
+                log::warn!("No epg.cache-dir specified, skip to save clocks");
+            }
+        }
         Ok(())
     }
 
     fn save_schedules(&self) -> Result<(), Error> {
-        let json_path = self.cache_dir.join("schedules.json");
-        log::debug!("Saving schedules into {}...", json_path.display());
-        let writer = BufWriter::new(File::create(&json_path)?);
-        serde_json::to_writer(writer, &self.schedules)?;
-        log::info!("Saved schedules into {}...", json_path.display());
+        match self.cache_dir {
+            Some(ref cache_dir) => {
+                let json_path = cache_dir.join("schedules.json");
+                log::debug!("Saving schedules into {}...", json_path.display());
+                let writer = BufWriter::new(File::create(&json_path)?);
+                serde_json::to_writer(writer, &self.schedules)?;
+                log::info!("Saved schedules for {} services",
+                           self.schedules.len());
+            }
+            None => {
+                log::warn!(
+                    "No epg.cache-dir specified, skip to save schedules");
+            }
+        }
         Ok(())
     }
 
-    fn send_update_epg_message(&self) {
-        let services = self.export_services();
-        log::info!("Exported {} services", services.len());
-        let programs = self.export_programs();
-        log::info!("Exported {} programs", programs.len());
-        let msg = UpdateEpgMessage { services, programs };
-        resource_manager::update_epg(msg);
-    }
-
-    fn export_services(&self) -> Vec<ServiceModel> {
-        self.services
-            .iter()
-            .filter(|sv| sv.is_exportable())
-            .cloned()
-            .map(|sv| sv.into())
-            .collect()
-    }
-
-    fn export_programs(
-        &self
-    ) -> HashMap<MirakurunProgramId, ProgramModel> {
+    fn export_programs(&self) -> HashMap<EventQuad, MirakurunProgram> {
         let mut programs = HashMap::new();
         for service in self.services.iter().filter(|sv| sv.is_exportable()) {
             let triple = service.triple();
@@ -527,33 +373,324 @@ impl Epg {
 impl Actor for Epg {
     type Context = Context<Self>;
 
-    fn started(&mut self, ctx: &mut Self::Context) {
-        log::info!("Started");
-        match self.load_services() {
-            Ok(_) => (),
-            Err(err) => log::warn!("Failed to load services: {}", err),
-        };
-        match self.load_clocks() {
-            Ok(clocks) => resource_manager::update_clocks(clocks),
-            Err(err) => log::warn!("Failed to load clocks: {}", err),
-        };
-        match self.load_epg_data() {
-            Ok(_) => self.send_update_epg_message(),
-            Err(err) => log::warn!("Failed to load EPG data: {}", err),
+    fn started(&mut self, _ctx: &mut Self::Context) {
+        log::debug!("Started");
+        if let Err(err) = self.load_services() {
+            log::error!("Failed to load services: {}", err);
         }
-        if env::var_os("MIRAKC_DEBUG_DISABLE_EPG_TASKS").is_some() {
-            return;
+        if self.services.is_empty() {
+            log::info!("No services are avaiable, scan services immediately");
+            job::invoke_scan_services();
         }
-        ctx.run_later(
-            Duration::seconds(0).to_std().unwrap(), Self::scan_services);
-        ctx.run_later(
-            Duration::seconds(5).to_std().unwrap(), Self::sync_clocks);
-        ctx.run_later(
-            Duration::seconds(10).to_std().unwrap(), Self::update_schedules);
+        if let Err(err) = self.load_clocks() {
+            log::error!("Failed to load clocks: {}", err);
+        }
+        if self.clocks.is_empty() {
+            log::info!("No clocks are available, sync clocks immediately");
+            job::invoke_sync_clocks();
+        }
+        if let Err(err) = self.load_schedules() {
+            log::error!("Failed to load schedules: {}", err);
+        }
+        self.programs = self.export_programs();
+        log::info!("Loaded {} programs", self.programs.len());
+        log::info!("Always update schedules at startup");
+        job::invoke_update_schedules();
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
-        log::info!("Stopped");
+        log::debug!("Stopped");
+    }
+}
+
+impl Supervised for Epg {}
+impl SystemService for Epg {}
+
+impl Default for Epg {
+    fn default() -> Self {
+        unreachable!();
+    }
+}
+
+// query channels
+
+struct QueryChannelsMessage;
+
+impl Message for QueryChannelsMessage {
+    type Result = Result<Vec<MirakurunChannel>, Error>;
+}
+
+impl Handler<QueryChannelsMessage> for Epg {
+    type Result = Result<Vec<MirakurunChannel>, Error>;
+
+    fn handle(
+        &mut self,
+        _: QueryChannelsMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle QueryChannelMessage");
+        let channels = self.channels.iter()
+            .map(|config| MirakurunChannel {
+                channel_type: config.channel_type,
+                channel:  config.channel.clone(),
+                name: config.name.clone(),
+                services: self.services
+                    .iter()
+                    .filter(|sv| {
+                        sv.channel.channel_type == config.channel_type &&
+                            sv.channel.channel == config.channel
+                    })
+                    .cloned()
+                    .map(|sv| sv.into())
+                    .collect()
+            })
+            .collect::<Vec<MirakurunChannel>>();
+
+        Ok(channels)
+    }
+}
+
+// query services
+
+struct QueryServicesMessage;
+
+impl Message for QueryServicesMessage {
+    type Result = Result<Vec<EpgService>, Error>;
+}
+
+impl Handler<QueryServicesMessage> for Epg {
+    type Result = Result<Vec<EpgService>, Error>;
+
+    fn handle(
+        &mut self,
+        _: QueryServicesMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle QueryServicesMessage");
+        Ok(self.services.iter()
+           .filter(|sv| sv.is_exportable())
+           .cloned()
+           .collect())
+    }
+}
+
+// query service
+
+enum QueryServiceMessage {
+    // For Mirakurun-compatible Web API
+    ByNidSid { nid: NetworkId, sid: ServiceId },
+}
+
+impl fmt::Display for QueryServiceMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueryServiceMessage::ByNidSid { nid, sid } =>
+                write!(f, "QueryService By ({}, {})", nid, sid),
+        }
+    }
+}
+
+impl Message for QueryServiceMessage {
+    type Result = Result<EpgService, Error>;
+}
+
+impl Handler<QueryServiceMessage> for Epg {
+    type Result = Result<EpgService, Error>;
+
+    fn handle(
+        &mut self,
+        msg: QueryServiceMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("{}", msg);
+        match msg {
+            QueryServiceMessage::ByNidSid { nid, sid } => {
+                self.services
+                    .iter()
+                    .find(|sv| sv.nid == nid && sv.sid == sid)
+                    .cloned()
+                    .ok_or(Error::ServiceNotFound)
+            }
+        }
+    }
+}
+
+// query clock
+
+struct QueryClockMessage {
+    triple: ServiceTriple,
+}
+
+impl Message for QueryClockMessage {
+    type Result = Result<Clock, Error>;
+}
+
+impl Handler<QueryClockMessage> for Epg {
+    type Result = Result<Clock, Error>;
+
+    fn handle(
+        &mut self,
+        msg: QueryClockMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle QueryClockMessage");
+        self.clocks.get(&msg.triple).cloned().ok_or(Error::ClockNotSynced)
+    }
+}
+
+// query programs
+
+struct QueryProgramsMessage;
+
+impl Message for QueryProgramsMessage {
+    type Result = Result<Vec<MirakurunProgram>, Error>;
+}
+
+impl Handler<QueryProgramsMessage> for Epg {
+    type Result = Result<Vec<MirakurunProgram>, Error>;
+
+    fn handle(
+        &mut self,
+        _: QueryProgramsMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle QueryProgramsMessage");
+        Ok(self.programs.values().cloned().collect())
+    }
+}
+
+// query program
+
+enum QueryProgramMessage {
+    // For Mirakurun-compatible Web API
+    ByNidSidEid { nid: NetworkId, sid: ServiceId, eid: EventId },
+}
+
+impl fmt::Display for QueryProgramMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueryProgramMessage::ByNidSidEid { nid, sid, eid } =>
+                write!(f, "QueryProgram By ({}, {}, {})", nid, sid, eid),
+        }
+    }
+}
+
+impl Message for QueryProgramMessage {
+    type Result = Result<MirakurunProgram, Error>;
+}
+
+impl Handler<QueryProgramMessage> for Epg {
+    type Result = Result<MirakurunProgram, Error>;
+
+    fn handle(
+        &mut self,
+        msg: QueryProgramMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("{}", msg);
+        match msg {
+            QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
+                let tsid = self.services
+                    .iter()
+                    .find(|sv| sv.nid == nid && sv.sid == sid)
+                    .map(|sv| sv.tsid)
+                    .ok_or(Error::ProgramNotFound)?;
+                self.programs
+                    .get(&EventQuad::new(nid, tsid, sid, eid))
+                    .cloned()
+                    .ok_or(Error::ProgramNotFound)
+            }
+        }
+    }
+}
+
+// update services
+
+struct UpdateServicesMessage {
+    services: Vec<EpgService>,
+}
+
+impl Message for UpdateServicesMessage {
+    type Result = ();
+}
+
+impl Handler<UpdateServicesMessage> for Epg {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: UpdateServicesMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle UpdateServicesMessage");
+        self.update_services(msg.services);
+    }
+}
+
+// update clocks
+
+struct UpdateClocksMessage {
+    clocks: HashMap<ServiceTriple, Clock>,
+}
+
+impl Message for UpdateClocksMessage {
+    type Result = ();
+}
+
+impl Handler<UpdateClocksMessage> for Epg {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: UpdateClocksMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle UpdateClocksMessage");
+        self.update_clocks(msg.clocks);
+    }
+}
+
+// update schedules
+
+struct UpdateSchedulesMessage {
+    sections: Vec<EitSection>,
+}
+
+impl Message for UpdateSchedulesMessage {
+    type Result = ();
+}
+
+impl Handler<UpdateSchedulesMessage> for Epg {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: UpdateSchedulesMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle UpdateSchedulesMessage");
+        self.update_schedules(msg.sections);
+    }
+}
+
+// flush schedules
+
+struct FlushSchedulesMessage;
+
+impl Message for FlushSchedulesMessage {
+    type Result = ();
+}
+
+impl Handler<FlushSchedulesMessage> for Epg {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        _: FlushSchedulesMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle FlushSchedulesMessage");
+        self.flush_schedules();
     }
 }
 
@@ -604,12 +741,12 @@ impl EpgSchedule {
     fn collect_epg_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<MirakurunProgramId, ProgramModel>) {
+        programs: &mut HashMap<EventQuad, MirakurunProgram>) {
         for event in self.overnight_events.iter() {
             let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
-                .entry(MirakurunProgramId::new(quad))
-                .or_insert(ProgramModel::new(quad))
+                .entry(quad)
+                .or_insert(MirakurunProgram::new(quad))
                 .update(event);
         }
         for table in self.tables.iter() {
@@ -653,7 +790,7 @@ impl EpgTable {
     fn collect_epg_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<MirakurunProgramId, ProgramModel>) {
+        programs: &mut HashMap<EventQuad, MirakurunProgram>) {
         for segment in self.segments.iter() {
             segment.collect_epg_programs(triple, programs)
         }
@@ -698,7 +835,7 @@ impl EpgSegment {
     fn collect_epg_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<MirakurunProgramId, ProgramModel>) {
+        programs: &mut HashMap<EventQuad, MirakurunProgram>) {
         for section in self.sections.iter() {
             if let Some(section) = section {
                 section.collect_epg_programs(triple, programs)
@@ -732,12 +869,12 @@ impl EpgSection {
     fn collect_epg_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<MirakurunProgramId, ProgramModel>) {
+        programs: &mut HashMap<EventQuad, MirakurunProgram>) {
         for event in self.events.iter() {
             let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
-                .entry(MirakurunProgramId::new(quad))
-                .or_insert(ProgramModel::new(quad))
+                .entry(quad)
+                .or_insert(MirakurunProgram::new(quad))
                 .update(event);
         }
     }
@@ -755,7 +892,7 @@ impl From<EitSection> for EpgSection {
 #[derive(Clone)]
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct EitSection {
+pub struct EitSection {
     original_network_id: NetworkId,
     transport_stream_id: TransportStreamId,
     service_id: ServiceId,
@@ -794,7 +931,7 @@ impl EitSection {
 #[derive(Clone)]
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct EitEvent {
+pub struct EitEvent {
     event_id: EventId,
     #[serde(with = "serde_jst")]
     start_time: DateTime<Jst>,
@@ -866,24 +1003,6 @@ impl From<ChannelConfig> for EpgChannel {
     }
 }
 
-impl Into<OpenTunerBy> for EpgChannel {
-    fn into(self) -> OpenTunerBy {
-        OpenTunerBy::Channel {
-            channel_type: self.channel_type,
-            channel: self.channel,
-        }
-    }
-}
-
-impl Into<ServiceChannelModel> for EpgChannel {
-    fn into(self) -> ServiceChannelModel {
-        ServiceChannelModel {
-            channel_type: self.channel_type,
-            channel: self.channel,
-        }
-    }
-}
-
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TsService {
@@ -902,21 +1021,21 @@ pub struct TsService {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpgService {
-    nid: NetworkId,
-    tsid: TransportStreamId,
-    sid: ServiceId,
+    pub nid: NetworkId,
+    pub tsid: TransportStreamId,
+    pub sid: ServiceId,
     #[serde(rename = "type")]
-    service_type: u16,
+    pub service_type: u16,
     #[serde(default)]
-    logo_id: i16,
+    pub logo_id: i16,
     #[serde(default)]
-    remote_control_key_id: u16,
-    name: String,
-    channel: EpgChannel,
+    pub remote_control_key_id: u16,
+    pub name: String,
+    pub channel: EpgChannel,
 }
 
 impl EpgService {
-    fn triple(&self) -> ServiceTriple {
+    pub fn triple(&self) -> ServiceTriple {
         ServiceTriple::new(self.nid, self.tsid, self.sid)
     }
 
@@ -948,32 +1067,18 @@ impl From<(&EpgChannel, &TsService)> for EpgService {
     }
 }
 
-impl Into<ServiceModel> for EpgService {
-    fn into(self) -> ServiceModel {
-        ServiceModel {
-            id: MirakurunServiceId::new((self.nid, self.tsid, self.sid).into()),
+impl Into<MirakurunChannelService> for EpgService {
+    fn into(self) -> MirakurunChannelService {
+        MirakurunChannelService {
+            id: self.triple().into(),
             service_id: self.sid,
             network_id: self.nid,
-            service_type: self.service_type,
-            logo_id: self.logo_id,
-            remote_control_key_id: self.remote_control_key_id,
             name: self.name,
-            channel: self.channel.into(),
-            has_logo_data: false,
         }
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SyncClock {
-    nid: NetworkId,
-    tsid: TransportStreamId,
-    sid: ServiceId,
-    clock: Clock,
-}
-
-impl ProgramModel {
+impl MirakurunProgram {
     fn update(&mut self, event: &EitEvent) {
         self.start_at = event.start_time.clone();
         self.duration = event.duration.clone();
@@ -1012,7 +1117,6 @@ impl ProgramModel {
 mod tests {
     use super::*;
     use chrono::{Date, TimeZone};
-    use serde_yaml;
 
     #[test]
     fn test_epg_service_is_exportable() {
@@ -1042,15 +1146,15 @@ mod tests {
     fn test_epg_prepare_schedule() {
         let triple = ServiceTriple::from((1, 2, 3));
         let channel_type = ChannelType::GR;
-        let config = create_config();
+        let config = Arc::new(Config::default());
 
-        let mut epg = Epg::new(&config);
+        let mut epg = Epg::new(config.clone());
         epg.services = vec![create_epg_service(triple, channel_type)];
         epg.prepare_schedules(Jst::now());
         assert_eq!(epg.schedules.len(), 1);
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        let mut epg = Epg::new(&config);
+        let mut epg = Epg::new(config.clone());
         epg.services = vec![create_epg_service(triple, channel_type)];
         let sched = create_epg_schedule_with_overnight_events(triple);
         epg.schedules.insert(triple, sched);
@@ -1270,18 +1374,6 @@ mod tests {
             Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
         assert!(!event.is_overnight_event(
             Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
-    }
-
-    fn create_config() -> Config {
-        serde_yaml::from_str::<Config>(r#"
-            tools:
-              scan-services: scan-services
-              sync-clock: sync-clock
-              collect-eits: collect-eits
-              filter-service: filter-service
-              filter-program: filter-program
-            epg-cache-dir: /tmp/epg
-        "#).unwrap()
     }
 
     fn create_epg_service(

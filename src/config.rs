@@ -1,42 +1,48 @@
 use std::fs::File;
-use std::io;
+use std::sync::Arc;
 
-use log;
 use num_cpus;
 use serde::Deserialize;
 use serde_yaml;
 
-use crate::error::Error;
 use crate::models::{ChannelType, ServiceId};
+
+pub fn load(config_path: &str) -> Arc<Config> {
+    let reader = File::open(config_path)
+        .unwrap_or_else(|err| {
+            panic!("Failed to open {}: {}", config_path, err);
+        });
+    let config = serde_yaml::from_reader(reader)
+        .unwrap_or_else(|err| {
+            panic!("Failed to paser {}: {}", config_path, err);
+        });
+    Arc::new(config)
+}
 
 // result
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
+    #[serde(default)]
+    pub epg: EpgConfig,
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
     pub channels: Vec<ChannelConfig>,
     #[serde(default)]
     pub tuners: Vec<TunerConfig>,
-    pub tools: ToolsConfig,
-    pub epg_cache_dir: String,
+    #[serde(default)]
+    pub filters: FiltersConfig,
+    #[serde(default)]
+    pub jobs: JobsConfig,
 }
 
-impl Config {
-    #[inline]
-    pub fn load(config_yml: &str) -> Result<Self, Error> {
-        log::info!("Load {}", config_yml);
-        let reader = File::open(config_yml)?;
-        Config::from_reader(reader)
-    }
-
-    #[inline]
-    fn from_reader<T: io::Read>(reader: T) -> Result<Self, Error> {
-        let config: Config = serde_yaml::from_reader(reader)?;
-        Ok(config)
-    }
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub struct EpgConfig {
+    #[serde(default)]
+    pub cache_dir: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -92,16 +98,90 @@ pub struct TunerConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
-pub struct ToolsConfig {
-    pub scan_services: String,
-    pub sync_clock: String,
-    pub collect_eits: String,
-    pub filter_service: String,
-    pub filter_program: String,
+pub struct FiltersConfig {
     #[serde(default)]
-    pub preprocess: String,
+    pub pre_filter: String,
+    #[serde(default = "default_service_filter")]
+    pub service_filter: String,
+    #[serde(default = "default_program_filter")]
+    pub program_filter: String,
     #[serde(default)]
-    pub postprocess: String,
+    pub post_filter: String,
+}
+
+impl Default for FiltersConfig {
+    fn default() -> Self {
+        FiltersConfig {
+            pre_filter: String::new(),
+            service_filter: default_service_filter(),
+            program_filter: default_program_filter(),
+            post_filter: String::new(),
+        }
+    }
+}
+
+fn default_service_filter() -> String {
+    "mirakc-arib filter-service --sid={{sid}}".to_string()
+}
+
+fn default_program_filter() -> String {
+    // The --pre-streaming option is used in order to avoid the issue#1313 in
+    // actix/actix-web.  PSI/SI TS packets will be sent before the program
+    // starts.
+    //
+    // See masnagam/rust-case-studies for details.
+    "mirakc-arib filter-program --sid={{sid}} --eid={{eid}} \
+     --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} \
+     --start-margin=5000 --end-margin=5000 --pre-streaming".to_string()
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub struct JobsConfig {
+    #[serde(default = "default_scan_services_job")]
+    pub scan_services: JobConfig,
+    #[serde(default = "default_sync_clocks_job")]
+    pub sync_clocks: JobConfig,
+    #[serde(default = "default_update_schedules_job")]
+    pub update_schedules: JobConfig,
+}
+
+impl Default for JobsConfig {
+    fn default() -> Self {
+        JobsConfig {
+            scan_services: default_scan_services_job(),
+            sync_clocks: default_sync_clocks_job(),
+            update_schedules: default_update_schedules_job(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub struct JobConfig {
+    pub command: String,
+    pub schedule: String,
+}
+
+fn default_scan_services_job() -> JobConfig {
+    JobConfig {
+        command: "mirakc-arib scan-services".to_string(),
+        schedule: "0 31 5 * * * *".to_string(),
+    }
+}
+
+fn default_sync_clocks_job() -> JobConfig {
+    JobConfig {
+        command: "mirakc-arib sync-clocks".to_string(),
+        schedule: "0 3 12 * * * *".to_string(),
+    }
+}
+
+fn default_update_schedules_job() -> JobConfig {
+    JobConfig {
+        command: "mirakc-arib collect-eits".to_string(),
+        schedule: "0 7,37 * * * * *".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -110,71 +190,43 @@ mod tests {
 
     #[test]
     fn test_config() {
-        assert!(serde_yaml::from_str::<Config>("{}").is_err());
+        let result = serde_yaml::from_str::<Config>("{}");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Default::default());
 
-        assert_eq!(
-            serde_yaml::from_str::<Config>(r#"
-                tools:
-                  scan-services: scan-services
-                  sync-clock: sync-clock
-                  collect-eits: collect-eits
-                  filter-service: filter-service
-                  filter-program: filter-program
-                epg-cache-dir: /path/to/epg
-            "#).unwrap(),
-            Config {
-                server: ServerConfig::default(),
-                channels: vec![],
-                tuners: vec![],
-                tools: ToolsConfig {
-                    scan_services: "scan-services".to_string(),
-                    sync_clock: "sync-clock".to_string(),
-                    collect_eits: "collect-eits".to_string(),
-                    filter_service: "filter-service".to_string(),
-                    filter_program: "filter-program".to_string(),
-                    preprocess: "".to_string(),
-                    postprocess: "".to_string(),
-                },
-                epg_cache_dir: "/path/to/epg".to_string(),
-            });
+        let result = serde_yaml::from_str::<Config>(r#"
+            epg:
+              cache-dir: /path/to/epg
+        "#);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Config {
+            epg: EpgConfig {
+                cache_dir: Some("/path/to/epg".to_string()),
+            },
+            server: Default::default(),
+            channels: vec![],
+            tuners: vec![],
+            jobs: Default::default(),
+            filters: Default::default(),
+        });
+
+        let result = serde_yaml::from_str::<Config>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Default::default());
     }
 
     #[test]
-    fn test_config_from_reader() {
-        let result = Config::from_reader(r#"
-            tools:
-              scan-services: scan-services
-              sync-clock: sync-clock
-              collect-eits: collect-eits
-              filter-service: filter-service
-              filter-program: filter-program
-            epg-cache-dir: /path/to/epg
-        "#.as_bytes());
-        assert!(result.is_ok());
-        assert_eq!(
-            result.unwrap(),
-            Config {
-                server: ServerConfig::default(),
-                channels: vec![],
-                tuners: vec![],
-                tools: ToolsConfig {
-                    scan_services: "scan-services".to_string(),
-                    sync_clock: "sync-clock".to_string(),
-                    collect_eits: "collect-eits".to_string(),
-                    filter_service: "filter-service".to_string(),
-                    filter_program: "filter-program".to_string(),
-                    preprocess: "".to_string(),
-                    postprocess: "".to_string(),
-                },
-                epg_cache_dir: "/path/to/epg".to_string(),
-            });
+    fn test_epg_config() {
     }
 
     #[test]
     fn test_server_config() {
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>("{}").unwrap(),
-            ServerConfig::default());
+            Default::default());
 
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(r#"
@@ -312,45 +364,114 @@ mod tests {
     }
 
     #[test]
-    fn test_tools_config() {
-        assert!(serde_yaml::from_str::<ToolsConfig>("{}").is_err());
+    fn test_filters_config() {
+        assert_eq!(
+            serde_yaml::from_str::<FiltersConfig>("{}").unwrap(),
+            Default::default());
 
         assert_eq!(
-            serde_yaml::from_str::<ToolsConfig>(r#"
-                scan-services: scan-services
-                sync-clock: sync-clock
-                collect-eits: collect-eits
-                filter-service: filter-service
-                filter-program: filter-program
+            serde_yaml::from_str::<FiltersConfig>(r#"
+                pre-filter: filter
             "#).unwrap(),
-            ToolsConfig {
-                scan_services: "scan-services".to_string(),
-                sync_clock: "sync-clock".to_string(),
-                collect_eits: "collect-eits".to_string(),
-                filter_service: "filter-service".to_string(),
-                filter_program: "filter-program".to_string(),
-                preprocess: "".to_string(),
-                postprocess: "".to_string(),
+            FiltersConfig {
+                pre_filter: "filter".to_string(),
+                service_filter: default_service_filter(),
+                program_filter: default_program_filter(),
+                post_filter: String::new(),
             });
 
         assert_eq!(
-            serde_yaml::from_str::<ToolsConfig>(r#"
-                scan-services: scan-services
-                sync-clock: sync-clock
-                collect-eits: collect-eits
-                filter-service: filter-service
-                filter-program: filter-program
-                preprocess: preprocess
-                postprocess: postprocess
+            serde_yaml::from_str::<FiltersConfig>(r#"
+                service-filter: filter
             "#).unwrap(),
-            ToolsConfig {
-                scan_services: "scan-services".to_string(),
-                sync_clock: "sync-clock".to_string(),
-                collect_eits: "collect-eits".to_string(),
-                filter_service: "filter-service".to_string(),
-                filter_program: "filter-program".to_string(),
-                preprocess: "preprocess".to_string(),
-                postprocess: "postprocess".to_string(),
+            FiltersConfig {
+                pre_filter: String::new(),
+                service_filter: "filter".to_string(),
+                program_filter: default_program_filter(),
+                post_filter: String::new(),
             });
+
+        assert_eq!(
+            serde_yaml::from_str::<FiltersConfig>(r#"
+                program-filter: filter
+            "#).unwrap(),
+            FiltersConfig {
+                pre_filter: String::new(),
+                service_filter: default_service_filter(),
+                program_filter: "filter".to_string(),
+                post_filter: String::new(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<FiltersConfig>(r#"
+                post-filter: filter
+            "#).unwrap(),
+            FiltersConfig {
+                pre_filter: String::new(),
+                service_filter: default_service_filter(),
+                program_filter: default_program_filter(),
+                post_filter: "filter".to_string(),
+            });
+    }
+
+    #[test]
+    fn test_jobs_config() {
+        assert_eq!(
+            serde_yaml::from_str::<JobsConfig>("{}").unwrap(),
+            Default::default());
+
+        assert_eq!(
+            serde_yaml::from_str::<JobsConfig>(r#"
+                scan-services:
+                  command: job
+                  schedule: '*'
+            "#).unwrap(),
+            JobsConfig {
+                scan_services: JobConfig {
+                    command: "job".to_string(),
+                    schedule: "*".to_string(),
+                },
+                sync_clocks: default_sync_clocks_job(),
+                update_schedules: default_update_schedules_job(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<JobsConfig>(r#"
+                sync-clocks:
+                  command: job
+                  schedule: '*'
+            "#).unwrap(),
+            JobsConfig {
+                scan_services: default_scan_services_job(),
+                sync_clocks: JobConfig {
+                    command: "job".to_string(),
+                    schedule: "*".to_string(),
+                },
+                update_schedules: default_update_schedules_job(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<JobsConfig>(r#"
+                update-schedules:
+                  command: job
+                  schedule: '*'
+            "#).unwrap(),
+            JobsConfig {
+                scan_services: default_scan_services_job(),
+                sync_clocks: default_sync_clocks_job(),
+                update_schedules: JobConfig {
+                    command: "job".to_string(),
+                    schedule: "*".to_string(),
+                },
+            });
+    }
+
+    #[test]
+    fn test_job_config() {
+        assert!(serde_yaml::from_str::<JobConfig>("{}").is_err());
+        assert!(
+            serde_yaml::from_str::<JobConfig>(r#"{"command":""}"#).is_err());
+        assert!(
+            serde_yaml::from_str::<JobConfig>(r#"{"schedule":""}"#).is_err());
     }
 }

@@ -1,3 +1,7 @@
+/.devcontainer/Dockerfile
+/.devcontainer/config.yml
+/.devcontainer/epg/
+/Dockerfile
 /docker/testbed/epgstation/recorded/
 /target
 **/*.rs.bk

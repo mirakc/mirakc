@@ -1,0 +1,26 @@
+{
+  "git.ignoreLimitWarning": true,
+  "lldb.launch.cwd": "${workspaceFolder}"
+  "lldb.launch.env": {
+    "MALLOC_TRIM_THRESHOLD_": "-1",
+    "TZ": "Asia/Tokyo",
+    "RUST_LOG": "debug",
+    "RUST_LOG_STYLE": "always"
+  },
+  "lldb.launch.postRunCommands": [
+    // SIGPIPE doesn't stop the debugger.
+    "process handle SIGPIPE -n true -p true -s false"
+  ],
+  "lldb.launch.sourceMap": {
+    // Update the following line if the Rust version in
+    // docker/tmpl.devcontainer.dockerfile is changed.
+    //
+    // The long hash below can be obtained by `rustc -vV`.
+    // The toolchain path  can be obtained by `rustup toolchain list -v`.
+    "/rustc/73528e339aae0f17a15ffa49a8ac608f50c6cf14": "/usr/local/rustup/toolchains/1.40.0-x86_64-unknown-linux-gnu/lib/rustlib/src/rust"
+  },
+  "lldb.verboseLogging": true,
+  "search.exclude": {
+    "**/target": true
+  },
+}

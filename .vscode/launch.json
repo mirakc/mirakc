@@ -1,0 +1,61 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=mirakc",
+          "--package=mirakc"
+        ],
+        "filter": {
+          "name": "mirakc",
+          "kind": "bin"
+        }
+      },
+      "args": ["-c", ".devcontainer/config.yml"]
+    },
+    {
+      "name": "Debug w/ child processes",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=mirakc",
+          "--package=mirakc"
+        ],
+        "filter": {
+          "name": "mirakc",
+          "kind": "bin"
+        }
+      },
+      "args": ["-c", ".devcontainer/config.yml"],
+      "env": {
+        "MIRAKC_ARIB_LOG": "info",
+        "MIRAKC_DEBUG_CHILD_PROCESS": ""
+      }
+    },
+    {
+      "name": "Debug unit tests",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--bin=mirakc",
+          "--package=mirakc"
+        ],
+        "filter": {
+          "name": "mirakc",
+          "kind": "bin"
+        }
+      },
+      "args": []
+    }
+  ]
+}

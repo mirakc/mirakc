@@ -1,23 +1,29 @@
+mod broadcaster;
+mod chunk_stream;
+mod clock_synchronizer;
+mod command_util;
 mod config;
 mod datetime_ext;
+mod eit_feeder;
 mod epg;
 mod error;
-mod messages;
+mod job;
 mod models;
-mod resource_manager;
+mod mpeg_ts_stream;
+mod service_scanner;
+mod tokio_snippet;
 mod tuner;
 mod web;
 
 use std::env;
 
-use actix::prelude::*;
 use clap;
 use pretty_env_logger;
 
-use crate::config::Config;
 use crate::error::Error;
 
-fn main() -> Result<(), Error> {
+#[actix_rt::main]
+async fn main() -> Result<(), Error> {
     let args = clap::App::new(clap::crate_name!())
         .version(clap::crate_version!())
         .about(clap::crate_description!())
@@ -26,6 +32,7 @@ fn main() -> Result<(), Error> {
              .long("config")
              .takes_value(true)
              .value_name("FILE")
+             .env("MIRAKC_CONFIG")
              .help("Path to a configuration file in a YAML format")
              .long_help(
                  "Path to a configuration file in a YAML format.\n\
@@ -39,14 +46,16 @@ fn main() -> Result<(), Error> {
 
     pretty_env_logger::init_timed();
 
-    let config_yml = match args.value_of("config") {
-        Some(config_yml) => config_yml.to_string(),
-        None => env::var("MIRAKC_CONFIG")?,
-    };
-    let config = Config::load(&config_yml)?;
-    let runner = System::new("mirakc");
-    resource_manager::start(&config);
-    web::start(&config)?;
-    runner.run()?;
+    let config_path = args.value_of("config").expect(
+        "--config option or MIRAKC_CONFIG environment must be specified");
+
+    let config = config::load(config_path);
+
+    tuner::start(config.clone());
+    eit_feeder::start(config.clone());
+    job::start(config.clone());
+    epg::start(config.clone());
+    web::serve(config.clone()).await?;
+
     Ok(())
 }

@@ -1,36 +1,37 @@
-use actix_web;
-use cfg_if;
-use chrono::{Duration, Utc};
-use futures::future::Future;
-use serde::{Deserialize, Serialize};
+use std::io;
+use std::sync::Arc;
 
+use actix_web;
+use bytes::Bytes;
+use futures;
+use serde::{Deserialize, Serialize};
+use tokio::stream::Stream;
+
+use crate::chunk_stream::ChunkStream;
+use crate::command_util;
 use crate::config::Config;
 use crate::error::Error;
-use crate::messages::*;
+use crate::epg;
 use crate::models::*;
-use crate::tuner::TunerUser;
+use crate::tuner;
 
-pub fn start(config: &Config) -> Result<(), Error> {
+pub async fn serve(config: Arc<Config>) -> Result<(), Error> {
+    let server_config = config.server.clone();
     actix_web::HttpServer::new(
         move || {
             actix_web::App::new()
+                .data(config.clone())
                 .wrap(actix_web::middleware::Logger::default())
                 .wrap(actix_web::middleware::DefaultHeaders::new()
                       .header("Server", server_name()))
                 .service(create_api_service())
         })
-        .bind((config.server.address.as_str(), config.server.port))?
-        .workers(config.server.workers)
-        .start();
+        .bind((server_config.address.as_str(), server_config.port))?
+        .keep_alive(0)  // disable keep-alive
+        .workers(server_config.workers)
+        .run()
+        .await?;
     Ok(())
-}
-
-cfg_if::cfg_if! {
-    if #[cfg(test)] {
-        use tests::resource_manager_mock as resource_manager;
-    } else {
-        use crate::resource_manager;
-    }
 }
 
 fn server_name() -> String {
@@ -39,8 +40,9 @@ fn server_name() -> String {
 
 // rest api
 
-type ApiResult = Box<dyn Future<Item = actix_web::HttpResponse,
-                                Error = actix_web::Error>>;
+const CHUNK_SIZE: usize = 4096 * 8;
+
+type ApiResult = Result<actix_web::HttpResponse, Error>;
 
 #[derive(Serialize)]
 struct ErrorBody {
@@ -50,9 +52,9 @@ struct ErrorBody {
 }
 
 impl actix_web::ResponseError for Error {
-    fn render_response(&self) -> actix_web::HttpResponse {
+    fn error_response(&self) -> actix_web::HttpResponse {
         match *self {
-            Error::Unavailable =>
+            Error::TunerUnavailable =>
                 actix_web::HttpResponse::NotFound().json(ErrorBody {
                     code: actix_web::http::StatusCode::NOT_FOUND.as_u16(),
                     reason: None,
@@ -70,15 +72,10 @@ impl actix_web::ResponseError for Error {
                     reason: None,
                     errors: Vec::new(),
                 }),
-            Error::TunerAlreadyUsed =>
-                actix_web::HttpResponse::BadRequest().json(ErrorBody {
-                    code: actix_web::http::StatusCode::BAD_REQUEST.as_u16(),
-                    reason: None,
-                    errors: Vec::new(),
-                }),
             _ =>
                 actix_web::HttpResponse::InternalServerError().json(ErrorBody {
-                    code: actix_web::http::StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                    code: actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
+                        .as_u16(),
                     reason: None,
                     errors: Vec::new(),
                 }),
@@ -92,6 +89,7 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_status)
         .service(get_channels)
         .service(get_services)
+        .service(get_service)
         .service(get_programs)
         .service(get_program)
         .service(get_tuners)
@@ -102,139 +100,213 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
 }
 
 #[actix_web::get("/version")]
-fn get_version() -> impl actix_web::Responder {
+async fn get_version() -> impl actix_web::Responder {
     actix_web::HttpResponse::Ok().json(env!("CARGO_PKG_VERSION"))
 }
 
 #[actix_web::get("/status")]
-fn get_status() -> impl actix_web::Responder {
+async fn get_status() -> impl actix_web::Responder {
     actix_web::HttpResponse::Ok().content_type("application/json").body("{}")
 }
 
 #[actix_web::get("/channels")]
-fn get_channels() -> ApiResult {
-    let msg = QueryChannelsMessage;
-    Box::new(
-        resource_manager::query_channels(msg)
-            .map(|channels| actix_web::HttpResponse::Ok().json(channels))
-            .from_err()
-    )
+async fn get_channels() -> ApiResult {
+    epg::query_channels().await
+        .map(|channels| actix_web::HttpResponse::Ok().json(channels))
 }
 
 #[actix_web::get("/services")]
-fn get_services() -> ApiResult {
-    let msg = QueryServicesMessage;
-    Box::new(
-        resource_manager::query_services(msg)
-            .map(|services| actix_web::HttpResponse::Ok().json(services))
-            .from_err()
-    )
+async fn get_services() -> ApiResult {
+    epg::query_services().await
+        .map(|services| services.into_iter()
+             .map(MirakurunService::from).collect::<Vec<MirakurunService>>())
+        .map(|services| actix_web::HttpResponse::Ok().json(services))
+}
+
+#[actix_web::get("/services/{id}")]
+async fn get_service(path: actix_web::web::Path<ServicePath>) -> ApiResult {
+    epg::query_service_by_nid_sid(path.id.nid(), path.id.sid()).await
+        .map(|service| MirakurunService::from(service))
+        .map(|service| actix_web::HttpResponse::Ok().json(service))
 }
 
 #[actix_web::get("/programs")]
-fn get_programs() -> ApiResult {
-    let msg = QueryProgramsMessage;
-    Box::new(
-        resource_manager::query_programs(msg)
-            .map(|programs| {
-                // A temporal vector of &ProgramModel is created for
-                // serialization.
-                //
-                // Serde doesn't support serializing an iterator natively.  That
-                // means an additional implementation is needed for the
-                // serialization.
-                //
-                // See https://stackoverflow.com/questions/34399461.
-                let values: Vec<&ProgramModel> = programs.values().collect();
-                actix_web::HttpResponse::Ok().json(values)
-            })
-            .from_err()
-    )
+async fn get_programs() -> ApiResult {
+    epg::query_programs().await
+        .map(|programs| actix_web::HttpResponse::Ok().json(programs))
 }
 
 #[actix_web::get("/programs/{id}")]
-fn get_program(
-    id: actix_web::web::Path<MirakurunProgramId>,
-) -> ApiResult {
-    let msg = QueryProgramMessage { id: id.into_inner() };
-    Box::new(
-        resource_manager::query_program(msg)
-            .map(|tuners| actix_web::HttpResponse::Ok().json(tuners))
-            .from_err()
-    )
+async fn get_program(path: actix_web::web::Path<ProgramPath>) -> ApiResult {
+    epg::query_program_by_nid_sid_eid(
+        path.id.nid(), path.id.sid(), path.id.eid()).await
+        .map(|program| actix_web::HttpResponse::Ok().json(program))
 }
 
 #[actix_web::get("/tuners")]
-fn get_tuners() -> ApiResult {
-    let msg = QueryTunersMessage;
-    Box::new(
-        resource_manager::query_tuners(msg)
-            .map(|tuners| actix_web::HttpResponse::Ok().json(tuners))
-            .from_err()
-    )
+async fn get_tuners() -> ApiResult {
+    tuner::query_tuners().await
+        .map(|tuners| actix_web::HttpResponse::Ok().json(tuners))
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/stream")]
-fn get_channel_stream(
+async fn get_channel_stream(
+    config: actix_web::web::Data<Arc<Config>>,
     path: actix_web::web::Path<ChannelPath>,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
-    get_stream(path.into_inner(), query.into_inner(), user)
+    let stream = tuner::start_streaming(
+        path.channel_type, path.channel.clone(), user).await?;
+
+    let filters = make_filters(
+        &config, None, query.pre_filter(), query.post_filter());
+
+    if filters.is_empty() {
+        do_streaming(stream)
+    } else {
+        let (input, output) = command_util::spawn_pipeline(
+            filters, stream.id())?;
+        actix::spawn(stream.pipe(input));
+        do_streaming(ChunkStream::new(output, CHUNK_SIZE))
+    }
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
-fn get_channel_service_stream(
+async fn get_channel_service_stream(
+    config: actix_web::web::Data<Arc<Config>>,
     path: actix_web::web::Path<ChannelServicePath>,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
-    get_stream(path.into_inner(), query.into_inner(), user)
+    do_get_service_stream(
+        config, path.channel_type, path.channel.clone(), path.sid, query, user
+    ).await
 }
 
-#[actix_web::get("/services/{sid}/stream")]
-fn get_service_stream(
+#[actix_web::get("/services/{id}/stream")]
+async fn get_service_stream(
+    config: actix_web::web::Data<Arc<Config>>,
     path: actix_web::web::Path<ServicePath>,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
-    get_stream(path.into_inner(), query.into_inner(), user)
+    let service = epg::query_service_by_nid_sid(
+        path.id.nid(), path.id.sid()).await?;
+    do_get_service_stream(
+        config, service.channel.channel_type, service.channel.channel,
+        service.sid, query, user).await
 }
 
-#[actix_web::get("/programs/{eid}/stream")]
-fn get_program_stream(
+#[actix_web::get("/programs/{id}/stream")]
+async fn get_program_stream(
+    config: actix_web::web::Data<Arc<Config>>,
     path: actix_web::web::Path<ProgramPath>,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
-    get_stream(path.into_inner(), query.into_inner(), user)
+    let program = epg::query_program_by_nid_sid_eid(
+        path.id.nid(), path.id.sid(), path.id.eid()).await?;
+    let service = epg::query_service_by_nid_sid(
+        path.id.nid(), path.id.sid()).await?;
+    let clock = epg::query_clock(service.triple()).await?;
+
+    let ch_type = service.channel.channel_type;
+    let ch = service.channel.channel.clone();
+    let stream = tuner::start_streaming(ch_type, ch, user).await?;
+
+    let filters = make_program_filters(
+        &config, &program, &clock, query.pre_filter(), query.post_filter())?;
+
+    let (input, output) = command_util::spawn_pipeline(
+        filters, stream.id())?;
+    actix::spawn(stream.pipe(input));
+    do_streaming(ChunkStream::new(output, CHUNK_SIZE))
 }
 
-// helpers
-
-fn get_stream<P>(
-    path: P,
-    query: StreamQuery,
+async fn do_get_service_stream(
+    config: actix_web::web::Data<Arc<Config>>,
+    channel_type: ChannelType,
+    channel: String,
+    sid: ServiceId,
+    query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
-) -> ApiResult
+) -> ApiResult {
+    let stream = tuner::start_streaming(channel_type, channel, user).await?;
+
+    let filters = make_service_filters(
+        &config, sid, query.pre_filter(), query.post_filter())?;
+
+    let (input, output) = command_util::spawn_pipeline(
+        filters, stream.id())?;
+    actix::spawn(stream.pipe(input));
+    do_streaming(ChunkStream::new(output, CHUNK_SIZE))
+}
+
+fn make_service_filters(
+    config: &Config,
+    sid: ServiceId,
+    pre_filter: bool,
+    post_filter: bool,
+) -> Result<Vec<String>, Error> {
+    let filter = make_service_filter_command(
+        &config.filters.service_filter, sid)?;
+    Ok(make_filters(config, Some(filter), pre_filter, post_filter))
+}
+
+fn make_program_filters(
+    config: &Config,
+    program: &MirakurunProgram,
+    clock: &Clock,
+    pre_filter: bool,
+    post_filter: bool,
+) -> Result<Vec<String>, Error> {
+    let filter = make_program_filter_command(
+        &config.filters.program_filter, program.service_id, program.event_id,
+        clock)?;
+    Ok(make_filters(config, Some(filter), pre_filter, post_filter))
+}
+
+fn make_filters(
+    config: &Config,
+    filter: Option<String>,
+    pre_filter: bool,
+    post_filter: bool,
+) -> Vec<String> {
+    let mut filters = Vec::new();
+
+    if pre_filter {
+        if config.filters.pre_filter.is_empty() {
+            log::warn!("Pre-filter not defined");
+        } else {
+            filters.push(config.filters.pre_filter.clone());
+        }
+    }
+
+    if let Some(filter) = filter {
+        filters.push(filter);
+    }
+
+    if post_filter {
+        if config.filters.post_filter.is_empty() {
+            log::warn!("Post-filter not defined");
+        } else {
+            filters.push(config.filters.post_filter.clone());
+        }
+    }
+
+    filters
+}
+
+fn do_streaming<S>(stream: S) -> ApiResult
 where
-    P: Into<OpenTunerBy>
+    S: Stream<Item = io::Result<Bytes>> + 'static,
 {
-    let duration = query.duration();
-    let preprocess = query.preprocess();
-    let postprocess = query.postprocess();
-    let msg = OpenTunerMessage {
-        by: path.into(), user, duration, preprocess, postprocess,
-    };
-    Box::new(
-        resource_manager::open_tuner(msg)
-            .map(|output| {
-                actix_web::HttpResponse::Ok()
-                    .set_header("content-type", "video/MP2T")
-                    .streaming(output.into_stream())
-            })
-            .from_err()
-    )
+    Ok(actix_web::HttpResponse::Ok()
+       .force_close()
+       .set_header("cache-control", "no-store")
+       .set_header("content-type", "video/MP2T")
+       .streaming(stream))
 }
 
 // extractors
@@ -245,15 +317,6 @@ struct ChannelPath {
     channel: String,
 }
 
-impl Into<OpenTunerBy> for ChannelPath {
-    fn into(self) -> OpenTunerBy {
-        OpenTunerBy::Channel {
-            channel_type: self.channel_type,
-            channel: self.channel,
-        }
-    }
-}
-
 #[derive(Deserialize)]
 struct ChannelServicePath {
     channel_type: ChannelType,
@@ -261,43 +324,23 @@ struct ChannelServicePath {
     sid: ServiceId,
 }
 
-impl Into<OpenTunerBy> for ChannelServicePath {
-    fn into(self) -> OpenTunerBy {
-        OpenTunerBy::ChannelService {
-            channel_type: self.channel_type,
-            channel: self.channel,
-            sid: self.sid,
-        }
-    }
+#[derive(Deserialize)]
+struct ServicePath {
+    id: MirakurunServiceId,
 }
 
 #[derive(Deserialize)]
-struct ServicePath(MirakurunServiceId);
-
-impl Into<OpenTunerBy> for ServicePath {
-    fn into(self) -> OpenTunerBy {
-        OpenTunerBy::Service { id: self.0 }
-    }
-}
-
-#[derive(Deserialize)]
-struct ProgramPath(MirakurunProgramId);
-
-impl Into<OpenTunerBy> for ProgramPath {
-    fn into(self) -> OpenTunerBy {
-        OpenTunerBy::Program { id: self.0 }
-    }
+struct ProgramPath {
+    id: MirakurunProgramId,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct StreamQuery {
     #[serde(default)]
-    duration: Option<String>,
+    pre_filter: Option<bool>,
     #[serde(default)]
-    preprocess: Option<bool>,
-    #[serde(default)]
-    postprocess: Option<bool>,
+    post_filter: Option<bool>,
 
     // For compatibility with Mirakurun.
     // The post-filter parameter can override the decode parameter.
@@ -306,23 +349,16 @@ struct StreamQuery {
 }
 
 impl StreamQuery {
-    fn duration(&self) -> Option<Duration> {
-        match self.duration {
-            Some(ref s) => s.parse::<i64>().ok().map(Duration::seconds),
-            None => None,
-        }
-    }
-
-    fn preprocess(&self) -> bool {
-        match self.preprocess {
-            Some(preprocess) => preprocess,
+    fn pre_filter(&self) -> bool {
+        match self.pre_filter {
+            Some(pre_filter) => pre_filter,
             None => false,
         }
     }
 
-    fn postprocess(&self) -> bool {
-        match (self.postprocess, self.decode) {
-            (Some(postprocess), _) => postprocess,
+    fn post_filter(&self) -> bool {
+        match (self.post_filter, self.decode) {
+            (Some(post_filter), _) => post_filter,
             (None, decode) => decode != 0,  // for compatibility with Mirakurun
         }
     }
@@ -330,35 +366,63 @@ impl StreamQuery {
 
 impl actix_web::FromRequest for TunerUser {
     type Error = actix_web::Error;
-    type Future = Result<Self, Self::Error>;
+    type Future = futures::future::Ready<Result<Self, Self::Error>>;
     type Config = ();
 
     fn from_request(
         req: &actix_web::HttpRequest,
         _: &mut actix_web::dev::Payload
     ) -> Self::Future {
-        // Compatible with JavaScript `Date.now()` used in Mirakurun.
-        let timestamp = Utc::now().timestamp_millis();
+        let remote = req
+            .connection_info()
+            .remote()
+            .map(|v| v.to_string());
 
-        let id = match req.connection_info().remote() {
-            Some(ref ip) => format!("{}#{}", ip, timestamp),
-            None => format!("{}", timestamp),
-        };
-
-        let ua = req.headers().get_all(actix_web::http::header::USER_AGENT)
+        let agent = req
+            .headers()
+            .get_all(actix_web::http::header::USER_AGENT)
             .last()
             .map(|value| {
                 value.to_str().ok().map_or(String::new(), |s| s.to_string())
             });
 
-        let prio = req.headers().get_all("x-mirakurun-priority")
+        let info = TunerUserInfo::Web { remote, agent };
+
+        let priority = req.headers().get_all("x-mirakurun-priority")
             .filter_map(|value| value.to_str().ok())
             .filter_map(|value| value.parse().ok())
             .max()
             .unwrap_or(0);
 
-        Ok(TunerUser::new(id, ua, prio))
+        futures::future::ok(TunerUser { info, priority })
     }
+}
+
+fn make_service_filter_command(
+    command: &str,
+    sid: ServiceId
+) -> Result<String, Error> {
+    let template = mustache::compile_str(command)?;
+    let data = mustache::MapBuilder::new()
+        .insert_str("sid", sid.value().to_string())
+        .build();
+    Ok(template.render_data_to_string(&data)?)
+}
+
+fn make_program_filter_command(
+    command: &str,
+    sid: ServiceId,
+    eid: EventId,
+    clock: &Clock,
+) -> Result<String, Error> {
+    let template = mustache::compile_str(command)?;
+    let data = mustache::MapBuilder::new()
+        .insert_str("sid", sid.value().to_string())
+        .insert_str("eid", eid.value().to_string())
+        .insert_str("clock_pcr", clock.pcr.to_string())
+        .insert_str("clock_time", clock.time.to_string())
+        .build();
+    Ok(template.render_data_to_string(&data)?)
 }
 
 // tests
@@ -380,126 +444,81 @@ mod tests {
     //
     //   https://asomers.github.io/mock_shootout/
     //
-    pub mod resource_manager_mock {
-        use super::*;
-        use std::collections::HashMap;
-        use std::sync::Arc;
-        use crate::tuner::TunerOutput;
 
-        pub fn query_channels(
-            _: QueryChannelsMessage
-        ) -> impl Future<Item = Vec<ChannelModel>, Error = Error> {
-            futures::future::ok(Vec::new())
-        }
-
-        pub fn query_services(
-            _: QueryServicesMessage
-        ) -> impl Future<Item = Arc<Vec<ServiceModel>>, Error = Error> {
-            futures::future::ok(Arc::new(Vec::new()))
-        }
-
-        pub fn query_programs(
-            _: QueryProgramsMessage
-        ) -> impl Future<Item = Arc<HashMap<MirakurunProgramId, ProgramModel>>,
-                         Error = Error> {
-            futures::future::ok(Arc::new(HashMap::new()))
-        }
-
-        pub fn query_program(
-            msg: QueryProgramMessage
-        ) -> impl Future<Item = ProgramModel, Error = Error> {
-            match msg.id.value() {
-                1 => futures::future::ok(
-                    ProgramModel::new(EventQuad::from((1, 2, 3, 4)))),
-                _ => futures::future::err(Error::ProgramNotFound),
-            }
-        }
-
-        pub fn query_tuners(
-            _: QueryTunersMessage
-        ) -> impl Future<Item = Vec<TunerModel>, Error = Error> {
-            futures::future::ok(Vec::new())
-        }
-
-        pub fn open_tuner(
-            _: OpenTunerMessage
-        ) -> impl Future<Item = TunerOutput, Error = Error> {
-            futures::future::ok(TunerOutput::new(0, 0, None))
-        }
-    }
-
-    fn request(
+    async fn request(
         method: actix_web::http::Method,
         uri: &str
     ) -> actix_web::HttpResponse {
         let mut app = actix_web::test::init_service(
-            actix_web::App::new().service(create_api_service()));
+            actix_web::App::new()
+                .data(Arc::new(Config::default()))
+                .service(create_api_service())).await;
         let req = actix_web::test::TestRequest::with_uri(uri)
             .method(method).to_request();
-        actix_web::test::call_service(&mut app, req).into()
+        actix_web::test::call_service(&mut app, req).await.into()
     }
 
     macro_rules! impl_method {
         ($method:ident, $METHOD:ident) => {
-            fn $method(uri: &str) -> actix_web::HttpResponse {
-                request(actix_web::http::Method::$METHOD, uri)
+            async fn $method(uri: &str) -> actix_web::HttpResponse {
+                request(actix_web::http::Method::$METHOD, uri).await
             }
         }
     }
 
     impl_method!(get, GET);
 
-    #[test]
-    fn test_get_unknown() {
-        let res = get("/api/unknown");
+    #[actix_rt::test]
+    async fn test_get_unknown() {
+        let res = get("/api/unknown").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
-    #[test]
-    fn test_get_version() {
-        let res = get("/api/version");
+    #[actix_rt::test]
+    async fn test_get_version() {
+        let res = get("/api/version").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[test]
-    fn test_get_status() {
-        let res = get("/api/status");
+    #[actix_rt::test]
+    async fn test_get_status() {
+        let res = get("/api/status").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[test]
-    fn test_get_channels() {
-        let res = get("/api/channels");
+    #[actix_rt::test]
+    async fn test_get_channels() {
+        let res = get("/api/channels").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[test]
-    fn test_get_programs() {
-        let res = get("/api/programs");
+    #[actix_rt::test]
+    async fn test_get_programs() {
+        let res = get("/api/programs").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[test]
-    fn test_get_program() {
-        let res = get("/api/programs/1");
+    #[actix_rt::test]
+    async fn test_get_program() {
+        let res = get("/api/programs/1").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
 
-        let res = get("/api/programs/2");
+        let res = get("/api/programs/0").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
-    #[test]
-    fn test_get_tuners() {
-        let res = get("/api/tuners");
+    #[actix_rt::test]
+    async fn test_get_tuners() {
+        let res = get("/api/tuners").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[test]
-    fn test_get_channel_stream() {
-        let res = get("/api/channels/GR/ch/stream");
+    #[actix_rt::test]
+    async fn test_get_channel_stream() {
+        let res = get("/api/channels/GR/ch/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
 
-        let res = get("/api/channels/WOWOW/ch/stream");
+        let res = get("/api/channels/WOWOW/ch/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
 
         let decode_values = [0, 1];
@@ -508,29 +527,23 @@ mod tests {
             ["GR", "BS", "CS", "SKY"].iter().zip(&decode_values);
         for (channel_type, decode) in valid_pairs {
             let res = get(format!("/api/channels/{}/ch/stream?decode={}",
-                                  channel_type, decode).as_str());
+                                  channel_type, decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::OK);
         }
 
         for decode in &decode_values {
             let res = get(format!("/api/channels/WOWOW/ch/stream?decode={}",
-                                  decode).as_str());
+                                  decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
-
-        let res = get("/api/channels/GR/ch/stream?duration=1");
-        assert!(res.status() == actix_web::http::StatusCode::OK);
-
-        let res = get("/api/channels/GR/ch/stream?duration=-");
-        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[test]
-    fn test_get_channel_service_stream() {
-        let res = get("/api/channels/GR/ch/services/1/stream");
+    #[actix_rt::test]
+    async fn test_get_channel_service_stream() {
+        let res = get("/api/channels/GR/ch/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
 
-        let res = get("/api/channels/WOWOW/ch/services/1/stream");
+        let res = get("/api/channels/WOWOW/ch/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
 
         let decode_values = [0, 1];
@@ -540,152 +553,117 @@ mod tests {
         for (channel_type, decode) in valid_pairs {
             let res = get(format!(
                 "/api/channels/{}/ch/services/1/stream?decode={}",
-                channel_type, decode).as_str());
+                channel_type, decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::OK);
         }
 
         for decode in &decode_values {
             let res = get(format!(
                 "/api/channels/WOWOW/ch/services/1/stream?decode={}",
-                decode).as_str());
+                decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
-
-        let res = get("/api/channels/GR/ch/services/1/stream?duration=1");
-        assert!(res.status() == actix_web::http::StatusCode::OK);
-
-        let res = get("/api/channels/GR/ch/services/1/stream?duration=-");
-        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[test]
-    fn test_get_service_stream() {
-        let res = get("/api/services/1/stream");
+    #[actix_rt::test]
+    async fn test_get_service_stream() {
+        let res = get("/api/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
 
-        let res = get("/api/services/x/stream");
+        let res = get("/api/services/0/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
 
         let decode_values = [0, 1];
 
         for decode in &decode_values {
             let res = get(format!("/api/services/1/stream?decode={}",
-                                  decode).as_str());
+                                  decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::OK);
         }
 
         for decode in &decode_values {
-            let res = get(format!("/api/services/x/stream?decode={}",
-                                  decode).as_str());
+            let res = get(format!("/api/services/0/stream?decode={}",
+                                  decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
-
-        let res = get("/api/services/1/stream?duration=1");
-        assert!(res.status() == actix_web::http::StatusCode::OK);
-
-        let res = get("/api/services/1/stream?duration=-");
-        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[test]
-    fn test_get_program_stream() {
-        let res = get("/api/programs/1/stream");
+    #[actix_rt::test]
+    async fn test_get_program_stream() {
+        let res = get("/api/programs/100001/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
 
-        let res = get("/api/programs/x/stream");
+        let res = get("/api/programs/0/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
 
         let decode_values = [0, 1];
 
         for decode in &decode_values {
-            let res = get(format!("/api/programs/1/stream?decode={}",
-                                  decode).as_str());
+            let res = get(format!("/api/programs/100001/stream?decode={}",
+                                  decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::OK);
         }
 
         for decode in &decode_values {
-            let res = get(format!("/api/programs/x/stream?decode={}",
-                                  decode).as_str());
+            let res = get(format!("/api/programs/0/stream?decode={}",
+                                  decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
-
-        let res = get("/api/programs/1/stream?duration=1");
-        assert!(res.status() == actix_web::http::StatusCode::OK);
-
-        let res = get("/api/programs/1/stream?duration=-");
-        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
     #[test]
     fn test_stream_query() {
         let query = actix_web::web::Query::<StreamQuery>::from_query(
             "").unwrap().into_inner();
-        assert_eq!(query.duration(), None);
-        assert_eq!(query.preprocess(), false);
-        assert_eq!(query.postprocess(), false);
+        assert_eq!(query.pre_filter(), false);
+        assert_eq!(query.post_filter(), false);
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "duration=1").unwrap().into_inner();
-        assert_eq!(query.duration(), Some(Duration::seconds(1)));
+            "pre-filter=true").unwrap().into_inner();
+        assert_eq!(query.pre_filter(), true);
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "duration=-").unwrap().into_inner();
-        assert_eq!(query.duration(), None);
+            "pre-filter=false").unwrap().into_inner();
+        assert_eq!(query.pre_filter(), false);
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "duration").unwrap().into_inner();
-        assert_eq!(query.duration(), None);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "duration=").unwrap().into_inner();
-        assert_eq!(query.duration(), None);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "preprocess=true").unwrap().into_inner();
-        assert_eq!(query.preprocess(), true);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "preprocess=false").unwrap().into_inner();
-        assert_eq!(query.preprocess(), false);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "preprocess");
+            "pre-filter");
         assert!(query.is_err());
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "preprocess=");
+            "pre-filter=");
         assert!(query.is_err());
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "preprocess=1");
+            "pre-filter=1");
         assert!(query.is_err());
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "postprocess=true").unwrap().into_inner();
-        assert_eq!(query.postprocess(), true);
+            "post-filter=true").unwrap().into_inner();
+        assert_eq!(query.post_filter(), true);
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "postrocess=false").unwrap().into_inner();
-        assert_eq!(query.postprocess(), false);
+            "post-filter=false").unwrap().into_inner();
+        assert_eq!(query.post_filter(), false);
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
             "decode=1").unwrap().into_inner();
-        assert_eq!(query.postprocess(), true);
+        assert_eq!(query.post_filter(), true);
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
             "decode=0").unwrap().into_inner();
-        assert_eq!(query.postprocess(), false);
+        assert_eq!(query.post_filter(), false);
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
             "decode=2").unwrap().into_inner();
-        assert_eq!(query.postprocess(), true);
+        assert_eq!(query.post_filter(), true);
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "postprocess=true&decode=0").unwrap().into_inner();
-        assert_eq!(query.postprocess(), true);
+            "post-filter=true&decode=0").unwrap().into_inner();
+        assert_eq!(query.post_filter(), true);
 
         let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "postprocess=false&decode=1").unwrap().into_inner();
-        assert_eq!(query.postprocess(), false);
+            "post-filter=false&decode=1").unwrap().into_inner();
+        assert_eq!(query.post_filter(), false);
     }
 }

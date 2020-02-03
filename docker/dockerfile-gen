@@ -1,0 +1,132 @@
+#!/bin/sh
+
+set -eu
+
+PROGNAME=$(basename $0)
+BASEDIR=$(cd $(dirname $0); pwd)
+
+# const
+
+RECDVB=1.3.2
+CMAKE_TOOLCHAIN_FILE_DIR=/build/toolchain.cmake.d
+
+# options
+
+TYPE=release
+
+help() {
+  cat <<EOF >&2
+Generate Dockerfile for an architecture
+
+Usage:
+  $PROGNAME -h | --help
+  $PROGNAME [-d] <arch>
+
+Options:
+  -h, --help          Show help
+  -d, --devcontainer  Generate Dockerfile for debugging with VS Code Remote
+                      Containers
+
+Arguments:
+  <arch>  Architecture of the Docker image (amd64|arm32v5|arm32v7|arm64v8)
+
+Description:
+  $PROGNAME prints Dockerfile for the specified architecture.
+
+Examples:
+  Build an image for the arm64v8 architecture:
+
+    $PROGNAME arm64v8 >Dockerfile && docker build -t $(id -un)/mirakc:arm64v8 .
+
+  Make Dockerfile for debugging with VS Code Remote Containers:
+
+    $PROGNAME -d amd64 >.devcontainer/Dockerfile
+
+EOF
+  exit 0
+}
+
+error() {
+  echo "$1" >&2
+  exit 1
+}
+
+while [ $# -gt 0 ]
+do
+  case $1 in
+    '-h' | '--help')
+      help
+      ;;
+    '-d' | '--devcontainer')
+      TYPE=devcontainer
+      shift 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [ $# -eq 0 ]; then
+  error "arch is required"
+fi
+
+ARCH=$1
+
+case $ARCH in
+  amd64)
+    # Assumed that the CPU architecture of the build machine is amd64
+    GCC_HOST_TRIPLE='x86-64-linux-gnu'
+    RUST_TARGET_TRIPLE='x86_64-unknown-linux-gnu'
+    GXX='g++'
+    CONFIGURE_HOST=''
+    CMAKE_TOOLCHAIN_FILE=''
+    RUST_LINKER='gcc'
+    ;;
+  arm32v5)
+    GCC_HOST_TRIPLE='arm-linux-gnueabi'
+    RUST_TARGET_TRIPLE='arm-unknown-linux-gnueabi'
+    GXX="g++-$GCC_HOST_TRIPLE"
+    CONFIGURE_HOST="--host=$GCC_HOST_TRIPLE"
+    CMAKE_TOOLCHAIN_FILE="-D CMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE_DIR/debian-armel.cmake"
+    RUST_LINKER="${GCC_HOST_TRIPLE}-gcc"
+    ;;
+  arm32v7)
+    GCC_HOST_TRIPLE='arm-linux-gnueabihf'
+    RUST_TARGET_TRIPLE='armv7-unknown-linux-gnueabihf'
+    GXX="g++-$GCC_HOST_TRIPLE"
+    CONFIGURE_HOST="--host=$GCC_HOST_TRIPLE"
+    CMAKE_TOOLCHAIN_FILE="-D CMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE_DIR/debian-armhf.cmake"
+    RUST_LINKER="${GCC_HOST_TRIPLE}-gcc"
+    ;;
+  arm64v8)
+    GCC_HOST_TRIPLE='aarch64-linux-gnu'
+    RUST_TARGET_TRIPLE='aarch64-unknown-linux-gnu'
+    GXX="g++-$GCC_HOST_TRIPLE"
+    CONFIGURE_HOST="--host=$GCC_HOST_TRIPLE"
+    CMAKE_TOOLCHAIN_FILE="-D CMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE_DIR/debian-arm64.cmake"
+    RUST_LINKER="${GCC_HOST_TRIPLE}-gcc"
+    ;;
+  *)
+    error "Unsupported: $ARCH"
+    ;;
+esac
+
+render() {
+  sed \
+    -e "s|{{ARCH}}|$ARCH|g" \
+    -e "s|{{RECDVB}}|$RECDVB|g" \
+    -e "s|{{GCC_HOST_TRIPLE}}|$GCC_HOST_TRIPLE|g" \
+    -e "s|{{RUST_TARGET_TRIPLE}}|$RUST_TARGET_TRIPLE|g" \
+    -e "s|{{GXX}}|$GXX|g" \
+    -e "s|{{CONFIGURE_HOST}}|$CONFIGURE_HOST|g" \
+    -e "s|{{CMAKE_TOOLCHAIN_FILE}}|$CMAKE_TOOLCHAIN_FILE|g" \
+    -e "s|{{RUST_LINKER}}|$RUST_LINKER|g"
+}
+
+echo "# Dockerfile for $TYPE"
+echo
+cat $BASEDIR/tmpl.deps.dockerfile | render
+echo
+echo
+cat $BASEDIR/tmpl.$TYPE.dockerfile | render

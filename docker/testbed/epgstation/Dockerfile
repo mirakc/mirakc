@@ -2,14 +2,14 @@
 #
 # GCC/Alpine causes build errors on aarch64 platforms.
 # See https://github.com/lovell/farmhash/issues/24 for more information.
-FROM node:10-buster-slim
+FROM node:12-buster-slim
 
-LABEL maintainer="Masayuki Nagamachi <masayuki.nagamachi@gmail.com>"
+LABEL maintainer="Masayuki Nagamachi <masnagam@gmail.com>"
 
 RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update -qq \
- && BUILD_DEPS="build-essential python" \
+ && BUILD_DEPS="build-essential ca-certificates curl python" \
  && apt-get install -y -qq --no-install-recommends $BUILD_DEPS \
  # epgstation
  && mkdir -p /opt/epgstation \
