@@ -12,12 +12,20 @@ LOAD1_EXPR='node_load1'
 TX_EXPR='irate(node_network_transmit_bytes_total{device=~"eth0|enp6s0"}[1m]) * 8'
 RX_EXPR='irate(node_network_receive_bytes_total{device=~"eth0|enp6s0"}[1m]) * 8'
 
+# Use Node.js v12.
+#
+# aribts doesn't work as expected in Node.js v13 due to an incompatible behavior
+# regarding `stream.Transform._flush()`.
+#
+# See https://github.com/nodejs/node/issues/31630 for details.
+NODE="docker run --rm -i -v $BASEDIR/perf-metrics:$BASEDIR/perf-metrics --network host node:12-buster-slim node"
+
 stream() {
-  node $BASEDIR/perf-metrics stream "$TARGET" "$DURATION"
+  $NODE $BASEDIR/perf-metrics stream "$TARGET" "$DURATION"
 }
 
 system() {
-  node $BASEDIR/perf-metrics system "$1" "$2"
+  $NODE $BASEDIR/perf-metrics system "$1" "$2"
 }
 
 cpu() {

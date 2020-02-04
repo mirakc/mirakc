@@ -2,7 +2,4 @@
 
 > Collecting performance metrics of a Mirakurun-compatible server
 
-## Typical usage
-
-```console
-```
+See help shown by `perf-metrics -h`.

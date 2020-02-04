@@ -40,7 +40,9 @@ Arguments:
   duration  Duration for measurement like '10s' (default: '10m')
 
 Description:
-  ...
+  This command opens 8 tuners for collecting performance metrics.
+
+  Opened channels are list in CHANNELS in collectMetrics().
 `;
 
 program
@@ -54,7 +56,8 @@ Arguments:
   expr   Prometheus expression
 
 Description:
-  ...
+  This command retreives performance metrics from the Prometheus server running
+  on the local host.
 `;
 
 program
@@ -79,7 +82,7 @@ program
 
 const SUMMARY_HELP = `
 Description:
-  ...
+  This command shows a summary of performance measurements.
 `;
 
 program
@@ -89,7 +92,8 @@ program
 
 const PROM_GRAPH_URL_HELP = `
 Description:
-  ...
+  This command shows an URL of graphs of performance metrics on the Prometheus
+  server.
 `;
 
 program
