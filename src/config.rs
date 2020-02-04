@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use num_cpus;
 use serde::Deserialize;
@@ -12,10 +13,12 @@ pub fn load(config_path: &str) -> Arc<Config> {
         .unwrap_or_else(|err| {
             panic!("Failed to open {}: {}", config_path, err);
         });
-    let config = serde_yaml::from_reader(reader)
+    let mut config: Config = serde_yaml::from_reader(reader)
         .unwrap_or_else(|err| {
             panic!("Failed to paser {}: {}", config_path, err);
         });
+    config.last_modified = std::fs::metadata(config_path)
+        .map(|metadata| metadata.modified().ok()).ok().flatten();
     Arc::new(config)
 }
 
@@ -24,6 +27,8 @@ pub fn load(config_path: &str) -> Arc<Config> {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
+    #[serde(skip)]
+    pub last_modified: Option<SystemTime>,
     #[serde(default)]
     pub epg: EpgConfig,
     #[serde(default)]
@@ -200,6 +205,7 @@ mod tests {
         "#);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Config {
+            last_modified: Default::default(),
             epg: EpgConfig {
                 cache_dir: Some("/path/to/epg".to_string()),
             },

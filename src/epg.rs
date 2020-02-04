@@ -5,6 +5,7 @@ use std::io::{BufReader, BufWriter};
 use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use actix::prelude::*;
 use chrono::{DateTime, Duration};
@@ -173,8 +174,7 @@ pub fn flush_schedules() {
 }
 
 struct Epg {
-    cache_dir: Option<PathBuf>,
-    channels: Vec<ChannelConfig>,
+    config: Arc<Config>,
     services: Vec<EpgService>,
     clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
@@ -183,16 +183,8 @@ struct Epg {
 
 impl Epg {
     fn new(config: Arc<Config>) -> Self {
-        let channels = config.channels
-            .iter()
-            .filter(|config| !config.disabled)
-            .cloned()
-            .collect();
-
-        let cache_dir = config.epg.cache_dir.clone().map(PathBuf::from);
         Epg {
-            cache_dir,
-            channels,
+            config,
             services: Vec::new(),
             clocks: HashMap::new(),
             schedules: HashMap::new(),
@@ -266,9 +258,9 @@ impl Epg {
     }
 
     fn load_services(&mut self) -> Result<(), Error> {
-        match self.cache_dir {
+        match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = cache_dir.join("services.json");
+                let json_path = PathBuf::from(cache_dir).join("services.json");
                 log::debug!("Loading schedules from {}...",
                             json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
@@ -283,9 +275,9 @@ impl Epg {
     }
 
     fn load_clocks(&mut self) -> Result<(), Error> {
-        match self.cache_dir {
+        match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = cache_dir.join("clocks.json");
+                let json_path = PathBuf::from(cache_dir).join("clocks.json");
                 log::debug!("Loading clocks from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
                 self.clocks = serde_json::from_reader(reader)?;
@@ -299,9 +291,9 @@ impl Epg {
     }
 
     fn load_schedules(&mut self) -> Result<(), Error> {
-        match self.cache_dir {
+        match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = cache_dir.join("schedules.json");
+                let json_path = PathBuf::from(cache_dir).join("schedules.json");
                 log::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
                 self.schedules = serde_json::from_reader(reader)?;
@@ -314,10 +306,43 @@ impl Epg {
         Ok(())
     }
 
+    fn need_scaning_services(&self) -> bool {
+        match (self.services.is_empty(), &self.config.epg.cache_dir) {
+            (false, Some(ref cache_dir)) => {
+                let json_path = PathBuf::from(cache_dir).join("services.json");
+                Self::unmodified_since(&json_path, self.config.last_modified)
+            }
+            _ => true,
+        }
+    }
+
+    fn need_synchronizing_clocks(&self) -> bool {
+        match (self.clocks.is_empty(), &self.config.epg.cache_dir) {
+            (false, Some(ref cache_dir)) => {
+                let json_path = PathBuf::from(cache_dir).join("clocks.json");
+                Self::unmodified_since(&json_path, self.config.last_modified)
+            }
+            _ => true,
+        }
+    }
+
+    fn unmodified_since(path: &PathBuf, datetime: Option<SystemTime>) -> bool {
+        match datetime {
+            Some(datetime) => {
+                match std::fs::metadata(path)
+                    .map(|metadata| metadata.modified().ok()).ok().flatten() {
+                        Some(modified) => modified < datetime,
+                        None => false,
+                    }
+            }
+            None => false,
+        }
+    }
+
     fn save_services(&self) -> Result<(), Error> {
-        match self.cache_dir {
+        match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = cache_dir.join("services.json");
+                let json_path = PathBuf::from(cache_dir).join("services.json");
                 log::debug!("Saving services into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 serde_json::to_writer(writer, &self.services)?;
@@ -331,9 +356,9 @@ impl Epg {
     }
 
     fn save_clocks(&self) -> Result<(), Error> {
-        match self.cache_dir {
+        match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = cache_dir.join("clocks.json");
+                let json_path = PathBuf::from(cache_dir).join("clocks.json");
                 log::debug!("Saving clocks into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 serde_json::to_writer(writer, &self.clocks)?;
@@ -347,9 +372,9 @@ impl Epg {
     }
 
     fn save_schedules(&self) -> Result<(), Error> {
-        match self.cache_dir {
+        match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = cache_dir.join("schedules.json");
+                let json_path = PathBuf::from(cache_dir).join("schedules.json");
                 log::debug!("Saving schedules into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 serde_json::to_writer(writer, &self.schedules)?;
@@ -381,20 +406,20 @@ impl Epg {
 impl Actor for Epg {
     type Context = Context<Self>;
 
-    fn started(&mut self, _ctx: &mut Self::Context) {
+    fn started(&mut self, _: &mut Self::Context) {
         log::debug!("Started");
         if let Err(err) = self.load_services() {
             log::error!("Failed to load services: {}", err);
         }
-        if self.services.is_empty() {
-            log::info!("No services are avaiable, scan services immediately");
+        if self.need_scaning_services() {
+            log::info!("Scan services immediately");
             job::invoke_scan_services();
         }
         if let Err(err) = self.load_clocks() {
             log::error!("Failed to load clocks: {}", err);
         }
-        if self.clocks.is_empty() {
-            log::info!("No clocks are available, sync clocks immediately");
+        if self.need_synchronizing_clocks() {
+            log::info!("Synchronize clocks immediately");
             job::invoke_sync_clocks();
         }
         if let Err(err) = self.load_schedules() {
@@ -437,7 +462,8 @@ impl Handler<QueryChannelsMessage> for Epg {
         _: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("Handle QueryChannelMessage");
-        let channels = self.channels.iter()
+        let channels = self.config.channels.iter()
+            .filter(|config| !config.disabled)
             .map(|config| MirakurunChannel {
                 channel_type: config.channel_type,
                 channel:  config.channel.clone(),
@@ -1125,6 +1151,16 @@ impl MirakurunProgram {
 mod tests {
     use super::*;
     use chrono::{Date, TimeZone};
+
+    #[test]
+    fn test_epg_unmodified_since() {
+        let path = PathBuf::from(file!());
+        let modified = std::fs::metadata(&path)
+            .map(|metadata| metadata.modified().ok()).ok().flatten();
+        assert!(!Epg::unmodified_since(&path, None));
+        assert!(!Epg::unmodified_since(&path, modified));
+        assert!(Epg::unmodified_since(&path, Some(SystemTime::now())));
+    }
 
     #[test]
     fn test_epg_service_is_exportable() {
