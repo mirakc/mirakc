@@ -5,7 +5,6 @@ use std::io::{BufReader, BufWriter};
 use std::iter::FromIterator;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use actix::prelude::*;
 use chrono::{DateTime, Duration};
@@ -16,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{Config, ChannelConfig};
 use crate::datetime_ext::*;
 use crate::error::Error;
+use crate::fs_util;
 use crate::job;
 use crate::models::*;
 
@@ -310,7 +310,7 @@ impl Epg {
         match (self.services.is_empty(), &self.config.epg.cache_dir) {
             (false, Some(ref cache_dir)) => {
                 let json_path = PathBuf::from(cache_dir).join("services.json");
-                Self::unmodified_since(&json_path, self.config.last_modified)
+                fs_util::unmodified_since(&json_path, self.config.last_modified)
             }
             _ => true,
         }
@@ -320,22 +320,9 @@ impl Epg {
         match (self.clocks.is_empty(), &self.config.epg.cache_dir) {
             (false, Some(ref cache_dir)) => {
                 let json_path = PathBuf::from(cache_dir).join("clocks.json");
-                Self::unmodified_since(&json_path, self.config.last_modified)
+                fs_util::unmodified_since(&json_path, self.config.last_modified)
             }
             _ => true,
-        }
-    }
-
-    fn unmodified_since(path: &PathBuf, datetime: Option<SystemTime>) -> bool {
-        match datetime {
-            Some(datetime) => {
-                match std::fs::metadata(path)
-                    .map(|metadata| metadata.modified().ok()).ok().flatten() {
-                        Some(modified) => modified < datetime,
-                        None => false,
-                    }
-            }
-            None => false,
         }
     }
 
@@ -1151,16 +1138,6 @@ impl MirakurunProgram {
 mod tests {
     use super::*;
     use chrono::{Date, TimeZone};
-
-    #[test]
-    fn test_epg_unmodified_since() {
-        let path = PathBuf::from(file!());
-        let modified = std::fs::metadata(&path)
-            .map(|metadata| metadata.modified().ok()).ok().flatten();
-        assert!(!Epg::unmodified_since(&path, None));
-        assert!(!Epg::unmodified_since(&path, modified));
-        assert!(Epg::unmodified_since(&path, Some(SystemTime::now())));
-    }
 
     #[test]
     fn test_epg_service_is_exportable() {

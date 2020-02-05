@@ -7,6 +7,7 @@ mod datetime_ext;
 mod eit_feeder;
 mod epg;
 mod error;
+mod fs_util;
 mod job;
 mod models;
 mod mpeg_ts_stream;
