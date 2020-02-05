@@ -170,21 +170,27 @@ pub struct JobConfig {
 
 fn default_scan_services_job() -> JobConfig {
     JobConfig {
-        command: "mirakc-arib scan-services".to_string(),
+        command: "mirakc-arib scan-services\
+                  {{#sids}} --sids={{.}}{{/sids}}\
+                  {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
         schedule: "0 31 5 * * * *".to_string(),
     }
 }
 
 fn default_sync_clocks_job() -> JobConfig {
     JobConfig {
-        command: "mirakc-arib sync-clocks".to_string(),
+        command: "mirakc-arib sync-clocks\
+                  {{#sids}} --sids={{.}}{{/sids}}\
+                  {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
         schedule: "0 3 12 * * * *".to_string(),
     }
 }
 
 fn default_update_schedules_job() -> JobConfig {
     JobConfig {
-        command: "mirakc-arib collect-eits".to_string(),
+        command: "mirakc-arib collect-eits\
+                  {{#sids}} --sids={{.}}{{/sids}}\
+                  {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
         schedule: "0 7,37 * * * * *".to_string(),
     }
 }

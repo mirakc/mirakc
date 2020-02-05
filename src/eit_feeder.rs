@@ -45,9 +45,15 @@ impl EitFeeder {
 
         let mut map: HashMap<NetworkId, EpgChannel> = HashMap::new();
         for sv in services.iter() {
-            map.entry(sv.nid).and_modify(|ch| {
-                ch.excluded_services.extend(&sv.channel.excluded_services);
-            }).or_insert(sv.channel.clone());
+            map.entry(sv.nid)
+                .and_modify(|ch| ch.services.push(sv.sid))
+                .or_insert(EpgChannel {
+                    name: sv.channel.name.clone(),
+                    channel_type: sv.channel.channel_type,
+                    channel: sv.channel.channel.clone(),
+                    services: vec![sv.sid],
+                    excluded_services: vec![],
+                });
         }
         let channels = map.values().cloned().collect();
 
@@ -149,8 +155,15 @@ impl EitCollector {
         let stream = tuner::start_streaming(
             channel.channel_type, channel.channel.clone(), user).await?;
 
+        let template = mustache::compile_str(command)?;
+        let data = mustache::MapBuilder::new()
+            .insert("sids", &channel.services)?
+            .insert("xsids", &channel.excluded_services)?
+            .build();
+        let cmd = template.render_data_to_string(&data)?;
+
         let (input, output) = command_util::spawn_pipeline(
-            vec![command.to_string()], stream.id())?;
+            vec![cmd], stream.id())?;
 
         let handle = tokio::spawn(stream.pipe(input));
 

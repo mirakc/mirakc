@@ -54,8 +54,15 @@ impl ServiceScanner {
         let stream = tuner::start_streaming(
             channel.channel_type, channel.channel.clone(), user).await?;
 
+        let template = mustache::compile_str(command)?;
+        let data = mustache::MapBuilder::new()
+            .insert("sids", &channel.services)?
+            .insert("xsids", &channel.excluded_services)?
+            .build();
+        let cmd = template.render_data_to_string(&data)?;
+
         let (input, mut output) = command_util::spawn_pipeline(
-            vec![command.to_string()], stream.id())?;
+            vec![cmd], stream.id())?;
 
         let handle = tokio::spawn(stream.pipe(input));
 
