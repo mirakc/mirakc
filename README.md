@@ -32,32 +32,31 @@ at the same time even on ROCK64 (DRAM: 1GB).
 
 ## Performance comparison
 
-Information in sub-sections below is for the old mirack/0.1.0.  We will update
-it soon.
-
 ### After running for 1 day
 
 The following table is a snippet of the result of `docker stats` at idle after
-running for 1 day:
+running for 1 day on ROCK64 (DRAM: 1GB):
 
 ```
 NAME       MEM USAGE / LIMIT    MEM %   NET I/O          BLOCK I/O
-mirakc     29.25MiB / 985.8MiB  2.97%   1.7MB / 1.45GB   27.1MB / 1.46GB
-mirakurun  153.2MiB / 985.8MiB  15.54%  1.71MB / 1.46GB  15.2MB / 30GB
+mirakc     107.2MiB / 985.8MiB  10.87%  1.3MB / 940MB    10.9MB / 527MB
+mirakurun  121.3MiB / 985.8MiB  12.31%  1.11MB / 936MB   19.6MB / 14.4GB
 ```
+
+The environment variable `MALLOC_ARENA_MAX=2` is specified in both containers.
 
 ### 8 TS streams at the same time
 
 mirakc is 2/3 lower CPU usage and 1/60 smaller memory consumption than
 Mirakurun:
 
-|          | mirakc/0.1.0  | Mirakurun/2.11.0 |
+|          | mirakc/0.2.0  | Mirakurun/2.11.0 |
 |----------|---------------|------------------|
-| CPU      | +33..38%      | +37..60%         |
-| Memory   | +10..12MB     | +470MB..800MB    |
-| Load1    | +1.3..4.3     | +1.5..2.7        |
-| TX       | +112..120Mbps | +100..140Mbps    |
-| RX       | +0.9..1.0Mbps | +0.8..1.0Mbps    |
+| CPU      | +33..36%      | +37..60%         |
+| Memory   | +11..12MB     | +470MB..800MB    |
+| Load1    | +2.1..4.5     | +1.5..2.7        |
+| TX       | +102..120Mbps | +100..140Mbps    |
+| RX       | +0.9..1.1Mbps | +0.8..1.0Mbps    |
 
 Several hundreds or thousands of dropped packets were sometimes detected during
 the performance measurement.  The same situation occurred in Mirakurun.
@@ -66,7 +65,7 @@ The performance metrics listed above were collected by using the following
 command executed on a local PC:
 
 ```console
-$ sh ./scripts/measure.sh <base-url-of-tuner-server> >/dev/null
+$ sh ./scripts/measure.sh http://mirakc:40772 >/dev/null
 Reading TS packets from mx...
 Reading TS packets from cx...
 Reading TS packets from ex...
@@ -77,22 +76,22 @@ Reading TS packets from bs-tbs...
 Reading TS packets from bs11...
 CHANNEL  #BYTES      #PACKETS  #DROPS
 -------  ----------  --------  ------
-mx       740098048   3936691   0
-cx       1049689916  5583457   0
-ex       1071480832  5699366   0
-tx       1000800256  5323405   0
-bs-ntv   999325696   5315562   0
-bs-ex    1091991044  5808463   0
-bs-tbs   1006043136  5351293   0
-bs11     1412792320  7514852   0
+mx       734332700   3906025   0
+cx       1029828844  5477813   0
+ex       1076058232  5723714   0
+tx       914647824   4865148   0
+bs-ntv   1011125100  5378325   0
+bs-ex    1096791248  5833996   0
+bs-tbs   1030786892  5482909   0
+bs11     1426981852  7590329   0
 
 NAME    MIN                 MAX
 ------  ------------------  ------------------
-cpu     33.198583455832065  37.70875083500304
-memory  284135424           284823552
-load1   1.24                3.44
-tx      113818952.48914133  120709229.84436578
-rx      962611.4266622119   1012118.8965332977
+cpu     38.36255750386465   41.38333333306946
+memory  450314240           452210688
+load1   2.13                4.48
+tx      102581677.17847857  120792845.27698153
+rx      955730.9153943596   1086586.6666666667
 
 http://localhost:9090/graph?<query parameters for showing measurement results>
 ```
@@ -106,7 +105,8 @@ with the following environment:
   * [Armbian]/Buster, Linux rock 4.4.182-rockchip64
   * [px4_drv] a1b81c3f76bab5182370cb41216bff964a24fd21@master
     * `coherent_pool=4M` is required for working with PLEX PX-Q3U4
-  * Set `server.workers: 10` in /etc/mirakc/config.yml
+  * Default `server.workers` (4 = the number of CPU cores)
+  * `MALLOC_ARENA_MAX=2`
 * Tuner
   * PLEX PX-Q3U4
 * Docker
@@ -118,7 +118,7 @@ where a Prometheus server was running on the local PC.
 [scripts/measure.sh](./scripts/measure.sh) performs:
 
 * Receiving TS streams from 4 GR and 4 BS services for 10 minutes
-  * `cat` is used as decoder
+  * `cat` is used as post-filter
 * Collecting system metrics by using [Prometheus] and [node_exporter]
 * Counting the number of dropped TS packets by using [node-aribts]
 
@@ -261,16 +261,19 @@ server:
   # A IP address or hostname to bind.
   #
   # The default value is 'localhost'.
+  #
   address: '0.0.0.0'
 
   # A port number to bind.
   #
   # The default value is 40772.
+  #
   port: 12345
 
   # The number of worker threads used for serving the web API.
   #
   # The default value is a return value from `num_cpus::get()`.
+  #
   workers: 4
 
 # Required
@@ -379,6 +382,21 @@ filters:
   # The defualt value is '' which means that no pre-filter program is applied
   # even when the `pre-filter=true` query parameter is specified in a streaming
   # API endpoint.
+  #
+  # Template variables:
+  #
+  #   channel
+  #     The `channel` property of a channel defined in the `channels`.
+  #
+  #   channel_type
+  #     The `type` property of a channel defined in the `channels`.
+  #
+  #   sid
+  #     The idenfiter of the service (optional).
+  #
+  #   eid
+  #     The event identifier of the program (optional).
+  #
   pre-filter: ''
 
   # A Mustache template string of a command to drop TS packets which are not
@@ -436,6 +454,20 @@ filters:
   # * The `decode=1` query parameter is specified
   # * The `post-filter` query parameter is NOT specified
   #
+  # Template variables:
+  #
+  #   channel
+  #     The `channel` property of a channel defined in the `channels`.
+  #
+  #   channel_type
+  #     The `type` property of a channel defined in the `channels`.
+  #
+  #   sid
+  #     The idenfiter of the service (optional).
+  #
+  #   eid
+  #     The event identifier of the program (optional).
+  #
   post-filter: ''
 
 # Optional
@@ -458,7 +490,9 @@ jobs:
   # The command must read TS packets from STDIN, and output the result to STDOUT
   # in a specific JSON format.
   scan-services:
-    command: mirakc-arib scan-services
+    command: >-
+      mirakc-arib scan-services
+      {{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}
     schedule: '0 31 5 * * * *'  # execute at 05:31 every day
 
   # The sync-clocks job synchronizes TDT/TOT and PRC value of each service.
@@ -466,7 +500,9 @@ jobs:
   # The command must read TS packets from STDIN, and output the result to STDOUT
   # in a specific JSON format.
   sync-clocks:
-    command: mirakc-arib sync-clocks
+    command >-
+      mirakc-arib sync-clocks
+      {{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}
     schedule: '0 3 12 * * * *'  # execute at 12:03 every day
 
   # The update-schedules job updates EPG schedules for each service.
@@ -474,7 +510,9 @@ jobs:
   # The command must read TS packets from STDIN, and output EIT sections to
   # STDOUT in a specific line-delimited JSON format (JSONL/JSON Streaming).
   update-schedules:
-    command: mirakc-arib collect-eits
+    command: >-
+      mirakc-arib collect-eits
+      {{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}
     schedule: '0 7,37 * * * * *'  # execute at 7 and 37 minutes every hour
 ```
 
