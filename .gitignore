@@ -4,6 +4,7 @@
 /Dockerfile
 /docker/testbed/epgstation/recorded/
 /target
+*.pyc
 **/*.rs.bk
 .DS_Store
 .env

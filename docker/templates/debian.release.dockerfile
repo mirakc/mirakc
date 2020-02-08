@@ -1,18 +1,17 @@
 # mirakc
 FROM buildenv AS mirakc-build
 
+ENV CARGO_TARGET_{CARGO_TARGET_TRIPLE}_LINKER='{GCC}'
+
 ADD . ./
-# See: https://github.com/japaric/rust-cross
-#      https://doc.rust-lang.org/cargo/reference/config.html
-RUN mkdir -p .cargo
-RUN echo "[target.{{RUST_TARGET_TRIPLE}}]" >.cargo/config
-RUN echo "linker = \"{{RUST_LINKER}}\"" >>.cargo/config
-RUN cargo build --release --target {{RUST_TARGET_TRIPLE}}
-RUN cp /build/target/{{RUST_TARGET_TRIPLE}}/release/mirakc /usr/local/bin/
+RUN cargo build -v --release --target {RUST_TARGET_TRIPLE}
+RUN cp /build/target/{RUST_TARGET_TRIPLE}/release/mirakc /usr/local/bin/
 
 
 # final image
-FROM {{ARCH}}/debian:buster-slim
+#
+# There is no arm32v6/debian image.  So, we use DEBIAN_ARCH instead of ARCH.
+FROM {DEBIAN_ARCH}/debian:buster-slim
 LABEL maintainer="Masayuki Nagamachi <masnagam@gmail.com>"
 
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/

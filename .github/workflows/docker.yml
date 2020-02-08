@@ -8,8 +8,9 @@ on:
       - '*'
 
 env:
-  DOCKERHUB_USER: 'masnagam'
-  IMAGE: 'masnagam/mirakc'
+  DOCKERHUB_USER: masnagam
+  IMAGE: masnagam/mirakc
+  MAIN_PLATFORM: debian
   DOCKER_BUILDKIT: 1
   DOCKER_CLI_EXPERIMENTAL: enabled
 
@@ -17,9 +18,12 @@ jobs:
   build-images:
     strategy:
       matrix:
+        platform:
+          - alpine
+          - debian
         arch:
           - amd64
-          - arm32v5
+          - arm32v6
           - arm32v7
           - arm64v8
     runs-on: ubuntu-latest
@@ -37,20 +41,35 @@ jobs:
         # Experimental features including the --squash option has not been
         # supported in GitHub Actions at this moment...
         run: |-
-          ./docker/dockerfile-gen ${{ matrix.arch }} >Dockerfile
-          docker build -t $IMAGE:${VERSION}-${{ matrix.arch }} --no-cache .
+          ./docker/dockerfile-gen ${{ matrix.platform }} ${{ matrix.arch }} >Dockerfile
+          docker build -t $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} --no-cache .
       - name: Login to DockerHub
         run: |-
           docker login -u $DOCKERHUB_USER -p ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Push image
         run: |-
-          docker push $IMAGE:${VERSION}-${{ matrix.arch }}
-      - name: Update the latest tag
+          docker push $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}
+      - name: Update latest tags for each platform
         run: |-
-          docker tag $IMAGE:${VERSION}-${{ matrix.arch }} $IMAGE:${{ matrix.arch }}
-          docker push $IMAGE:${{ matrix.arch }}
+          docker tag $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${{ matrix.platform }}-${{ matrix.arch }}
+          docker push $IMAGE:${{ matrix.platform }}-${{ matrix.arch }}
         if: env.VERSION != 'master'
+      - name: Update the main platform tags
+        run: |-
+          docker tag $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${VERSION}-${{ matrix.arch }}
+          docker push $IMAGE:${VERSION}-${{ matrix.arch }}
+        if: matrix.platform == env.MAIN_PLATFORM
+      - name: Update latest tags for the main platform
+        run: |-
+          docker tag $IMAGE:${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${{ matrix.arch }}
+          docker push $IMAGE:${{ matrix.arch }}
+        if: env.VERSION != 'master' && matrix.platform == env.MAIN_PLATFORM
   build-multiarch-image:
+    strategy:
+      matrix:
+        platform:
+          - alpine
+          - debian
     runs-on: ubuntu-latest
     needs: build-images
     steps:
@@ -60,16 +79,32 @@ jobs:
       - name: Login to DockerHub
         run: |-
           docker login -u $DOCKERHUB_USER -p ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Create and push the manifest for the multi-arch image
+      - name: Create and push the manifest for each platform
+        # The Debian image for arm32v6 is actually based on the arm/v5
+        # architecture.  The arm/v6 architecture has a backward-compatibility
+        # with the arm/v5 architecture.  So, we specify v6 in the --variant
+        # option for the arm32v6 image.
         run: |-
-          docker manifest create $IMAGE:$VERSION $IMAGE:${VERSION}-amd64 $IMAGE:${VERSION}-arm32v5 $IMAGE:${VERSION}-arm32v7 $IMAGE:${VERSION}-arm64v8
-          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm32v5 --os linux --arch arm --variant v5
-          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm32v7 --os linux --arch arm --variant v7
-          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm64v8 --os linux --arch arm64 --variant v8
-          docker manifest push $IMAGE:$VERSION
-      - name: Update the latest tag
+          docker manifest create $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-amd64 $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v6 $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v7 $IMAGE:${VERSION}-${{ matrix.platform }}-arm64v8
+          docker manifest annotate $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v6 --os linux --arch arm --variant v6
+          docker manifest annotate $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v7 --os linux --arch arm --variant v7
+          docker manifest annotate $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-arm64v8 --os linux --arch arm64 --variant v8
+          docker manifest push $IMAGE:${VERSION}-${{ matrix.platform }}
+      - name: Update latest tag for each platform
+        run: |-
+          docker pull $IMAGE:${VERSION}-${{ matrix.platform }}
+          docker tag $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${{ matrix.platform }}
+          docker push $IMAGE:${{ matrix.platform }}
+        if: env.VERSION != 'master'
+      - name: Update the version tag for the main platform
+        run: |-
+          docker pull $IMAGE:${VERSION}-${{ matrix.platform }}
+          docker tag $IMAGE:$VERSION-${{ matrix.platform }} $IMAGE:$VERSION
+          docker push $IMAGE:$VERSION
+        if: matrix.platform == env.MAIN_PLATFORM
+      - name: Update the latest tag for the main platform
         run: |-
           docker pull $IMAGE:$VERSION
           docker tag $IMAGE:$VERSION $IMAGE
           docker push $IMAGE
-        if: env.VERSION != 'master'
+        if: env.VERSION != 'master' && matrix.platform == env.MAIN_PLATFORM

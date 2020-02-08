@@ -1,0 +1,96 @@
+{
+  "build-deps": {
+    "recdvb": [
+      "autoconf",
+      "automake",
+      "ca-certificates",
+      "curl",
+      "make",
+      "pkg-config"
+    ],
+    "recpt1": [
+      "autoconf",
+      "automake",
+      "ca-certificates",
+      "curl",
+      "make",
+      "pkg-config"
+    ],
+    "mirakc-arib": [
+      "autoconf",
+      "automake",
+      "ca-certificates",
+      "curl",
+      "cmake",
+      "dos2unix",
+      "git",
+      "libtool",
+      "make",
+      "pkg-config"
+    ],
+    "mirakc": [
+      "ca-certificates",
+      "curl"
+    ]
+  },
+  "debian": {
+    "amd64": {
+      "DEBIAN_ARCH": "amd64",
+      "GCC_HOST_TRIPLE": "x86_64-linux-gnu",
+      "RUST_TARGET_TRIPLE": "x86_64-unknown-linux-gnu",
+      "COMPILER": "g++",
+      "GCC": "gcc",
+      "GXX": "g++"
+    },
+    "arm32v6": {
+      "DEBIAN_ARCH": "arm32v5",
+      "GCC_HOST_TRIPLE": "arm-linux-gnueabi",
+      "RUST_TARGET_TRIPLE": "arm-unknown-linux-gnueabi",
+      "COMPILER": "g++-arm-linux-gnueabi",
+      "GCC": "arm-linux-gnueabi-gcc",
+      "GXX": "arm-linux-gnueabi-g++"
+    },
+    "arm32v7": {
+      "DEBIAN_ARCH": "arm32v7",
+      "GCC_HOST_TRIPLE": "arm-linux-gnueabihf",
+      "RUST_TARGET_TRIPLE": "arm-unknown-linux-gnueabihf",
+      "COMPILER": "g++-arm-linux-gnueabihf",
+      "GCC": "arm-linux-gnueabihf-gcc",
+      "GXX": "arm-linux-gnueabihf-g++"
+    },
+    "arm64v8": {
+      "DEBIAN_ARCH": "arm64v8",
+      "GCC_HOST_TRIPLE": "aarch64-linux-gnu",
+      "RUST_TARGET_TRIPLE": "aarch64-unknown-linux-gnu",
+      "COMPILER": "g++-aarch64-linux-gnu",
+      "GCC": "aarch64-linux-gnu-gcc",
+      "GXX": "aarch64-linux-gnu-g++"
+    }
+  },
+  "alpine": {
+    "amd64": {
+      "GCC_HOST_TRIPLE": "x86_64-linux-musl",
+      "RUST_TARGET_TRIPLE": "x86_64-unknown-linux-musl",
+      "MIRAKC_CFLAGS": "",
+      "MIRAKC_RUSTFLAGS": ""
+    },
+    "arm32v6": {
+      "GCC_HOST_TRIPLE": "arm-linux-musleabi",
+      "RUST_TARGET_TRIPLE": "arm-unknown-linux-musleabi",
+      "MIRAKC_CFLAGS": "",
+      "MIRAKC_RUSTFLAGS": ""
+    },
+    "arm32v7": {
+      "GCC_HOST_TRIPLE": "armv7l-linux-musleabihf",
+      "RUST_TARGET_TRIPLE": "armv7-unknown-linux-musleabihf",
+      "MIRAKC_CFLAGS": "-mfpu=neon",
+      "MIRAKC_RUSTFLAGS": ""
+    },
+    "arm64v8": {
+      "GCC_HOST_TRIPLE": "aarch64-linux-musl",
+      "RUST_TARGET_TRIPLE": "aarch64-unknown-linux-musl",
+      "MIRAKC_CFLAGS": "",
+      "MIRAKC_RUSTFLAGS": "-C link-arg=-lgcc"
+    }
+  }
+}

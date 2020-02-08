@@ -180,16 +180,35 @@ A custom Docker image for the linux/arm64 architecture can be built with the
 following Dockerfile:
 
 ```Dockerfile
-FROM masnagam/mirakc:arm64
+FROM masnagam/mirakc:arm64v8
 ...
 ```
 
 Images for the following architectures have been uploaded to [DockerHub].
 
-* masnagam/mirakc:amd64 (linux/amd64)
-* masnagam/mirakc:armv5 (linux/arm/v5)
-* masnagam/mirakc:armv7 (linux/arm/v7)
-* masnagam/mirakc:arm64 (linux/arm64)
+* Multi-Arch images
+  * masnagam/mirakc
+  * masnagam/mirakc:master
+  * masnagam/mirakc:$VERSION
+  * masnagam/mirakc:$PLATFORM
+  * masnagam/mirakc:$VERSION-$PLATFORM
+* Image for each architecture
+  * masnagam/mirakc:$ARCH
+  * masnagam/mirakc:master-$ARCH
+  * masnagam/mirack:$VERSION-$ARCH
+  * masnagam/mirack:$PLATFORM-$ARCH
+  * masnagam/mirack:$VERSION-$PLATFORM-$ARCH
+
+Where:
+
+* PLATFORM
+  * alpine
+  * debian (main platform)
+* ARCH
+  * amd64
+  * arm32v6 (linux/arm/v6 for alpine, linux/arm/v5 for debian)
+  * arm32v7
+  * arm64v8
 
 Consult [dockerfile-gen](./docker/dockerfile-gen) if you like to build a Docker
 image for an architecture other than the above.
@@ -622,13 +641,19 @@ Dockerfile with the following command:
 ./docker/dockerfile-gen -d amd64 >.devcontainer/Dockerfile
 ```
 
-The following 3 configurations are defined in .vscode/launch.json:
+and then create `.devcontainer/config.yml`:
+
+```shell
+vi .devcontainer/config.yml
+```
+
+The following 3 configurations are defined in `.vscode/launch.json`:
 
 * Debug
 * Debug w/ child processes (Debug + log messages from child processes)
 * Debug unit tests
 
-`SIGPIPE` never stops the debugger.  See ./vscode/settings.json.
+`SIGPIPE` never stops the debugger.  See `./vscode/settings.json`.
 
 ## Notes
 
