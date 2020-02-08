@@ -92,19 +92,25 @@ jobs:
           docker manifest push $IMAGE:${VERSION}-${{ matrix.platform }}
       - name: Update latest tag for each platform
         run: |-
-          docker pull $IMAGE:${VERSION}-${{ matrix.platform }}
-          docker tag $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${{ matrix.platform }}
-          docker push $IMAGE:${{ matrix.platform }}
+          docker manifest create $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-amd64 $IMAGE:${{ matrix.platform }}-arm32v6 $IMAGE:${{ matrix.platform }}-arm32v7 $IMAGE:${{ matrix.platform }}-arm64v8
+          docker manifest annotate $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-arm32v6 --os linux --arch arm --variant v6
+          docker manifest annotate $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-arm32v7 --os linux --arch arm --variant v7
+          docker manifest annotate $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-arm64v8 --os linux --arch arm64 --variant v8
+          docker manifest push $IMAGE:${{ matrix.platform }}
         if: env.VERSION != 'master'
       - name: Update the version tag for the main platform
         run: |-
-          docker pull $IMAGE:${VERSION}-${{ matrix.platform }}
-          docker tag $IMAGE:$VERSION-${{ matrix.platform }} $IMAGE:$VERSION
-          docker push $IMAGE:$VERSION
+          docker manifest create $IMAGE:$VERSION $IMAGE:${VERSION}-amd64 $IMAGE:${VERSION}-arm32v6 $IMAGE:${VERSION}-arm32v7 $IMAGE:${VERSION}-arm64v8
+          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm32v6 --os linux --arch arm --variant v6
+          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm32v7 --os linux --arch arm --variant v7
+          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm64v8 --os linux --arch arm64 --variant v8
+          docker manifest push $IMAGE:$VERSION
         if: matrix.platform == env.MAIN_PLATFORM
       - name: Update the latest tag for the main platform
         run: |-
-          docker pull $IMAGE:$VERSION
-          docker tag $IMAGE:$VERSION $IMAGE
-          docker push $IMAGE
+          docker manifest create $IMAGE $IMAGE:amd64 $IMAGE:arm32v6 $IMAGE:arm32v7 $IMAGE:arm64v8
+          docker manifest annotate $IMAGE $IMAGE:arm32v6 --os linux --arch arm --variant v6
+          docker manifest annotate $IMAGE $IMAGE:arm32v7 --os linux --arch arm --variant v7
+          docker manifest annotate $IMAGE $IMAGE:arm64v8 --os linux --arch arm64 --variant v8
+          docker manifest push $IMAGE
         if: env.VERSION != 'master' && matrix.platform == env.MAIN_PLATFORM
