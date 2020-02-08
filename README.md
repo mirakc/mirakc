@@ -609,6 +609,18 @@ traffic between mirakc and BonDriver_Mirakurun.  Because the
 stream which means that all TS packets from a tuner will be sent even though
 some of them don't need for playback.
 
+### Incompatibility of the `X-Mirakurun_Priority` header
+
+There are the following differences of the `X-Mirakurun_Priority` header between
+mirakc and Mirakurun:
+
+* Treated as 0 when the minimum value of `X-Mirakurun-Priority` headers is less
+  than 0
+* Treaded as 128 when the maximum value of `X-Mirakurun-Priority` headers is
+  greater than 0
+* Can grab a tuner which is used by other users regardless of their priorities
+  if the priority is 128
+
 ## Limitations
 
 * `CS` and `SKY` channel types are not tested at all

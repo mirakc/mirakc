@@ -431,9 +431,11 @@ impl actix_web::FromRequest for TunerUser {
 
         let priority = req.headers().get_all("x-mirakurun-priority")
             .filter_map(|value| value.to_str().ok())
-            .filter_map(|value| value.parse().ok())
+            .filter_map(|value| value.parse::<i32>().ok())
             .max()
-            .unwrap_or(0);
+            .map(|value| value.max(0))
+            .map(TunerUserPriority::from)
+            .unwrap_or_default();
 
         futures::future::ok(TunerUser { info, priority })
     }

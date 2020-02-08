@@ -341,16 +341,41 @@ impl fmt::Display for TunerUserInfo {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+pub struct TunerUserPriority(i32);
+
+impl TunerUserPriority {
+    const MIN: i32 = -128;
+    const MAX: i32 = 128;
+    pub const GRAB: TunerUserPriority = TunerUserPriority(Self::MAX);
+
+    pub fn is_grab(&self) -> bool {
+        *self == Self::GRAB
+    }
+}
+
+impl From<i32> for TunerUserPriority {
+    fn from(value: i32) -> Self {
+        TunerUserPriority(value.max(Self::MIN).min(Self::MAX))
+    }
+}
+
+impl fmt::Display for TunerUserPriority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Clone)]
 pub struct TunerUser {
     pub info: TunerUserInfo,
-    pub priority: i32,
+    pub priority: TunerUserPriority,
 }
 
 impl TunerUser {
     pub fn get_model(&self) -> MirakurunTunerUser {
         let (id, agent) = self.info.get_model();
-        MirakurunTunerUser { id, agent, priority: self.priority }
+        MirakurunTunerUser { id, agent, priority: self.priority.0 }
     }
 }
 
@@ -651,6 +676,17 @@ mod tests {
                 r#"["GR", "BS", "CS", "SKY"]"#).unwrap(),
             vec![ChannelType::GR, ChannelType::BS,
                  ChannelType::CS, ChannelType::SKY]);
+    }
+
+    #[test]
+    fn test_tuner_user_priority() {
+        assert_eq!(TunerUserPriority::default(), 0.into());
+        assert_eq!(TunerUserPriority::from(128), 128.into());
+        assert_eq!(TunerUserPriority::from(129), 128.into());
+        assert_eq!(TunerUserPriority::from(-128), (-128).into());
+        assert_eq!(TunerUserPriority::from(-129), (-128).into());
+
+        assert!(TunerUserPriority::from(128).is_grab());
     }
 
     #[test]

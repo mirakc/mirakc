@@ -149,9 +149,9 @@ impl TunerManager {
         let found = self.tuners
             .iter_mut()
             .filter(|tuner| tuner.is_supported_type(channel_type))
-            .find(|tuner| tuner.can_dispossess(user.priority));
+            .find(|tuner| tuner.can_grab(user.priority));
         if let Some(tuner) = found {
-            log::info!("tuner#{}: Rectivate with {} {}",
+            log::info!("tuner#{}: Grab tuner, rectivate with {} {}",
                        tuner.index, channel_type, channel);
             tuner.deactivate();
             tuner.activate(channel_type, channel)?;
@@ -335,8 +335,8 @@ impl Tuner {
         self.activity.is_reuseable(channel_type, channel)
     }
 
-    fn can_dispossess(&self, priority: i32) -> bool {
-        self.activity.can_dispossess(priority)
+    fn can_grab(&self, priority: TunerUserPriority) -> bool {
+        priority.is_grab() || self.activity.can_grab(priority)
     }
 
     fn activate(
@@ -463,10 +463,10 @@ impl TunerActivity {
         }
     }
 
-    fn can_dispossess(&self, priority: i32) -> bool {
+    fn can_grab(&self, priority: TunerUserPriority) -> bool {
         match self {
             Self::Inactive => true,
-            Self::Active(session) => session.can_dispossess(priority),
+            Self::Active(session) => session.can_grab(priority),
         }
     }
 
@@ -533,7 +533,7 @@ impl TunerSession {
         TunerSubscription { id, broadcaster: self.broadcaster.clone() }
     }
 
-    fn can_dispossess(&self, priority: i32) -> bool {
+    fn can_grab(&self, priority: TunerUserPriority) -> bool {
         self.subscribers
             .values()
             .all(|user| priority > user.priority)
@@ -611,16 +611,32 @@ mod tests {
     }
 
     #[actix_rt::test]
-    async fn test_tuner_can_dispossess() {
+    async fn test_tuner_can_grab() {
         let config = create_config("true".to_string());
         let mut tuner = Tuner::new(0, &config);
-        assert!(tuner.can_dispossess(0));
+        assert!(tuner.can_grab(0.into()));
 
         tuner.activate(ChannelType::GR, "1".to_string()).unwrap();
-        tuner.subscribe(create_user(0));
+        tuner.subscribe(create_user(0.into()));
 
-        assert!(!tuner.can_dispossess(0));
-        assert!(tuner.can_dispossess(1));
+        assert!(!tuner.can_grab(0.into()));
+        assert!(tuner.can_grab(1.into()));
+        assert!(tuner.can_grab(2.into()));
+        assert!(tuner.can_grab(TunerUserPriority::GRAB));
+
+        tuner.subscribe(create_user(1.into()));
+
+        assert!(!tuner.can_grab(0.into()));
+        assert!(!tuner.can_grab(1.into()));
+        assert!(tuner.can_grab(2.into()));
+        assert!(tuner.can_grab(TunerUserPriority::GRAB));
+
+        tuner.subscribe(create_user(TunerUserPriority::GRAB));
+
+        assert!(!tuner.can_grab(0.into()));
+        assert!(!tuner.can_grab(1.into()));
+        assert!(!tuner.can_grab(2.into()));
+        assert!(tuner.can_grab(TunerUserPriority::GRAB));
     }
 
     #[actix_rt::test]
@@ -643,7 +659,7 @@ mod tests {
         }
     }
 
-    fn create_user(priority: i32) -> TunerUser {
+    fn create_user(priority: TunerUserPriority) -> TunerUser {
         TunerUser {
             info: TunerUserInfo::Job { name: "test".to_string() },
             priority

@@ -60,7 +60,7 @@ impl ClockSynchronizer {
 
         let user = TunerUser {
             info: TunerUserInfo::Job { name: Self::LABEL.to_string() },
-            priority: -1,
+            priority: (-1).into(),
         };
 
         let stream = tuner::start_streaming(
