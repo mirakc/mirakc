@@ -32,7 +32,7 @@ COPY --from=mirakc-arib-build /build/bin/mirakc-arib /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
 
 RUN set -eux \
- && apk add --no-cache ca-certificates curl libstdc++ socat
+ && apk add --no-cache ca-certificates curl libstdc++ socat tzdata
 
 ENV MIRAKC_CONFIG=/etc/mirakc/config.yml
 EXPOSE 40772
