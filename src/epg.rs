@@ -41,6 +41,30 @@ pub async fn query_channels() -> Result<Vec<MirakurunChannel>, Error> {
     }
 }
 
+pub async fn query_channel(
+    channel_type: ChannelType,
+    channel: String
+) -> Result<EpgChannel, Error> {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            match channel.as_str() {
+                "0" => Err(Error::ChannelNotFound),
+                _ => Ok(EpgChannel {
+                    name: "".to_string(),
+                    channel_type,
+                    channel,
+                    services: Vec::new(),
+                    excluded_services: Vec::new(),
+                }),
+            }
+        } else {
+            Epg::from_registry().send(QueryChannelMessage {
+                channel_type, channel
+            }).await?
+        }
+    }
+}
+
 pub async fn query_services() -> Result<Vec<EpgService>, Error> {
     cfg_if::cfg_if! {
         if #[cfg(test)] {
@@ -468,6 +492,37 @@ impl Handler<QueryChannelsMessage> for Epg {
             .collect::<Vec<MirakurunChannel>>();
 
         Ok(channels)
+    }
+}
+
+// query channel
+
+struct QueryChannelMessage {
+    channel_type: ChannelType,
+    channel: String,
+}
+
+impl Message for QueryChannelMessage {
+    type Result = Result<EpgChannel, Error>;
+}
+
+impl Handler<QueryChannelMessage> for Epg {
+    type Result = Result<EpgChannel, Error>;
+
+    fn handle(
+        &mut self,
+        msg: QueryChannelMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        self.config.channels.iter()
+            .filter(|config| !config.disabled)
+            .find(|config| {
+                  config.channel_type == msg.channel_type &&
+                    config.channel == msg.channel
+            })
+            .cloned()
+            .map(EpgChannel::from)
+            .ok_or(Error::ChannelNotFound)
     }
 }
 

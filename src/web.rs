@@ -62,6 +62,12 @@ impl actix_web::ResponseError for Error {
                     reason: None,
                     errors: Vec::new(),
                 }),
+            Error::ChannelNotFound =>
+                actix_web::HttpResponse::NotFound().json(ErrorBody {
+                    code: actix_web::http::StatusCode::NOT_FOUND.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
             Error::ServiceNotFound =>
                 actix_web::HttpResponse::NotFound().json(ErrorBody {
                     code: actix_web::http::StatusCode::NOT_FOUND.as_u16(),
@@ -158,8 +164,11 @@ async fn get_channel_stream(
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
+    let channel = epg::query_channel(
+        path.channel_type, path.channel.clone()).await?;
+
     let filters = make_filters(
-        &config, path.channel_type, &path.channel, None, None, "".to_string(),
+        &config, &channel, None, None, "".to_string(),
         query.pre_filter_required(), query.post_filter_required())?;
 
     let stream = tuner::start_streaming(
@@ -175,9 +184,10 @@ async fn get_channel_service_stream(
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
-    do_get_service_stream(
-        config, path.channel_type, path.channel.clone(), path.sid, query, user
-    ).await
+    let channel = epg::query_channel(
+        path.channel_type, path.channel.clone()).await?;
+
+    do_get_service_stream(config, &channel, path.sid, query, user).await
 }
 
 #[actix_web::get("/services/{id}/stream")]
@@ -190,8 +200,7 @@ async fn get_service_stream(
     let service = epg::query_service_by_nid_sid(
         path.id.nid(), path.id.sid()).await?;
     do_get_service_stream(
-        config, service.channel.channel_type, service.channel.channel,
-        service.sid, query, user).await
+        config, &service.channel, service.sid, query, user).await
 }
 
 #[actix_web::get("/programs/{id}/stream")]
@@ -221,33 +230,33 @@ async fn get_program_stream(
 
 async fn do_get_service_stream(
     config: actix_web::web::Data<Arc<Config>>,
-    channel_type: ChannelType,
-    channel: String,
+    channel: &EpgChannel,
     sid: ServiceId,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
     let filters = make_service_filters(
-        &config, channel_type, &channel, sid, query.pre_filter_required(),
-        query.post_filter_required())?;
+        &config, channel, sid,
+        query.pre_filter_required(), query.post_filter_required())?;
 
-    let stream = tuner::start_streaming(channel_type, channel, user).await?;
+    let stream = tuner::start_streaming(
+        channel.channel_type, channel.channel.clone(), user).await?;
 
     streaming(stream, filters)
 }
 
 fn make_service_filters(
     config: &Config,
-    channel_type: ChannelType,
-    channel: &str,
+    channel: &EpgChannel,
     sid: ServiceId,
     pre_filter_required: bool,
     post_filter_required: bool,
 ) -> Result<Vec<String>, Error> {
     let filter = make_service_filter_command(
         &config.filters.service_filter, sid)?;
-    make_filters(config, channel_type, channel, Some(sid), None, filter,
-                 pre_filter_required, post_filter_required)
+    make_filters(
+        config, channel, Some(sid), None,
+        filter, pre_filter_required, post_filter_required)
 }
 
 fn make_program_filters(
@@ -261,15 +270,14 @@ fn make_program_filters(
     let filter = make_program_filter_command(
         &config.filters.program_filter, program.service_id, program.event_id,
         clock)?;
-    make_filters(config, channel.channel_type, &channel.channel,
-                 Some(program.service_id), Some(program.event_id),
-                 filter, pre_filter_required, post_filter_required)
+    make_filters(
+        config, channel, Some(program.service_id), Some(program.event_id),
+        filter, pre_filter_required, post_filter_required)
 }
 
 fn make_filters(
     config: &Config,
-    channel_type: ChannelType,
-    channel: &str,
+    channel: &EpgChannel,
     sid: Option<ServiceId>,
     eid: Option<EventId>,
     filter: String,
@@ -283,7 +291,7 @@ fn make_filters(
             log::warn!("Pre-filter is required, but not defined");
         } else {
             let cmd = make_filter_command(
-                &config.filters.pre_filter, channel_type, channel, sid, eid)?;
+                &config.filters.pre_filter, channel, sid, eid)?;
             filters.push(cmd);
         }
     }
@@ -299,7 +307,7 @@ fn make_filters(
             log::warn!("Post-filter is required, but not defined");
         } else {
             let cmd = make_filter_command(
-                &config.filters.post_filter, channel_type, channel, sid, eid)?;
+                &config.filters.post_filter, channel, sid, eid)?;
             filters.push(cmd);
         }
     }
@@ -309,15 +317,14 @@ fn make_filters(
 
 fn make_filter_command(
     command: &str,
-    channel_type: ChannelType,
-    channel: &str,
+    channel:  &EpgChannel,
     sid: Option<ServiceId>,
     eid: Option<EventId>,
 ) -> Result<String, Error> {
     let template = mustache::compile_str(command)?;
     let mut builder = mustache::MapBuilder::new();
-    builder = builder.insert("channel_type", &channel_type)?;
-    builder = builder.insert_str("xsids", channel);
+    builder = builder.insert("channel_type", &channel.channel_type)?;
+    builder = builder.insert_str("xsids", &channel.channel);
     if let Some(sid) = sid {
         builder = builder.insert_str("sid", sid.value().to_string());
     }
@@ -569,6 +576,9 @@ mod tests {
         let res = get("/api/channels/GR/ch/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
 
+        let res = get("/api/channels/GR/0/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+
         let res = get("/api/channels/WOWOW/ch/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
 
@@ -593,6 +603,9 @@ mod tests {
     async fn test_get_channel_service_stream() {
         let res = get("/api/channels/GR/ch/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/channels/GR/0/services/1/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
 
         let res = get("/api/channels/WOWOW/ch/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);

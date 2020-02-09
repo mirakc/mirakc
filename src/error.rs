@@ -13,6 +13,8 @@ use crate::command_util;
 pub enum Error {
     #[fail(display = "Tuner unavailable")]
     TunerUnavailable,
+    #[fail(display = "Channel not found")]
+    ChannelNotFound,
     #[fail(display = "Service not found")]
     ServiceNotFound,
     #[fail(display = "Clock not synced")]
