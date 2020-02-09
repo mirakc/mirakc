@@ -6,6 +6,7 @@ use crate::command_util;
 use crate::epg::*;
 use crate::error::Error;
 use crate::models::*;
+use crate::mpeg_ts_stream::*;
 use crate::tuner;
 
 pub struct ServiceScanner {
@@ -53,6 +54,8 @@ impl ServiceScanner {
 
         let stream = tuner::start_streaming(
             channel.channel_type, channel.channel.clone(), user).await?;
+
+        let stream = MpegTsStreamTerminator::new(stream.id(), stream);
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()

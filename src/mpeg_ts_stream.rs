@@ -8,7 +8,7 @@ use tokio::stream::{Stream, StreamExt};
 use tokio::sync::mpsc::Receiver;
 
 use crate::tuner;
-use crate::tuner::TunerSubscriptionId as MpegTsStreamId;
+pub use crate::tuner::TunerSubscriptionId as MpegTsStreamId;
 
 pub struct MpegTsStream {
     id: MpegTsStreamId,
@@ -20,47 +20,17 @@ impl MpegTsStream {
         MpegTsStream { id, receiver }
     }
 
-    pub fn id(&self) -> MpegTsStreamId {
-        self.id
-    }
-
-    pub async fn pipe<W>(mut self, mut writer: W)
+    pub async fn pipe<W>(self, writer: W)
     where
         W: AsyncWrite + Unpin,
     {
-        loop {
-            match self.next().await {
-                Some(Ok(chunk)) => {
-                    if let Err(err) = writer.write_all(&chunk).await {
-                        if err.kind() == io::ErrorKind::BrokenPipe {
-                            log::debug!("Downstream has been closed");
-                        } else {
-                            log::error!("{}: Failed to write to downstream: {}",
-                                        self.id, err);
-                        }
-                        return;
-                    }
-                }
-                Some(Err(err)) => {
-                    if err.kind() == io::ErrorKind::BrokenPipe {
-                        log::debug!("Upstream has been closed");
-                    } else {
-                        log::error!("{}: Failed to read from upstream: {}",
-                                    self.id, err);
-                    }
-                    return;
-                }
-                None => {
-                    log::debug!("{}: EOF reached", self.id);
-                    return;
-                }
-            }
-        }
+        pipe(self, writer).await
     }
+}
 
-    fn close(&self) {
-        log::debug!("{}: Closing...", self.id);
-        tuner::stop_streaming(self.id);
+impl WithMpegTsStreamId for MpegTsStream {
+    fn id(&self) -> MpegTsStreamId {
+        self.id
     }
 }
 
@@ -77,9 +47,107 @@ impl Stream for MpegTsStream {
     }
 }
 
-impl Drop for MpegTsStream {
+// terminator
+//
+// A terminator is attached on the output-side endpoint of an MPEG-TS packets
+// filtering pipeline in order to shutting down streaming quickly when a HTTP
+// transaction ends.
+//
+// There is a delay from the HTTP transaction end to the tuner release when
+// using filters.  On some environments, the delay is about 40ms.  On those
+// environments, the next streaming request may be processed before the tuner is
+// released.
+//
+// It's impossible to eliminate the delay completely, but it's possible to
+// reduce the delay as much as possible.
+//
+// See a discussion in Japanese on:
+// https://github.com/masnagam/mirakc/issues/4#issuecomment-583818912.
+
+pub struct MpegTsStreamTerminator<S> {
+    id: MpegTsStreamId,
+    inner: S,
+}
+
+impl<S> MpegTsStreamTerminator<S>
+where
+    S: Stream<Item = io::Result<Bytes>> + Unpin
+{
+    pub fn new(id: MpegTsStreamId, inner: S) -> Self {
+        MpegTsStreamTerminator { id, inner }
+    }
+
+    pub async fn pipe<W>(self, writer: W)
+    where
+        W: AsyncWrite + Unpin,
+    {
+        pipe(self, writer).await
+    }
+}
+
+impl<S> WithMpegTsStreamId for MpegTsStreamTerminator<S> {
+    fn id(&self) -> MpegTsStreamId {
+        self.id
+    }
+}
+
+impl<S> Stream for MpegTsStreamTerminator<S>
+where
+    S: Stream<Item = io::Result<Bytes>> + Unpin
+{
+    type Item = S::Item;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context
+    ) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
+
+impl<S> Drop for MpegTsStreamTerminator<S> {
     fn drop(&mut self) {
-        self.close();
+        log::debug!("{}: Closing...", self.id);
+        tuner::stop_streaming(self.id);
+    }
+}
+
+pub trait WithMpegTsStreamId {
+    fn id(&self) -> MpegTsStreamId;
+}
+
+async fn pipe<S, W>(mut stream: S, mut writer: W)
+where
+    S: Stream<Item = io::Result<Bytes>> + WithMpegTsStreamId + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    loop {
+        match stream.next().await {
+            Some(Ok(chunk)) => {
+                if let Err(err) = writer.write_all(&chunk).await {
+                    if err.kind() == io::ErrorKind::BrokenPipe {
+                        log::debug!("Downstream has been closed");
+                    } else {
+                        log::error!("{}: Failed to write to downstream: {}",
+                                    stream.id(), err);
+                    }
+                    return;
+                }
+            }
+            Some(Err(err)) => {
+                if err.kind() == io::ErrorKind::BrokenPipe {
+                    log::debug!("Upstream has been closed");
+                } else {
+                    log::error!("{}: Failed to read from upstream: {}",
+                                stream.id(), err);
+                }
+                return;
+            }
+            None => {
+                log::debug!("{}: EOF reached", stream.id());
+                return;
+            }
+        }
     }
 }
 

@@ -14,7 +14,7 @@ use crate::error::Error;
 use crate::epg;
 use crate::epg::EpgChannel;
 use crate::models::*;
-use crate::mpeg_ts_stream::MpegTsStream;
+use crate::mpeg_ts_stream::*;
 use crate::tuner;
 
 pub async fn serve(config: Arc<Config>) -> Result<(), Error> {
@@ -330,24 +330,25 @@ fn make_filter_command(
 
 fn streaming(stream: MpegTsStream, filters: Vec<String>) -> ApiResult {
     if filters.is_empty() {
-        do_streaming(stream)
+        do_streaming(stream.id(), stream)
     } else {
+        let stream_id = stream.id();
         let (input, output) = command_util::spawn_pipeline(
-            filters, stream.id())?;
+            filters, stream_id)?;
         actix::spawn(stream.pipe(input));
-        do_streaming(ChunkStream::new(output, CHUNK_SIZE))
+        do_streaming(stream_id, ChunkStream::new(output, CHUNK_SIZE))
     }
 }
 
-fn do_streaming<S>(stream: S) -> ApiResult
+fn do_streaming<S>(id: MpegTsStreamId, stream: S) -> ApiResult
 where
-    S: Stream<Item = io::Result<Bytes>> + 'static,
+    S: Stream<Item = io::Result<Bytes>> + Unpin + 'static,
 {
     Ok(actix_web::HttpResponse::Ok()
        .force_close()
        .set_header("cache-control", "no-store")
        .set_header("content-type", "video/MP2T")
-       .streaming(stream))
+       .streaming(MpegTsStreamTerminator::new(id, stream)))
 }
 
 // extractors
