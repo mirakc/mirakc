@@ -30,7 +30,6 @@ RUN curl -fsSL https://github.com/masnagam/mirakc-arib/tarball/master \
     | tar -xz --strip-components=1
 RUN echo 'set(CMAKE_SYSTEM_NAME Linux)' >toolchain.cmake
 RUN echo 'set(CMAKE_SYSTEM_PROCESSOR arm)' >>toolchain.cmake
-RUN echo 'set(MIRAKC_ARIB_HOST_TRIPLE {GCC_HOST_TRIPLE})' >>toolchain.cmake
 RUN echo 'set(CMAKE_C_COMPILER {GCC_HOST_TRIPLE}-gcc)' >>toolchain.cmake
 RUN echo 'set(CMAKE_C_COMPILER_TARGET {GCC_HOST_TRIPLE})' >>toolchain.cmake
 RUN echo 'set(CMAKE_CXX_COMPILER {GCC_HOST_TRIPLE}-g++)' >>toolchain.cmake
