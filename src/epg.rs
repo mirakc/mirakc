@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use actix::prelude::*;
-use chrono::{DateTime, Duration};
+use chrono::{DateTime, Duration, TimeZone};
 use indexmap::IndexMap;
 use log;
 use serde::{Deserialize, Serialize};
@@ -125,7 +125,7 @@ pub async fn query_clock(triple: ServiceTriple) -> Result<Clock, Error> {
     }
 }
 
-pub async fn query_programs() -> Result<Vec<MirakurunProgram>, Error> {
+pub async fn query_programs() -> Result<Vec<EpgProgram>, Error> {
     cfg_if::cfg_if! {
         if #[cfg(test)] {
             Ok(Vec::new())
@@ -139,7 +139,7 @@ pub async fn query_program_by_nid_sid_eid(
     nid: NetworkId,
     sid: ServiceId,
     eid: EventId,
-) -> Result<MirakurunProgram, Error> {
+) -> Result<EpgProgram, Error> {
     cfg_if::cfg_if! {
         if #[cfg(test)] {
             // for avoiding warn(dead_code)
@@ -148,7 +148,7 @@ pub async fn query_program_by_nid_sid_eid(
             };
             match eid.value() {
                 0 => Err(Error::ProgramNotFound),
-                _ => Ok(MirakurunProgram::new((nid, 0.into(), sid, eid).into())),
+                _ => Ok(EpgProgram::new((nid, 0.into(), sid, eid).into())),
             }
         } else {
             Epg::from_registry().send(QueryProgramMessage::ByNidSidEid {
@@ -202,7 +202,7 @@ struct Epg {
     services: Vec<EpgService>,
     clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
-    programs: HashMap<EventQuad, MirakurunProgram>,
+    programs: HashMap<EventQuad, EpgProgram>,
 }
 
 impl Epg {
@@ -400,7 +400,7 @@ impl Epg {
         Ok(())
     }
 
-    fn export_programs(&self) -> HashMap<EventQuad, MirakurunProgram> {
+    fn export_programs(&self) -> HashMap<EventQuad, EpgProgram> {
         let mut programs = HashMap::new();
         for service in self.services.iter().filter(|sv| sv.is_exportable()) {
             let triple = service.triple();
@@ -619,11 +619,11 @@ impl Handler<QueryClockMessage> for Epg {
 struct QueryProgramsMessage;
 
 impl Message for QueryProgramsMessage {
-    type Result = Result<Vec<MirakurunProgram>, Error>;
+    type Result = Result<Vec<EpgProgram>, Error>;
 }
 
 impl Handler<QueryProgramsMessage> for Epg {
-    type Result = Result<Vec<MirakurunProgram>, Error>;
+    type Result = Result<Vec<EpgProgram>, Error>;
 
     fn handle(
         &mut self,
@@ -652,11 +652,11 @@ impl fmt::Display for QueryProgramMessage {
 }
 
 impl Message for QueryProgramMessage {
-    type Result = Result<MirakurunProgram, Error>;
+    type Result = Result<EpgProgram, Error>;
 }
 
 impl Handler<QueryProgramMessage> for Epg {
-    type Result = Result<MirakurunProgram, Error>;
+    type Result = Result<EpgProgram, Error>;
 
     fn handle(
         &mut self,
@@ -817,12 +817,12 @@ impl EpgSchedule {
     fn collect_epg_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<EventQuad, MirakurunProgram>) {
+        programs: &mut HashMap<EventQuad, EpgProgram>) {
         for event in self.overnight_events.iter() {
             let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
                 .entry(quad)
-                .or_insert(MirakurunProgram::new(quad))
+                .or_insert(EpgProgram::new(quad))
                 .update(event);
         }
         for table in self.tables.iter() {
@@ -866,7 +866,7 @@ impl EpgTable {
     fn collect_epg_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<EventQuad, MirakurunProgram>) {
+        programs: &mut HashMap<EventQuad, EpgProgram>) {
         for segment in self.segments.iter() {
             segment.collect_epg_programs(triple, programs)
         }
@@ -911,7 +911,7 @@ impl EpgSegment {
     fn collect_epg_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<EventQuad, MirakurunProgram>) {
+        programs: &mut HashMap<EventQuad, EpgProgram>) {
         for section in self.sections.iter() {
             if let Some(section) = section {
                 section.collect_epg_programs(triple, programs)
@@ -945,12 +945,12 @@ impl EpgSection {
     fn collect_epg_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<EventQuad, MirakurunProgram>) {
+        programs: &mut HashMap<EventQuad, EpgProgram>) {
         for event in self.events.iter() {
             let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
                 .entry(quad)
-                .or_insert(MirakurunProgram::new(quad))
+                .or_insert(EpgProgram::new(quad))
                 .update(event);
         }
     }
@@ -1154,11 +1154,44 @@ impl Into<MirakurunChannelService> for EpgService {
     }
 }
 
-impl MirakurunProgram {
+#[derive(Clone)]
+pub struct EpgProgram {
+    pub quad: EventQuad,
+    pub start_at: DateTime<Jst>,
+    pub duration: Duration,
+    pub scrambled: bool,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub extended: Option<IndexMap<String, String>>,
+    pub video: Option<EpgVideoInfo>,
+    pub audio: Option<EpgAudioInfo>,
+    pub genres: Option<Vec<EpgGenre>>,
+}
+
+impl EpgProgram {
+    fn new(quad: EventQuad) -> Self {
+        Self {
+            quad: quad,
+            start_at: Jst.timestamp(0, 0),
+            duration: Duration::minutes(0),
+            scrambled: false,
+            name: None,
+            description: None,
+            extended: None,
+            video: None,
+            audio: None,
+            genres: None,
+        }
+    }
+
+    fn _end_at(&self) -> DateTime<Jst> {
+        self.start_at + self.duration
+    }
+
     fn update(&mut self, event: &EitEvent) {
         self.start_at = event.start_time.clone();
         self.duration = event.duration.clone();
-        self.is_free = !event.scrambled;
+        self.scrambled = event.scrambled;
         for desc in event.descriptors.iter() {
             match desc {
                 EitDescriptor::ShortEvent { event_name, text } => {

@@ -12,7 +12,7 @@ use crate::command_util;
 use crate::config::{Config, ServerAddr};
 use crate::error::Error;
 use crate::epg;
-use crate::epg::EpgChannel;
+use crate::epg::{EpgChannel, EpgProgram};
 use crate::models::*;
 use crate::mpeg_ts_stream::*;
 use crate::tuner;
@@ -140,13 +140,15 @@ async fn get_services() -> ApiResult {
 #[actix_web::get("/services/{id}")]
 async fn get_service(path: actix_web::web::Path<ServicePath>) -> ApiResult {
     epg::query_service_by_nid_sid(path.id.nid(), path.id.sid()).await
-        .map(|service| MirakurunService::from(service))
+        .map(MirakurunService::from)
         .map(|service| actix_web::HttpResponse::Ok().json(service))
 }
 
 #[actix_web::get("/programs")]
 async fn get_programs() -> ApiResult {
     epg::query_programs().await
+        .map(|programs| programs.into_iter()
+             .map(MirakurunProgram::from).collect::<Vec<MirakurunProgram>>())
         .map(|programs| actix_web::HttpResponse::Ok().json(programs))
 }
 
@@ -154,6 +156,7 @@ async fn get_programs() -> ApiResult {
 async fn get_program(path: actix_web::web::Path<ProgramPath>) -> ApiResult {
     epg::query_program_by_nid_sid_eid(
         path.id.nid(), path.id.sid(), path.id.eid()).await
+        .map(MirakurunProgram::from)
         .map(|program| actix_web::HttpResponse::Ok().json(program))
 }
 
@@ -268,16 +271,16 @@ fn make_service_filters(
 fn make_program_filters(
     config: &Config,
     channel: &EpgChannel,
-    program: &MirakurunProgram,
+    program: &EpgProgram,
     clock: &Clock,
     pre_filter_required: bool,
     post_filter_required: bool,
 ) -> Result<Vec<String>, Error> {
     let filter = make_program_filter_command(
-        &config.filters.program_filter, program.service_id, program.event_id,
+        &config.filters.program_filter, program.quad.sid(), program.quad.eid(),
         clock)?;
     make_filters(
-        config, channel, Some(program.service_id), Some(program.event_id),
+        config, channel, Some(program.quad.sid()), Some(program.quad.eid()),
         filter, pre_filter_required, post_filter_required)
 }
 

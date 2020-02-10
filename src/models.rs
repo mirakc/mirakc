@@ -1,11 +1,11 @@
 use std::fmt;
 
-use chrono::{DateTime, Duration, TimeZone};
+use chrono::{DateTime, Duration};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
-use crate::epg::{EpgChannel, EpgService};
+use crate::epg::{EpgChannel, EpgService, EpgProgram};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[derive(Deserialize, Serialize)]
@@ -587,8 +587,6 @@ impl From<EpgChannel> for MirakurunServiceChannel {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgram {
-    #[serde(skip)]  // for compatibility with Mirakurun
-    pub event_quad: EventQuad,
     pub id: MirakurunProgramId,
     pub event_id: EventId,
     pub service_id: ServiceId,
@@ -612,28 +610,23 @@ pub struct MirakurunProgram {
     pub genres: Option<Vec<EpgGenre>>,
 }
 
-impl MirakurunProgram {
-    pub fn new(quad: EventQuad) -> Self {
+impl From<EpgProgram> for MirakurunProgram {
+    fn from(program: EpgProgram) -> Self {
         Self {
-            event_quad: quad,
-            id: quad.into(),
-            event_id: quad.eid(),
-            service_id: quad.sid(),
-            network_id: quad.nid(),
-            start_at: Jst.timestamp(0, 0),
-            duration: Duration::minutes(0),
-            is_free: false,
-            name: None,
-            description: None,
-            extended: None,
-            video: None,
-            audio: None,
-            genres: None,
+            id: program.quad.into(),
+            event_id: program.quad.eid(),
+            service_id: program.quad.sid(),
+            network_id: program.quad.nid(),
+            start_at: program.start_at,
+            duration: program.duration,
+            is_free: !program.scrambled,
+            name: program.name,
+            description: program.description,
+            extended: program.extended,
+            video: program.video,
+            audio: program.audio,
+            genres: program.genres,
         }
-    }
-
-    pub fn _end_at(&self) -> DateTime<Jst> {
-        self.start_at + self.duration
     }
 }
 
