@@ -280,7 +280,7 @@ server:
   # Addresses to be bound.
   # Multiple addresses can be bound.
   #
-  # The default value is `http: localhost:40772`.
+  # The default value is `http: 'localhost:40772'`.
   #
   addrs:
     - http: '0.0.0.0:40772'
