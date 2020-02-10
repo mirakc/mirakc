@@ -277,17 +277,14 @@ epg:
 # Configuration for the web API server.
 #
 server:
-  # A IP address or hostname to bind.
+  # Addresses to be bound.
+  # Multiple addresses can be bound.
   #
-  # The default value is 'localhost'.
+  # The default value is `http: localhost:40772`.
   #
-  address: '0.0.0.0'
-
-  # A port number to bind.
-  #
-  # The default value is 40772.
-  #
-  port: 12345
+  addrs:
+    - http: '0.0.0.0:40772'
+    - unix: /path/to/sock
 
   # The number of worker threads used for serving the web API.
   #

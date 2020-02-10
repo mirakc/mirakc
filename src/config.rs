@@ -53,24 +53,34 @@ pub struct EpgConfig {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct ServerConfig {
-    #[serde(default = "default_server_address")]
-    pub address: String,
-    #[serde(default = "default_server_port")]
-    pub port: u16,
-    #[serde(default = "default_server_workers")]
+    #[serde(default = "ServerConfig::default_addrs")]
+    pub addrs: Vec<ServerAddr>,
+    #[serde(default = "ServerConfig::default_workers")]
     pub workers: usize,
 }
 
-fn default_server_address() -> String { "localhost".to_string() }
-fn default_server_port() -> u16 { 40772 }
-fn default_server_workers() -> usize { num_cpus::get() }
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ServerAddr {
+    Http(String),
+    Unix(String),
+}
+
+impl ServerConfig {
+    fn default_addrs() -> Vec<ServerAddr> {
+        vec![ServerAddr::Http("localhost:40772".to_string())]
+    }
+
+    fn default_workers() -> usize {
+        num_cpus::get()
+    }
+}
 
 impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig {
-            address: default_server_address(),
-            port: default_server_port(),
-            workers: default_server_workers(),
+            addrs: Self::default_addrs(),
+            workers: Self::default_workers(),
         }
     }
 }
@@ -242,22 +252,40 @@ mod tests {
 
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(r#"
-                address: '0.0.0.0'
+                addrs:
+                  - http: '0.0.0.0:40772'
             "#).unwrap(),
             ServerConfig {
-                address: "0.0.0.0".to_string(),
-                port: default_server_port(),
-                workers: default_server_workers(),
+                addrs: vec![
+                    ServerAddr::Http("0.0.0.0:40772".to_string()),
+                ],
+                workers: ServerConfig::default_workers(),
             });
 
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(r#"
-                port: 11111
+                addrs:
+                  - unix: /path/to/sock
             "#).unwrap(),
             ServerConfig {
-                address: default_server_address(),
-                port: 11111,
-                workers: default_server_workers(),
+                addrs: vec![
+                    ServerAddr::Unix("/path/to/sock".to_string()),
+                ],
+                workers: ServerConfig::default_workers(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<ServerConfig>(r#"
+                addrs:
+                  - http: '0.0.0.0:40772'
+                  - unix: /path/to/sock
+            "#).unwrap(),
+            ServerConfig {
+                addrs: vec![
+                    ServerAddr::Http("0.0.0.0:40772".to_string()),
+                    ServerAddr::Unix("/path/to/sock".to_string()),
+                ],
+                workers: ServerConfig::default_workers(),
             });
 
         assert_eq!(
@@ -265,8 +293,7 @@ mod tests {
                 workers: 2
             "#).unwrap(),
             ServerConfig {
-                address: default_server_address(),
-                port: default_server_port(),
+                addrs: ServerConfig::default_addrs(),
                 workers: 2,
             });
     }

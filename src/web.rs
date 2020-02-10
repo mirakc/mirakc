@@ -9,7 +9,7 @@ use tokio::stream::Stream;
 
 use crate::chunk_stream::ChunkStream;
 use crate::command_util;
-use crate::config::Config;
+use crate::config::{Config, ServerAddr};
 use crate::error::Error;
 use crate::epg;
 use crate::epg::EpgChannel;
@@ -19,7 +19,7 @@ use crate::tuner;
 
 pub async fn serve(config: Arc<Config>) -> Result<(), Error> {
     let server_config = config.server.clone();
-    actix_web::HttpServer::new(
+    let mut server = actix_web::HttpServer::new(
         move || {
             actix_web::App::new()
                 .data(config.clone())
@@ -27,8 +27,14 @@ pub async fn serve(config: Arc<Config>) -> Result<(), Error> {
                 .wrap(actix_web::middleware::DefaultHeaders::new()
                       .header("Server", server_name()))
                 .service(create_api_service())
-        })
-        .bind((server_config.address.as_str(), server_config.port))?
+        });
+    for addr in server_config.addrs.iter() {
+        server = match addr {
+            ServerAddr::Http(addr) => server.bind(addr.as_str())?,
+            ServerAddr::Unix(path) => server.bind_uds(path.as_str())?,
+        };
+    }
+    server
         .keep_alive(0)  // disable keep-alive
         .workers(server_config.workers)
         .run()
