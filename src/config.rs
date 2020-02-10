@@ -116,57 +116,88 @@ pub struct TunerConfig {
 pub struct FiltersConfig {
     #[serde(default)]
     pub pre_filter: String,
-    #[serde(default = "default_service_filter")]
+    #[serde(default = "FiltersConfig::default_service_filter")]
     pub service_filter: String,
-    #[serde(default = "default_program_filter")]
+    #[serde(default = "FiltersConfig::default_program_filter")]
     pub program_filter: String,
     #[serde(default)]
     pub post_filter: String,
+}
+
+impl FiltersConfig {
+    fn default_service_filter() -> String {
+        "mirakc-arib filter-service --sid={{sid}}".to_string()
+    }
+
+    fn default_program_filter() -> String {
+        // The --pre-streaming option is used in order to avoid the issue#1313
+        // in actix/actix-web.  PSI/SI TS packets will be sent before the
+        // program starts.
+        //
+        // See masnagam/rust-case-studies for details.
+        "mirakc-arib filter-program --sid={{sid}} --eid={{eid}} \
+         --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} \
+         --start-margin=5000 --end-margin=5000 --pre-streaming".to_string()
+    }
 }
 
 impl Default for FiltersConfig {
     fn default() -> Self {
         FiltersConfig {
             pre_filter: String::new(),
-            service_filter: default_service_filter(),
-            program_filter: default_program_filter(),
+            service_filter: Self::default_service_filter(),
+            program_filter: Self::default_program_filter(),
             post_filter: String::new(),
         }
     }
 }
 
-fn default_service_filter() -> String {
-    "mirakc-arib filter-service --sid={{sid}}".to_string()
-}
-
-fn default_program_filter() -> String {
-    // The --pre-streaming option is used in order to avoid the issue#1313 in
-    // actix/actix-web.  PSI/SI TS packets will be sent before the program
-    // starts.
-    //
-    // See masnagam/rust-case-studies for details.
-    "mirakc-arib filter-program --sid={{sid}} --eid={{eid}} \
-     --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} \
-     --start-margin=5000 --end-margin=5000 --pre-streaming".to_string()
-}
-
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct JobsConfig {
-    #[serde(default = "default_scan_services_job")]
+    #[serde(default = "JobsConfig::default_scan_services")]
     pub scan_services: JobConfig,
-    #[serde(default = "default_sync_clocks_job")]
+    #[serde(default = "JobsConfig::default_sync_clocks")]
     pub sync_clocks: JobConfig,
-    #[serde(default = "default_update_schedules_job")]
+    #[serde(default = "JobsConfig::default_update_schedules")]
     pub update_schedules: JobConfig,
+}
+
+impl JobsConfig {
+    fn default_scan_services() -> JobConfig {
+        JobConfig {
+            command: "mirakc-arib scan-services\
+                      {{#sids}} --sids={{.}}{{/sids}}\
+                      {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
+            schedule: "0 31 5 * * * *".to_string(),
+        }
+    }
+
+    fn default_sync_clocks() -> JobConfig {
+        JobConfig {
+            command: "mirakc-arib sync-clocks\
+                      {{#sids}} --sids={{.}}{{/sids}}\
+                      {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
+            schedule: "0 3 12 * * * *".to_string(),
+        }
+    }
+
+    fn default_update_schedules() -> JobConfig {
+        JobConfig {
+            command: "mirakc-arib collect-eits\
+                      {{#sids}} --sids={{.}}{{/sids}}\
+                      {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
+            schedule: "0 7,37 * * * * *".to_string(),
+        }
+    }
 }
 
 impl Default for JobsConfig {
     fn default() -> Self {
         JobsConfig {
-            scan_services: default_scan_services_job(),
-            sync_clocks: default_sync_clocks_job(),
-            update_schedules: default_update_schedules_job(),
+            scan_services: Self::default_scan_services(),
+            sync_clocks: Self::default_sync_clocks(),
+            update_schedules: Self::default_update_schedules(),
         }
     }
 }
@@ -176,33 +207,6 @@ impl Default for JobsConfig {
 pub struct JobConfig {
     pub command: String,
     pub schedule: String,
-}
-
-fn default_scan_services_job() -> JobConfig {
-    JobConfig {
-        command: "mirakc-arib scan-services\
-                  {{#sids}} --sids={{.}}{{/sids}}\
-                  {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
-        schedule: "0 31 5 * * * *".to_string(),
-    }
-}
-
-fn default_sync_clocks_job() -> JobConfig {
-    JobConfig {
-        command: "mirakc-arib sync-clocks\
-                  {{#sids}} --sids={{.}}{{/sids}}\
-                  {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
-        schedule: "0 3 12 * * * *".to_string(),
-    }
-}
-
-fn default_update_schedules_job() -> JobConfig {
-    JobConfig {
-        command: "mirakc-arib collect-eits\
-                  {{#sids}} --sids={{.}}{{/sids}}\
-                  {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
-        schedule: "0 7,37 * * * * *".to_string(),
-    }
 }
 
 #[cfg(test)]
@@ -414,8 +418,8 @@ mod tests {
             "#).unwrap(),
             FiltersConfig {
                 pre_filter: "filter".to_string(),
-                service_filter: default_service_filter(),
-                program_filter: default_program_filter(),
+                service_filter: FiltersConfig::default_service_filter(),
+                program_filter: FiltersConfig::default_program_filter(),
                 post_filter: String::new(),
             });
 
@@ -426,7 +430,7 @@ mod tests {
             FiltersConfig {
                 pre_filter: String::new(),
                 service_filter: "filter".to_string(),
-                program_filter: default_program_filter(),
+                program_filter: FiltersConfig::default_program_filter(),
                 post_filter: String::new(),
             });
 
@@ -436,7 +440,7 @@ mod tests {
             "#).unwrap(),
             FiltersConfig {
                 pre_filter: String::new(),
-                service_filter: default_service_filter(),
+                service_filter: FiltersConfig::default_service_filter(),
                 program_filter: "filter".to_string(),
                 post_filter: String::new(),
             });
@@ -447,8 +451,8 @@ mod tests {
             "#).unwrap(),
             FiltersConfig {
                 pre_filter: String::new(),
-                service_filter: default_service_filter(),
-                program_filter: default_program_filter(),
+                service_filter: FiltersConfig::default_service_filter(),
+                program_filter: FiltersConfig::default_program_filter(),
                 post_filter: "filter".to_string(),
             });
     }
@@ -470,8 +474,8 @@ mod tests {
                     command: "job".to_string(),
                     schedule: "*".to_string(),
                 },
-                sync_clocks: default_sync_clocks_job(),
-                update_schedules: default_update_schedules_job(),
+                sync_clocks: JobsConfig::default_sync_clocks(),
+                update_schedules: JobsConfig::default_update_schedules(),
             });
 
         assert_eq!(
@@ -481,12 +485,12 @@ mod tests {
                   schedule: '*'
             "#).unwrap(),
             JobsConfig {
-                scan_services: default_scan_services_job(),
+                scan_services: JobsConfig::default_scan_services(),
                 sync_clocks: JobConfig {
                     command: "job".to_string(),
                     schedule: "*".to_string(),
                 },
-                update_schedules: default_update_schedules_job(),
+                update_schedules: JobsConfig::default_update_schedules(),
             });
 
         assert_eq!(
@@ -496,8 +500,8 @@ mod tests {
                   schedule: '*'
             "#).unwrap(),
             JobsConfig {
-                scan_services: default_scan_services_job(),
-                sync_clocks: default_sync_clocks_job(),
+                scan_services: JobsConfig::default_scan_services(),
+                sync_clocks: JobsConfig::default_sync_clocks(),
                 update_schedules: JobConfig {
                     command: "job".to_string(),
                     schedule: "*".to_string(),
