@@ -225,14 +225,13 @@ async fn get_program_stream(
         path.id.nid(), path.id.sid()).await?;
     let clock = epg::query_clock(service.triple()).await?;
 
-    let ch_type = service.channel.channel_type;
-    let ch = service.channel.channel.clone();
-
     let filters = make_program_filters(
         &config, &service.channel, &program, &clock,
         query.pre_filter_required(), query.post_filter_required())?;
 
-    let stream = tuner::start_streaming(ch_type, ch, user).await?;
+    let stream = tuner::start_streaming(
+        service.channel.channel_type, service.channel.channel.clone(),
+        user.clone()).await?;
 
     streaming(stream, filters)
 }

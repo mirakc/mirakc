@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{Config, ChannelConfig};
 use crate::datetime_ext::*;
+use crate::eit_feeder::*;
 use crate::error::Error;
 use crate::fs_util;
 use crate::job;
@@ -188,11 +189,14 @@ pub fn update_schedules(sections: Vec<EitSection>) {
     }
 }
 
-pub fn flush_schedules() {
+pub fn flush_schedules(triples: Vec<ServiceTriple>) {
     cfg_if::cfg_if! {
         if #[cfg(test)] {
+            let _ = triples;
         } else {
-            Epg::from_registry().do_send(FlushSchedulesMessage);
+            Epg::from_registry().do_send(FlushSchedulesMessage {
+                triples
+            });
         }
     }
 }
@@ -202,7 +206,6 @@ struct Epg {
     services: Vec<EpgService>,
     clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
-    programs: HashMap<EventQuad, EpgProgram>,
 }
 
 impl Epg {
@@ -212,8 +215,14 @@ impl Epg {
             services: Vec::new(),
             clocks: HashMap::new(),
             schedules: HashMap::new(),
-            programs: HashMap::new(),
         }
+    }
+
+    fn find_service_by_triple(
+        &self,
+        triple: ServiceTriple
+    ) -> Option<&EpgService> {
+        self.services.iter().find(|sv| sv.triple() == triple)
     }
 
     fn update_services(&mut self, services: Vec<EpgService>) {
@@ -244,8 +253,22 @@ impl Epg {
         }
     }
 
-    fn flush_schedules(&mut self) {
-        self.programs = self.export_programs();
+    fn flush_schedules(&mut self, triples: Vec<ServiceTriple>) {
+        for triple in triples.iter() {
+            let num_programs = match self.schedules.get_mut(triple) {
+                Some(schedule) => {
+                    schedule.collect_programs();
+                    schedule.programs.len()
+                }
+                None => 0,
+            };
+            if num_programs > 0 {
+                let service = self.find_service_by_triple(*triple)
+                    .expect("Service must exist");
+                log::info!("Collected {} programs of {} ({})",
+                           num_programs, service.name, triple);
+            }
+        }
         match self.save_schedules() {
             Ok(_) => (),
             Err(err) => log::error!("Failed to save schedules: {}", err),
@@ -400,17 +423,10 @@ impl Epg {
         Ok(())
     }
 
-    fn export_programs(&self) -> HashMap<EventQuad, EpgProgram> {
-        let mut programs = HashMap::new();
-        for service in self.services.iter().filter(|sv| sv.is_exportable()) {
-            let triple = service.triple();
-            match self.schedules.get(&triple) {
-                Some(sched) =>
-                    sched.collect_epg_programs(triple, &mut programs),
-                None => log::warn!("Schedule not found for {}", triple),
-            }
+    fn collect_programs(&mut self) {
+        for schedule in self.schedules.values_mut() {
+            schedule.collect_programs();
         }
-        programs
     }
 }
 
@@ -436,8 +452,7 @@ impl Actor for Epg {
         if let Err(err) = self.load_schedules() {
             log::error!("Failed to load schedules: {}", err);
         }
-        self.programs = self.export_programs();
-        log::info!("Loaded {} programs", self.programs.len());
+        self.collect_programs();
         log::info!("Always update schedules at startup");
         job::invoke_update_schedules();
     }
@@ -631,7 +646,11 @@ impl Handler<QueryProgramsMessage> for Epg {
         _: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("Handle QueryProgramsMessage");
-        Ok(self.programs.values().cloned().collect())
+        let mut programs = Vec::new();
+        for schedule in self.schedules.values() {
+            programs.extend(schedule.programs.values().cloned())
+        }
+        Ok(programs)
     }
 }
 
@@ -666,14 +685,14 @@ impl Handler<QueryProgramMessage> for Epg {
         log::debug!("{}", msg);
         match msg {
             QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
-                let tsid = self.services
+                let triple = self.services
                     .iter()
                     .find(|sv| sv.nid == nid && sv.sid == sid)
-                    .map(|sv| sv.tsid)
+                    .map(|sv| sv.triple())
                     .ok_or(Error::ProgramNotFound)?;
-                self.programs
-                    .get(&EventQuad::new(nid, tsid, sid, eid))
-                    .cloned()
+                let schedule = self.schedules.get(&triple)
+                    .ok_or(Error::ProgramNotFound)?;
+                schedule.programs.get(&eid).cloned()
                     .ok_or(Error::ProgramNotFound)
             }
         }
@@ -751,7 +770,9 @@ impl Handler<UpdateSchedulesMessage> for Epg {
 
 // flush schedules
 
-struct FlushSchedulesMessage;
+struct FlushSchedulesMessage {
+    triples: Vec<ServiceTriple>,
+}
 
 impl Message for FlushSchedulesMessage {
     type Result = ();
@@ -762,11 +783,11 @@ impl Handler<FlushSchedulesMessage> for Epg {
 
     fn handle(
         &mut self,
-        _: FlushSchedulesMessage,
+        msg: FlushSchedulesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("Handle FlushSchedulesMessage");
-        self.flush_schedules();
+        self.flush_schedules(msg.triples);
     }
 }
 
@@ -782,6 +803,8 @@ struct EpgSchedule {
     overnight_events: Vec<EitEvent>,
     #[serde(with = "serde_jst")]
     updated_at: DateTime<Jst>,
+    #[serde(skip)]
+    programs: HashMap<EventId, EpgProgram>,
 }
 
 impl EpgSchedule {
@@ -791,6 +814,7 @@ impl EpgSchedule {
             tables: Default::default(),
             overnight_events: Vec::new(),
             updated_at: Jst::now(),
+            programs: HashMap::new(),
         }
     }
 
@@ -814,22 +838,22 @@ impl EpgSchedule {
         self.overnight_events = events;
     }
 
-    fn collect_epg_programs(
-        &self,
-        triple: ServiceTriple,
-        programs: &mut HashMap<EventQuad, EpgProgram>) {
+    fn collect_programs(&mut self) {
+        let mut programs = HashMap::new();
         for event in self.overnight_events.iter() {
-            let quad = EventQuad::from((triple, EventId::from(event.event_id)));
+            let quad = EventQuad::from(
+                (self.service_triple, EventId::from(event.event_id)));
             programs
-                .entry(quad)
+                .entry(event.event_id)
                 .or_insert(EpgProgram::new(quad))
                 .update(event);
         }
         for table in self.tables.iter() {
             if let Some(table) = table {
-                table.collect_epg_programs(triple, programs)
+                table.collect_programs(self.service_triple, &mut programs)
             }
         }
+        self.programs = programs;
     }
 }
 
@@ -863,12 +887,12 @@ impl EpgTable {
         events
     }
 
-    fn collect_epg_programs(
+    fn collect_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<EventQuad, EpgProgram>) {
+        programs: &mut HashMap<EventId, EpgProgram>) {
         for segment in self.segments.iter() {
-            segment.collect_epg_programs(triple, programs)
+            segment.collect_programs(triple, programs)
         }
     }
 }
@@ -908,13 +932,13 @@ impl EpgSegment {
             })
     }
 
-    fn collect_epg_programs(
+    fn collect_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<EventQuad, EpgProgram>) {
+        programs: &mut HashMap<EventId, EpgProgram>) {
         for section in self.sections.iter() {
             if let Some(section) = section {
-                section.collect_epg_programs(triple, programs)
+                section.collect_programs(triple, programs)
             }
         }
     }
@@ -942,14 +966,14 @@ impl EpgSection {
         events
     }
 
-    fn collect_epg_programs(
+    fn collect_programs(
         &self,
         triple: ServiceTriple,
-        programs: &mut HashMap<EventQuad, EpgProgram>) {
+        programs: &mut HashMap<EventId, EpgProgram>) {
         for event in self.events.iter() {
             let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
-                .entry(quad)
+                .entry(event.event_id)
                 .or_insert(EpgProgram::new(quad))
                 .update(event);
         }
@@ -963,97 +987,6 @@ impl From<EitSection> for EpgSection {
             events: section.events,
         }
     }
-}
-
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EitSection {
-    original_network_id: NetworkId,
-    transport_stream_id: TransportStreamId,
-    service_id: ServiceId,
-    table_id: u16,
-    section_number: u8,
-    last_section_number: u8,
-    segment_last_section_number: u8,
-    version_number: u8,
-    events: Vec<EitEvent>,
-}
-
-impl EitSection {
-    fn table_index(&self) -> usize {
-        self.table_id as usize - 0x50
-    }
-
-    fn segment_index(&self) -> usize {
-        self.section_number as usize / 8
-    }
-
-    fn section_index(&self) -> usize {
-        self.section_number as usize % 8
-    }
-
-    fn last_section_index(&self) -> usize {
-        self.segment_last_section_number as usize % 8
-    }
-
-    fn service_triple(&self) -> ServiceTriple {
-        (self.original_network_id,
-         self.transport_stream_id,
-         self.service_id).into()
-    }
-}
-
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EitEvent {
-    event_id: EventId,
-    #[serde(with = "serde_jst")]
-    start_time: DateTime<Jst>,
-    #[serde(with = "serde_duration_in_millis")]
-    duration: Duration,
-    scrambled: bool,
-    descriptors: Vec<EitDescriptor>,
-}
-
-impl EitEvent {
-    fn end_time(&self) -> DateTime<Jst> {
-        self.start_time + self.duration
-    }
-
-    fn is_overnight_event(&self, midnight: DateTime<Jst>) -> bool {
-        self.start_time < midnight && self.end_time() > midnight
-    }
-}
-
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
-#[serde(tag = "$type")]
-enum EitDescriptor {
-    #[serde(rename_all = "camelCase")]
-    ShortEvent {
-        event_name: String,
-        text: String,
-    },
-    #[serde(rename_all = "camelCase")]
-    Component {
-        stream_content: u8,
-        component_type: u8,
-    },
-    #[serde(rename_all = "camelCase")]
-    AudioComponent {
-        component_type: u8,
-        sampling_rate: u8,
-    },
-    #[serde(rename_all = "camelCase")]
-    Content {
-        nibbles: Vec<(u8, u8, u8, u8)>,
-    },
-    #[serde(rename_all = "camelCase")]
-    ExtendedEvent {
-        items: Vec<(String, String)>,
-    },
 }
 
 #[derive(Clone)]
