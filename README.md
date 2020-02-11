@@ -38,12 +38,14 @@ The following table is a snippet of the result of `docker stats` at idle after
 running for 1 day on ROCK64 (DRAM: 1GB):
 
 ```
-NAME       MEM USAGE / LIMIT    MEM %   NET I/O          BLOCK I/O
-mirakc     107.2MiB / 985.8MiB  10.87%  1.3MB / 940MB    10.9MB / 527MB
-mirakurun  121.3MiB / 985.8MiB  12.31%  1.11MB / 936MB   19.6MB / 14.4GB
+NAME           MEM USAGE / LIMIT    MEM %   NET I/O          BLOCK I/O
+mirakurun      121.3MiB / 985.8MiB  12.31%  1.11MB / 936MB   19.6MB / 14.4GB
+mirakc-debian  107.2MiB / 985.8MiB  10.87%  1.3MB / 940MB    10.9MB / 527MB
+mirakc-alpine  25.82MiB / 985.8MiB   2.62%  1.28MB / 966MB   24.6kB / 994MB
 ```
 
-The environment variable `MALLOC_ARENA_MAX=2` is specified in both containers.
+The environment variable `MALLOC_ARENA_MAX=2` is specified in `mirakurun` and
+`mirakc-debian` containers.
 
 ### 8 TS streams at the same time
 
@@ -677,6 +679,18 @@ mirakc uses system memory allocator which is default in Rust.  In many cases,
 `malloc` in `glibc` is used.  The recent `malloc` in `glibc` is optimized for
 multithreading.  And it doesn't free unused memory blocks in some situations.
 This is the root cause of the increase in memory usage of mirakc.
+
+#### Use an Alpine-base image
+
+The simplest solution is using an Alpine-based image.  As you can see in
+[the previous section](#after-running-for-1-day), the memory usage can be
+drastically improved.
+
+Performance of the memory allocation in the multi-threading environment may be
+degraded.  However, there seems to be no significant performance degradation on
+ROCK64.
+
+#### Tune the glibc allocator by using environment variables
 
 There are environment variables to control criteria for freeing unused memory
 blocks as described in [this page](http://man7.org/linux/man-pages/man3/mallopt.3.html).
