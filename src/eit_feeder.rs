@@ -14,7 +14,6 @@ use crate::datetime_ext::*;
 use crate::error::Error;
 use crate::epg::{self, *};
 use crate::models::*;
-use crate::mpeg_ts_stream::*;
 use crate::tuner;
 use crate::command_util;
 
@@ -157,8 +156,6 @@ impl EitCollector {
 
         let stream = tuner::start_streaming(
             channel.channel_type, channel.channel.clone(), user).await?;
-
-        let stream = MpegTsStreamTerminator::new(stream.id(), stream);
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()

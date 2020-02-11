@@ -13,11 +13,24 @@ pub use crate::tuner::TunerSubscriptionId as MpegTsStreamId;
 pub struct MpegTsStream {
     id: MpegTsStreamId,
     receiver: Receiver<Bytes>,
+    stop_trigger: Option<MpegTsStreamStopTrigger>,
 }
 
 impl MpegTsStream {
     pub fn new(id: MpegTsStreamId, receiver: Receiver<Bytes>) -> Self {
-        MpegTsStream { id, receiver }
+        MpegTsStream {
+            id, receiver,
+            stop_trigger: Some(MpegTsStreamStopTrigger(id))
+        }
+    }
+
+    pub fn id(&self) -> MpegTsStreamId {
+        self.id
+    }
+
+    pub fn take_stop_trigger(&mut self) -> MpegTsStreamStopTrigger {
+        self.stop_trigger.take()
+            .expect("This method can be called at most once")
     }
 
     pub async fn pipe<W>(self, writer: W)
@@ -25,12 +38,6 @@ impl MpegTsStream {
         W: AsyncWrite + Unpin,
     {
         pipe(self, writer).await
-    }
-}
-
-impl WithMpegTsStreamId for MpegTsStream {
-    fn id(&self) -> MpegTsStreamId {
-        self.id
     }
 }
 
@@ -44,6 +51,15 @@ impl Stream for MpegTsStream {
         Pin::new(&mut self.receiver)
             .poll_next(cx)
             .map(|opt| opt.map(|chunk| Ok(chunk)))
+    }
+}
+
+pub struct MpegTsStreamStopTrigger(MpegTsStreamId);
+
+impl Drop for MpegTsStreamStopTrigger {
+    fn drop(&mut self) {
+        log::debug!("{}: Closing...", self.0);
+        tuner::stop_streaming(self.0);
     }
 }
 
@@ -64,36 +80,24 @@ impl Stream for MpegTsStream {
 // See a discussion in Japanese on:
 // https://github.com/masnagam/mirakc/issues/4#issuecomment-583818912.
 
-pub struct MpegTsStreamTerminator<S> {
-    id: MpegTsStreamId,
+pub struct MpegTsStreamTerminator<S, T> {
     inner: S,
+    _stop_trigger: T,
 }
 
-impl<S> MpegTsStreamTerminator<S>
+impl<S, T> MpegTsStreamTerminator<S, T>
 where
     S: Stream<Item = io::Result<Bytes>> + Unpin
 {
-    pub fn new(id: MpegTsStreamId, inner: S) -> Self {
-        MpegTsStreamTerminator { id, inner }
-    }
-
-    pub async fn pipe<W>(self, writer: W)
-    where
-        W: AsyncWrite + Unpin,
-    {
-        pipe(self, writer).await
+    pub fn new(inner: S, _stop_trigger: T) -> Self {
+        Self { inner, _stop_trigger }
     }
 }
 
-impl<S> WithMpegTsStreamId for MpegTsStreamTerminator<S> {
-    fn id(&self) -> MpegTsStreamId {
-        self.id
-    }
-}
-
-impl<S> Stream for MpegTsStreamTerminator<S>
+impl<S, T> Stream for MpegTsStreamTerminator<S, T>
 where
-    S: Stream<Item = io::Result<Bytes>> + Unpin
+    S: Stream<Item = io::Result<Bytes>> + Unpin,
+    T: Unpin,
 {
     type Item = S::Item;
 
@@ -105,20 +109,8 @@ where
     }
 }
 
-impl<S> Drop for MpegTsStreamTerminator<S> {
-    fn drop(&mut self) {
-        log::debug!("{}: Closing...", self.id);
-        tuner::stop_streaming(self.id);
-    }
-}
-
-pub trait WithMpegTsStreamId {
-    fn id(&self) -> MpegTsStreamId;
-}
-
-async fn pipe<S, W>(mut stream: S, mut writer: W)
+async fn pipe<W>(mut stream: MpegTsStream, mut writer: W)
 where
-    S: Stream<Item = io::Result<Bytes>> + WithMpegTsStreamId + Unpin,
     W: AsyncWrite + Unpin,
 {
     loop {

@@ -343,19 +343,20 @@ fn make_filter_command(
     Ok(template.render_data_to_string(&data)?)
 }
 
-fn streaming(stream: MpegTsStream, filters: Vec<String>) -> ApiResult {
+fn streaming(mut stream: MpegTsStream, filters: Vec<String>) -> ApiResult {
     if filters.is_empty() {
-        do_streaming(stream.id(), stream)
+        do_streaming(stream)
     } else {
-        let stream_id = stream.id();
+        let stop_trigger = stream.take_stop_trigger();
         let (input, output) = command_util::spawn_pipeline(
-            filters, stream_id)?;
+            filters, stream.id())?;
         actix::spawn(stream.pipe(input));
-        do_streaming(stream_id, ChunkStream::new(output, CHUNK_SIZE))
+        do_streaming(MpegTsStreamTerminator::new(
+            ChunkStream::new(output, CHUNK_SIZE), stop_trigger))
     }
 }
 
-fn do_streaming<S>(id: MpegTsStreamId, stream: S) -> ApiResult
+fn do_streaming<S>(stream: S) -> ApiResult
 where
     S: Stream<Item = io::Result<Bytes>> + Unpin + 'static,
 {
@@ -363,7 +364,7 @@ where
        .force_close()
        .set_header("cache-control", "no-store")
        .set_header("content-type", "video/MP2T")
-       .streaming(MpegTsStreamTerminator::new(id, stream)))
+       .streaming(stream))
 }
 
 // extractors
