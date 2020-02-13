@@ -332,7 +332,7 @@ fn make_filter_command(
     let template = mustache::compile_str(command)?;
     let mut builder = mustache::MapBuilder::new();
     builder = builder.insert("channel_type", &channel.channel_type)?;
-    builder = builder.insert_str("xsids", &channel.channel);
+    builder = builder.insert_str("channel", &channel.channel);
     if let Some(sid) = sid {
         builder = builder.insert_str("sid", sid.value().to_string());
     }
