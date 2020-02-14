@@ -21,8 +21,8 @@ pub enum Error {
     ClockNotSynced,
     #[fail(display = "Program not found")]
     ProgramNotFound,
-    #[fail(display = "Invalid session")]
-    InvalidSession,
+    #[fail(display = "Session not found")]
+    SessionNotFound,
     #[fail(display = "Command failed: {}", 0)]
     CommandFailed(command_util::Error),
     #[fail(display = "std::io::error: {}", 0)]

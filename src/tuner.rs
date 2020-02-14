@@ -481,8 +481,8 @@ impl TunerActivity {
         id: TunerSubscriptionId,
     ) -> Result<usize, Error> {
         match self {
-            Self::Inactive => Err(Error::InvalidSession),
-            Self::Active(session) => Ok(session.stop_streaming(id)),
+            Self::Inactive => Err(Error::SessionNotFound),
+            Self::Active(session) => session.stop_streaming(id),
         }
     }
 
@@ -562,13 +562,21 @@ impl TunerSession {
             .all(|user| priority > user.priority)
     }
 
-    fn stop_streaming(&mut self, id: TunerSubscriptionId) -> usize {
+    fn stop_streaming(
+        &mut self,
+        id: TunerSubscriptionId
+    ) -> Result<usize, Error> {
+        if self.id != id.session_id {
+            log::warn!("Session ID unmatched, {} was probably deactivated",
+                       id.session_id);
+            return Err(Error::SessionNotFound);
+        }
         match self.subscribers.remove(&id.serial_number) {
             Some(user) => log::info!("{}: Unsubscribed: {}", id, user),
             None => log::warn!("{}: Not subscribed", id),
         }
         self.broadcaster.do_send(UnsubscribeMessage { id });
-        self.subscribers.len()
+        Ok(self.subscribers.len())
     }
 
     fn get_models(
@@ -643,7 +651,20 @@ mod tests {
         let config = create_config("true".to_string());
         let mut tuner = Tuner::new(0, &config);
         let result = tuner.stop_streaming(Default::default());
-        assert_matches!(result, Err(Error::InvalidSession));
+        assert_matches!(result, Err(Error::SessionNotFound));
+
+        let result = tuner.activate(ChannelType::GR, String::new());
+        assert!(result.is_ok());
+        let subscription = tuner.subscribe(TunerUser {
+            info: TunerUserInfo::Web { remote: None, agent: None },
+            priority: 0.into(),
+        });
+
+        let result = tuner.stop_streaming(Default::default());
+        assert_matches!(result, Err(Error::SessionNotFound));
+
+        let result = tuner.stop_streaming(subscription.id);
+        assert_matches!(result, Ok(()));
     }
 
     #[actix_rt::test]
