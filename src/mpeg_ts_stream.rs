@@ -28,9 +28,8 @@ impl MpegTsStream {
         self.id
     }
 
-    pub fn take_stop_trigger(&mut self) -> MpegTsStreamStopTrigger {
+    pub fn take_stop_trigger(&mut self) -> Option<MpegTsStreamStopTrigger> {
         self.stop_trigger.take()
-            .expect("This method can be called at most once")
     }
 
     pub async fn pipe<W>(self, writer: W)
@@ -55,6 +54,13 @@ impl Stream for MpegTsStream {
 }
 
 pub struct MpegTsStreamStopTrigger(MpegTsStreamId);
+
+impl MpegTsStreamStopTrigger {
+    #[cfg(test)]
+    pub fn new(id: MpegTsStreamId) -> Self {
+        Self(id)
+    }
+}
 
 impl Drop for MpegTsStreamStopTrigger {
     fn drop(&mut self) {

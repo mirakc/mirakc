@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
 use crate::epg::{EpgChannel, EpgService, EpgProgram};
+use crate::mpeg_ts_stream::MpegTsStreamId;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[derive(Deserialize, Serialize)]
@@ -313,13 +314,16 @@ impl EpgGenre {
 #[derive(Clone)]
 pub enum TunerUserInfo {
     Job { name: String },
-    Web { remote: Option<String>, agent: Option<String> }
+    Tracker { stream_id: MpegTsStreamId },
+    Web { remote: Option<String>, agent: Option<String> },
 }
 
 impl TunerUserInfo {
     fn get_model(&self) -> (String, Option<String>) {
         match self.clone() {
             Self::Job { name } => (name, None),
+            Self::Tracker { stream_id } =>
+                (format!("Tracker({})", stream_id), None),
             Self::Web { remote, agent } => (remote.unwrap_or_default(), agent),
         }
     }
@@ -329,6 +333,8 @@ impl fmt::Display for TunerUserInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Job { name } => write!(f, "Job({})", name),
+            Self::Tracker { stream_id } =>
+                write!(f, "Tracker({})", stream_id),
             Self::Web { remote: None, agent: None } =>
                 write!(f, r#"Web"#),
             Self::Web { remote: Some(remote), agent: None } =>

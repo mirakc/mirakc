@@ -41,6 +41,8 @@ pub struct Config {
     pub filters: FiltersConfig,
     #[serde(default)]
     pub jobs: JobsConfig,
+    #[serde(default)]
+    pub recorder: RecorderConfig,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -209,6 +211,21 @@ pub struct JobConfig {
     pub schedule: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub struct RecorderConfig {
+    pub track_airtime_command: String,
+}
+
+impl Default for RecorderConfig {
+    fn default() -> Self {
+        RecorderConfig {
+            track_airtime_command: "mirakc-arib track-airtime \
+                                    --sid={{sid}} --eid={{eid}}".to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +251,7 @@ mod tests {
             tuners: vec![],
             jobs: Default::default(),
             filters: Default::default(),
+            recorder: Default::default(),
         });
 
         let result = serde_yaml::from_str::<Config>(r#"

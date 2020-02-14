@@ -7,6 +7,7 @@ use futures;
 use serde::{Deserialize, Serialize};
 use tokio::stream::Stream;
 
+use crate::airtime_tracker;
 use crate::chunk_stream::ChunkStream;
 use crate::command_util;
 use crate::config::{Config, ServerAddr};
@@ -183,7 +184,7 @@ async fn get_channel_stream(
     let stream = tuner::start_streaming(
         path.channel_type, path.channel.clone(), user).await?;
 
-    streaming(stream, filters)
+    streaming(stream, filters, None)
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
@@ -233,7 +234,11 @@ async fn get_program_stream(
         service.channel.channel_type, service.channel.channel.clone(),
         user.clone()).await?;
 
-    streaming(stream, filters)
+    let stop_trigger = airtime_tracker::track_airtime(
+        &config.recorder.track_airtime_command, &service.channel, &program,
+        stream.id()).await?;
+
+    streaming(stream, filters, stop_trigger)
 }
 
 async fn do_get_service_stream(
@@ -250,7 +255,7 @@ async fn do_get_service_stream(
     let stream = tuner::start_streaming(
         channel.channel_type, channel.channel.clone(), user).await?;
 
-    streaming(stream, filters)
+    streaming(stream, filters, None)
 }
 
 fn make_service_filters(
@@ -343,16 +348,21 @@ fn make_filter_command(
     Ok(template.render_data_to_string(&data)?)
 }
 
-fn streaming(mut stream: MpegTsStream, filters: Vec<String>) -> ApiResult {
+fn streaming(
+    mut stream: MpegTsStream,
+    filters: Vec<String>,
+    stop_trigger: Option<MpegTsStreamStopTrigger>,
+) -> ApiResult {
     if filters.is_empty() {
         do_streaming(stream)
     } else {
-        let stop_trigger = stream.take_stop_trigger();
+        let stop_trigger2 = stream.take_stop_trigger();
         let (input, output) = command_util::spawn_pipeline(
             filters, stream.id())?;
         actix::spawn(stream.pipe(input));
         do_streaming(MpegTsStreamTerminator::new(
-            ChunkStream::new(output, CHUNK_SIZE), stop_trigger))
+            ChunkStream::new(output, CHUNK_SIZE),
+            [stop_trigger, stop_trigger2]))
     }
 }
 

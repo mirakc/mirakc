@@ -201,11 +201,46 @@ pub fn flush_schedules(triples: Vec<ServiceTriple>) {
     }
 }
 
+pub fn update_airtime(
+    quad: EventQuad,
+    start_time: DateTime<Jst>,
+    duration: Duration
+) {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            let _ = (quad, start_time, duration);
+        } else {
+            Epg::from_registry().do_send(UpdateAirtimeMessage {
+                quad,
+                airtime: Airtime { start_time, duration }
+            });
+        }
+    }
+}
+
+pub fn remove_airtime(quad: EventQuad) {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+            let _ = quad;
+        } else {
+            Epg::from_registry().do_send(RemoveAirtimeMessage {
+                quad
+            });
+        }
+    }
+}
+
 struct Epg {
     config: Arc<Config>,
     services: Vec<EpgService>,
     clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
+    airtimes: HashMap<EventQuad, Airtime>,
+}
+
+struct Airtime {
+    start_time: DateTime<Jst>,
+    duration: Duration
 }
 
 impl Epg {
@@ -215,6 +250,7 @@ impl Epg {
             services: Vec::new(),
             clocks: HashMap::new(),
             schedules: HashMap::new(),
+            airtimes: HashMap::new(),
         }
     }
 
@@ -693,6 +729,13 @@ impl Handler<QueryProgramMessage> for Epg {
                 let schedule = self.schedules.get(&triple)
                     .ok_or(Error::ProgramNotFound)?;
                 schedule.programs.get(&eid).cloned()
+                    .map(|mut prog| {
+                        if let Some(airtime) = self.airtimes.get(&prog.quad) {
+                            prog.start_at = airtime.start_time;
+                            prog.duration = airtime.duration;
+                        }
+                        prog
+                    })
                     .ok_or(Error::ProgramNotFound)
             }
         }
@@ -788,6 +831,53 @@ impl Handler<FlushSchedulesMessage> for Epg {
     ) -> Self::Result {
         log::debug!("Handle FlushSchedulesMessage");
         self.flush_schedules(msg.triples);
+    }
+}
+
+// update airtime
+
+struct UpdateAirtimeMessage {
+    quad: EventQuad,
+    airtime: Airtime,
+}
+
+impl Message for UpdateAirtimeMessage {
+    type Result = ();
+}
+
+impl Handler<UpdateAirtimeMessage> for Epg {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: UpdateAirtimeMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle UpdateAirtimeMessage");
+        self.airtimes.insert(msg.quad, msg.airtime);
+    }
+}
+
+// remove airtime
+
+struct RemoveAirtimeMessage {
+    quad: EventQuad,
+}
+
+impl Message for RemoveAirtimeMessage {
+    type Result = ();
+}
+
+impl Handler<RemoveAirtimeMessage> for Epg {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: RemoveAirtimeMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle RemoveAirtimeMessage");
+        self.airtimes.remove(&msg.quad);
     }
 }
 

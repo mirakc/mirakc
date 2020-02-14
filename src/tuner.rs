@@ -125,6 +125,14 @@ impl TunerManager {
         channel: String,
         user: TunerUser,
     ) -> Result<TunerSubscription, Error> {
+        if let TunerUserInfo::Tracker { stream_id } = user.info {
+            let tuner = &mut self.tuners[stream_id.session_id.tuner_index];
+            if tuner.is_active() {
+                return Ok(tuner.subscribe(user));
+            }
+            return Err(Error::TunerUnavailable);
+        }
+
         let found = self.tuners
             .iter_mut()
             .find(|tuner| tuner.is_reuseable(channel_type, &channel));
@@ -236,6 +244,13 @@ impl Message for StartStreamingMessage {
     type Result = Result<MpegTsStream, Error>;
 }
 
+impl fmt::Display for StartStreamingMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "StartStreamingMessage: {}/{} {}",
+               self.channel_type, self.channel, self.user)
+    }
+}
+
 impl Handler<StartStreamingMessage> for TunerManager {
     type Result = ActorResponse<Self, MpegTsStream, Error>;
 
@@ -244,7 +259,7 @@ impl Handler<StartStreamingMessage> for TunerManager {
         msg: StartStreamingMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle StartStreamingMessage");
+        log::debug!("{}", msg);
 
         let subscription = match self.activate_tuner(
             msg.channel_type, msg.channel, msg.user) {
@@ -316,6 +331,10 @@ impl Tuner {
             command: config.command.clone(),
             activity: TunerActivity::Inactive,
         }
+    }
+
+    fn is_active(&self) -> bool {
+        self.activity.is_active()
     }
 
     fn is_available(&self) -> bool {
@@ -431,11 +450,15 @@ impl TunerActivity {
         *self = Self::Inactive;
     }
 
-    fn is_inactive(&self) -> bool {
+    fn is_active(&self) -> bool {
         match self {
-            Self::Inactive => true,
-            Self::Active(_) => false,
+            Self::Inactive => false,
+            Self::Active(_) => true,
         }
+    }
+
+    fn is_inactive(&self) -> bool {
+        !self.is_active()
     }
 
     fn is_reuseable(&self, channel_type: ChannelType, channel: &str) -> bool {
@@ -575,6 +598,19 @@ impl Drop for TunerSession {
 mod tests {
     use super::*;
     use matches::assert_matches;
+
+    #[actix_rt::test]
+    async fn test_tuner_is_active() {
+        let config = create_config("true".to_string());
+        let mut tuner = Tuner::new(0, &config);
+
+        assert!(!tuner.is_active());
+
+        let result = tuner.activate(ChannelType::GR, String::new());
+        assert!(result.is_ok());
+
+        assert!(tuner.is_active());
+    }
 
     #[actix_rt::test]
     async fn test_tuner_activate() {
