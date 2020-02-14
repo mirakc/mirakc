@@ -55,13 +55,6 @@ impl Stream for MpegTsStream {
 
 pub struct MpegTsStreamStopTrigger(MpegTsStreamId);
 
-impl MpegTsStreamStopTrigger {
-    #[cfg(test)]
-    pub fn new(id: MpegTsStreamId) -> Self {
-        Self(id)
-    }
-}
-
 impl Drop for MpegTsStreamStopTrigger {
     fn drop(&mut self) {
         log::debug!("{}: Closing...", self.0);
