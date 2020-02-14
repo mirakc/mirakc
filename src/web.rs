@@ -525,6 +525,8 @@ mod tests {
         config.filters.service_filter = String::new();
         config.filters.program_filter = String::new();
         config.filters.post_filter = String::new();
+        // Disable tracking airtime
+        config.recorder.track_airtime_command = "true".to_string();
 
         let mut app = actix_web::test::init_service(
             actix_web::App::new()
