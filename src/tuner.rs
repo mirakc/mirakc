@@ -211,6 +211,12 @@ impl Default for TunerManager {
 
 pub struct QueryTunersMessage;
 
+impl fmt::Display for QueryTunersMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "QueryTuners")
+    }
+}
+
 impl Message for QueryTunersMessage {
     type Result = Result<Vec<MirakurunTuner>, Error>;
 }
@@ -220,10 +226,10 @@ impl Handler<QueryTunersMessage> for TunerManager {
 
     fn handle(
         &mut self,
-        _: QueryTunersMessage,
+        msg: QueryTunersMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle QueryTunersMessage");
+        log::debug!("{}", msg);
         let tuners: Vec<MirakurunTuner> = self.tuners
             .iter()
             .map(|tuner| tuner.get_model())
@@ -240,15 +246,15 @@ pub struct StartStreamingMessage {
     pub user: TunerUser,
 }
 
-impl Message for StartStreamingMessage {
-    type Result = Result<MpegTsStream, Error>;
-}
-
 impl fmt::Display for StartStreamingMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "StartStreamingMessage: {}/{} {}",
+        write!(f, "StartStreaming {}/{} to {}",
                self.channel_type, self.channel, self.user)
     }
+}
+
+impl Message for StartStreamingMessage {
+    type Result = Result<MpegTsStream, Error>;
 }
 
 impl Handler<StartStreamingMessage> for TunerManager {
@@ -292,6 +298,12 @@ pub struct StopStreamingMessage {
     pub id: TunerSubscriptionId,
 }
 
+impl fmt::Display for StopStreamingMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "StopStreaming {}", self.id)
+    }
+}
+
 impl Message for StopStreamingMessage {
     type Result = ();
 }
@@ -304,7 +316,7 @@ impl Handler<StopStreamingMessage> for TunerManager {
         msg: StopStreamingMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle StopStreamingMessage");
+        log::debug!("{}", msg);
         self.stop_streaming(msg.id)
     }
 }

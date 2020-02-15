@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io;
 
 use actix::prelude::*;
@@ -88,6 +89,12 @@ pub struct SubscribeMessage {
     pub id: SubscriberId
 }
 
+impl fmt::Display for SubscribeMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Subscribe with {}", self.id)
+    }
+}
+
 impl Message for SubscribeMessage {
     type Result = MpegTsStream;
 }
@@ -112,6 +119,7 @@ impl Handler<SubscribeMessage> for Broadcaster {
         msg: SubscribeMessage,
         _: &mut Self::Context
     ) -> Self::Result {
+        log::debug!("{}", msg);
         self.subscribe(msg.id)
     }
 }
@@ -120,6 +128,12 @@ impl Handler<SubscribeMessage> for Broadcaster {
 
 pub struct UnsubscribeMessage {
     pub id: SubscriberId
+}
+
+impl fmt::Display for UnsubscribeMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Unsubscribe with {}", self.id)
+    }
 }
 
 impl Message for UnsubscribeMessage {
@@ -134,6 +148,7 @@ impl Handler<UnsubscribeMessage> for Broadcaster {
         msg: UnsubscribeMessage,
         _: &mut Self::Context
     ) -> Self::Result {
+        log::debug!("{}", msg);
         self.unsubscribe(msg.id)
     }
 }

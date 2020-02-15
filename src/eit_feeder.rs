@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::sync::Arc;
 
 use actix::prelude::*;
@@ -22,12 +23,12 @@ pub fn start(config: Arc<Config>) {
     actix::registry::SystemRegistry::set(addr);
 }
 
-pub async fn update_schedules() -> Result<(), Error> {
+pub async fn feed_eit_sections() -> Result<(), Error> {
     cfg_if::cfg_if! {
         if #[cfg(test)] {
             Ok(())
         } else {
-            EitFeeder::from_registry().send(UpdateSchedulesMessage).await?
+            EitFeeder::from_registry().send(FeedEitSectionsMessage).await?
         }
     }
 }
@@ -41,7 +42,7 @@ impl EitFeeder {
         EitFeeder { config }
     }
 
-    async fn update_schedules(
+    async fn feed_eit_sections(
         command: String
     ) -> Result<(), Error> {
         let services = epg::query_services().await?;
@@ -86,24 +87,30 @@ impl Default for EitFeeder {
     }
 }
 
-// update schedules
+// feed eit sections
 
-struct UpdateSchedulesMessage;
+struct FeedEitSectionsMessage;
 
-impl Message for UpdateSchedulesMessage {
+impl fmt::Display for FeedEitSectionsMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "FeedEitSections")
+    }
+}
+
+impl Message for FeedEitSectionsMessage {
     type Result = Result<(), Error>;
 }
 
-impl Handler<UpdateSchedulesMessage> for EitFeeder {
+impl Handler<FeedEitSectionsMessage> for EitFeeder {
     type Result = Response<(), Error>;
 
     fn handle(
         &mut self,
-        _: UpdateSchedulesMessage,
+        msg: FeedEitSectionsMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle UpdateSchedulesMessage");
-        let fut = Box::pin(Self::update_schedules(
+        log::debug!("{}", msg);
+        let fut = Box::pin(Self::feed_eit_sections(
             self.config.jobs.update_schedules.command.clone()));
         Response::fut(fut)
     }

@@ -516,6 +516,12 @@ impl Default for Epg {
 
 struct QueryChannelsMessage;
 
+impl fmt::Display for QueryChannelsMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "QueryChannels")
+    }
+}
+
 impl Message for QueryChannelsMessage {
     type Result = Result<Vec<MirakurunChannel>, Error>;
 }
@@ -525,10 +531,10 @@ impl Handler<QueryChannelsMessage> for Epg {
 
     fn handle(
         &mut self,
-        _: QueryChannelsMessage,
+        msg: QueryChannelsMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle QueryChannelMessage");
+        log::debug!("{}", msg);
         let channels = self.config.channels.iter()
             .filter(|config| !config.disabled)
             .map(|config| MirakurunChannel {
@@ -558,6 +564,12 @@ struct QueryChannelMessage {
     channel: String,
 }
 
+impl fmt::Display for QueryChannelMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "QueryChannel by {}/{}", self.channel_type, self.channel)
+    }
+}
+
 impl Message for QueryChannelMessage {
     type Result = Result<EpgChannel, Error>;
 }
@@ -570,6 +582,7 @@ impl Handler<QueryChannelMessage> for Epg {
         msg: QueryChannelMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
+        log::debug!("{}", msg);
         self.config.channels.iter()
             .filter(|config| !config.disabled)
             .find(|config| {
@@ -586,6 +599,12 @@ impl Handler<QueryChannelMessage> for Epg {
 
 struct QueryServicesMessage;
 
+impl fmt::Display for QueryServicesMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "QueryServices")
+    }
+}
+
 impl Message for QueryServicesMessage {
     type Result = Result<Vec<EpgService>, Error>;
 }
@@ -595,10 +614,10 @@ impl Handler<QueryServicesMessage> for Epg {
 
     fn handle(
         &mut self,
-        _: QueryServicesMessage,
+        msg: QueryServicesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle QueryServicesMessage");
+        log::debug!("{}", msg);
         Ok(self.services.iter()
            .filter(|sv| sv.is_exportable())
            .cloned()
@@ -653,6 +672,12 @@ struct QueryClockMessage {
     triple: ServiceTriple,
 }
 
+impl fmt::Display for QueryClockMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "QueryClock by {}", self.triple)
+    }
+}
+
 impl Message for QueryClockMessage {
     type Result = Result<Clock, Error>;
 }
@@ -665,7 +690,7 @@ impl Handler<QueryClockMessage> for Epg {
         msg: QueryClockMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle QueryClockMessage");
+        log::debug!("{}", msg);
         self.clocks.get(&msg.triple).cloned().ok_or(Error::ClockNotSynced)
     }
 }
@@ -673,6 +698,12 @@ impl Handler<QueryClockMessage> for Epg {
 // query programs
 
 struct QueryProgramsMessage;
+
+impl fmt::Display for QueryProgramsMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "QueryPrograms")
+    }
+}
 
 impl Message for QueryProgramsMessage {
     type Result = Result<Vec<EpgProgram>, Error>;
@@ -683,10 +714,10 @@ impl Handler<QueryProgramsMessage> for Epg {
 
     fn handle(
         &mut self,
-        _: QueryProgramsMessage,
+        msg: QueryProgramsMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle QueryProgramsMessage");
+        log::debug!("{}", msg);
         let mut programs = Vec::new();
         for schedule in self.schedules.values() {
             programs.extend(schedule.programs.values().cloned())
@@ -753,6 +784,12 @@ struct UpdateServicesMessage {
     services: Vec<EpgService>,
 }
 
+impl fmt::Display for UpdateServicesMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "UpdateServices with {} services", self.services.len())
+    }
+}
+
 impl Message for UpdateServicesMessage {
     type Result = ();
 }
@@ -765,7 +802,7 @@ impl Handler<UpdateServicesMessage> for Epg {
         msg: UpdateServicesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle UpdateServicesMessage");
+        log::debug!("{}", msg);
         self.update_services(msg.services);
     }
 }
@@ -774,6 +811,12 @@ impl Handler<UpdateServicesMessage> for Epg {
 
 struct UpdateClocksMessage {
     clocks: HashMap<ServiceTriple, Clock>,
+}
+
+impl fmt::Display for UpdateClocksMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "UpdateClocks with {} clocks", self.clocks.len())
+    }
 }
 
 impl Message for UpdateClocksMessage {
@@ -788,7 +831,7 @@ impl Handler<UpdateClocksMessage> for Epg {
         msg: UpdateClocksMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle UpdateClocksMessage");
+        log::debug!("{}", msg);
         self.update_clocks(msg.clocks);
     }
 }
@@ -797,6 +840,12 @@ impl Handler<UpdateClocksMessage> for Epg {
 
 struct UpdateSchedulesMessage {
     sections: Vec<EitSection>,
+}
+
+impl fmt::Display for UpdateSchedulesMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "UpdateSchedules with {} EIT sections", self.sections.len())
+    }
 }
 
 impl Message for UpdateSchedulesMessage {
@@ -811,7 +860,7 @@ impl Handler<UpdateSchedulesMessage> for Epg {
         msg: UpdateSchedulesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle UpdateSchedulesMessage");
+        log::debug!("{}", msg);
         self.update_schedules(msg.sections);
     }
 }
@@ -820,6 +869,16 @@ impl Handler<UpdateSchedulesMessage> for Epg {
 
 struct FlushSchedulesMessage {
     triples: Vec<ServiceTriple>,
+}
+
+impl fmt::Display for FlushSchedulesMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let triples: Vec<String> = self.triples
+            .iter()
+            .map(|triple| triple.to_string())
+            .collect();
+        write!(f, "FlushSchedules for [{}]", triples.as_slice().join(", "))
+    }
 }
 
 impl Message for FlushSchedulesMessage {
@@ -834,7 +893,7 @@ impl Handler<FlushSchedulesMessage> for Epg {
         msg: FlushSchedulesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle FlushSchedulesMessage");
+        log::debug!("{}", msg);
         self.flush_schedules(msg.triples);
     }
 }
@@ -842,6 +901,12 @@ impl Handler<FlushSchedulesMessage> for Epg {
 // save schedules
 
 struct SaveSchedulesMessage;
+
+impl fmt::Display for SaveSchedulesMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SaveSchedules")
+    }
+}
 
 impl Message for SaveSchedulesMessage {
     type Result = ();
@@ -852,10 +917,10 @@ impl Handler<SaveSchedulesMessage> for Epg {
 
     fn handle(
         &mut self,
-        _: SaveSchedulesMessage,
+        msg: SaveSchedulesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle SaveSchedulesMessage");
+        log::debug!("{}", msg);
         match self.save_schedules() {
             Ok(_) => (),
             Err(err) => log::error!("Failed to save schedules: {}", err),
@@ -870,6 +935,12 @@ struct UpdateAirtimeMessage {
     airtime: Airtime,
 }
 
+impl fmt::Display for UpdateAirtimeMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "UpdateAirtime of {}", self.quad)
+    }
+}
+
 impl Message for UpdateAirtimeMessage {
     type Result = ();
 }
@@ -882,7 +953,7 @@ impl Handler<UpdateAirtimeMessage> for Epg {
         msg: UpdateAirtimeMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle UpdateAirtimeMessage");
+        log::debug!("{}", msg);
         self.airtimes.insert(msg.quad, msg.airtime);
     }
 }
@@ -891,6 +962,12 @@ impl Handler<UpdateAirtimeMessage> for Epg {
 
 struct RemoveAirtimeMessage {
     quad: EventQuad,
+}
+
+impl fmt::Display for RemoveAirtimeMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RemoveAirtime of {}", self.quad)
+    }
 }
 
 impl Message for RemoveAirtimeMessage {
@@ -905,7 +982,7 @@ impl Handler<RemoveAirtimeMessage> for Epg {
         msg: RemoveAirtimeMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("Handle RemoveAirtimeMessage");
+        log::debug!("{}", msg);
         self.airtimes.remove(&msg.quad);
     }
 }

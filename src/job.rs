@@ -226,7 +226,7 @@ impl JobManager {
         self.updating_schedules = true;
 
         let job = JobKind::UpdateSchedules.create(self.semaphore.clone())
-            .perform(eit_feeder::update_schedules());
+            .perform(eit_feeder::feed_eit_sections());
 
         actix::fut::wrap_future::<_, Self>(job)
             .map(|_, act, _| {
@@ -283,6 +283,12 @@ impl Default for JobManager {
 
 struct InvokeScanServicesMessage;
 
+impl fmt::Display for InvokeScanServicesMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "InvokeScanServices")
+    }
+}
+
 impl Message for InvokeScanServicesMessage {
     type Result = ();
 }
@@ -292,9 +298,10 @@ impl Handler<InvokeScanServicesMessage> for JobManager {
 
     fn handle(
         &mut self,
-        _: InvokeScanServicesMessage,
+        msg: InvokeScanServicesMessage,
         ctx: &mut Self::Context,
     ) -> Self::Result {
+        log::debug!("{}", msg);
         self.invoke_scan_services(ctx);
     }
 }
@@ -302,6 +309,12 @@ impl Handler<InvokeScanServicesMessage> for JobManager {
 // invoke sync clocks
 
 struct InvokeSyncClocksMessage;
+
+impl fmt::Display for InvokeSyncClocksMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "InvokeSyncClocks")
+    }
+}
 
 impl Message for InvokeSyncClocksMessage {
     type Result = ();
@@ -312,9 +325,10 @@ impl Handler<InvokeSyncClocksMessage> for JobManager {
 
     fn handle(
         &mut self,
-        _: InvokeSyncClocksMessage,
+        msg: InvokeSyncClocksMessage,
         ctx: &mut Self::Context,
     ) -> Self::Result {
+        log::debug!("{}", msg);
         self.invoke_sync_clocks(ctx);
     }
 }
@@ -322,6 +336,12 @@ impl Handler<InvokeSyncClocksMessage> for JobManager {
 // invoke update schedules
 
 struct InvokeUpdateSchedulesMessage;
+
+impl fmt::Display for InvokeUpdateSchedulesMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "InvokeUpdateSchedules")
+    }
+}
 
 impl Message for InvokeUpdateSchedulesMessage {
     type Result = ();
@@ -332,9 +352,10 @@ impl Handler<InvokeUpdateSchedulesMessage> for JobManager {
 
     fn handle(
         &mut self,
-        _: InvokeUpdateSchedulesMessage,
+        msg: InvokeUpdateSchedulesMessage,
         ctx: &mut Self::Context,
     ) -> Self::Result {
+        log::debug!("{}", msg);
         self.invoke_update_schedules(ctx);
     }
 }
