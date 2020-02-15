@@ -201,6 +201,15 @@ pub fn flush_schedules(triples: Vec<ServiceTriple>) {
     }
 }
 
+pub fn save_schedules() {
+    cfg_if::cfg_if! {
+        if #[cfg(test)] {
+        } else {
+            Epg::from_registry().do_send(SaveSchedulesMessage);
+        }
+    }
+}
+
 pub fn update_airtime(
     quad: EventQuad,
     start_time: DateTime<Jst>,
@@ -304,10 +313,6 @@ impl Epg {
                 log::info!("Collected {} programs of {} ({})",
                            num_programs, service.name, triple);
             }
-        }
-        match self.save_schedules() {
-            Ok(_) => (),
-            Err(err) => log::error!("Failed to save schedules: {}", err),
         }
     }
 
@@ -831,6 +836,30 @@ impl Handler<FlushSchedulesMessage> for Epg {
     ) -> Self::Result {
         log::debug!("Handle FlushSchedulesMessage");
         self.flush_schedules(msg.triples);
+    }
+}
+
+// save schedules
+
+struct SaveSchedulesMessage;
+
+impl Message for SaveSchedulesMessage {
+    type Result = ();
+}
+
+impl Handler<SaveSchedulesMessage> for Epg {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        _: SaveSchedulesMessage,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        log::debug!("Handle SaveSchedulesMessage");
+        match self.save_schedules() {
+            Ok(_) => (),
+            Err(err) => log::error!("Failed to save schedules: {}", err),
+        }
     }
 }
 

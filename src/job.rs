@@ -229,7 +229,10 @@ impl JobManager {
             .perform(eit_feeder::update_schedules());
 
         actix::fut::wrap_future::<_, Self>(job)
-            .map(|_, act, _| { act.updating_schedules = false; })
+            .map(|_, act, _| {
+                epg::save_schedules();
+                act.updating_schedules = false;
+            })
             .spawn(ctx);
     }
 
