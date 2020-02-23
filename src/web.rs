@@ -1,6 +1,7 @@
 use std::io;
 use std::sync::Arc;
 
+use actix_files;
 use actix_web;
 use bytes::Bytes;
 use futures;
@@ -243,8 +244,13 @@ async fn get_program_stream(
 }
 
 #[actix_web::get("/docs")]
-async fn get_docs() -> impl actix_web::Responder {
-    actix_web::HttpResponse::Ok().content_type("application/json").body("{}")
+async fn get_docs(
+    config: actix_web::web::Data<Arc<Config>>,
+) -> io::Result<actix_files::NamedFile> {
+    // Mirakurun client requires this API since Mirakurun/2.14.0.
+    //
+    // mirakc simply returns a JSON data obtained from Mirakurun.
+    Ok(actix_files::NamedFile::open(&config.mirakurun.openapi_json)?)
 }
 
 async fn do_get_service_stream(
@@ -533,6 +539,8 @@ mod tests {
         config.filters.post_filter = String::new();
         // Disable tracking airtime
         config.recorder.track_airtime_command = "true".to_string();
+        // "/dev/null" is enough to test
+        config.mirakurun.openapi_json = "/dev/null".to_string();
 
         let mut app = actix_web::test::init_service(
             actix_web::App::new()

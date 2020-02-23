@@ -43,6 +43,8 @@ pub struct Config {
     pub jobs: JobsConfig,
     #[serde(default)]
     pub recorder: RecorderConfig,
+    #[serde(default)]
+    pub mirakurun: MirakurunConfig,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -226,6 +228,27 @@ impl Default for RecorderConfig {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub struct MirakurunConfig {
+    #[serde(default = "MirakurunConfig::default_openapi_json")]
+    pub openapi_json: String,
+}
+
+impl MirakurunConfig {
+    fn default_openapi_json() -> String {
+        "/etc/mirakurun.openapi.json".to_string()
+    }
+}
+
+impl Default for MirakurunConfig {
+    fn default() -> Self {
+        MirakurunConfig {
+            openapi_json: Self::default_openapi_json(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,6 +275,7 @@ mod tests {
             jobs: Default::default(),
             filters: Default::default(),
             recorder: Default::default(),
+            mirakurun: Default::default(),
         });
 
         let result = serde_yaml::from_str::<Config>(r#"
@@ -534,5 +558,20 @@ mod tests {
             serde_yaml::from_str::<JobConfig>(r#"{"command":""}"#).is_err());
         assert!(
             serde_yaml::from_str::<JobConfig>(r#"{"schedule":""}"#).is_err());
+    }
+
+    #[test]
+    fn test_mirakurun_config() {
+        assert_eq!(
+            serde_yaml::from_str::<MirakurunConfig>("{}").unwrap(),
+            Default::default());
+
+        assert_eq!(
+            serde_yaml::from_str::<MirakurunConfig>(r#"
+                openapi-json: /path/to/json
+            "#).unwrap(),
+            MirakurunConfig {
+                openapi_json: "/path/to/json".to_string(),
+            });
     }
 }
