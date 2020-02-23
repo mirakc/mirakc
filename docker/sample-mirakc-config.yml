@@ -3,7 +3,8 @@ epg:
 
 server:
   # Use '0.0.0.0' (ipv4) or '::' (ipv6) if connecting from other hosts
-  address: '0.0.0.0'
+  addrs:
+    http: '0.0.0.0:40772'
 
 channels:
   - name: MX
