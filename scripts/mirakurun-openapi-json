@@ -18,6 +18,7 @@ CLEAN=no
 PORT=40772
 WAIT=2
 VERSION=
+CONTAINER=
 
 help() {
   cat <<EOF >&2
@@ -89,6 +90,10 @@ do
       PORT="$2"
       shift 2
       ;;
+    '-w' | '--wait')
+      WAIT="$2"
+      shift 2
+      ;;
     *)
       break
       ;;
@@ -126,6 +131,8 @@ EOF
 log "Starting Mirakurun/$VERSION..."
 CONTAINER=$($DOCKER run --rm -d --cap-add SYS_ADMIN --cap-add SYS_NICE \
               -p $PORT:40772 $IMAGE)
+
+log "Waiting $WAIT seconds..."
 sleep $WAIT
 
 log "Getting OpenAPI/Swagger JSON..."
