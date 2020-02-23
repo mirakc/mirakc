@@ -601,12 +601,16 @@ API Endpoints listed below have been implemented at this moment:
 
 The endpoints above are enough to run [EPGStation].
 
-It also enough to run [BonDriver_Mirakurun].  It's strongly recommended to
+It also enough to run [BonDriver_mirakc].  It's strongly recommended to
 enable `SERVICE_SPLIT` in `BonDriver_Mirakurun.ini` in order to reduce network
-traffic between mirakc and BonDriver_Mirakurun.  Because the
+traffic between mirakc and BonDriver_mirakc.  Because the
 `/api/channels/{channel_type}/{channel}/stream` endpoint provides a **raw** TS
 stream which means that all TS packets from a tuner will be sent even though
 some of them don't need for playback.
+
+Unfortunately, mirakc doesn't work with [BonDriver_Mirakurun] at this point due
+to some kind of issue in BonDriver_Mirakurun or mirakc.  See #4 for details
+(discussion in Japanese).
 
 ### Incompatibility of the `X-Mirakurun_Priority` header
 
@@ -756,6 +760,7 @@ shall be dual licensed as above, without any additional terms or conditions.
 [log]: https://crates.io/crates/log
 [env_logger]: https://crates.io/crates/env_logger
 [EPGStation]: https://github.com/l3tnun/EPGStation
+[BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
 [BonDriver_Mirakurun]: https://github.com/Chinachu/BonDriver_Mirakurun
 [VS Code]: https://code.visualstudio.com/
 [VS Code Remote Containers]: https://code.visualstudio.com/docs/remote/containers
