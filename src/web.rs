@@ -1,6 +1,7 @@
 use std::io;
 use std::sync::Arc;
 
+use actix_files;
 use actix_web;
 use bytes::Bytes;
 use futures;
@@ -112,6 +113,7 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_channel_service_stream)
         .service(get_service_stream)
         .service(get_program_stream)
+        .service(get_docs)
 }
 
 #[actix_web::get("/version")]
@@ -239,6 +241,16 @@ async fn get_program_stream(
         stream.id()).await?;
 
     streaming(stream, filters, stop_trigger)
+}
+
+#[actix_web::get("/docs")]
+async fn get_docs(
+    config: actix_web::web::Data<Arc<Config>>,
+) -> io::Result<actix_files::NamedFile> {
+    // Mirakurun client requires this API since Mirakurun/2.14.0.
+    //
+    // mirakc simply returns a JSON data obtained from Mirakurun.
+    Ok(actix_files::NamedFile::open(&config.mirakurun.openapi_json)?)
 }
 
 async fn do_get_service_stream(
@@ -527,6 +539,8 @@ mod tests {
         config.filters.post_filter = String::new();
         // Disable tracking airtime
         config.recorder.track_airtime_command = "true".to_string();
+        // "/dev/null" is enough to test
+        config.mirakurun.openapi_json = "/dev/null".to_string();
 
         let mut app = actix_web::test::init_service(
             actix_web::App::new()
@@ -750,5 +764,11 @@ mod tests {
         let query = actix_web::web::Query::<StreamQuery>::from_query(
             "post-filter=false&decode=1").unwrap().into_inner();
         assert_eq!(query.post_filter_required(), false);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_docs() {
+        let res = get("/api/docs").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 }

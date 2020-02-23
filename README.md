@@ -532,6 +532,15 @@ jobs:
       mirakc-arib collect-eits
       {{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}
     schedule: '0 7,37 * * * * *'  # execute at 7 and 37 minutes every hour
+
+# Optional
+# --------
+#
+# Options for compatibility with Mirakurun.
+#
+mirakurun:
+  # Path to OpenAPI/Swagger JSON file obtained from Mirakurun (#13).
+  openapi-json: /etc/mirakurun.openapi.json
 ```
 
 ## Logging
@@ -598,6 +607,10 @@ API Endpoints listed below have been implemented at this moment:
 * /api/tuners
   * Compatible
   * Query parameters have **NOT** been supported
+* /api/docs
+  * Compatible
+  * Need to create a OpenAPI/Swagger JSON file by using
+    `scripts/mirakurun-openapi-json` (#13)
 
 The endpoints above are enough to run [EPGStation].
 
@@ -650,10 +663,16 @@ There are two folders which contains settings regarding VS Code:
 * [.vscode](./.vscode) contains basic settings
 
 Before starting to debug using VS Code Remote Containers, you need to create
-Dockerfile with the following command:
+`Dockerfile` with the following command:
 
 ```shell
 ./docker/dockerfile-gen -d amd64 >.devcontainer/Dockerfile
+```
+
+create `mirakurun.openapi.json` with the following command:
+
+```shell
+./scripts/mirakurun-openapi-json -c 2.14.0 >mirakurun.openapi.json
 ```
 
 and then create `.devcontainer/config.yml`:
@@ -662,7 +681,7 @@ and then create `.devcontainer/config.yml`:
 vi .devcontainer/config.yml
 ```
 
-The following 3 configurations are defined in `.vscode/launch.json`:
+The following 3 configurations have been defined in `.vscode/launch.json`:
 
 * Debug
 * Debug w/ child processes (Debug + log messages from child processes)

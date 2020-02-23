@@ -1,0 +1,132 @@
+#!/bin/sh
+
+set -eu
+
+PROGNAME=$(basename $0)
+BASEDIR=$(cd $(dirname $0); pwd)
+
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+  DOCKER='docker'
+else
+  DOCKER='sudo docker'
+fi
+
+BASE_IMAGE='node:10-buster-slim'
+IMAGE='mirakurun-openapi-json/mirakurun'
+
+CLEAN=no
+PORT=40772
+WAIT=2
+VERSION=
+
+help() {
+  cat <<EOF >&2
+Print OpenAPI/Swagger JSON obtained from Mirakurun
+
+USAGE:
+  mirakurun-openapi-json -h | --help
+  mirakurun-openapi-json <version>
+
+OPTIONS:
+  -h, --help
+    Show help
+
+  -c, --clean
+    Remove $IMAGE and $BASE_IMAGE at exit.
+
+  -p, --port  [default: $PORT]
+    TCP port to be exposed for Mirakurun.
+
+  -w, --wait <wait>  [default: $WAIT]
+    Time to wait for Mirakurun to start (seconds).
+
+ARGUMENTS:
+  version
+    Mirakurun version like 2.14.0.
+
+DESCRIPTION:
+  This script obtains OpenAPI/Swagger JSON from Mirakurun launched on a Docker
+  container.
+
+TYPICAL USAGE:
+  mirakurun-openapi-json -c 2.14.0 >/path/to/mirakurun.openapi.json
+EOF
+  exit 0
+}
+
+log() {
+  echo "$1" >&2
+}
+
+error() {
+  log "$1"
+  exit 1
+}
+
+clean() {
+  sleep 1
+  if [ -n "$CONTAINER" ]; then
+    $DOCKER container rm -f "$CONTAINER" >/dev/null
+    echo "Removed $CONTAINER" >&2
+  fi
+  if [ "$CLEAN" = yes ]; then
+    $DOCKER image rm -f $IMAGE $BASE_IMAGE >/dev/null
+    echo "Removed $IMAGE and $BASE_IMAGE" >&2
+  fi
+}
+
+while [ $# -gt 0 ]
+do
+  case "$1" in
+    '-h' | '--help')
+      help
+      ;;
+    '-c' | '--clean')
+      CLEAN=yes
+      shift
+      ;;
+    '-p' | '--port')
+      PORT="$2"
+      shift 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [ $# -eq 0 ]; then
+  error "version is required"
+fi
+
+VERSION="$1"
+
+trap "clean" EXIT
+
+# There is no official image unfortunately...
+log "Building Docker image for Mirakurun/$VERSION..."
+cat <<EOF | $DOCKER build -t $IMAGE - >/dev/null
+FROM $BASE_IMAGE
+LABEL maintainer="Masayuki Nagamachi <masnagam@gmail.com>"
+
+ENV DOCKER=YES
+
+RUN set -eux \\
+ && npm i -g --production --unsafe-perm mirakurun@$VERSION \\
+ # cleanup
+ && npm cache clean --force \\
+ && rm -rf /var/tmp/* \\
+ && rm -rf /tmp/*
+
+WORKDIR /usr/local/lib/node_modules/mirakurun
+EXPOSE 40772
+CMD ["npm", "start"]
+EOF
+
+log "Starting Mirakurun/$VERSION..."
+CONTAINER=$($DOCKER run --rm -d --cap-add SYS_ADMIN --cap-add SYS_NICE \
+              -p $PORT:40772 $IMAGE)
+sleep $WAIT
+
+log "Getting OpenAPI/Swagger JSON..."
+curl -fsSL http://localhost:$PORT/api/docs
