@@ -20,7 +20,7 @@ jobs:
       - uses: hecrj/setup-rust-action@v1
         with:
           rust-version: ${{ matrix.rust }}
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v2
       - name: Build
         run: cargo build -v --release
       - name: Run tests
