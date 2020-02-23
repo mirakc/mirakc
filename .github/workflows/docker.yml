@@ -41,7 +41,7 @@ jobs:
       - name: Make mirakurun.openapi.json
         run: |-
           # Wait 10 seconds for safety.
-          ./scripts/mirakurun-openapi-json -c -w 10 $MIRAKURUN_VERSION >mirakurun.open.json
+          ./scripts/mirakurun-openapi-json -w 10 $MIRAKURUN_VERSION >mirakurun.openapi.json
       - name: Build image
         # Experimental features including the --squash option has not been
         # supported in GitHub Actions at this moment...
