@@ -13,6 +13,7 @@ env:
   MAIN_PLATFORM: debian
   DOCKER_BUILDKIT: 1
   DOCKER_CLI_EXPERIMENTAL: enabled
+  MIRAKURUN_VERSION: '2.14.0'
 
 jobs:
   build-images:
@@ -37,6 +38,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y qemu qemu-user-static
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+      - name: Make mirakurun.openapi.json
+        run: |-
+          ./script/mirakurun-openapi-json -c $MIRAKURUN_VERSION >mirakurun.open.json
       - name: Build image
         # Experimental features including the --squash option has not been
         # supported in GitHub Actions at this moment...
