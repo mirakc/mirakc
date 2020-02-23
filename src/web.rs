@@ -112,6 +112,7 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_channel_service_stream)
         .service(get_service_stream)
         .service(get_program_stream)
+        .service(get_docs)
 }
 
 #[actix_web::get("/version")]
@@ -239,6 +240,11 @@ async fn get_program_stream(
         stream.id()).await?;
 
     streaming(stream, filters, stop_trigger)
+}
+
+#[actix_web::get("/docs")]
+async fn get_docs() -> impl actix_web::Responder {
+    actix_web::HttpResponse::Ok().content_type("application/json").body("{}")
 }
 
 async fn do_get_service_stream(
@@ -750,5 +756,11 @@ mod tests {
         let query = actix_web::web::Query::<StreamQuery>::from_query(
             "post-filter=false&decode=1").unwrap().into_inner();
         assert_eq!(query.post_filter_required(), false);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_docs() {
+        let res = get("/api/docs").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 }
