@@ -5,9 +5,27 @@
   "runArgs": [ "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined" ],
   "appPort": 40772,
 
+  "containerEnv": {
+    "TZ": "Asia/Tokyo"
+    "MIRAKC_CONFIG": "/workspaces/mirakc/.devcontainer/config.yml"
+  },
+
   "settings": {
     "terminal.integrated.shell.linux": "/bin/bash",
     "lldb.executable": "/usr/bin/lldb"
+    "lldb.launch.sourceMap": {
+      // Update the following line if the Rust version in
+      // docker/tmpl.devcontainer.dockerfile is changed.
+      //
+      // The long hash below can be obtained by `rustc -vV`.
+      // The toolchain path  can be obtained by `rustup toolchain list -v`.
+
+      // alpine
+      "/rustc/5e1a799842ba6ed4a57e91f7ab9435947482f7d8": "/root/.rustup/toolchains/stable-x86_64-unknown-linux-musl/lib/rustlib/src/rust",
+
+      // debian
+      "/rustc/73528e339aae0f17a15ffa49a8ac608f50c6cf14": "/usr/local/rustup/toolchains/1.40.0-x86_64-unknown-linux-gnu/lib/rustlib/src/rust"
+    }
   },
 
   "extensions": [

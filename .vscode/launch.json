@@ -15,8 +15,7 @@
           "name": "mirakc",
           "kind": "bin"
         }
-      },
-      "args": ["-c", ".devcontainer/config.yml"]
+      }
     },
     {
       "name": "Debug w/ child processes",
@@ -33,7 +32,6 @@
           "kind": "bin"
         }
       },
-      "args": ["-c", ".devcontainer/config.yml"],
       "env": {
         "MIRAKC_ARIB_LOG": "info",
         "MIRAKC_DEBUG_CHILD_PROCESS": ""
@@ -54,8 +52,7 @@
           "name": "mirakc",
           "kind": "bin"
         }
-      },
-      "args": []
+      }
     }
   ]
 }
