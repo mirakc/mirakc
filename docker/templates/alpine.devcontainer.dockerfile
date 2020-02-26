@@ -54,7 +54,7 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/reposit
     && rustup component add rls rust-analysis rust-src rustfmt clippy 2>&1 \
     #
     # Install additional packages required for debugging mirakc
-    && apk add --no-cache libstdc++ socat tzdata
+    && apk add --no-cache libstdc++ binutils socat tzdata
 
 # Copy executables from build stages
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/

@@ -5,7 +5,9 @@
 # Licensed under the MIT License. See https://go.microsoft.com/fwlink/?linkid=2090316 for license information.
 #-------------------------------------------------------------------------------------------------------------
 
-FROM rust:buster
+# Change sourceMap hash values in .devcontainer/devcontainer.json when using a
+# different version of Rust.
+FROM rust:1.41.0-buster
 
 # This Dockerfile adds a non-root user with sudo access. Use the "remoteUser"
 # property in devcontainer.json to use it. On Linux, the container user's GID/UIDs
@@ -41,7 +43,7 @@ RUN apt-get update \
     && chmod 0440 /etc/sudoers.d/$USERNAME \
     #
     # Install additional packages required for debugging mirakc
-    && apt-get install -y socat \
+    && apt-get install -y binutils socat \
     #
     # Clean up
     && apt-get autoremove -y \
