@@ -10,7 +10,7 @@ RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update -qq \
  && BUILD_DEPS="build-essential ca-certificates curl python" \
- && apt-get install -y -qq --no-install-recommends $BUILD_DEPS \
+ && apt-get install -y -qq --no-install-recommends $BUILD_DEPS ffmpeg \
  # epgstation
  && mkdir -p /opt/epgstation \
  && curl -fsSL https://github.com/l3tnun/EPGStation/tarball/master | \
