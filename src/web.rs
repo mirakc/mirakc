@@ -7,6 +7,8 @@ use bytes::Bytes;
 use futures;
 use serde::{Deserialize, Serialize};
 use tokio::stream::Stream;
+use tokio::stream::StreamExt;
+use tokio::sync::mpsc;
 
 use crate::airtime_tracker;
 use crate::chunk_stream::ChunkStream;
@@ -50,6 +52,8 @@ fn server_name() -> String {
 
 // rest api
 
+// TODO: The same values are defined in the broadcaster module.
+const MAX_CHUNKS: usize = 500;
 const CHUNK_SIZE: usize = 4096 * 8;
 
 type ApiResult = Result<actix_web::HttpResponse, Error>;
@@ -369,12 +373,44 @@ fn streaming(
         do_streaming(stream)
     } else {
         let stop_trigger2 = stream.take_stop_trigger();
+
         let (input, output) = command_util::spawn_pipeline(
             filters, stream.id())?;
+
+        let stream_id = stream.id();
         actix::spawn(stream.pipe(input));
+
+        // Use a MPSC channel as a buffer.
+        //
+        // The command pipeline often breaks when reading stops for a few
+        // seconds.
+        let mut stream = ChunkStream::new(output, CHUNK_SIZE);
+        let (mut sender, receiver) = mpsc::channel(MAX_CHUNKS);
+        actix::spawn(async move {
+            while let Some(result) = stream.next().await {
+                if let Ok(chunk) = result {
+                    match sender.try_send(Ok(chunk)) {
+                        Ok(_) => (),
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            log::warn!("{}: No space, drop the chunk",
+                                       stream_id);
+                            break;
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            log::debug!("{}: Disconnected by client",
+                                        stream_id);
+                            break;
+                        }
+                    }
+                } else {
+                    log::error!("{}: Error, stop streaming", stream_id);
+                    break;
+                }
+            }
+        });
+
         do_streaming(MpegTsStreamTerminator::new(
-            ChunkStream::new(output, CHUNK_SIZE),
-            [stop_trigger, stop_trigger2]))
+            receiver, [stop_trigger, stop_trigger2]))
     }
 }
 
