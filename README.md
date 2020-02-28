@@ -52,13 +52,13 @@ The environment variable `MALLOC_ARENA_MAX=2` is specified in `mirakurun` and
 mirakc is 2/3 lower CPU usage and 1/60 smaller memory consumption than
 Mirakurun:
 
-|          | mirakc/0.2.0  | Mirakurun/2.11.0 |
-|----------|---------------|------------------|
-| CPU      | +33..36%      | +37..60%         |
-| Memory   | +11..12MB     | +470MB..800MB    |
-| Load1    | +2.1..4.5     | +1.5..2.7        |
-| TX       | +102..120Mbps | +100..140Mbps    |
-| RX       | +0.9..1.1Mbps | +0.8..1.0Mbps    |
+|          | mirakc/0.4.0 (Alpine) | Mirakurun/2.11.0 |
+|----------|-----------------------|------------------|
+| CPU      | +32..37%              | +37..60%         |
+| Memory   | +11..12MB             | +470MB..800MB    |
+| Load1    | +1.4..2.8             | +1.5..2.7        |
+| TX       | +111..121Mbps         | +100..140Mbps    |
+| RX       | +1.0..1.1Mbps         | +0.8..1.0Mbps    |
 
 Several hundreds or thousands of dropped packets were sometimes detected during
 the performance measurement.  The same situation occurred in Mirakurun.
@@ -78,22 +78,22 @@ Reading TS packets from bs-tbs...
 Reading TS packets from bs11...
 CHANNEL  #BYTES      #PACKETS  #DROPS
 -------  ----------  --------  ------
-mx       734332700   3906025   0
-cx       1029828844  5477813   0
-ex       1076058232  5723714   0
-tx       914647824   4865148   0
-bs-ntv   1011125100  5378325   0
-bs-ex    1096791248  5833996   0
-bs-tbs   1030786892  5482909   0
-bs11     1426981852  7590329   0
+mx       754524464   4013428   0
+cx       1027186880  5463760   0
+ex       1061083280  5644060   0
+tx       1022076476  5436577   0
+bs-ntv   1013682088  5391926   0
+bs-ex    1094240276  5820427   0
+bs-tbs   1074745616  5716732   0
+bs11     1395304792  7421834   0
 
 NAME    MIN                 MAX
 ------  ------------------  ------------------
-cpu     38.36255750386465   41.38333333306946
-memory  450314240           452210688
-load1   2.13                4.48
-tx      102581677.17847857  120792845.27698153
-rx      955730.9153943596   1086586.6666666667
+cpu     31.790845305783343  36.841051648131206
+memory  232095744           233185280
+load1   1.36                2.84
+tx      111210158.4         121260930.33797747
+rx      1020067.2           1085208.5333333334
 
 http://localhost:9090/graph?<query parameters for showing measurement results>
 ```
