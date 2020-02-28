@@ -1,6 +1,5 @@
 use std::env;
 use std::io;
-use std::future::Future;
 use std::os::unix::io::AsRawFd;
 use std::pin::Pin;
 use std::process::{Command, Child, ChildStdin, ChildStdout, Stdio};
@@ -8,7 +7,6 @@ use std::task::{Poll, Context};
 
 use failure::Fail;
 use tokio::prelude::*;
-use tokio::sync::oneshot;
 
 use crate::tokio_snippet;
 use crate::tuner::TunerSubscriptionId as CommandPipelineId;
@@ -104,10 +102,9 @@ impl CommandPipelineBuilder {
     }
 
     fn build(mut self) -> Result<CommandPipelineIoPair, Error> {
-        let mut pipeline = CommandPipeline::new(self.commands, self.id);
-        let broken = pipeline.broken();
+        let pipeline = CommandPipeline::new(self.commands, self.id);
         let input = CommandPipelineInput::new(
-            Self::make_childio_async(self.stdin.take())?, pipeline.id, broken);
+            Self::make_childio_async(self.stdin.take())?, pipeline.id);
         let output = CommandPipelineOutput::new(
             Self::make_childio_async(self.stdout.take())?, pipeline);
         Ok((input, output))
@@ -128,7 +125,6 @@ impl CommandPipelineBuilder {
 struct CommandPipeline {
     commands: Vec<CommandData>,
     id: CommandPipelineId,
-    broken: Option<oneshot::Sender<()>>,
 }
 
 struct CommandData {
@@ -138,13 +134,7 @@ struct CommandData {
 
 impl CommandPipeline {
     fn new(commands: Vec<CommandData>, id: CommandPipelineId) -> Self {
-        Self { commands, id, broken: None }
-    }
-
-    fn broken(&mut self) -> oneshot::Receiver<()> {
-        let (tx, rx) = oneshot::channel();
-        self.broken = Some(tx);
-        rx
+        Self { commands, id }
     }
 }
 
@@ -156,15 +146,6 @@ impl Drop for CommandPipeline {
             log::debug!("{}: Killed {}: `{}`",
                        self.id, data.process.id(), data.command);
         }
-
-        // Notify the input endpoint that the pipeline has been broken.
-        //
-        // This is a workaround for the issue#2174 in tokio-rs/tokio.
-        // See tokio-process-stdio-hup/README.md in masnagam/rust-case-studies
-        // for details.
-        if let Some(sender) = self.broken.take() {
-            let _ = sender.send(());
-        }
     }
 }
 
@@ -172,17 +153,15 @@ impl Drop for CommandPipeline {
 
 pub struct CommandPipelineInput {
     inner: tokio_snippet::ChildIo<ChildStdin>,
-    pipeline_id: CommandPipelineId,
-    pipeline_broken: oneshot::Receiver<()>,
+    _pipeline_id: CommandPipelineId,
 }
 
 impl CommandPipelineInput {
     fn new(
         inner: tokio_snippet::ChildIo<ChildStdin>,
-        pipeline_id: CommandPipelineId,
-        pipeline_broken: oneshot::Receiver<()>,
+        _pipeline_id: CommandPipelineId,
     ) -> Self {
-        Self { inner, pipeline_id, pipeline_broken }
+        Self { inner, _pipeline_id }
     }
 }
 
@@ -192,45 +171,21 @@ impl AsyncWrite for CommandPipelineInput {
         cx: &mut Context,
         buf: &[u8]
     ) -> Poll<io::Result<usize>> {
-        let poll = Pin::new(&mut self.inner).poll_write(cx, buf);
-        if poll.is_pending() {
-            if Pin::new(&mut self.pipeline_broken).poll(cx).is_ready() {
-                // ignore RecvError
-                log::debug!("{}: Pipeline broken", self.pipeline_id);
-                return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
-            }
-        }
-        poll
+        Pin::new(&mut self.inner).poll_write(cx, buf)
     }
 
     fn poll_flush(
         mut self: Pin<&mut Self>,
         cx: &mut Context
     ) -> Poll<io::Result<()>> {
-        let poll = Pin::new(&mut self.inner).poll_flush(cx);
-        if poll.is_pending() {
-            if Pin::new(&mut self.pipeline_broken).poll(cx).is_ready() {
-                // ignore RecvError
-                log::debug!("{}: Pipeline broken", self.pipeline_id);
-                return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
-            }
-        }
-        poll
+        Pin::new(&mut self.inner).poll_flush(cx)
     }
 
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
         cx: &mut Context
     ) -> Poll<io::Result<()>> {
-        let poll = Pin::new(&mut self.inner).poll_shutdown(cx);
-        if poll.is_pending() {
-            if Pin::new(&mut self.pipeline_broken).poll(cx).is_ready() {
-                // ignore RecvError
-                log::debug!("{}: Pipeline broken", self.pipeline_id);
-                return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
-            }
-        }
-        poll
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
