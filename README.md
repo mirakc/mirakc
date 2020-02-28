@@ -142,8 +142,8 @@ mirakc in order to build a TV recording system.
 See [docker/docker-compose.yml](./docker/docker-compose.yml) and
 [docker/sample-mirakc-config.yml](./docker/sample-mirakc-config.yml).
 
-A [masnagam/docker-mirakc] Docker image for each architecture contains the
-following executables other than mirakc:
+A Docker image for each architecture contains the following executables other
+than mirakc:
 
 * [recdvb] configured without `--enable-b25`
 * [recpt1] configured without `--enable-b25`
@@ -615,7 +615,7 @@ API Endpoints listed below have been implemented at this moment:
 The endpoints above are enough to run [EPGStation].
 
 It also enough to run [BonDriver_mirakc].  It's strongly recommended to
-enable `SERVICE_SPLIT` in `BonDriver_Mirakurun.ini` in order to reduce network
+enable `SERVICE_SPLIT` in `BonDriver_mirakc.ini` in order to reduce network
 traffic between mirakc and BonDriver_mirakc.  Because the
 `/api/channels/{channel_type}/{channel}/stream` endpoint provides a **raw** TS
 stream which means that all TS packets from a tuner will be sent even though
