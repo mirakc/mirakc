@@ -52,10 +52,6 @@ fn server_name() -> String {
 
 // rest api
 
-// TODO: The same values are defined in the broadcaster module.
-const MAX_CHUNKS: usize = 500;
-const CHUNK_SIZE: usize = 4096 * 8;
-
 type ApiResult = Result<actix_web::HttpResponse, Error>;
 
 #[derive(Serialize)]
@@ -190,7 +186,7 @@ async fn get_channel_stream(
     let stream = tuner::start_streaming(
         path.channel_type, path.channel.clone(), user).await?;
 
-    streaming(stream, filters, None)
+    streaming(&config, stream, filters, None)
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
@@ -244,7 +240,7 @@ async fn get_program_stream(
         &config.recorder.track_airtime_command, &service.channel, &program,
         stream.id()).await?;
 
-    streaming(stream, filters, stop_trigger)
+    streaming(&config, stream, filters, stop_trigger)
 }
 
 #[actix_web::get("/docs")]
@@ -271,7 +267,7 @@ async fn do_get_service_stream(
     let stream = tuner::start_streaming(
         channel.channel_type, channel.channel.clone(), user).await?;
 
-    streaming(stream, filters, None)
+    streaming(&config, stream, filters, None)
 }
 
 fn make_service_filters(
@@ -365,6 +361,7 @@ fn make_filter_command(
 }
 
 fn streaming(
+    config: &Config,
     mut stream: MpegTsStream,
     filters: Vec<String>,
     stop_trigger: Option<MpegTsStreamStopTrigger>,
@@ -384,8 +381,10 @@ fn streaming(
         //
         // The command pipeline often breaks when reading stops for a few
         // seconds.
-        let mut stream = ChunkStream::new(output, CHUNK_SIZE);
-        let (mut sender, receiver) = mpsc::channel(MAX_CHUNKS);
+        let mut stream = ChunkStream::new(
+            output, config.server.stream_chunk_size);
+        let (mut sender, receiver) =
+            mpsc::channel(config.server.stream_max_chunks);
         actix::spawn(async move {
             while let Some(result) = stream.next().await {
                 if let Ok(chunk) = result {

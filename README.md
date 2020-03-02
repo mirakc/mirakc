@@ -294,6 +294,18 @@ server:
   #
   workers: 4
 
+  # The maximum number of chunks that can be buffered.
+  #
+  # The default value is 500.
+  #
+  stream-max-chunks: 500
+
+  # The maximum size of a chunk.
+  #
+  # The default value is 32KiB.
+  #
+  stream-chunks-size: 32768
+
 # Required
 # --------
 #
