@@ -61,6 +61,10 @@ pub struct ServerConfig {
     pub addrs: Vec<ServerAddr>,
     #[serde(default = "ServerConfig::default_workers")]
     pub workers: usize,
+    #[serde(default = "ServerConfig::default_stream_max_chunks")]
+    pub stream_max_chunks: usize,
+    #[serde(default = "ServerConfig::default_stream_chunk_size")]
+    pub stream_chunk_size: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -78,6 +82,16 @@ impl ServerConfig {
     fn default_workers() -> usize {
         num_cpus::get()
     }
+
+    fn default_stream_max_chunks() -> usize {
+        // TODO: The same value is defined in the broadcaster module.
+        500
+    }
+
+    fn default_stream_chunk_size() -> usize {
+        // TODO: The same value is defined in the broadcaster module.
+        4096 * 8
+    }
 }
 
 impl Default for ServerConfig {
@@ -85,6 +99,8 @@ impl Default for ServerConfig {
         ServerConfig {
             addrs: Self::default_addrs(),
             workers: Self::default_workers(),
+            stream_max_chunks: Self::default_stream_max_chunks(),
+            stream_chunk_size: Self::default_stream_chunk_size(),
         }
     }
 }
@@ -306,6 +322,8 @@ mod tests {
                     ServerAddr::Http("0.0.0.0:40772".to_string()),
                 ],
                 workers: ServerConfig::default_workers(),
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
             });
 
         assert_eq!(
@@ -318,6 +336,8 @@ mod tests {
                     ServerAddr::Unix("/path/to/sock".to_string()),
                 ],
                 workers: ServerConfig::default_workers(),
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
             });
 
         assert_eq!(
@@ -332,6 +352,8 @@ mod tests {
                     ServerAddr::Unix("/path/to/sock".to_string()),
                 ],
                 workers: ServerConfig::default_workers(),
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
             });
 
         assert_eq!(
@@ -341,6 +363,30 @@ mod tests {
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
                 workers: 2,
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<ServerConfig>(r#"
+                stream-max-chunks: 1000
+            "#).unwrap(),
+            ServerConfig {
+                addrs: ServerConfig::default_addrs(),
+                workers: ServerConfig::default_workers(),
+                stream_max_chunks: 1000,
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<ServerConfig>(r#"
+                stream-chunk-size: 10000
+            "#).unwrap(),
+            ServerConfig {
+                addrs: ServerConfig::default_addrs(),
+                workers: ServerConfig::default_workers(),
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: 10000,
             });
     }
 

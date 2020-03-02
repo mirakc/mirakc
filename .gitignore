@@ -2,7 +2,6 @@
 /.devcontainer/config.yml
 /.devcontainer/epg/
 /Dockerfile
-/docker/testbed/epgstation/recorded/
 /mirakurun.openapi.json
 /target
 *.pyc
