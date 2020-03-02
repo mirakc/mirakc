@@ -1,11 +1,9 @@
 {
   "appenders": {
-    "console": { "type": "console" }
+    "console": { "type": "console" },
+    "stdout": { "type": "stdout" }
   },
   "categories": {
-    "default": { "appenders": [ "console" ], "level": "info" },
-    "system": { "appenders": [ "console" ], "level": "info" },
-    "access": { "appenders": [ "console" ], "level": "info" },
-    "stream": { "appenders": [ "console" ], "level": "info" }
+    "default": { "appenders": [ "console", "stdout" ], "level": "debug" }
   }
 }

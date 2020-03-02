@@ -32,10 +32,16 @@ Create containers with networks and volumes, and start them in the background:
 $ docker-compose up -d
 ```
 
-Show logs:
+Show operator logs:
 
 ```console
-$ docker-compose logs -f --tail=10
+$ docker logs -f mirakc-testbed-epgstation
+```
+
+Show service logs:
+
+```console
+$ docker exec mirakc-testbed-epgstation tail -F service.log
 ```
 
 Stop containers, and remove them together with networks and volumes:

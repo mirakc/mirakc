@@ -1,11 +1,9 @@
 {
   "appenders": {
-    "console": { "type": "console" }
+    "console": { "type": "console" },
+    "file": { "type": "file", "filename": "service.log" }
   },
   "categories": {
-    "default": { "appenders": [ "console" ], "level": "info" },
-    "system": { "appenders": [ "console" ], "level": "info" },
-    "access": { "appenders": [ "console" ], "level": "info" },
-    "stream": { "appenders": [ "console" ], "level": "info" }
+    "default": { "appenders": [ "console", "file" ], "level": "debug" }
   }
 }
