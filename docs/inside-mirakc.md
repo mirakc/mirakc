@@ -38,7 +38,7 @@ mirakc has a pipeline to process MPEG-TS packets.
   MpegTsStream
     |
     +--(when using filters)
-    |       |
+    |      |
     |  +---V-------- CommandPipeline --------------+
     |  | pre-filter (external process) [optional]  |
     |  |   |                                       |
