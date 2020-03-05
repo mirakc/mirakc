@@ -47,9 +47,9 @@ See [issues/4](https://github.com/masnagam/mirakc/issues/4) for details
 [/api/tuners]: #/api/tuners
 [/api/docs]: #/api/docs
 
-## Incompatibility of the `X-Mirakurun_Priority` header
+## Incompatibility of the `X-Mirakurun-Priority` header
 
-There are the following differences of the `X-Mirakurun_Priority` header between
+There are the following differences of the `X-Mirakurun-Priority` header between
 mirakc and Mirakurun:
 
 * Treated as 0 when the minimum value of `X-Mirakurun-Priority` headers is less
