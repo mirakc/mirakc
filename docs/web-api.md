@@ -63,7 +63,7 @@ mirakc and Mirakurun:
 
 Returns the version string.
 
-## /api/status (JSON)
+## /api/status
 
 Returns an empty object.
 
