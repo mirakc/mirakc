@@ -1,7 +1,11 @@
 use std::io;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use actix_files;
+use actix_service;
 use actix_web;
 use bytes::Bytes;
 use futures;
@@ -30,6 +34,7 @@ pub async fn serve(config: Arc<Config>) -> Result<(), Error> {
                 .wrap(actix_web::middleware::Logger::default())
                 .wrap(actix_web::middleware::DefaultHeaders::new()
                       .header("Server", server_name()))
+                .wrap(AccessControl)
                 .service(create_api_service())
         });
     for addr in server_config.addrs.iter() {
@@ -88,6 +93,12 @@ impl actix_web::ResponseError for Error {
                     reason: None,
                     errors: Vec::new(),
                 }),
+            Error::AccessDenied =>
+                actix_web::HttpResponse::Forbidden().json(ErrorBody {
+                    code: actix_web::http::StatusCode::FORBIDDEN.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
             _ =>
                 actix_web::HttpResponse::InternalServerError().json(ErrorBody {
                     code: actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
@@ -117,13 +128,14 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
 }
 
 #[actix_web::get("/version")]
-async fn get_version() -> impl actix_web::Responder {
-    actix_web::HttpResponse::Ok().json(env!("CARGO_PKG_VERSION"))
+async fn get_version() -> ApiResult {
+    Ok(actix_web::HttpResponse::Ok().json(env!("CARGO_PKG_VERSION")))
 }
 
 #[actix_web::get("/status")]
-async fn get_status() -> impl actix_web::Responder {
-    actix_web::HttpResponse::Ok().content_type("application/json").body("{}")
+async fn get_status() -> ApiResult {
+    Ok(actix_web::HttpResponse::Ok()
+       .content_type("application/json").body("{}"))
 }
 
 #[actix_web::get("/channels")]
@@ -542,11 +554,101 @@ fn make_program_filter_command(
     Ok(template.render_data_to_string(&data)?)
 }
 
+// middleware
+
+struct AccessControl;
+
+impl<S, B> actix_service::Transform<S> for AccessControl
+where
+    S: actix_service::Service<Request = actix_web::dev::ServiceRequest,
+                              Response = actix_web::dev::ServiceResponse<B>,
+                              Error = actix_web::Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Request = actix_web::dev::ServiceRequest;
+    type Response = actix_web::dev::ServiceResponse<B>;
+    type Error = actix_web::Error;
+    type InitError = ();
+    type Transform = AccessControlMiddleware<S>;
+    type Future =
+        futures::future::Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        futures::future::ok(AccessControlMiddleware(service))
+    }
+}
+
+struct AccessControlMiddleware<S>(S);
+
+impl<S, B> actix_service::Service for AccessControlMiddleware<S>
+where
+    S: actix_service::Service<Request = actix_web::dev::ServiceRequest,
+                              Response = actix_web::dev::ServiceResponse<B>,
+                              Error = actix_web::Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Request = actix_web::dev::ServiceRequest;
+    type Response = actix_web::dev::ServiceResponse<B>;
+    type Error = actix_web::Error;
+    type Future = Pin<Box<dyn futures::future::Future<
+            Output = Result<Self::Response, Self::Error>>>>;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut Context<'_>
+    ) -> Poll<Result<(), Self::Error>> {
+        self.0.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: actix_web::dev::ServiceRequest) -> Self::Future {
+        // Unlike Mirakurun, take no account of HTTP Forwarded and
+        // X-Forwarded-For headers.
+        let ip = req.peer_addr().map(|socket| socket.ip());
+
+        let allowed = match ip {
+            Some(ip) => is_private_ip_addr(ip),
+            None => true,  // UNIX domain socket
+        };
+
+        if allowed {
+            Box::pin(self.0.call(req))
+        } else {
+            Box::pin(futures::future::ok(req.error_response(
+                actix_web::error::ErrorForbidden(Error::AccessDenied))))
+        }
+    }
+}
+
+fn is_private_ip_addr(ip: IpAddr) -> bool {
+    // TODO: IpAddr::is_global() is a nightly-only API at this point.
+    match ip {
+        IpAddr::V4(ip) => is_private_ipv4_addr(ip),
+        IpAddr::V6(ip) => is_private_ipv6_addr(ip),
+    }
+}
+
+fn is_private_ipv4_addr(ip: Ipv4Addr) -> bool {
+    ip.is_loopback() || ip.is_private() || ip.is_link_local()
+}
+
+fn is_private_ipv6_addr(ip: Ipv6Addr) -> bool {
+    // TODO: Support only IPv4-compatible and IPv4-mapped addresses at this
+    //       moment.
+    match ip.to_ipv4() {
+        Some(ip) => is_private_ipv4_addr(ip),
+        None => false,
+    }
+}
+
 // tests
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::SocketAddr;
+    use actix_http;
 
     // TODO
     // ----
@@ -562,10 +664,7 @@ mod tests {
     //   https://asomers.github.io/mock_shootout/
     //
 
-    async fn request(
-        method: actix_web::http::Method,
-        uri: &str
-    ) -> actix_web::HttpResponse {
+    async fn request(req: actix_http::Request) -> actix_web::HttpResponse {
         let mut config = Config::default();
         // Disable all filters
         config.filters.pre_filter = String::new();
@@ -580,21 +679,28 @@ mod tests {
         let mut app = actix_web::test::init_service(
             actix_web::App::new()
                 .data(Arc::new(config))
+                .wrap(AccessControl)
                 .service(create_api_service())).await;
-        let req = actix_web::test::TestRequest::with_uri(uri)
-            .method(method).to_request();
         actix_web::test::call_service(&mut app, req).await.into()
     }
 
-    macro_rules! impl_method {
-        ($method:ident, $METHOD:ident) => {
-            async fn $method(uri: &str) -> actix_web::HttpResponse {
-                request(actix_web::http::Method::$METHOD, uri).await
-            }
-        }
+    async fn get(uri: &str) -> actix_web::HttpResponse {
+        let req = actix_web::test::TestRequest::with_uri(uri)
+            .method(actix_web::http::Method::GET)
+            .to_request();
+        request(req).await
     }
 
-    impl_method!(get, GET);
+    async fn get_with_peer_addr(
+        uri: &str,
+        addr: SocketAddr
+    ) -> actix_web::HttpResponse {
+        let req = actix_web::test::TestRequest::with_uri(uri)
+            .method(actix_web::http::Method::GET)
+            .peer_addr(addr)
+            .to_request();
+        request(req).await
+    }
 
     #[actix_rt::test]
     async fn test_get_unknown() {
@@ -805,5 +911,25 @@ mod tests {
     async fn test_get_docs() {
         let res = get("/api/docs").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[actix_rt::test]
+    async fn test_access_control() {
+        let res = get_with_peer_addr(
+            "/api/version", "127.0.0.1:10000".parse().unwrap()).await;
+        assert_eq!(res.status(), actix_web::http::StatusCode::OK);
+
+        let res = get_with_peer_addr(
+            "/api/version", "8.8.8.8:10000".parse().unwrap()).await;
+        assert_eq!(res.status(), actix_web::http::StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn test_is_private_ip_addr() {
+        assert!(is_private_ip_addr("127.0.0.1".parse().unwrap()));
+        assert!(is_private_ip_addr("10.0.0.1".parse().unwrap()));
+        assert!(is_private_ip_addr("172.16.0.1".parse().unwrap()));
+        assert!(is_private_ip_addr("192.168.0.1".parse().unwrap()));
+        assert!(!is_private_ip_addr("8.8.8.8".parse().unwrap()));
     }
 }

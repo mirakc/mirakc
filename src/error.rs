@@ -23,6 +23,8 @@ pub enum Error {
     ProgramNotFound,
     #[fail(display = "Session not found")]
     SessionNotFound,
+    #[fail(display = "Access denied")]
+    AccessDenied,
     #[fail(display = "Command failed: {}", 0)]
     CommandFailed(command_util::Error),
     #[fail(display = "std::io::error: {}", 0)]

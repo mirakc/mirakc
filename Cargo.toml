@@ -10,6 +10,7 @@ license = "MIT OR Apache-2.0"
 actix = "0.9"
 actix-files = "0.2"
 actix-rt = "1.0"
+actix-service = "1.0"
 actix-web = "2.0"
 bytes = "0.5"
 cfg-if = "0.1"
@@ -33,6 +34,7 @@ shell-words = "0.1"
 tokio = { version = "0.2", features = ["full"] }
 
 [dev-dependencies]
+actix-http = "1.0"
 matches = "0.1"
 tokio-test = "0.2"
 
