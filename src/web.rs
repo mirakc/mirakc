@@ -603,8 +603,7 @@ where
     }
 
     fn call(&mut self, req: actix_web::dev::ServiceRequest) -> Self::Future {
-        // Unlike Mirakurun, take no account of HTTP Forwarded and
-        // X-Forwarded-For headers.
+        // Take no account of HTTP Forwarded and X-Forwarded-For headers.
         let ip = req.peer_addr().map(|socket| socket.ip());
 
         let allowed = match ip {
