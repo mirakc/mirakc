@@ -126,3 +126,6 @@ Query parameters have **NOT** been supported.
 Returns a Swagger JSON data extracted from a Mirakurun by using
 [scripts/mirakurun-openapi-json](../scripts/mirakurun-openapi-json)
 ([issues/13](https://github.com/masnagam/mirakc/issues/13)).
+
+[EPGStation]: https://github.com/l3tnun/EPGStation
+[BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
