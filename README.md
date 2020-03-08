@@ -17,7 +17,7 @@ It's recommended to use a Docker image which can be downloaded from [DockerHub].
 See [docs/docker.md](./docs/docker.md) about how to make a custom Docker image
 for your environment.
 
-### Launch a mirack Docker container
+### Launch a mirakc Docker container
 
 Create `config.yml`:
 
