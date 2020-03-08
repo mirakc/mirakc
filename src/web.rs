@@ -387,7 +387,9 @@ fn streaming(
             filters, stream.id())?;
 
         let stream_id = stream.id();
-        actix::spawn(stream.pipe(input));
+        actix::spawn(async {
+            let _ = stream.pipe(input).await;
+        });
 
         // Use a MPSC channel as a buffer.
         //

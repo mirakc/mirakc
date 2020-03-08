@@ -32,7 +32,7 @@ impl MpegTsStream {
         self.stop_trigger.take()
     }
 
-    pub async fn pipe<W>(self, writer: W)
+    pub async fn pipe<W>(self, writer: W) -> (Self, W)
     where
         W: AsyncWrite + Unpin,
     {
@@ -108,7 +108,7 @@ where
     }
 }
 
-async fn pipe<W>(mut stream: MpegTsStream, mut writer: W)
+async fn pipe<W>(mut stream: MpegTsStream, mut writer: W) -> (MpegTsStream, W)
 where
     W: AsyncWrite + Unpin,
 {
@@ -122,7 +122,7 @@ where
                         log::error!("{}: Failed to write to downstream: {}",
                                     stream.id(), err);
                     }
-                    return;
+                    break;
                 }
             }
             Some(Err(err)) => {
@@ -132,37 +132,34 @@ where
                     log::error!("{}: Failed to read from upstream: {}",
                                 stream.id(), err);
                 }
-                return;
+                break;
             }
             None => {
                 log::debug!("{}: EOF reached", stream.id());
-                return;
+                break;
             }
         }
     }
+
+    (stream, writer)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_test::io::Builder;
 
     #[tokio::test]
     async fn test_pipe() {
-        let hello = "hello";
-
-        let (mut tx, rx) = tokio::sync::mpsc::channel(10);
+        let (mut tx, rx) = tokio::sync::mpsc::channel(1);
         let stream = MpegTsStream::new(Default::default(), rx);
-        let mock = Builder::new()
-            .write(hello.as_bytes())
-            .build();
-        let handle = tokio::spawn(stream.pipe(mock));
+        let buf: Vec<u8> = Vec::new();
+        let handle = tokio::spawn(stream.pipe(buf));
 
-        let result = tx.send(Bytes::from(hello.as_bytes())).await;
+        let result = tx.send(Bytes::from("hello")).await;
         assert!(result.is_ok());
 
         drop(tx);
-
-        let _ = handle.await;
+        let (_, buf) = handle.await.unwrap();
+        assert_eq!(&buf, b"hello");
     }
 }

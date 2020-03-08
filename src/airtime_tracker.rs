@@ -40,7 +40,9 @@ pub async fn track_airtime(
 
     let stop_trigger = stream.take_stop_trigger();
 
-    actix::spawn(stream.pipe(input));
+    tokio::spawn(async {
+        let _ = stream.pipe(input).await;
+    });
 
     let quad = program.quad;
     actix::spawn(async move {
