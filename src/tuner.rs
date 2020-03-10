@@ -81,6 +81,12 @@ pub struct TunerSubscriptionId {
     serial_number: u32,
 }
 
+impl TunerSubscriptionId {
+    pub fn new(session_id: TunerSessionId, serial_number: u32) -> Self {
+        Self { session_id, serial_number }
+    }
+}
+
 impl fmt::Display for TunerSubscriptionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "tuner#{}.{}.{}",
@@ -561,7 +567,7 @@ impl TunerSession {
         let serial_number = self.next_serial_number;
         self.next_serial_number += 1;
 
-        let id = TunerSubscriptionId { session_id: self.id, serial_number };
+        let id = TunerSubscriptionId::new(self.id, serial_number);
         log::info!("{}: Subscribed: {}", id, user);
         self.subscribers.insert(serial_number, user);
 
