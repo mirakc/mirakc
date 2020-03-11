@@ -39,24 +39,13 @@ pub async fn start_streaming(
     cfg_if::cfg_if! {
         if #[cfg(test)] {
             let _ = (channel_type, channel, user);
-            let (_, receiver) = tokio::sync::mpsc::channel(1);
-            Ok(MpegTsStream::new(Default::default(), receiver))
+            let (_, stream) = BroadcasterStream::new_for_test();
+            Ok(MpegTsStream::new(Default::default(), stream,
+                                 TunerManager::from_registry().recipient()))
         } else {
             TunerManager::from_registry().send(StartStreamingMessage {
                 channel_type, channel, user
             }).await?
-        }
-    }
-}
-
-pub fn stop_streaming(id: TunerSubscriptionId) {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = id;
-        } else {
-            TunerManager::from_registry().do_send(StopStreamingMessage {
-                id
-            });
         }
     }
 }
@@ -283,7 +272,7 @@ impl Handler<StartStreamingMessage> for TunerManager {
             subscription.broadcaster.send(SubscribeMessage {
                 id: subscription.id
             }))
-            .map(move |result, act, _| {
+            .map(move |result, act, ctx| {
                 if result.is_ok() {
                     log::info!("{}: Started streaming", subscription.id);
                 } else {
@@ -291,7 +280,12 @@ impl Handler<StartStreamingMessage> for TunerManager {
                                 subscription.id);
                     act.deactivate_tuner(subscription.id);
                 }
-                result.map_err(Error::from)
+                result
+                    .map(|stream| {
+                        MpegTsStream::new(
+                            subscription.id, stream, ctx.address().recipient())
+                    })
+                    .map_err(Error::from)
             });
 
         ActorResponse::r#async(fut)

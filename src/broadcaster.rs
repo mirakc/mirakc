@@ -1,5 +1,6 @@
 use std::fmt;
 use std::io;
+use std::pin::Pin;
 
 use actix::prelude::*;
 use actix::dev::{MessageResponse, ResponseChannel};
@@ -9,7 +10,6 @@ use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
 
 use crate::chunk_stream::ChunkStream;
-use crate::mpeg_ts_stream::MpegTsStream;
 use crate::tuner::TunerSessionId as BroadcasterId;
 use crate::tuner::TunerSubscriptionId as SubscriberId;
 
@@ -43,10 +43,10 @@ impl Broadcaster {
         Self { id, subscribers: Vec::new() }
     }
 
-    fn subscribe(&mut self, id: SubscriberId) -> MpegTsStream {
+    fn subscribe(&mut self, id: SubscriberId) -> BroadcasterStream {
         let (sender, receiver) = mpsc::channel(Self::MAX_CHUNKS);
         self.subscribers.push(Subscriber { id, sender });
-        MpegTsStream::new(id, receiver)
+        BroadcasterStream::new(receiver)
     }
 
     fn unsubscribe(&mut self, id: SubscriberId) {
@@ -96,13 +96,13 @@ impl fmt::Display for SubscribeMessage {
 }
 
 impl Message for SubscribeMessage {
-    type Result = MpegTsStream;
+    type Result = BroadcasterStream;
 }
 
-impl<A, M> MessageResponse<A, M> for MpegTsStream
+impl<A, M> MessageResponse<A, M> for BroadcasterStream
 where
     A: Actor,
-    M: Message<Result = MpegTsStream>,
+    M: Message<Result = BroadcasterStream>,
 {
     fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
         if let Some(tx) = tx {
@@ -112,7 +112,7 @@ where
 }
 
 impl Handler<SubscribeMessage> for Broadcaster {
-    type Result = MpegTsStream;
+    type Result = BroadcasterStream;
 
     fn handle(
         &mut self,
@@ -172,6 +172,35 @@ impl StreamHandler<io::Result<Bytes>> for Broadcaster {
     }
 }
 
+// stream
+
+pub struct BroadcasterStream(mpsc::Receiver<Bytes>);
+
+impl BroadcasterStream {
+    fn new(rx: mpsc::Receiver<Bytes>) -> Self {
+        Self(rx)
+    }
+
+    #[cfg(test)]
+    pub fn new_for_test() -> (mpsc::Sender<Bytes>, Self) {
+        let (tx, rx) = mpsc::channel(10);
+        (tx, BroadcasterStream::new(rx))
+    }
+}
+
+impl Stream for BroadcasterStream {
+    type Item = io::Result<Bytes>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context
+    ) -> std::task::Poll<Option<Self::Item>> {
+        Pin::new(&mut self.0)
+            .poll_next(cx)
+            .map(|item| item.map(|chunk| Ok(chunk)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,6 +231,35 @@ mod tests {
 
         let chunk = stream1.next().await;
         assert!(chunk.is_some());
+
+        let chunk = stream2.next().await;
+        assert!(chunk.is_some());
+    }
+
+    #[actix_rt::test]
+    async fn test_unsubscribe() {
+        let (mut tx, rx) = mpsc::channel(1);
+
+        let broadcaster = Broadcaster::create(|ctx| {
+            Broadcaster::new(Default::default(), DataSource(rx), ctx)
+        });
+
+        let mut stream1 = broadcaster.send(SubscribeMessage {
+            id: SubscriberId::new(Default::default(), 1)
+        }).await.unwrap();
+
+        let mut stream2 = broadcaster.send(SubscribeMessage {
+            id: SubscriberId::new(Default::default(), 2)
+        }).await.unwrap();
+
+        broadcaster.send(UnsubscribeMessage {
+            id: SubscriberId::new(Default::default(), 1)
+        }).await.unwrap();
+
+        let _ = tx.send(Bytes::from("hello")).await;
+
+        let chunk = stream1.next().await;
+        assert!(chunk.is_none());
 
         let chunk = stream2.next().await;
         assert!(chunk.is_some());

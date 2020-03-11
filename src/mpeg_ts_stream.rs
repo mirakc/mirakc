@@ -1,26 +1,30 @@
 use std::io;
 use std::pin::Pin;
-use std::task::{Context, Poll};
 
+use actix::prelude::*;
 use bytes::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::stream::{Stream, StreamExt};
-use tokio::sync::mpsc::Receiver;
 
-use crate::tuner;
+use crate::broadcaster::BroadcasterStream;
+use crate::tuner::StopStreamingMessage;
 pub use crate::tuner::TunerSubscriptionId as MpegTsStreamId;
 
 pub struct MpegTsStream {
     id: MpegTsStreamId,
-    receiver: Receiver<Bytes>,
+    stream: BroadcasterStream,
     stop_trigger: Option<MpegTsStreamStopTrigger>,
 }
 
 impl MpegTsStream {
-    pub fn new(id: MpegTsStreamId, receiver: Receiver<Bytes>) -> Self {
+    pub fn new(
+        id: MpegTsStreamId,
+        stream: BroadcasterStream,
+        recipient: Recipient<StopStreamingMessage>
+    ) -> Self {
         MpegTsStream {
-            id, receiver,
-            stop_trigger: Some(MpegTsStreamStopTrigger(id))
+            id, stream,
+            stop_trigger: Some(MpegTsStreamStopTrigger::new(id, recipient))
         }
     }
 
@@ -45,20 +49,32 @@ impl Stream for MpegTsStream {
 
     fn poll_next(
         mut self: Pin<&mut Self>,
-        cx: &mut Context
-    ) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.receiver)
-            .poll_next(cx)
-            .map(|opt| opt.map(|chunk| Ok(chunk)))
+        cx: &mut std::task::Context
+    ) -> std::task::Poll<Option<Self::Item>> {
+        Pin::new(&mut self.stream).poll_next(cx)
     }
 }
 
-pub struct MpegTsStreamStopTrigger(MpegTsStreamId);
+pub struct MpegTsStreamStopTrigger {
+    id: MpegTsStreamId,
+    recipient: Recipient<StopStreamingMessage>,
+}
+
+impl MpegTsStreamStopTrigger {
+    fn new(
+        id: MpegTsStreamId,
+        recipient: Recipient<StopStreamingMessage>
+    ) -> Self {
+        Self { id, recipient }
+    }
+}
 
 impl Drop for MpegTsStreamStopTrigger {
     fn drop(&mut self) {
-        log::debug!("{}: Closing...", self.0);
-        tuner::stop_streaming(self.0);
+        log::debug!("{}: Closing...", self.id);
+        let _ = self.recipient.do_send(StopStreamingMessage {
+            id: self.id
+        });
     }
 }
 
@@ -102,8 +118,8 @@ where
 
     fn poll_next(
         mut self: Pin<&mut Self>,
-        cx: &mut Context
-    ) -> Poll<Option<Self::Item>> {
+        cx: &mut std::task::Context
+    ) -> std::task::Poll<Option<Self::Item>> {
         Pin::new(&mut self.inner).poll_next(cx)
     }
 }
@@ -148,10 +164,14 @@ where
 mod tests {
     use super::*;
 
-    #[tokio::test]
+    #[actix_rt::test]
     async fn test_pipe() {
-        let (mut tx, rx) = tokio::sync::mpsc::channel(1);
-        let stream = MpegTsStream::new(Default::default(), rx);
+        let addr = TestActor.start();
+
+        let (mut tx, stream) = BroadcasterStream::new_for_test();
+
+        let stream = MpegTsStream::new(
+            Default::default(), stream, addr.recipient());
         let buf: Vec<u8> = Vec::new();
         let handle = tokio::spawn(stream.pipe(buf));
 
@@ -161,5 +181,21 @@ mod tests {
         drop(tx);
         let (_, buf) = handle.await.unwrap();
         assert_eq!(&buf, b"hello");
+    }
+
+    struct TestActor;
+
+    impl Actor for TestActor {
+        type Context = Context<Self>;
+    }
+
+    impl Handler<StopStreamingMessage> for TestActor {
+        type Result = ();
+
+        fn handle(
+            &mut self,
+            _: StopStreamingMessage,
+            _: &mut Self::Context,
+        ) -> Self::Result {}
     }
 }
