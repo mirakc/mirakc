@@ -13,39 +13,40 @@ use tokio::io::BufReader;
 use crate::config::Config;
 use crate::datetime_ext::*;
 use crate::error::Error;
-use crate::epg::{self, *};
+use crate::epg::*;
 use crate::models::*;
-use crate::tuner;
+use crate::tuner::*;
 use crate::command_util;
 
-pub fn start(config: Arc<Config>) {
-    let addr = EitFeeder::new(config).start();
-    actix::registry::SystemRegistry::set(addr);
-}
-
-pub async fn feed_eit_sections() -> Result<(), Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            Ok(())
-        } else {
-            EitFeeder::from_registry().send(FeedEitSectionsMessage).await?
-        }
-    }
-}
-
-struct EitFeeder {
+pub fn start(
     config: Arc<Config>,
+    tuner_manager: Addr<TunerManager>,
+    epg: Addr<Epg>,
+) -> Addr<EitFeeder> {
+    EitFeeder::new(config, tuner_manager, epg).start()
+}
+
+pub struct EitFeeder {
+    config: Arc<Config>,
+    tuner_manager: Addr<TunerManager>,
+    epg: Addr<Epg>,
 }
 
 impl EitFeeder {
-    fn new(config: Arc<Config>) -> Self {
-        EitFeeder { config }
+    pub fn new(
+        config: Arc<Config>,
+        tuner_manager: Addr<TunerManager>,
+        epg: Addr<Epg>,
+    ) -> Self {
+        EitFeeder { config, tuner_manager, epg }
     }
 
     async fn feed_eit_sections(
-        command: String
+        command: String,
+        tuner_manager: Addr<TunerManager>,
+        epg: Addr<Epg>,
     ) -> Result<(), Error> {
-        let services = epg::query_services().await?;
+        let services = epg.send(QueryServicesMessage).await??;
 
         let mut map: HashMap<NetworkId, EpgChannel> = HashMap::new();
         for sv in services.iter() {
@@ -61,7 +62,7 @@ impl EitFeeder {
         }
         let channels = map.values().cloned().collect();
 
-        EitCollector::new(command, channels)
+        EitCollector::new(command, channels, tuner_manager, epg)
             .collect_schedules().await
     }
 }
@@ -78,18 +79,9 @@ impl Actor for EitFeeder {
     }
 }
 
-impl Supervised for EitFeeder {}
-impl SystemService for EitFeeder {}
-
-impl Default for EitFeeder {
-    fn default() -> Self {
-        unreachable!();
-    }
-}
-
 // feed eit sections
 
-struct FeedEitSectionsMessage;
+pub struct FeedEitSectionsMessage;
 
 impl fmt::Display for FeedEitSectionsMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -111,7 +103,8 @@ impl Handler<FeedEitSectionsMessage> for EitFeeder {
     ) -> Self::Result {
         log::debug!("{}", msg);
         let fut = Box::pin(Self::feed_eit_sections(
-            self.config.jobs.update_schedules.command.clone()));
+            self.config.jobs.update_schedules.command.clone(),
+            self.tuner_manager.clone(), self.epg.clone()));
         Response::fut(fut)
     }
 }
@@ -121,6 +114,8 @@ impl Handler<FeedEitSectionsMessage> for EitFeeder {
 pub struct EitCollector {
     command: String,
     channels: Vec<EpgChannel>,
+    tuner_manager: Addr<TunerManager>,
+    epg: Addr<Epg>,
 }
 
 // TODO: The following implementation has code clones similar to
@@ -132,9 +127,11 @@ impl EitCollector {
 
     pub fn new(
         command: String,
-        channels: Vec<EpgChannel>
+        channels: Vec<EpgChannel>,
+        tuner_manager: Addr<TunerManager>,
+        epg: Addr<Epg>,
     ) -> Self {
-        EitCollector { command, channels }
+        EitCollector { command, channels, tuner_manager, epg }
     }
 
     pub async fn collect_schedules(
@@ -143,8 +140,8 @@ impl EitCollector {
         log::info!("Collecting EIT sections...");
         let mut num_sections = 0;
         for channel in self.channels.iter() {
-            num_sections +=
-                Self::collect_eits_in_channel(&channel, &self.command).await?;
+            num_sections += Self::collect_eits_in_channel(
+                &channel, &self.command, &self.tuner_manager, &self.epg).await?;
         }
         log::info!("Collected {} EIT sections", num_sections);
         Ok(())
@@ -153,6 +150,8 @@ impl EitCollector {
     async fn collect_eits_in_channel(
         channel: &EpgChannel,
         command: &str,
+        tuner_manager: &Addr<TunerManager>,
+        epg: &Addr<Epg>,
     ) -> Result<usize, Error> {
         log::debug!("Collecting EIT sections in {}...", channel.name);
 
@@ -161,8 +160,11 @@ impl EitCollector {
             priority: (-1).into(),
         };
 
-        let stream = tuner::start_streaming(
-            channel.channel_type, channel.channel.clone(), user).await?;
+        let stream = tuner_manager.send(StartStreamingMessage {
+            channel_type: channel.channel_type,
+            channel: channel.channel.clone(),
+            user
+        }).await??;
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()
@@ -186,14 +188,14 @@ impl EitCollector {
             triples.insert(eit.service_triple());
             sections.push(eit);
             if sections.len() == Self::UPDATE_CHUNK_SIZE {
-                epg::update_schedules(sections);
+                epg.do_send(UpdateSchedulesMessage { sections });
                 sections = Vec::with_capacity(32);
             }
             json.clear();
             num_sections += 1;
         }
         if !sections.is_empty() {
-            epg::update_schedules(sections);
+            epg.do_send(UpdateSchedulesMessage { sections });
         }
 
         // Explicitly dropping the output of the pipeline is needed.  The output
@@ -204,7 +206,9 @@ impl EitCollector {
         // streaming in the next iteration.
         let _ = handle.await;
 
-        epg::flush_schedules(triples.into_iter().collect());
+        epg.do_send(FlushSchedulesMessage {
+            triples: triples.into_iter().collect(),
+        });
 
         log::debug!("Collected {} EIT sections in {}",
                     num_sections, channel.name);

@@ -4,7 +4,6 @@ use std::process::{Child, Stdio};
 use std::sync::Arc;
 
 use actix::prelude::*;
-use cfg_if;
 use log;
 use mustache;
 
@@ -16,38 +15,8 @@ use crate::models::*;
 use crate::mpeg_ts_stream::MpegTsStream;
 use crate::tokio_snippet;
 
-pub fn start(config: Arc<Config>) {
-    let addr = TunerManager::new(config).start();
-    actix::registry::SystemRegistry::set(addr);
-}
-
-pub async fn query_tuners() -> Result<Vec<MirakurunTuner>, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            Ok(Vec::new())
-        } else {
-            TunerManager::from_registry().send(QueryTunersMessage).await?
-        }
-    }
-}
-
-pub async fn start_streaming(
-    channel_type: ChannelType,
-    channel: String,
-    user: TunerUser
-)-> Result<MpegTsStream, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = (channel_type, channel, user);
-            let (_, stream) = BroadcasterStream::new_for_test();
-            Ok(MpegTsStream::new(Default::default(), stream,
-                                 TunerManager::from_registry().recipient()))
-        } else {
-            TunerManager::from_registry().send(StartStreamingMessage {
-                channel_type, channel, user
-            }).await?
-        }
-    }
+pub fn start(config: Arc<Config>) -> Addr<TunerManager> {
+    TunerManager::new(config).start()
 }
 
 // identifiers
@@ -86,7 +55,7 @@ impl fmt::Display for TunerSubscriptionId {
 
 // tuner manager
 
-struct TunerManager {
+pub struct TunerManager {
     config: Arc<Config>,
     tuners: Vec<Tuner>,
 }
@@ -97,7 +66,7 @@ struct TunerSubscription {
 }
 
 impl TunerManager {
-    fn new(config: Arc<Config>) -> Self {
+    pub fn new(config: Arc<Config>) -> Self {
         TunerManager { config, tuners: Vec::new() }
     }
 
@@ -190,15 +159,6 @@ impl Actor for TunerManager {
             tuner.deactivate();
         }
         log::debug!("Stopped");
-    }
-}
-
-impl Supervised for TunerManager {}
-impl SystemService for TunerManager {}
-
-impl Default for TunerManager {
-    fn default() -> Self {
-        unreachable!();
     }
 }
 

@@ -2,8 +2,8 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
+use actix::prelude::*;
 use actix_files;
 use actix_service;
 use actix_web;
@@ -19,18 +19,33 @@ use crate::chunk_stream::ChunkStream;
 use crate::command_util;
 use crate::config::{Config, ServerAddr};
 use crate::error::Error;
-use crate::epg;
-use crate::epg::{EpgChannel, EpgProgram};
+use crate::epg::*;
 use crate::models::*;
 use crate::mpeg_ts_stream::*;
-use crate::tuner;
+use crate::tuner::*;
 
-pub async fn serve(config: Arc<Config>) -> Result<(), Error> {
+#[cfg(not(test))]
+type TunerManagerActor = TunerManager;
+#[cfg(test)]
+type TunerManagerActor = actix::actors::mocker::Mocker<TunerManager>;
+
+#[cfg(not(test))]
+type EpgActor = Epg;
+#[cfg(test)]
+type EpgActor = actix::actors::mocker::Mocker<Epg>;
+
+pub async fn serve(
+    config: Arc<Config>,
+    tuner_manager: Addr<TunerManager>,
+    epg: Addr<Epg>,
+) -> Result<(), Error> {
     let server_config = config.server.clone();
     let mut server = actix_web::HttpServer::new(
         move || {
             actix_web::App::new()
                 .data(config.clone())
+                .data(tuner_manager.clone())
+                .data(epg.clone())
                 .wrap(actix_web::middleware::Logger::default())
                 .wrap(actix_web::middleware::DefaultHeaders::new()
                       .header("Server", server_name()))
@@ -139,64 +154,91 @@ async fn get_status() -> ApiResult {
 }
 
 #[actix_web::get("/channels")]
-async fn get_channels() -> ApiResult {
-    epg::query_channels().await
+async fn get_channels(
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+) -> ApiResult {
+    epg.send(QueryChannelsMessage).await?
         .map(|channels| actix_web::HttpResponse::Ok().json(channels))
 }
 
 #[actix_web::get("/services")]
-async fn get_services() -> ApiResult {
-    epg::query_services().await
+async fn get_services(
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+) -> ApiResult {
+    epg.send(QueryServicesMessage).await?
         .map(|services| services.into_iter()
              .map(MirakurunService::from).collect::<Vec<MirakurunService>>())
         .map(|services| actix_web::HttpResponse::Ok().json(services))
 }
 
 #[actix_web::get("/services/{id}")]
-async fn get_service(path: actix_web::web::Path<ServicePath>) -> ApiResult {
-    epg::query_service_by_nid_sid(path.id.nid(), path.id.sid()).await
+async fn get_service(
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    path: actix_web::web::Path<ServicePath>,
+) -> ApiResult {
+    epg.send(QueryServiceMessage::ByNidSid {
+        nid: path.id.nid(),
+        sid: path.id.sid(),
+    }).await?
         .map(MirakurunService::from)
         .map(|service| actix_web::HttpResponse::Ok().json(service))
 }
 
 #[actix_web::get("/programs")]
-async fn get_programs() -> ApiResult {
-    epg::query_programs().await
+async fn get_programs(
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+) -> ApiResult {
+    epg.send(QueryProgramsMessage).await?
         .map(|programs| programs.into_iter()
              .map(MirakurunProgram::from).collect::<Vec<MirakurunProgram>>())
         .map(|programs| actix_web::HttpResponse::Ok().json(programs))
 }
 
 #[actix_web::get("/programs/{id}")]
-async fn get_program(path: actix_web::web::Path<ProgramPath>) -> ApiResult {
-    epg::query_program_by_nid_sid_eid(
-        path.id.nid(), path.id.sid(), path.id.eid()).await
+async fn get_program(
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    path: actix_web::web::Path<ProgramPath>,
+) -> ApiResult {
+    epg.send(QueryProgramMessage::ByNidSidEid {
+        nid: path.id.nid(),
+        sid: path.id.sid(),
+        eid: path.id.eid(),
+    }).await?
         .map(MirakurunProgram::from)
         .map(|program| actix_web::HttpResponse::Ok().json(program))
 }
 
 #[actix_web::get("/tuners")]
-async fn get_tuners() -> ApiResult {
-    tuner::query_tuners().await
+async fn get_tuners(
+    tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>
+) -> ApiResult {
+    tuner_manager.send(QueryTunersMessage).await?
         .map(|tuners| actix_web::HttpResponse::Ok().json(tuners))
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/stream")]
 async fn get_channel_stream(
     config: actix_web::web::Data<Arc<Config>>,
+    tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
     path: actix_web::web::Path<ChannelPath>,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
-    let channel = epg::query_channel(
-        path.channel_type, path.channel.clone()).await?;
+    let channel = epg.send(QueryChannelMessage {
+        channel_type: path.channel_type,
+        channel: path.channel.clone(),
+    }).await??;
 
     let filters = make_filters(
         &config, &channel, None, None, "".to_string(),
         query.pre_filter_required(), query.post_filter_required())?;
 
-    let stream = tuner::start_streaming(
-        path.channel_type, path.channel.clone(), user).await?;
+    let stream = tuner_manager.send(StartStreamingMessage {
+        channel_type: path.channel_type,
+        channel: path.channel.clone(),
+        user
+    }).await??;
 
     streaming(&config, stream, filters, None)
 }
@@ -204,53 +246,77 @@ async fn get_channel_stream(
 #[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
 async fn get_channel_service_stream(
     config: actix_web::web::Data<Arc<Config>>,
+    tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
     path: actix_web::web::Path<ChannelServicePath>,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
-    let channel = epg::query_channel(
-        path.channel_type, path.channel.clone()).await?;
+    let channel = epg.send(QueryChannelMessage {
+        channel_type: path.channel_type,
+        channel: path.channel.clone(),
+    }).await??;
 
-    do_get_service_stream(config, &channel, path.sid, query, user).await
+    do_get_service_stream(
+        config, tuner_manager, &channel, path.sid, query, user).await
 }
 
 #[actix_web::get("/services/{id}/stream")]
 async fn get_service_stream(
     config: actix_web::web::Data<Arc<Config>>,
+    tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
     path: actix_web::web::Path<ServicePath>,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
-    let service = epg::query_service_by_nid_sid(
-        path.id.nid(), path.id.sid()).await?;
+    let service = epg.send(QueryServiceMessage::ByNidSid {
+        nid: path.id.nid(),
+        sid: path.id.sid(),
+    }).await??;
+
     do_get_service_stream(
-        config, &service.channel, service.sid, query, user).await
+        config, tuner_manager, &service.channel, service.sid, query, user).await
 }
 
 #[actix_web::get("/programs/{id}/stream")]
 async fn get_program_stream(
     config: actix_web::web::Data<Arc<Config>>,
+    tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
     path: actix_web::web::Path<ProgramPath>,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
-    let program = epg::query_program_by_nid_sid_eid(
-        path.id.nid(), path.id.sid(), path.id.eid()).await?;
-    let service = epg::query_service_by_nid_sid(
-        path.id.nid(), path.id.sid()).await?;
-    let clock = epg::query_clock(service.triple()).await?;
+    let program = epg.send(QueryProgramMessage::ByNidSidEid {
+        nid: path.id.nid(),
+        sid: path.id.sid(),
+        eid: path.id.eid(),
+    }).await??;
+
+    let service = epg.send(QueryServiceMessage::ByNidSid {
+        nid: path.id.nid(),
+        sid: path.id.sid(),
+    }).await??;
+
+    let clock = epg.send(QueryClockMessage {
+        triple: service.triple(),
+    }).await??;
 
     let filters = make_program_filters(
         &config, &service.channel, &program, &clock,
         query.pre_filter_required(), query.post_filter_required())?;
 
-    let stream = tuner::start_streaming(
-        service.channel.channel_type, service.channel.channel.clone(),
-        user.clone()).await?;
+    let stream = tuner_manager.send(StartStreamingMessage {
+        channel_type: service.channel.channel_type,
+        channel: service.channel.channel.clone(),
+        user
+    }).await??;
 
     let stop_trigger = airtime_tracker::track_airtime(
         &config.recorder.track_airtime_command, &service.channel, &program,
-        stream.id()).await?;
+        stream.id(), tuner_manager.get_ref().clone(), epg.get_ref().clone()
+    ).await?;
 
     streaming(&config, stream, filters, stop_trigger)
 }
@@ -267,6 +333,7 @@ async fn get_docs(
 
 async fn do_get_service_stream(
     config: actix_web::web::Data<Arc<Config>>,
+    tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
     channel: &EpgChannel,
     sid: ServiceId,
     query: actix_web::web::Query<StreamQuery>,
@@ -276,8 +343,11 @@ async fn do_get_service_stream(
         &config, channel, sid,
         query.pre_filter_required(), query.post_filter_required())?;
 
-    let stream = tuner::start_streaming(
-        channel.channel_type, channel.channel.clone(), user).await?;
+    let stream = tuner_manager.send(StartStreamingMessage {
+        channel_type: channel.channel_type,
+        channel: channel.channel.clone(),
+        user
+    }).await??;
 
     streaming(&config, stream, filters, None)
 }
@@ -599,8 +669,8 @@ where
 
     fn poll_ready(
         &mut self,
-        cx: &mut Context<'_>
-    ) -> Poll<Result<(), Self::Error>> {
+        cx: &mut std::task::Context<'_>
+    ) -> std::task::Poll<Result<(), Self::Error>> {
         self.0.poll_ready(cx)
     }
 
@@ -650,20 +720,7 @@ mod tests {
     use super::*;
     use std::net::SocketAddr;
     use actix_http;
-
-    // TODO
-    // ----
-    // There is no good mocking framework in Rust at this moment.
-    //
-    // mockall doesn't work with multiple threads.  Especially, constructor
-    // methods defined as static methods.
-    //
-    // mockers doesn't work in stable Rust because it requires nightly features.
-    //
-    // Mocking frameworks are listed in:
-    //
-    //   https://asomers.github.io/mock_shootout/
-    //
+    use crate::broadcaster::BroadcasterStream;
 
     async fn request(req: actix_http::Request) -> actix_web::HttpResponse {
         let mut config = Config::default();
@@ -679,7 +736,9 @@ mod tests {
 
         let mut app = actix_web::test::init_service(
             actix_web::App::new()
-                .data(Arc::new(config))
+                .data(config_for_test())
+                .data(tuner_manager_for_test())
+                .data(epg_for_test())
                 .wrap(AccessControl)
                 .service(create_api_service())).await;
         actix_web::test::call_service(&mut app, req).await.into()
@@ -932,5 +991,114 @@ mod tests {
         assert!(is_private_ip_addr("172.16.0.1".parse().unwrap()));
         assert!(is_private_ip_addr("192.168.0.1".parse().unwrap()));
         assert!(!is_private_ip_addr("8.8.8.8".parse().unwrap()));
+    }
+
+    fn config_for_test() -> Arc<Config> {
+        let mut config = Config::default();
+        // Disable all filters
+        config.filters.pre_filter = String::new();
+        config.filters.service_filter = String::new();
+        config.filters.program_filter = String::new();
+        config.filters.post_filter = String::new();
+        // Disable tracking airtime
+        config.recorder.track_airtime_command = "true".to_string();
+        // "/dev/null" is enough to test
+        config.mirakurun.openapi_json = "/dev/null".to_string();
+
+        Arc::new(config)
+    }
+
+    fn tuner_manager_for_test() -> Addr<TunerManagerActor> {
+        TunerManagerActor::mock(Box::new(|msg, ctx| {
+            if let Some(_) = msg.downcast_ref::<QueryTunersMessage>() {
+                Box::<Option<Result<Vec<MirakurunTuner>, Error>>>::new(
+                    Some(Ok(Vec::new())))
+            } else if let Some(_) = msg.downcast_ref::<StartStreamingMessage>() {
+                let (_, stream) = BroadcasterStream::new_for_test();
+                let result = Ok(MpegTsStream::new(
+                    Default::default(), stream, ctx.address().recipient()));
+                Box::<Option<Result<MpegTsStream, Error>>>::new(Some(result))
+            } else if let Some(_) = msg.downcast_ref::<StopStreamingMessage>() {
+                Box::<Option<()>>::new(Some(()))
+            } else {
+                unimplemented!();
+            }
+        })).start()
+    }
+
+    fn epg_for_test() -> Addr<EpgActor> {
+        EpgActor::mock(Box::new(|msg, _| {
+            if let Some(_) = msg.downcast_ref::<QueryChannelsMessage>() {
+                Box::<Option<Result<Vec<MirakurunChannel>, Error>>>::new(
+                    Some(Ok(Vec::new())))
+            } else if let Some(msg) = msg.downcast_ref::<QueryChannelMessage>() {
+                let result = if msg.channel == "0" {
+                    Err(Error::ChannelNotFound)
+                } else {
+                    Ok(EpgChannel {
+                        name: "".to_string(),
+                        channel_type: msg.channel_type,
+                        channel: msg.channel.clone(),
+                        services: Vec::new(),
+                        excluded_services: Vec::new(),
+                    })
+                };
+                Box::<Option<Result<EpgChannel, Error>>>::new(Some(result))
+            } else if let Some(_) = msg.downcast_ref::<QueryServicesMessage>() {
+                Box::<Option<Result<Vec<EpgService>, Error>>>::new(
+                    Some(Ok(Vec::new())))
+            } else if let Some(msg) = msg.downcast_ref::<QueryServiceMessage>() {
+                let result = match msg {
+                    QueryServiceMessage::ByNidSid { nid, sid } => {
+                        if sid.value() == 0 {
+                            Err(Error::ServiceNotFound)
+                        } else {
+                            Ok(EpgService {
+                                nid: *nid,
+                                tsid: 0.into(),
+                                sid: *sid,
+                                service_type: 1,
+                                logo_id: 0,
+                                remote_control_key_id: 0,
+                                name: "test".to_string(),
+                                channel: EpgChannel {
+                                    name: "test".to_string(),
+                                    channel_type: ChannelType::GR,
+                                    channel: "test".to_string(),
+                                    services: Vec::new(),
+                                    excluded_services: Vec::new(),
+                                },
+                            })
+                        }
+                    }
+                };
+                Box::<Option<Result<EpgService, Error>>>::new(Some(result))
+            } else if let Some(msg) = msg.downcast_ref::<QueryClockMessage>() {
+                let result = match msg.triple.sid().value() {
+                    0 => Err(Error::ClockNotSynced),
+                    _ => Ok(Clock { pcr: 0, time: 0 }),
+                };
+                Box::<Option<Result<Clock, Error>>>::new(Some(result))
+            } else if let Some(_) = msg.downcast_ref::<QueryProgramsMessage>() {
+                Box::<Option<Result<Vec<EpgProgram>, Error>>>::new(
+                    Some(Ok(Vec::new())))
+            } else if let Some(msg) = msg.downcast_ref::<QueryProgramMessage>() {
+                let result = match msg {
+                    QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
+                        if eid.value() == 0 {
+                            Err(Error::ProgramNotFound)
+                        } else {
+                            Ok(EpgProgram::new(
+                                (*nid, 0.into(), *sid, *eid).into()))
+                        }
+                    }
+                };
+                Box::<Option<Result<EpgProgram, Error>>>::new(Some(result))
+            } else if let Some(_) = msg.downcast_ref::<RemoveAirtimeMessage>() {
+                Box::<Option<()>>::new(Some(()))
+            } else {
+                unimplemented!();
+            }
+        })).start()
     }
 }

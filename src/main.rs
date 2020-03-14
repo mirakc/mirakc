@@ -8,7 +8,7 @@ mod datetime_ext;
 mod eit_feeder;
 mod epg;
 mod error;
-mod fs_util;
+//mod fs_util;
 mod job;
 mod models;
 mod mpeg_ts_stream;
@@ -53,11 +53,17 @@ async fn main() -> Result<(), Error> {
 
     let config = config::load(config_path);
 
-    tuner::start(config.clone());
-    eit_feeder::start(config.clone());
-    job::start(config.clone());
-    epg::start(config.clone());
-    web::serve(config.clone()).await?;
+    let tuner_manager = tuner::start(config.clone());
+
+    let epg = epg::start(config.clone());
+
+    let eit_feeder = eit_feeder::start(
+        config.clone(), tuner_manager.clone(), epg.clone());
+
+    let _job_manager = job::start(
+        config.clone(), tuner_manager.clone(), epg.clone(), eit_feeder.clone());
+
+    web::serve(config.clone(), tuner_manager.clone(), epg.clone()).await?;
 
     Ok(())
 }
