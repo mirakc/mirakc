@@ -1,3 +1,4 @@
+use actix::prelude::*;
 use chrono::{DateTime, Duration};
 use log;
 use serde::Deserialize;
@@ -7,26 +8,40 @@ use tokio::io::BufReader;
 
 use crate::command_util;
 use crate::datetime_ext::*;
-use crate::epg;
 use crate::epg::*;
 use crate::error::Error;
 use crate::models::*;
 use crate::mpeg_ts_stream::*;
-use crate::tuner;
+use crate::tuner::*;
+
+#[cfg(not(test))]
+type TunerManagerActor = TunerManager;
+#[cfg(test)]
+type TunerManagerActor = actix::actors::mocker::Mocker<TunerManager>;
+
+#[cfg(not(test))]
+type EpgActor = Epg;
+#[cfg(test)]
+type EpgActor = actix::actors::mocker::Mocker<Epg>;
 
 pub async fn track_airtime(
     command: &str,
     channel: &EpgChannel,
     program: &EpgProgram,
     stream_id: MpegTsStreamId,
+    tuner_manager: Addr<TunerManagerActor>,
+    epg: Addr<EpgActor>,
 ) -> Result<Option<MpegTsStreamStopTrigger>, Error> {
     let user = TunerUser {
         info: TunerUserInfo::Tracker { stream_id },
         priority: (-1).into(),
     };
 
-    let mut stream = tuner::start_streaming(
-        channel.channel_type, channel.channel.clone(), user).await?;
+    let mut stream = tuner_manager.send(StartStreamingMessage {
+        channel_type: channel.channel_type,
+        channel: channel.channel.clone(),
+        user
+    }).await??;
 
     let template = mustache::compile_str(command)?;
     let data = mustache::MapBuilder::new()
@@ -40,11 +55,13 @@ pub async fn track_airtime(
 
     let stop_trigger = stream.take_stop_trigger();
 
-    actix::spawn(stream.pipe(input));
+    actix::spawn(async {
+        let _ = stream.pipe(input).await;
+    });
 
     let quad = program.quad;
     actix::spawn(async move {
-        let _ = update_airtime(quad, output).await;
+        let _ = update_airtime(quad, output, epg).await;
     });
 
     Ok(stop_trigger)
@@ -52,7 +69,8 @@ pub async fn track_airtime(
 
 async fn update_airtime<R: AsyncRead + Unpin>(
     quad: EventQuad,
-    output: R
+    output: R,
+    epg: Addr<EpgActor>,
 ) -> Result<(), Error> {
     log::info!("Tracking airtime of {}...", quad);
 
@@ -72,11 +90,13 @@ async fn update_airtime<R: AsyncRead + Unpin>(
                 continue
             }
         };
-        epg::update_airtime(
-            quad, airtime.start_time, airtime.duration);
+        epg.send(UpdateAirtimeMessage {
+            quad,
+            airtime: airtime.into(),
+        }).await?;
         json.clear();
     }
-    epg::remove_airtime(quad);
+    epg.send(RemoveAirtimeMessage { quad }).await?;
 
     log::info!("Stopped tracking airtime of {}", quad);
 
@@ -94,4 +114,13 @@ struct TsAirtime {
     start_time: DateTime<Jst>,
     #[serde(with = "serde_duration_in_millis")]
     duration: Duration,
+}
+
+impl Into<Airtime> for TsAirtime {
+    fn into(self) -> Airtime {
+        Airtime {
+            start_time: self.start_time,
+            duration: self.duration,
+        }
+    }
 }

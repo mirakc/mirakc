@@ -4,7 +4,6 @@ use std::process::{Child, Stdio};
 use std::sync::Arc;
 
 use actix::prelude::*;
-use cfg_if;
 use log;
 use mustache;
 
@@ -16,49 +15,8 @@ use crate::models::*;
 use crate::mpeg_ts_stream::MpegTsStream;
 use crate::tokio_snippet;
 
-pub fn start(config: Arc<Config>) {
-    let addr = TunerManager::new(config).start();
-    actix::registry::SystemRegistry::set(addr);
-}
-
-pub async fn query_tuners() -> Result<Vec<MirakurunTuner>, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            Ok(Vec::new())
-        } else {
-            TunerManager::from_registry().send(QueryTunersMessage).await?
-        }
-    }
-}
-
-pub async fn start_streaming(
-    channel_type: ChannelType,
-    channel: String,
-    user: TunerUser
-)-> Result<MpegTsStream, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = (channel_type, channel, user);
-            let (_, receiver) = tokio::sync::mpsc::channel(1);
-            Ok(MpegTsStream::new(Default::default(), receiver))
-        } else {
-            TunerManager::from_registry().send(StartStreamingMessage {
-                channel_type, channel, user
-            }).await?
-        }
-    }
-}
-
-pub fn stop_streaming(id: TunerSubscriptionId) {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = id;
-        } else {
-            TunerManager::from_registry().do_send(StopStreamingMessage {
-                id
-            });
-        }
-    }
+pub fn start(config: Arc<Config>) -> Addr<TunerManager> {
+    TunerManager::new(config).start()
 }
 
 // identifiers
@@ -81,6 +39,12 @@ pub struct TunerSubscriptionId {
     serial_number: u32,
 }
 
+impl TunerSubscriptionId {
+    pub fn new(session_id: TunerSessionId, serial_number: u32) -> Self {
+        Self { session_id, serial_number }
+    }
+}
+
 impl fmt::Display for TunerSubscriptionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "tuner#{}.{}.{}",
@@ -91,7 +55,7 @@ impl fmt::Display for TunerSubscriptionId {
 
 // tuner manager
 
-struct TunerManager {
+pub struct TunerManager {
     config: Arc<Config>,
     tuners: Vec<Tuner>,
 }
@@ -102,7 +66,7 @@ struct TunerSubscription {
 }
 
 impl TunerManager {
-    fn new(config: Arc<Config>) -> Self {
+    pub fn new(config: Arc<Config>) -> Self {
         TunerManager { config, tuners: Vec::new() }
     }
 
@@ -198,15 +162,6 @@ impl Actor for TunerManager {
     }
 }
 
-impl Supervised for TunerManager {}
-impl SystemService for TunerManager {}
-
-impl Default for TunerManager {
-    fn default() -> Self {
-        unreachable!();
-    }
-}
-
 // query tuners
 
 pub struct QueryTunersMessage;
@@ -277,7 +232,7 @@ impl Handler<StartStreamingMessage> for TunerManager {
             subscription.broadcaster.send(SubscribeMessage {
                 id: subscription.id
             }))
-            .map(move |result, act, _| {
+            .map(move |result, act, ctx| {
                 if result.is_ok() {
                     log::info!("{}: Started streaming", subscription.id);
                 } else {
@@ -285,7 +240,12 @@ impl Handler<StartStreamingMessage> for TunerManager {
                                 subscription.id);
                     act.deactivate_tuner(subscription.id);
                 }
-                result.map_err(Error::from)
+                result
+                    .map(|stream| {
+                        MpegTsStream::new(
+                            subscription.id, stream, ctx.address().recipient())
+                    })
+                    .map_err(Error::from)
             });
 
         ActorResponse::r#async(fut)
@@ -561,7 +521,7 @@ impl TunerSession {
         let serial_number = self.next_serial_number;
         self.next_serial_number += 1;
 
-        let id = TunerSubscriptionId { session_id: self.id, serial_number };
+        let id = TunerSubscriptionId::new(self.id, serial_number);
         log::info!("{}: Subscribed: {}", id, user);
         self.subscribers.insert(serial_number, user);
 

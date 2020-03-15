@@ -36,7 +36,6 @@ tokio = { version = "0.2", features = ["full"] }
 [dev-dependencies]
 actix-http = "1.0"
 matches = "0.1"
-tokio-test = "0.2"
 
 [profile.release]
 lto = true

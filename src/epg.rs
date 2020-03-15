@@ -16,11 +16,9 @@ use crate::config::{Config, ChannelConfig};
 use crate::datetime_ext::*;
 use crate::eit_feeder::*;
 use crate::error::Error;
-use crate::fs_util;
-use crate::job;
 use crate::models::*;
 
-pub fn start(config: Arc<Config>) {
+pub fn start(config: Arc<Config>) -> Addr<Epg> {
     // Start on a new Arbiter instead of the system Arbiter.
     //
     // Epg performs several blocking processes like blow:
@@ -28,218 +26,10 @@ pub fn start(config: Arc<Config>) {
     //   * Serialization and deserialization using serde
     //   * Conversions into Mirakurun-compatible models
     //
-    let addr = Epg::start_in_arbiter(&Arbiter::new(), |_| Epg::new(config));
-    actix::registry::SystemRegistry::set(addr);
+    Epg::start_in_arbiter(&Arbiter::new(), |_| Epg::new(config))
 }
 
-pub async fn query_channels() -> Result<Vec<MirakurunChannel>, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            Ok(Vec::new())
-        } else {
-            Epg::from_registry().send(QueryChannelsMessage).await?
-        }
-    }
-}
-
-pub async fn query_channel(
-    channel_type: ChannelType,
-    channel: String
-) -> Result<EpgChannel, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            match channel.as_str() {
-                "0" => Err(Error::ChannelNotFound),
-                _ => Ok(EpgChannel {
-                    name: "".to_string(),
-                    channel_type,
-                    channel,
-                    services: Vec::new(),
-                    excluded_services: Vec::new(),
-                }),
-            }
-        } else {
-            Epg::from_registry().send(QueryChannelMessage {
-                channel_type, channel
-            }).await?
-        }
-    }
-}
-
-pub async fn query_services() -> Result<Vec<EpgService>, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            Ok(Vec::new())
-        } else {
-            Epg::from_registry().send(QueryServicesMessage).await?
-        }
-    }
-}
-
-pub async fn query_service_by_nid_sid(
-    nid: NetworkId,
-    sid: ServiceId,
-) -> Result<EpgService, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            // for avoiding warn(dead_code)
-            let _ = QueryServiceMessage::ByNidSid {
-                nid, sid
-            };
-            match sid.value() {
-                0 => Err(Error::ServiceNotFound),
-                _ => Ok(EpgService {
-                    nid: nid,
-                    tsid: 0.into(),
-                    sid: sid,
-                    service_type: 1,
-                    logo_id: 0,
-                    remote_control_key_id: 0,
-                    name: "test".to_string(),
-                    channel: EpgChannel {
-                        name: "test".to_string(),
-                        channel_type: ChannelType::GR,
-                        channel: "test".to_string(),
-                        services: Vec::new(),
-                        excluded_services: Vec::new(),
-                    },
-                }),
-            }
-        } else {
-            Epg::from_registry().send(QueryServiceMessage::ByNidSid {
-                nid, sid
-            }).await?
-        }
-    }
-}
-
-pub async fn query_clock(triple: ServiceTriple) -> Result<Clock, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            match triple.sid().value() {
-                0 => Err(Error::ClockNotSynced),
-                _ => Ok(Clock { pcr: 0, time: 0 }),
-            }
-        } else {
-            Epg::from_registry().send(QueryClockMessage { triple }).await?
-        }
-    }
-}
-
-pub async fn query_programs() -> Result<Vec<EpgProgram>, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            Ok(Vec::new())
-        } else {
-            Epg::from_registry().send(QueryProgramsMessage).await?
-        }
-    }
-}
-
-pub async fn query_program_by_nid_sid_eid(
-    nid: NetworkId,
-    sid: ServiceId,
-    eid: EventId,
-) -> Result<EpgProgram, Error> {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            // for avoiding warn(dead_code)
-            let _ = QueryProgramMessage::ByNidSidEid {
-                nid, sid, eid
-            };
-            match eid.value() {
-                0 => Err(Error::ProgramNotFound),
-                _ => Ok(EpgProgram::new((nid, 0.into(), sid, eid).into())),
-            }
-        } else {
-            Epg::from_registry().send(QueryProgramMessage::ByNidSidEid {
-                nid, sid, eid
-            }).await?
-        }
-    }
-}
-
-pub fn update_services(services: Vec<EpgService>) {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = services;
-        } else {
-            Epg::from_registry().do_send(UpdateServicesMessage { services });
-        }
-    }
-}
-
-pub fn update_clocks(clocks: HashMap<ServiceTriple, Clock>) {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = clocks;
-        } else {
-            Epg::from_registry().do_send(UpdateClocksMessage { clocks });
-        }
-    }
-}
-
-pub fn update_schedules(sections: Vec<EitSection>) {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = sections;
-        } else {
-            Epg::from_registry().do_send(UpdateSchedulesMessage { sections });
-        }
-    }
-}
-
-pub fn flush_schedules(triples: Vec<ServiceTriple>) {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = triples;
-        } else {
-            Epg::from_registry().do_send(FlushSchedulesMessage {
-                triples
-            });
-        }
-    }
-}
-
-pub fn save_schedules() {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-        } else {
-            Epg::from_registry().do_send(SaveSchedulesMessage);
-        }
-    }
-}
-
-pub fn update_airtime(
-    quad: EventQuad,
-    start_time: DateTime<Jst>,
-    duration: Duration
-) {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = (quad, start_time, duration);
-        } else {
-            Epg::from_registry().do_send(UpdateAirtimeMessage {
-                quad,
-                airtime: Airtime { start_time, duration }
-            });
-        }
-    }
-}
-
-pub fn remove_airtime(quad: EventQuad) {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-            let _ = quad;
-        } else {
-            Epg::from_registry().do_send(RemoveAirtimeMessage {
-                quad
-            });
-        }
-    }
-}
-
-struct Epg {
+pub struct Epg {
     config: Arc<Config>,
     services: Vec<EpgService>,
     clocks: HashMap<ServiceTriple, Clock>,
@@ -247,9 +37,9 @@ struct Epg {
     airtimes: HashMap<EventQuad, Airtime>,
 }
 
-struct Airtime {
-    start_time: DateTime<Jst>,
-    duration: Duration
+pub struct Airtime {
+    pub start_time: DateTime<Jst>,
+    pub duration: Duration
 }
 
 impl Epg {
@@ -394,26 +184,6 @@ impl Epg {
         Ok(())
     }
 
-    fn need_scaning_services(&self) -> bool {
-        match (self.services.is_empty(), &self.config.epg.cache_dir) {
-            (false, Some(ref cache_dir)) => {
-                let json_path = PathBuf::from(cache_dir).join("services.json");
-                fs_util::unmodified_since(&json_path, self.config.last_modified)
-            }
-            _ => true,
-        }
-    }
-
-    fn need_synchronizing_clocks(&self) -> bool {
-        match (self.clocks.is_empty(), &self.config.epg.cache_dir) {
-            (false, Some(ref cache_dir)) => {
-                let json_path = PathBuf::from(cache_dir).join("clocks.json");
-                fs_util::unmodified_since(&json_path, self.config.last_modified)
-            }
-            _ => true,
-        }
-    }
-
     fn save_services(&self) -> Result<(), Error> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
@@ -479,23 +249,13 @@ impl Actor for Epg {
         if let Err(err) = self.load_services() {
             log::error!("Failed to load services: {}", err);
         }
-        if self.need_scaning_services() {
-            log::info!("Scan services immediately");
-            job::invoke_scan_services();
-        }
         if let Err(err) = self.load_clocks() {
             log::error!("Failed to load clocks: {}", err);
-        }
-        if self.need_synchronizing_clocks() {
-            log::info!("Synchronize clocks immediately");
-            job::invoke_sync_clocks();
         }
         if let Err(err) = self.load_schedules() {
             log::error!("Failed to load schedules: {}", err);
         }
         self.collect_programs();
-        log::info!("Always update schedules at startup");
-        job::invoke_update_schedules();
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
@@ -503,18 +263,9 @@ impl Actor for Epg {
     }
 }
 
-impl Supervised for Epg {}
-impl SystemService for Epg {}
-
-impl Default for Epg {
-    fn default() -> Self {
-        unreachable!();
-    }
-}
-
 // query channels
 
-struct QueryChannelsMessage;
+pub struct QueryChannelsMessage;
 
 impl fmt::Display for QueryChannelsMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -559,9 +310,9 @@ impl Handler<QueryChannelsMessage> for Epg {
 
 // query channel
 
-struct QueryChannelMessage {
-    channel_type: ChannelType,
-    channel: String,
+pub struct QueryChannelMessage {
+    pub channel_type: ChannelType,
+    pub channel: String,
 }
 
 impl fmt::Display for QueryChannelMessage {
@@ -597,7 +348,7 @@ impl Handler<QueryChannelMessage> for Epg {
 
 // query services
 
-struct QueryServicesMessage;
+pub struct QueryServicesMessage;
 
 impl fmt::Display for QueryServicesMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -627,7 +378,7 @@ impl Handler<QueryServicesMessage> for Epg {
 
 // query service
 
-enum QueryServiceMessage {
+pub enum QueryServiceMessage {
     // For Mirakurun-compatible Web API
     ByNidSid { nid: NetworkId, sid: ServiceId },
 }
@@ -668,8 +419,8 @@ impl Handler<QueryServiceMessage> for Epg {
 
 // query clock
 
-struct QueryClockMessage {
-    triple: ServiceTriple,
+pub struct QueryClockMessage {
+    pub triple: ServiceTriple,
 }
 
 impl fmt::Display for QueryClockMessage {
@@ -697,7 +448,7 @@ impl Handler<QueryClockMessage> for Epg {
 
 // query programs
 
-struct QueryProgramsMessage;
+pub struct QueryProgramsMessage;
 
 impl fmt::Display for QueryProgramsMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -728,7 +479,7 @@ impl Handler<QueryProgramsMessage> for Epg {
 
 // query program
 
-enum QueryProgramMessage {
+pub enum QueryProgramMessage {
     // For Mirakurun-compatible Web API
     ByNidSidEid { nid: NetworkId, sid: ServiceId, eid: EventId },
 }
@@ -780,8 +531,8 @@ impl Handler<QueryProgramMessage> for Epg {
 
 // update services
 
-struct UpdateServicesMessage {
-    services: Vec<EpgService>,
+pub struct UpdateServicesMessage {
+    pub services: Vec<EpgService>,
 }
 
 impl fmt::Display for UpdateServicesMessage {
@@ -809,8 +560,8 @@ impl Handler<UpdateServicesMessage> for Epg {
 
 // update clocks
 
-struct UpdateClocksMessage {
-    clocks: HashMap<ServiceTriple, Clock>,
+pub struct UpdateClocksMessage {
+    pub clocks: HashMap<ServiceTriple, Clock>,
 }
 
 impl fmt::Display for UpdateClocksMessage {
@@ -838,8 +589,8 @@ impl Handler<UpdateClocksMessage> for Epg {
 
 // update schedules
 
-struct UpdateSchedulesMessage {
-    sections: Vec<EitSection>,
+pub struct UpdateSchedulesMessage {
+    pub sections: Vec<EitSection>,
 }
 
 impl fmt::Display for UpdateSchedulesMessage {
@@ -867,8 +618,8 @@ impl Handler<UpdateSchedulesMessage> for Epg {
 
 // flush schedules
 
-struct FlushSchedulesMessage {
-    triples: Vec<ServiceTriple>,
+pub struct FlushSchedulesMessage {
+    pub triples: Vec<ServiceTriple>,
 }
 
 impl fmt::Display for FlushSchedulesMessage {
@@ -900,7 +651,7 @@ impl Handler<FlushSchedulesMessage> for Epg {
 
 // save schedules
 
-struct SaveSchedulesMessage;
+pub struct SaveSchedulesMessage;
 
 impl fmt::Display for SaveSchedulesMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -930,9 +681,9 @@ impl Handler<SaveSchedulesMessage> for Epg {
 
 // update airtime
 
-struct UpdateAirtimeMessage {
-    quad: EventQuad,
-    airtime: Airtime,
+pub struct UpdateAirtimeMessage {
+    pub quad: EventQuad,
+    pub airtime: Airtime,
 }
 
 impl fmt::Display for UpdateAirtimeMessage {
@@ -960,8 +711,8 @@ impl Handler<UpdateAirtimeMessage> for Epg {
 
 // remove airtime
 
-struct RemoveAirtimeMessage {
-    quad: EventQuad,
+pub struct RemoveAirtimeMessage {
+    pub quad: EventQuad,
 }
 
 impl fmt::Display for RemoveAirtimeMessage {
@@ -1298,7 +1049,7 @@ pub struct EpgProgram {
 }
 
 impl EpgProgram {
-    fn new(quad: EventQuad) -> Self {
+    pub fn new(quad: EventQuad) -> Self {
         Self {
             quad: quad,
             start_at: Jst.timestamp(0, 0),

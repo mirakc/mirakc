@@ -13,47 +13,19 @@ use tokio::sync::Semaphore;
 use crate::clock_synchronizer::ClockSynchronizer;
 use crate::config::Config;
 use crate::datetime_ext::*;
-use crate::eit_feeder;
-use crate::epg::{self, *};
+use crate::eit_feeder::*;
+use crate::epg::*;
 use crate::error::Error;
 use crate::service_scanner::ServiceScanner;
+use crate::tuner::*;
 
-// TODO: Refactoring
-//
-// It's better to implement each job as an actor.  However, it's NOT easy to use
-// async/await in the Actor implementation.  See Handler<StartStreamingMessage>
-// in tuner.rs.
-
-pub fn start(config: Arc<Config>) {
-    let addr = JobManager::new(config).start();
-    actix::registry::SystemRegistry::set(addr);
-}
-
-pub fn invoke_scan_services() {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-        } else {
-            JobManager::from_registry().do_send(InvokeScanServicesMessage);
-        }
-    }
-}
-
-pub fn invoke_sync_clocks() {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-        } else {
-            JobManager::from_registry().do_send(InvokeSyncClocksMessage);
-        }
-    }
-}
-
-pub fn invoke_update_schedules() {
-    cfg_if::cfg_if! {
-        if #[cfg(test)] {
-        } else {
-            JobManager::from_registry().do_send(InvokeUpdateSchedulesMessage);
-        }
-    }
+pub fn start(
+    config: Arc<Config>,
+    tuner_manager: Addr<TunerManager>,
+    epg: Addr<Epg>,
+    eit_feeder: Addr<EitFeeder>,
+) -> Addr<JobManager> {
+    JobManager::new(config, tuner_manager, epg, eit_feeder).start()
 }
 
 struct Job {
@@ -108,22 +80,33 @@ impl fmt::Display for JobKind {
     }
 }
 
-struct JobManager {
+pub struct JobManager {
     config: Arc<Config>,
     semaphore: Arc<Semaphore>,  // job concurrency
     scanning_services: bool,
     synchronizing_clocks: bool,
     updating_schedules: bool,
+    tuner_manager: Addr<TunerManager>,
+    epg: Addr<Epg>,
+    eit_feeder: Addr<EitFeeder>,
 }
 
 impl JobManager {
-    fn new(config: Arc<Config>) -> Self {
+    pub fn new(
+        config: Arc<Config>,
+        tuner_manager: Addr<TunerManager>,
+        epg: Addr<Epg>,
+        eit_feeder: Addr<EitFeeder>,
+    ) -> Self {
         JobManager {
             config,
             semaphore: Arc::new(Semaphore::new(1)),
             scanning_services: false,
             synchronizing_clocks: false,
             updating_schedules: false,
+            tuner_manager,
+            epg,
+            eit_feeder,
         }
     }
 
@@ -151,7 +134,8 @@ impl JobManager {
 
         let scanner = ServiceScanner::new(
             self.config.jobs.scan_services.command.clone(),
-            self.collect_enabled_channels());
+            self.collect_enabled_channels(),
+            self.tuner_manager.clone());
 
         let job = JobKind::ScanServices.create(self.semaphore.clone())
             .perform(scanner.scan_services());
@@ -159,7 +143,7 @@ impl JobManager {
         actix::fut::wrap_future::<_, Self>(job)
             .map(|result, act, _| {
                 if let Ok(services) = result {
-                    epg::update_services(services);
+                    act.epg.do_send(UpdateServicesMessage { services });
                 }
                 act.scanning_services = false;
             })
@@ -189,7 +173,8 @@ impl JobManager {
 
         let sync = ClockSynchronizer::new(
             self.config.jobs.sync_clocks.command.clone(),
-            self.collect_enabled_channels());
+            self.collect_enabled_channels(),
+            self.tuner_manager.clone());
 
         let job = JobKind::SyncClocks.create(self.semaphore.clone())
             .perform(sync.sync_clocks());
@@ -197,7 +182,7 @@ impl JobManager {
         actix::fut::wrap_future::<_, Self>(job)
             .map(|result, act, _| {
                 if let Ok(clocks) = result {
-                    epg::update_clocks(clocks);
+                    act.epg.do_send(UpdateClocksMessage { clocks });
                 }
                 act.synchronizing_clocks = false;
             })
@@ -225,12 +210,16 @@ impl JobManager {
 
         self.updating_schedules = true;
 
+        let eit_feeder = self.eit_feeder.clone();
+
         let job = JobKind::UpdateSchedules.create(self.semaphore.clone())
-            .perform(eit_feeder::feed_eit_sections());
+            .perform(async move {
+                eit_feeder.send(FeedEitSectionsMessage).await?
+            });
 
         actix::fut::wrap_future::<_, Self>(job)
             .map(|_, act, _| {
-                epg::save_schedules();
+                act.epg.do_send(SaveSchedulesMessage);
                 act.updating_schedules = false;
             })
             .spawn(ctx);
@@ -260,22 +249,13 @@ impl Actor for JobManager {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         log::debug!("Started");
-        self.schedule_scan_services(ctx);
-        self.schedule_sync_clocks(ctx);
-        self.schedule_update_schedules(ctx);
+        self.scan_services(ctx);
+        self.sync_clocks(ctx);
+        self.update_schedules(ctx);
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
         log::debug!("Stopped");
-    }
-}
-
-impl Supervised for JobManager {}
-impl SystemService for JobManager {}
-
-impl Default for JobManager {
-    fn default() -> Self {
-        unreachable!();
     }
 }
 

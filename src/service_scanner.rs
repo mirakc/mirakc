@@ -1,3 +1,4 @@
+use actix::prelude::*;
 use log;
 use serde_json;
 use tokio::io::AsyncReadExt;
@@ -6,11 +7,12 @@ use crate::command_util;
 use crate::epg::*;
 use crate::error::Error;
 use crate::models::*;
-use crate::tuner;
+use crate::tuner::*;
 
 pub struct ServiceScanner {
     command: String,
     channels: Vec<EpgChannel>,
+    tuner_manager: Addr<TunerManager>,
 }
 
 // TODO: The following implementation has code clones similar to
@@ -21,9 +23,10 @@ impl ServiceScanner {
 
     pub fn new(
         command: String,
-        channels: Vec<EpgChannel>
+        channels: Vec<EpgChannel>,
+        tuner_manager: Addr<TunerManager>,
     ) -> Self {
-        ServiceScanner { command, channels }
+        ServiceScanner { command, channels, tuner_manager }
     }
 
     pub async fn scan_services(self) -> Result<Vec<EpgService>, Error> {
@@ -32,7 +35,7 @@ impl ServiceScanner {
         let mut services = Vec::new();
         for channel in self.channels.iter() {
             services.append(&mut Self::scan_services_in_channel(
-                &channel, &self.command).await?);
+                &channel, &self.command, &self.tuner_manager).await?);
         }
 
         log::debug!("Found {} services", services.len());
@@ -43,6 +46,7 @@ impl ServiceScanner {
     async fn scan_services_in_channel(
         channel: &EpgChannel,
         command: &str,
+        tuner_manager: &Addr<TunerManager>,
     ) -> Result<Vec<EpgService>, Error> {
         log::debug!("Scanning services in {}...", channel.name);
 
@@ -51,8 +55,11 @@ impl ServiceScanner {
             priority: (-1).into(),
         };
 
-        let stream = tuner::start_streaming(
-            channel.channel_type, channel.channel.clone(), user).await?;
+        let stream = tuner_manager.send(StartStreamingMessage {
+            channel_type: channel.channel_type,
+            channel: channel.channel.clone(),
+            user
+        }).await??;
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()

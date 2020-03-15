@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use actix::prelude::*;
 use log;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -9,11 +10,12 @@ use crate::command_util;
 use crate::epg::*;
 use crate::error::Error;
 use crate::models::*;
-use crate::tuner;
+use crate::tuner::*;
 
 pub struct ClockSynchronizer {
     command: String,
     channels: Vec<EpgChannel>,
+    tuner_manager: Addr<TunerManager>,
 }
 
 // TODO: The following implementation has code clones similar to
@@ -24,9 +26,10 @@ impl ClockSynchronizer {
 
     pub fn new(
         command: String,
-        channels: Vec<EpgChannel>
+        channels: Vec<EpgChannel>,
+        tuner_manager: Addr<TunerManager>,
     ) -> Self {
-        ClockSynchronizer { command, channels }
+        ClockSynchronizer { command, channels, tuner_manager }
     }
 
     pub async fn sync_clocks(
@@ -37,7 +40,7 @@ impl ClockSynchronizer {
         let mut clocks = Vec::new();
         for channel in self.channels.iter() {
             clocks.append(&mut Self::sync_clocks_in_channel(
-                &channel, &self.command).await?);
+                &channel, &self.command, &self.tuner_manager).await?);
         }
 
         let mut map = HashMap::new();
@@ -55,6 +58,7 @@ impl ClockSynchronizer {
     async fn sync_clocks_in_channel(
         channel: &EpgChannel,
         command: &str,
+        tuner_manager: &Addr<TunerManager>,
     ) -> Result<Vec<SyncClock>, Error> {
         log::debug!("Synchronizing clocks in {}...", channel.name);
 
@@ -63,8 +67,11 @@ impl ClockSynchronizer {
             priority: (-1).into(),
         };
 
-        let stream = tuner::start_streaming(
-            channel.channel_type, channel.channel.clone(), user).await?;
+        let stream = tuner_manager.send(StartStreamingMessage {
+            channel_type: channel.channel_type,
+            channel: channel.channel.clone(),
+            user
+        }).await??;
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()
