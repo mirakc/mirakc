@@ -7,7 +7,7 @@
 
 # Change sourceMap hash values in .devcontainer/devcontainer.json when using a
 # different version of Rust.
-FROM rust:1.41.0-buster
+FROM rust:1.42.0-buster
 
 # This Dockerfile adds a non-root user with sudo access. Use the "remoteUser"
 # property in devcontainer.json to use it. On Linux, the container user's GID/UIDs
