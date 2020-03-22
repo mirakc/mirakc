@@ -26,7 +26,7 @@ RUN make install
 # mirakc-arib
 FROM buildenv AS mirakc-arib-build
 
-RUN curl -fsSL https://github.com/masnagam/mirakc-arib/tarball/master \
+RUN curl -fsSL https://github.com/masnagam/mirakc-arib/archive/{MIRAKC_ARIB_VERSION}.tar.gz \
     | tar -xz --strip-components=1
 RUN echo 'set(CMAKE_SYSTEM_NAME Linux)' >toolchain.cmake
 RUN echo 'set(CMAKE_SYSTEM_PROCESSOR {DEBIAN_ARCH})' >>toolchain.cmake
