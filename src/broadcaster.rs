@@ -24,8 +24,8 @@ pub struct Broadcaster {
 }
 
 impl Broadcaster {
-    // 100 chunks, large enough for 5 sec buffering.
-    const MAX_CHUNKS: usize = 500;
+    // large enough for 10 sec buffering.
+    const MAX_CHUNKS: usize = 1000;
 
     // 32 KiB, large enough for 10 ms buffering.
     const CHUNK_SIZE: usize = 4096 * 8;
