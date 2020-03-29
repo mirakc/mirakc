@@ -85,7 +85,7 @@ impl ServerConfig {
 
     fn default_stream_max_chunks() -> usize {
         // TODO: The same value is defined in the broadcaster module.
-        500
+        1000
     }
 
     fn default_stream_chunk_size() -> usize {

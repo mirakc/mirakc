@@ -12,7 +12,7 @@ suitable for your environment.
 | [server.addrs]                   | `[{http: 'localhost:40772'}]`             |
 | [server.workers]                 | The number of CPUs                        |
 | [server.stream-chunk-size]       | `32768` (32KiB)                           |
-| [server.stream-max-chunks]       | `500`                                     |
+| [server.stream-max-chunks]       | `1000`                                    |
 | [channels\[\].name]              |                                           |
 | [channels\[\].type]              |                                           |
 | [channels\[\].channel]           |                                           |
@@ -133,16 +133,21 @@ server:
 
 An actual size of a chunk may be smaller than this value.
 
+The default chunk size is 32 KiB which is large enough for 10 ms buffering.
+
 ## server.stream-max-chunks
 
 The maximum number of chunks that can be buffered.
 
 ```yaml
 server:
-  stream-max-chunks: 500
+  stream-max-chunks: 1000
 ```
 
 Chunks are dropped when the buffer is full.
+
+The default maximum number of chunks is 1000 which is large enough for 10
+seconds buffering if the chunk size is 32 KiB.
 
 ## channels
 

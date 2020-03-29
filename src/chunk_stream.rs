@@ -33,11 +33,31 @@ where
         cx: &mut Context
     ) -> Poll<Option<Self::Item>> {
         let mut chunk = BytesMut::with_capacity(self.chunk_size);
-        match Pin::new(&mut self.reader).poll_read_buf(cx, &mut chunk) {
-            Poll::Ready(Ok(0)) => Poll::Ready(None),
-            Poll::Ready(Ok(_)) => Poll::Ready(Some(Ok(chunk.freeze()))),
-            Poll::Ready(Err(err)) => Poll::Ready(Some(Err(err))),
-            Poll::Pending => Poll::Pending,
+        loop {
+            match Pin::new(&mut self.reader).poll_read_buf(cx, &mut chunk) {
+                Poll::Ready(Ok(0)) => {
+                    if chunk.is_empty() {
+                        return Poll::Ready(None);
+                    } else {
+                        return Poll::Ready(Some(Ok(chunk.freeze())));
+                    }
+                }
+                Poll::Ready(Ok(_)) => {
+                    if chunk.len() >= self.chunk_size {
+                        return Poll::Ready(Some(Ok(chunk.freeze())));
+                    }
+                }
+                Poll::Ready(Err(err)) => {
+                    return Poll::Ready(Some(Err(err)));
+                }
+                Poll::Pending => {
+                    if chunk.is_empty() {
+                        return Poll::Pending;
+                    } else {
+                        return Poll::Ready(Some(Ok(chunk.freeze())));
+                    }
+                }
+            }
         }
     }
 }
