@@ -472,23 +472,27 @@ fn streaming(
         actix::spawn(async move {
             while let Some(result) = stream.next().await {
                 if let Ok(chunk) = result {
-                    match sender.try_send(Ok(chunk)) {
-                        Ok(_) => (),
-                        Err(mpsc::error::TrySendError::Full(_)) => {
-                            log::warn!("{}: No space, drop the chunk",
-                                       stream_id);
-                            break;
-                        }
-                        Err(mpsc::error::TrySendError::Closed(_)) => {
-                            log::debug!("{}: Disconnected by client",
-                                        stream_id);
-                            break;
-                        }
+                    // The task yields if the buffer is full.
+                    if let Err(_) = sender.send(Ok(chunk)).await {
+                        log::debug!("{}: Disconnected by client", stream_id);
+                        break;
                     }
                 } else {
                     log::error!("{}: Error, stop streaming", stream_id);
                     break;
                 }
+
+                // Always yield for sending the chunk to the client quickly.
+                //
+                // The async task never yields voluntarily and can starve other
+                // tasks waiting on the same executor.  For avoiding the
+                // starvation, the task has to yields within a short term.
+                //
+                // Theoretically, one 32 KiB chunk comes every 10 ms.  This
+                // period is a long enough time in the CPU time point of view.
+                // Therefore, the async task simply yields at the end of every
+                // iteration.
+                tokio::task::yield_now().await;
             }
         });
 
