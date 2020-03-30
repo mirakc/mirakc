@@ -36,11 +36,11 @@ impl MpegTsStream {
         self.stop_trigger.take()
     }
 
-    pub async fn pipe<W>(self, writer: W) -> (Self, W)
+    pub async fn pipe<W>(self, writer: W)
     where
         W: AsyncWrite + Unpin,
     {
-        pipe(self, writer).await
+        pipe(self, writer).await;
     }
 }
 
@@ -124,7 +124,7 @@ where
     }
 }
 
-async fn pipe<W>(mut stream: MpegTsStream, mut writer: W) -> (MpegTsStream, W)
+async fn pipe<W>(mut stream: MpegTsStream, mut writer: W)
 where
     W: AsyncWrite + Unpin,
 {
@@ -156,8 +156,6 @@ where
             }
         }
     }
-
-    (stream, writer)
 }
 
 #[cfg(test)]
@@ -172,15 +170,14 @@ mod tests {
 
         let stream = MpegTsStream::new(
             Default::default(), stream, addr.recipient());
-        let buf: Vec<u8> = Vec::new();
-        let handle = tokio::spawn(stream.pipe(buf));
+        let writer = TestWriter::new(b"hello");
+        let handle = tokio::spawn(stream.pipe(writer));
 
         let result = tx.send(Bytes::from("hello")).await;
         assert!(result.is_ok());
 
         drop(tx);
-        let (_, buf) = handle.await.unwrap();
-        assert_eq!(&buf, b"hello");
+        let _ = handle.await.unwrap();
     }
 
     struct TestActor;
@@ -197,5 +194,47 @@ mod tests {
             _: StopStreamingMessage,
             _: &mut Self::Context,
         ) -> Self::Result {}
+    }
+
+    struct TestWriter {
+        buf: Vec<u8>,
+        expected: &'static [u8],
+    }
+
+    impl TestWriter {
+        fn new(expected: &'static [u8]) -> Self {
+            Self { buf: Vec::new(), expected }
+        }
+    }
+
+    impl AsyncWrite for TestWriter {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _: &mut std::task::Context,
+            buf: &[u8]
+        ) -> std::task::Poll<io::Result<usize>> {
+            self.buf.extend_from_slice(buf);
+            std::task::Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _: &mut std::task::Context
+        ) -> std::task::Poll<io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(
+            self: Pin<&mut Self>,
+            _: &mut std::task::Context
+        ) -> std::task::Poll<io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    impl Drop for TestWriter {
+        fn drop(&mut self) {
+            assert_eq!(self.buf.as_slice(), self.expected);
+        }
     }
 }
