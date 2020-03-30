@@ -1,10 +1,12 @@
 use std::fmt;
 use std::io;
 use std::pin::Pin;
+use std::time::{Duration, Instant};
 
 use actix::prelude::*;
 use actix::dev::{MessageResponse, ResponseChannel};
 use bytes::Bytes;
+use humantime;
 use log;
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
@@ -21,6 +23,8 @@ struct Subscriber {
 pub struct Broadcaster {
     id: BroadcasterId,
     subscribers: Vec<Subscriber>,
+    time_limit: Duration,
+    last_received: Instant,
 }
 
 impl Broadcaster {
@@ -33,14 +37,20 @@ impl Broadcaster {
     pub fn new<R>(
         id: BroadcasterId,
         source: R,
-        ctx: &mut Context<Self>
+        time_limit: u64,
+        ctx: &mut Context<Self>,
     ) -> Self
     where
         R: AsyncRead + Unpin + 'static,
     {
         let stream = ChunkStream::new(source, Self::CHUNK_SIZE);
         let _ = Self::add_stream(stream, ctx);
-        Self { id, subscribers: Vec::new() }
+        Self {
+            id,
+            subscribers: Vec::new(),
+            time_limit: Duration::from_millis(time_limit),
+            last_received: Instant::now(),
+        }
     }
 
     fn subscribe(&mut self, id: SubscriberId) -> BroadcasterStream {
@@ -68,13 +78,25 @@ impl Broadcaster {
                 }
             }
         }
+
+        self.last_received = Instant::now();
+    }
+
+    fn check_timeout(&mut self, ctx: &mut Context<Self>) {
+        let elapsed = self.last_received.elapsed();
+        if  elapsed > self.time_limit {
+            log::error!("{}: No packet from the tuner for {}, stop",
+                        self.id, humantime::format_duration(elapsed));
+            ctx.stop();
+        }
     }
 }
 
 impl Actor for Broadcaster {
     type Context = actix::Context<Self>;
 
-    fn started(&mut self, _: &mut Self::Context) {
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.run_interval(self.time_limit, Self::check_timeout);
         log::debug!("{}: Started", self.id);
     }
 
@@ -158,7 +180,9 @@ impl Handler<UnsubscribeMessage> for Broadcaster {
 impl StreamHandler<io::Result<Bytes>> for Broadcaster {
     fn handle(&mut self, chunk: io::Result<Bytes>, ctx: &mut Context<Self>) {
         match chunk {
-            Ok(chunk) => self.broadcast(chunk),
+            Ok(chunk) => {
+                self.broadcast(chunk);
+            }
             Err(err) => {
                 log::error!("{}: Error, stop: {}", self.id, err);
                 ctx.stop();
@@ -216,7 +240,7 @@ mod tests {
         let (mut tx, rx) = mpsc::channel(1);
 
         let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(Default::default(), DataSource(rx), ctx)
+            Broadcaster::new(Default::default(), DataSource(rx), 1000, ctx)
         });
 
         let mut stream1 = broadcaster.send(SubscribeMessage {
@@ -241,7 +265,7 @@ mod tests {
         let (mut tx, rx) = mpsc::channel(1);
 
         let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(Default::default(), DataSource(rx), ctx)
+            Broadcaster::new(Default::default(), DataSource(rx), 1000, ctx)
         });
 
         let mut stream1 = broadcaster.send(SubscribeMessage {
@@ -263,6 +287,34 @@ mod tests {
 
         let chunk = stream2.next().await;
         assert!(chunk.is_some());
+    }
+
+    #[actix_rt::test]
+    async fn test_timeout() {
+        let (mut tx, rx) = mpsc::channel(1);
+
+        let broadcaster = Broadcaster::create(|ctx| {
+            Broadcaster::new(Default::default(), DataSource(rx), 50, ctx)
+        });
+
+        let mut stream1 = broadcaster.send(SubscribeMessage {
+            id: SubscriberId::new(Default::default(), 1)
+        }).await.unwrap();
+
+        let _ = tx.send(Bytes::from("hello")).await;
+
+        let chunk = stream1.next().await;
+        assert!(chunk.is_some());
+
+        while broadcaster.connected() {
+            // Yield in order to process messages on the Broadcaster.
+            tokio::task::yield_now().await;
+        }
+
+        let _ = tx.send(Bytes::from("hello")).await;
+
+        let chunk = stream1.next().await;
+        assert!(chunk.is_none());
     }
 
     // we can use `futures::stream::repeat(1)` as data source in tests once

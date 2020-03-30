@@ -127,8 +127,16 @@ pub struct TunerConfig {
     #[serde(rename = "types")]
     pub channel_types: Vec<ChannelType>,
     pub command: String,
+    #[serde(default = "TunerConfig::default_time_limit")]
+    pub time_limit: u64,
     #[serde(default)]
     pub disabled: bool,
+}
+
+impl TunerConfig {
+    fn default_time_limit() -> u64 {
+        30 * 1000  // ms
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -466,6 +474,25 @@ mod tests {
                                     ChannelType::CS,
                                     ChannelType::SKY],
                 command: "open tuner".to_string(),
+                time_limit: TunerConfig::default_time_limit(),
+                disabled: false,
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<TunerConfig>(r#"
+                name: x
+                types: [GR, BS, CS, SKY]
+                command: open tuner
+                time-limit: 1
+            "#).unwrap(),
+            TunerConfig {
+                name: "x".to_string(),
+                channel_types: vec![ChannelType::GR,
+                                    ChannelType::BS,
+                                    ChannelType::CS,
+                                    ChannelType::SKY],
+                command: "open tuner".to_string(),
+                time_limit: 1,
                 disabled: false,
             });
 
@@ -483,6 +510,7 @@ mod tests {
                                     ChannelType::CS,
                                     ChannelType::SKY],
                 command: "open tuner".to_string(),
+                time_limit: TunerConfig::default_time_limit(),
                 disabled: true,
             });
 

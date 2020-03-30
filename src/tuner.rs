@@ -288,6 +288,7 @@ struct Tuner {
     name: String,
     channel_types: Vec<ChannelType>,
     command: String,
+    time_limit: u64,
     activity: TunerActivity,
 }
 
@@ -301,6 +302,7 @@ impl Tuner {
             name: config.name.clone(),
             channel_types: config.channel_types.clone(),
             command: config.command.clone(),
+            time_limit: config.time_limit,
             activity: TunerActivity::Inactive,
         }
     }
@@ -337,7 +339,7 @@ impl Tuner {
     ) -> Result<(), Error> {
         let command = self.make_command(channel_type, &channel)?;
         self.activity.activate(
-            self.index, channel_type, channel.clone(), command)
+            self.index, channel_type, channel.clone(), command, self.time_limit)
     }
 
     fn deactivate(&mut self) {
@@ -405,12 +407,13 @@ impl TunerActivity {
         tuner_index: usize,
         channel_type: ChannelType,
         channel: String,
-        command: String
+        command: String,
+        time_limit: u64,
     ) -> Result<(), Error> {
         match self {
             Self::Inactive => {
                 let session = TunerSession::new(
-                    tuner_index, channel_type, channel, command)?;
+                    tuner_index, channel_type, channel, command, time_limit)?;
                 *self = Self::Active(session);
                 Ok(())
             }
@@ -494,7 +497,8 @@ impl TunerSession {
         tuner_index: usize,
         channel_type: ChannelType,
         channel: String,
-        command: String
+        command: String,
+        time_limit: u64,
     ) -> Result<TunerSession, Error> {
         let mut process = command_util::spawn_process(&command, Stdio::null())?;
         let id = TunerSessionId { tuner_index, tuner_pid: process.id() };
@@ -502,7 +506,7 @@ impl TunerSession {
 
         let reader = tokio_snippet::stdio(process.stdout.take())?.unwrap();
         let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(id.clone(), reader, ctx)
+            Broadcaster::new(id.clone(), reader, time_limit, ctx)
         });
 
         log::info!("{}: Activated with {} {}", id, channel_type, channel);
@@ -588,8 +592,13 @@ mod tests {
 
         let result = tuner.activate(ChannelType::GR, String::new());
         assert!(result.is_ok());
-
         assert!(tuner.is_active());
+
+        // Workaround for actix/actix/issues/372.
+        //
+        // See masnagam/rust-case-studies/tree/master/actix-started-in-drop for
+        // details.
+        tokio::task::yield_now().await;
     }
 
     #[actix_rt::test]
@@ -599,6 +608,7 @@ mod tests {
             let mut tuner = Tuner::new(0, &config);
             let result = tuner.activate(ChannelType::GR, String::new());
             assert!(result.is_ok());
+            tokio::task::yield_now().await;
         }
 
         {
@@ -607,6 +617,7 @@ mod tests {
             let result = tuner.activate(ChannelType::GR, String::new());
             assert_matches!(result, Err(Error::CommandFailed(
                 command_util::Error::UnableToParse(_))));
+            tokio::task::yield_now().await;
         }
 
         {
@@ -615,6 +626,7 @@ mod tests {
             let result = tuner.activate(ChannelType::GR, String::new());
             assert_matches!(result, Err(Error::CommandFailed(
                 command_util::Error::UnableToSpawn(..))));
+            tokio::task::yield_now().await;
         }
     }
 
@@ -637,6 +649,8 @@ mod tests {
 
         let result = tuner.stop_streaming(subscription.id);
         assert_matches!(result, Ok(()));
+
+        tokio::task::yield_now().await;
     }
 
     #[actix_rt::test]
@@ -666,6 +680,8 @@ mod tests {
         assert!(!tuner.can_grab(1.into()));
         assert!(!tuner.can_grab(2.into()));
         assert!(tuner.can_grab(TunerUserPriority::GRAB));
+
+        tokio::task::yield_now().await;
     }
 
     #[actix_rt::test]
@@ -674,9 +690,13 @@ mod tests {
         let mut tuner = Tuner::new(0, &config);
         tuner.activate(ChannelType::GR, "1".to_string()).ok();
 
+        tokio::task::yield_now().await;
+
         tuner.deactivate();
         let result = tuner.activate(ChannelType::GR, "2".to_string());
         assert!(result.is_ok());
+
+        tokio::task::yield_now().await;
     }
 
     fn create_config(command: String) -> TunerConfig {
@@ -684,6 +704,7 @@ mod tests {
             name: String::new(),
             channel_types: vec![ChannelType::GR],
             command,
+            time_limit: 10 * 1000,
             disabled: false,
         }
     }

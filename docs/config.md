@@ -22,6 +22,7 @@ suitable for your environment.
 | [tuners\[\].name]                |                                           |
 | [tuners\[\].types]               |                                           |
 | [tuners\[\].command]             |                                           |
+| [tuners\[\].time-limit]          | `30000` (30s)                             |
 | [tuners\[\].disabled]            | `false`                                   |
 | [filters.pre-filter]             | `''`                                      |
 | [filters.service-filter]         | `mirakc-arib filter-service --sid={{sid}}`|
@@ -205,6 +206,9 @@ Definitions of tuners.  At least, one tuner must be defined.
 * command
   * A Mustache template string of a command to open the tuner
   * The command must output TS packets to `stdout`
+* time-limit (optional)
+  * A time limit in milliseconds
+  * Stop streaming if no TS packet comes from the tuner for the time limit
 * disabled (optional)
   * Disable the tuner
 
