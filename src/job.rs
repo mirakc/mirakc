@@ -141,11 +141,12 @@ impl JobManager {
             .perform(scanner.scan_services());
 
         actix::fut::wrap_future::<_, Self>(job)
-            .map(|result, act, _| {
+            .then(|result, act, _| {
                 if let Ok(services) = result {
                     act.epg.do_send(UpdateServicesMessage { services });
                 }
                 act.scanning_services = false;
+                actix::fut::ready(())
             })
             .spawn(ctx);
     }
@@ -180,11 +181,12 @@ impl JobManager {
             .perform(sync.sync_clocks());
 
         actix::fut::wrap_future::<_, Self>(job)
-            .map(|result, act, _| {
+            .then(|result, act, _| {
                 if let Ok(clocks) = result {
                     act.epg.do_send(UpdateClocksMessage { clocks });
                 }
                 act.synchronizing_clocks = false;
+                actix::fut::ready(())
             })
             .spawn(ctx);
     }
@@ -218,9 +220,10 @@ impl JobManager {
             });
 
         actix::fut::wrap_future::<_, Self>(job)
-            .map(|_, act, _| {
+            .then(|_, act, _| {
                 act.epg.do_send(SaveSchedulesMessage);
                 act.updating_schedules = false;
+                actix::fut::ready(())
             })
             .spawn(ctx);
     }
