@@ -50,6 +50,7 @@ suitable for your environment.
 [tuners\[\].name]: #tuners
 [tuners\[\].types]: #tuners
 [tuners\[\].command]: #tuners
+[tuners\[\].time-limit]: #tuners
 [tuners\[\].disabled]: #tuners
 [filters.pre-filter]: #filters.pre-filter
 [filters.service-filter]: #filters.service-filter
