@@ -25,6 +25,10 @@ Create `config.yml`:
 epg:
   cache-dir: /var/lib/mirakc/epg
 
+server:
+  addrs:
+    - http: 0.0.0.0:40772
+
 channels:
   # Add channels of interest.
   - name: NHK
