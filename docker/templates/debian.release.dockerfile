@@ -32,6 +32,5 @@ RUN set -eux \
 
 ENV MIRAKC_CONFIG=/etc/mirakc/config.yml
 EXPOSE 40772
-VOLUME ["/var/lib/mirakc/epg"]
 ENTRYPOINT ["mirakc"]
 CMD []
