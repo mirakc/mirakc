@@ -15,7 +15,7 @@ pub fn load(config_path: &str) -> Arc<Config> {
         });
     let mut config: Config = serde_yaml::from_reader(reader)
         .unwrap_or_else(|err| {
-            panic!("Failed to paser {}: {}", config_path, err);
+            panic!("Failed to parse {}: {}", config_path, err);
         });
     config.last_modified = std::fs::metadata(config_path)
         .map(|metadata| metadata.modified().ok()).ok().flatten();
