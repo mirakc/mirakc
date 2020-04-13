@@ -22,6 +22,9 @@ for your environment.
 Create `config.yml`:
 
 ```yaml
+epg:
+  cache-dir: /var/lib/mirakc/epg
+
 channels:
   # Add channels of interest.
   - name: NHK

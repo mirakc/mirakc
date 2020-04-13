@@ -66,10 +66,10 @@ suitable for your environment.
 
 ## epg.cache-dir
 
-An absolute path to a folder where EPG-related data is stored.
+An absolute path to a folder where EPG-related data will be stored.
 
 `None` means that no data will be saved onto the filesystem.  In this case,
-mirakc always invokes background jobs at startup.
+EPG-related data will be lost when mirakc stops.
 
 ```yaml
 epg:
