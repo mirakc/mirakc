@@ -19,19 +19,13 @@ mod tuner;
 mod web;
 
 use clap;
-use tracing_subscriber;
 
 use crate::error::Error;
-use crate::tracing_ext::HrTime;
+use crate::tracing_ext::init_tracing;
 
 #[actix_rt::main]
 async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt()
-        .json()
-        .with_timer(HrTime)
-        .with_env_filter(
-            tracing_subscriber::filter::EnvFilter::from_default_env())
-        .init();
+    init_tracing();
 
     let args = clap::App::new(clap::crate_name!())
         .version(clap::crate_version!())
