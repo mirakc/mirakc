@@ -26,12 +26,14 @@ log = "0.4"
 mio = "0.6"
 mustache = "0.9"
 num_cpus = "1.10"
-pretty_env_logger = "0.4"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 serde_yaml = "0.8"
 shell-words = "0.1"
 tokio = { version = "0.2", features = ["full"] }
+tracing = "0.1"
+tracing-futures = "0.2"
+tracing-subscriber = "0.2"
 
 [dev-dependencies]
 actix-http = "1.0"

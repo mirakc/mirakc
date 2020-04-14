@@ -17,15 +17,19 @@ mod tokio_snippet;
 mod tuner;
 mod web;
 
-use std::env;
-
 use clap;
-use pretty_env_logger;
+use tracing_subscriber;
 
 use crate::error::Error;
 
 #[actix_rt::main]
 async fn main() -> Result<(), Error> {
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(
+            tracing_subscriber::filter::EnvFilter::from_default_env())
+        .init();
+
     let args = clap::App::new(clap::crate_name!())
         .version(clap::crate_version!())
         .about(clap::crate_description!())
@@ -45,8 +49,6 @@ async fn main() -> Result<(), Error> {
                   \n\
                   See README.md for details of the YAML format."))
         .get_matches();
-
-    pretty_env_logger::init_timed();
 
     let config_path = args.value_of("config").expect(
         "--config option or MIRAKC_CONFIG environment must be specified");
