@@ -14,6 +14,7 @@ mod models;
 mod mpeg_ts_stream;
 mod service_scanner;
 mod tokio_snippet;
+mod tracing_ext;
 mod tuner;
 mod web;
 
@@ -21,11 +22,13 @@ use clap;
 use tracing_subscriber;
 
 use crate::error::Error;
+use crate::tracing_ext::HrTime;
 
 #[actix_rt::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt()
         .json()
+        .with_timer(HrTime)
         .with_env_filter(
             tracing_subscriber::filter::EnvFilter::from_default_env())
         .init();
