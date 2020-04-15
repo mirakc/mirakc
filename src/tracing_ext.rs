@@ -1,51 +1,30 @@
-use std::env;
 use std::fmt;
 
 use chrono;
 use tracing_subscriber;
-use tracing_subscriber::fmt::time::FormatTime;
+use tracing_subscriber::filter::EnvFilter;
+use tracing_subscriber::fmt::time::{ChronoLocal, FormatTime};
 
-pub fn init_tracing() {
-    let json = if let Some(format) = env::var_os("MIRAKC_LOG_FORMAT") {
-        format == "json"
-    } else {
-        false
-    };
-
-    let hrtime = if let Some(timestamp) = env::var_os("MIRAKC_LOG_TIMESTAMP") {
-        timestamp == "hrtime"
-    } else {
-        false
-    };
-
-    if json {
-        init_json_tracing(hrtime);
-    } else {
-        init_text_tracing(hrtime);
+pub fn init_tracing(format: &str) {
+    match format {
+        "json" => init_json_tracing(),
+        _ => init_text_tracing(),
     }
 }
 
-fn init_json_tracing(hrtime: bool) {
-    let builder = tracing_subscriber::fmt()
+fn init_json_tracing() {
+    tracing_subscriber::fmt()
         .json()
-        .with_env_filter(
-            tracing_subscriber::filter::EnvFilter::from_default_env());
-    if hrtime {
-        builder.with_timer(HrTime).init();
-    } else {
-        builder.init();
-    }
+        .with_timer(HrTime)
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
 }
 
-fn init_text_tracing(hrtime: bool) {
-    let builder = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::filter::EnvFilter::from_default_env());
-    if hrtime {
-        builder.with_timer(HrTime).init();
-    } else {
-        builder.init();
-    }
+fn init_text_tracing() {
+    tracing_subscriber::fmt()
+        .with_timer(ChronoLocal::rfc3339())
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
 }
 
 struct HrTime;
