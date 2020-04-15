@@ -10,16 +10,52 @@ of each module via the `RUST_LOG` environment variable like below:
 export RUST_LOG=info,mirakc=debug
 ```
 
-There are several environment variables to change the logging format:
+There are two logging formats as described in subsections below.
 
-* `MIRAKC_LOG_FORMAT`
-  * `json` or `text` (default)
-* `MIRAKC_LOG_TIMESTAMP`
-  * `hrtime` or `localtime` (default)
+## `text` logging format
+
+The `text` logging format is a single-line human-readable text format like
+below:
+
+```console
+2020-04-15T14:16:26.257932+09:00   INFO mirakc::tuner: Loading tuners...
+```
+
+The `text` logging format is the default logging format.
+
+## `json` logging format
+
+The `json` logging format is a single-line JSON format having the following
+properties:
+
+```jsonc
+{
+  // High-Resolution timestamp represented by "<unix-time-secs>.<nanos>"
+  "timestamp": "1586928063.723044864",
+  "level": "INFO",
+  "target": "mirakc::tuner",
+  "fields": {
+    "message": "Loading tuners...",
+    "log.target": "mirakc::tuner",
+    "log.module_path": "mirakc::tuner",
+    "log.file": "src/tuner.rs",
+    "log.line": 74
+  }
+}
+```
+
+The `json` logging format is enabled with the `--log-format=json` command-line
+option or the `MIRAKC_LOG_FORMAT=json` environment variable.
+
+The `json` logging format is intended to be used for a log analysis.  For
+example:
+
+* It can be used as an input for a distribute tracing system like Zipkin
+* It can be used as data source for collecting statistics provided to a
+  monitoring system like Prometheus
 
 [log]: https://crates.io/crates/log
 [tracing]: https://github.com/tokio-rs/tracing
-[issues/6]: https://github.com/masnagam/mirakc/issues/6
 
 ## Logging from child processes
 
