@@ -14,15 +14,14 @@ mod models;
 mod mpeg_ts_stream;
 mod service_scanner;
 mod tokio_snippet;
+mod tracing_ext;
 mod tuner;
 mod web;
 
-use std::env;
-
 use clap;
-use pretty_env_logger;
 
 use crate::error::Error;
+use crate::tracing_ext::init_tracing;
 
 #[actix_rt::main]
 async fn main() -> Result<(), Error> {
@@ -44,9 +43,17 @@ async fn main() -> Result<(), Error> {
                   path.\n\
                   \n\
                   See README.md for details of the YAML format."))
+        .arg(clap::Arg::with_name("log-format")
+             .long("log-format")
+             .value_name("FORMAT")
+             .env("MIRAKC_LOG_FORMAT")
+             .takes_value(true)
+             .possible_values(&["text", "json"])
+             .default_value("text")
+             .help("Logging format"))
         .get_matches();
 
-    pretty_env_logger::init_timed();
+    init_tracing(args.value_of("log-format").unwrap());
 
     let config_path = args.value_of("config").expect(
         "--config option or MIRAKC_CONFIG environment must be specified");

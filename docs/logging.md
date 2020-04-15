@@ -1,22 +1,61 @@
 # Logging
 
-Log messages are output to `stderr` and `config.yml` has no properties to change
+Log messages are output to `stdout` and `config.yml` has no properties to change
 the output destination of log messages.
 
-mirakc uses [log] and [env_logger] for logging.  So, you can change the log
-level of each module via the `RUST_LOG` environment variable like below:
+mirakc uses [log] and [tracing] for logging.  So, you can change the log level
+of each module via the `RUST_LOG` environment variable like below:
 
 ```shell
 export RUST_LOG=info,mirakc=debug
 ```
 
-See documents of [env_logger] for details.
+There are two logging formats as described in subsections below.
 
-The format of log messages may change in the future.  See [issues/6].
+## `text` logging format
+
+The `text` logging format is a single-line human-readable text format like
+below:
+
+```console
+2020-04-15T14:16:26.257932+09:00   INFO mirakc::tuner: Loading tuners...
+```
+
+The `text` logging format is the default logging format.
+
+## `json` logging format
+
+The `json` logging format is a single-line JSON format having the following
+properties:
+
+```jsonc
+{
+  // High-Resolution timestamp represented by "<unix-time-secs>.<nanos>"
+  "timestamp": "1586928063.723044864",
+  "level": "INFO",
+  "target": "mirakc::tuner",
+  "fields": {
+    "message": "Loading tuners...",
+    "log.target": "mirakc::tuner",
+    "log.module_path": "mirakc::tuner",
+    "log.file": "src/tuner.rs",
+    "log.line": 74
+  }
+}
+```
+
+The `json` logging format is enabled with the `--log-format=json` command-line
+option or the `MIRAKC_LOG_FORMAT=json` environment variable.
+
+The `json` logging format is intended to be used for a log analysis.  For
+example:
+
+* It can be used as an input for a distribute tracing system like Zipkin
+* It can be used as data source for collecting statistics provided to a
+  monitoring system like Prometheus
 
 [log]: https://crates.io/crates/log
-[env_logger]: https://crates.io/crates/env_logger
-[issues/6]: https://github.com/masnagam/mirakc/issues/6
+[tracing]: https://github.com/tokio-rs/tracing
 
 ## Logging from child processes
 
