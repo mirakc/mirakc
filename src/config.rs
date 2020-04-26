@@ -26,6 +26,7 @@ pub fn load(config_path: &str) -> Arc<Config> {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(skip)]
     pub last_modified: Option<SystemTime>,
@@ -49,6 +50,7 @@ pub struct Config {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct EpgConfig {
     #[serde(default)]
     pub cache_dir: Option<String>,
@@ -56,6 +58,7 @@ pub struct EpgConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct ServerConfig {
     #[serde(default = "ServerConfig::default_addrs")]
     pub addrs: Vec<ServerAddr>,
@@ -107,6 +110,7 @@ impl Default for ServerConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct ChannelConfig {
     pub name: String,
     #[serde(rename = "type")]
@@ -122,6 +126,7 @@ pub struct ChannelConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct TunerConfig {
     pub name: String,
     #[serde(rename = "types")]
@@ -141,6 +146,7 @@ impl TunerConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct FiltersConfig {
     #[serde(default)]
     pub pre_filter: String,
@@ -182,6 +188,7 @@ impl Default for FiltersConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct JobsConfig {
     #[serde(default = "JobsConfig::default_scan_services")]
     pub scan_services: JobConfig,
@@ -232,6 +239,7 @@ impl Default for JobsConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct JobConfig {
     pub command: String,
     pub schedule: String,
@@ -239,6 +247,7 @@ pub struct JobConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct RecorderConfig {
     pub track_airtime_command: String,
 }
@@ -254,6 +263,7 @@ impl Default for RecorderConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct MirakurunConfig {
     #[serde(default = "MirakurunConfig::default_openapi_json")]
     pub openapi_json: String,
@@ -306,12 +316,16 @@ mod tests {
             unknown:
               property: value
         "#);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Default::default());
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_epg_config() {
+        let result = serde_yaml::from_str::<EpgConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -396,6 +410,12 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: 10000,
             });
+
+        let result = serde_yaml::from_str::<ServerConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -455,6 +475,12 @@ mod tests {
                 type: WOWOW
                 channel: y
             "#).is_err());
+
+        let result = serde_yaml::from_str::<ChannelConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -520,6 +546,12 @@ mod tests {
                 types: [WOWOW]
                 command: open tuner
             "#).is_err());
+
+        let result = serde_yaml::from_str::<TunerConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -571,6 +603,12 @@ mod tests {
                 program_filter: FiltersConfig::default_program_filter(),
                 post_filter: "filter".to_string(),
             });
+
+        let result = serde_yaml::from_str::<FiltersConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -623,6 +661,12 @@ mod tests {
                     schedule: "*".to_string(),
                 },
             });
+
+        let result = serde_yaml::from_str::<JobsConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -632,6 +676,12 @@ mod tests {
             serde_yaml::from_str::<JobConfig>(r#"{"command":""}"#).is_err());
         assert!(
             serde_yaml::from_str::<JobConfig>(r#"{"schedule":""}"#).is_err());
+
+        let result = serde_yaml::from_str::<JobConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -647,5 +697,11 @@ mod tests {
             MirakurunConfig {
                 openapi_json: "/path/to/json".to_string(),
             });
+
+        let result = serde_yaml::from_str::<MirakurunConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
     }
 }
