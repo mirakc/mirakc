@@ -66,8 +66,12 @@ impl Broadcaster {
 
     fn broadcast(&mut self, chunk: Bytes) {
         for subscriber in self.subscribers.iter_mut() {
+            let chunk_size = chunk.len();
             match subscriber.sender.try_send(chunk.clone()) {
-                Ok(_) => {},
+                Ok(_) => {
+                    log::trace!("{}: Sent a chunk of {} bytes to {}",
+                                self.id, chunk_size, subscriber.id);
+                },
                 Err(mpsc::error::TrySendError::Full(_)) => {
                     log::warn!("{}: No space for {}, drop the chunk",
                                self.id, subscriber.id);

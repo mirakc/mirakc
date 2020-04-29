@@ -472,6 +472,8 @@ fn streaming(
         actix::spawn(async move {
             while let Some(result) = stream.next().await {
                 if let Ok(chunk) = result {
+                    log::trace!("{}: Received a filtered chunk of {} bytes",
+                                stream_id, chunk.len());
                     // The task yields if the buffer is full.
                     if let Err(_) = sender.send(Ok(chunk)).await {
                         log::debug!("{}: Disconnected by client", stream_id);

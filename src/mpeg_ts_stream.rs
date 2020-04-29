@@ -131,9 +131,12 @@ where
     loop {
         match stream.next().await {
             Some(Ok(chunk)) => {
+                log::trace!("{}: Received a chunk of {} bytes",
+                            stream.id(), chunk.len());
                 if let Err(err) = writer.write_all(&chunk).await {
                     if err.kind() == io::ErrorKind::BrokenPipe {
-                        log::debug!("Downstream has been closed");
+                        log::debug!("{}: Downstream has been closed",
+                                    stream.id());
                     } else {
                         log::error!("{}: Failed to write to downstream: {}",
                                     stream.id(), err);
@@ -143,7 +146,7 @@ where
             }
             Some(Err(err)) => {
                 if err.kind() == io::ErrorKind::BrokenPipe {
-                    log::debug!("Upstream has been closed");
+                    log::debug!("{}: Upstream has been closed", stream.id());
                 } else {
                     log::error!("{}: Failed to read from upstream: {}",
                                 stream.id(), err);
