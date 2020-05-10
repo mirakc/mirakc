@@ -12,9 +12,9 @@ services:
     ports:
       - 8888:8888
     volumes:
-      - epgstation-data:/opt/epgstation/data
-      - ./epgstation/config:/opt/epgstation/config:ro
-      - $EPGSTATION_RECORDED_PATH:/opt/epgstation/recorded
+      - epgstation-data:/app/data
+      - ./epgstation/config:/app/config:ro
+      - $EPGSTATION_RECORDED_PATH:/app/recorded
     environment:
       NODE_ENV: production
       TZ: $TZ
