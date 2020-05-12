@@ -17,6 +17,8 @@ env:
 
 jobs:
   build-images:
+    # Don't run on a fork.
+    if: github.repository == 'masnagam/mirakc'
     strategy:
       matrix:
         platform:
