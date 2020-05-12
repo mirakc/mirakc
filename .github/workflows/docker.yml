@@ -8,7 +8,6 @@ on:
       - '*'
 
 env:
-  DOCKERHUB_USER: masnagam
   IMAGE: masnagam/mirakc
   MAIN_PLATFORM: debian
   DOCKER_BUILDKIT: 1
@@ -52,7 +51,7 @@ jobs:
           docker build -t $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} --no-cache .
       - name: Login to DockerHub
         run: |-
-          docker login -u $DOCKERHUB_USER -p ${{ secrets.DOCKERHUB_TOKEN }}
+          docker login -u ${{ secrets.DOCKERHUB_USER }} -p ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Push image
         run: |-
           docker push $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}
@@ -85,7 +84,7 @@ jobs:
           echo ::set-env name=VERSION::${GITHUB_REF#refs/*/}
       - name: Login to DockerHub
         run: |-
-          docker login -u $DOCKERHUB_USER -p ${{ secrets.DOCKERHUB_TOKEN }}
+          docker login -u ${{ secrets.DOCKERHUB_USER }} -p ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Create and push the manifest for each platform
         # The Debian image for arm32v6 is actually based on the arm/v5
         # architecture.  The arm/v6 architecture has a backward-compatibility
