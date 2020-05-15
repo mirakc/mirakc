@@ -15,7 +15,6 @@ use crate::config::Config;
 use crate::datetime_ext::*;
 use crate::eit_feeder::*;
 use crate::epg::*;
-use crate::error::Error;
 use crate::service_scanner::ServiceScanner;
 use crate::tuner::*;
 
@@ -38,22 +37,19 @@ impl Job {
         Job { kind, semaphore }
     }
 
-    async fn perform<T, F>(self, fut: F) -> Result<T, Error>
+    async fn perform<T, F>(self, fut: F) -> T
     where
-        F: Future<Output = Result<T, Error>>,
+        F: Future<Output = T>,
     {
         log::debug!("{}: acquiring semaphore...", self.kind);
         let _permit = self.semaphore.acquire().await;
         log::info!("{}: performing...", self.kind);
         let now = Instant::now();
-        let result = fut.await;
+        let results = fut.await;
         let elapsed = now.elapsed();
-        match result {
-            Ok(_) => log::info!("{}: Done successfully, {} elapsed",
-                                self.kind, humantime::format_duration(elapsed)),
-            Err(ref err) => log::error!("{}: Failed: {}", self.kind, err),
-        }
-        result
+        log::info!("{}: Done, {} elapsed",
+                   self.kind, humantime::format_duration(elapsed));
+        results
     }
 }
 
@@ -135,16 +131,14 @@ impl JobManager {
         let scanner = ServiceScanner::new(
             self.config.jobs.scan_services.command.clone(),
             self.collect_enabled_channels(),
-            self.tuner_manager.clone());
+            self.tuner_manager.clone().recipient());
 
         let job = JobKind::ScanServices.create(self.semaphore.clone())
             .perform(scanner.scan_services());
 
         actix::fut::wrap_future::<_, Self>(job)
-            .then(|result, act, _| {
-                if let Ok(services) = result {
-                    act.epg.do_send(UpdateServicesMessage { services });
-                }
+            .then(|results, act, _| {
+                act.epg.do_send(UpdateServicesMessage { results });
                 act.scanning_services = false;
                 actix::fut::ready(())
             })
@@ -175,16 +169,14 @@ impl JobManager {
         let sync = ClockSynchronizer::new(
             self.config.jobs.sync_clocks.command.clone(),
             self.collect_enabled_channels(),
-            self.tuner_manager.clone());
+            self.tuner_manager.clone().recipient());
 
         let job = JobKind::SyncClocks.create(self.semaphore.clone())
             .perform(sync.sync_clocks());
 
         actix::fut::wrap_future::<_, Self>(job)
-            .then(|result, act, _| {
-                if let Ok(clocks) = result {
-                    act.epg.do_send(UpdateClocksMessage { clocks });
-                }
+            .then(|results, act, _| {
+                act.epg.do_send(UpdateClocksMessage { results });
                 act.synchronizing_clocks = false;
                 actix::fut::ready(())
             })

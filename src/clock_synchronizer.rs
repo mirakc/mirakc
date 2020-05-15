@@ -1,21 +1,24 @@
 use std::collections::HashMap;
 
 use actix::prelude::*;
+use failure::Error;
 use log;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json;
 use tokio::io::AsyncReadExt;
 
+#[cfg(test)]
+use serde::Serialize;
+
 use crate::command_util;
 use crate::epg::*;
-use crate::error::Error;
 use crate::models::*;
 use crate::tuner::*;
 
 pub struct ClockSynchronizer {
     command: String,
     channels: Vec<EpgChannel>,
-    tuner_manager: Addr<TunerManager>,
+    stream_manager: Recipient<StartStreamingMessage>,
 }
 
 // TODO: The following implementation has code clones similar to
@@ -27,38 +30,47 @@ impl ClockSynchronizer {
     pub fn new(
         command: String,
         channels: Vec<EpgChannel>,
-        tuner_manager: Addr<TunerManager>,
+        stream_manager: Recipient<StartStreamingMessage>,
     ) -> Self {
-        ClockSynchronizer { command, channels, tuner_manager }
+        ClockSynchronizer { command, channels, stream_manager }
     }
 
     pub async fn sync_clocks(
         self
-    ) -> Result<HashMap<ServiceTriple, Clock>, Error> {
+    ) -> Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)> {
         log::debug!("Synchronizing clocks...");
 
-        let mut clocks = Vec::new();
+        let mut results = Vec::new();
+
         for channel in self.channels.iter() {
-            clocks.append(&mut Self::sync_clocks_in_channel(
-                &channel, &self.command, &self.tuner_manager).await?);
+            let result = match Self::sync_clocks_in_channel(
+                &channel, &self.command, &self.stream_manager).await {
+                Ok(clocks) => {
+                    let mut map = HashMap::new();
+                    for clock in clocks.into_iter() {
+                        let triple = (clock.nid, clock.tsid, clock.sid).into();
+                        map.insert(triple, clock.clock.clone());
+                    }
+                    Some(map)
+                }
+                Err(err) => {
+                    log::warn!("Failed to synchronize clocks in {}: {}",
+                               channel.name, err);
+                    None
+                }
+            };
+            results.push((channel.clone(), result));
         }
 
-        let mut map = HashMap::new();
-        for clock in clocks.iter() {
-            let triple =
-                ServiceTriple::from((clock.nid, clock.tsid, clock.sid));
-            map.insert(triple, clock.clock.clone());
-        }
+        log::debug!("Synchronized {} channels", self.channels.len());
 
-        log::debug!("Synchronized {} clocks", map.len());
-
-        Ok(map)
+        results
     }
 
     async fn sync_clocks_in_channel(
         channel: &EpgChannel,
         command: &str,
-        tuner_manager: &Addr<TunerManager>,
+        stream_manager: &Recipient<StartStreamingMessage>,
     ) -> Result<Vec<SyncClock>, Error> {
         log::debug!("Synchronizing clocks in {}...", channel.name);
 
@@ -67,7 +79,7 @@ impl ClockSynchronizer {
             priority: (-1).into(),
         };
 
-        let stream = tuner_manager.send(StartStreamingMessage {
+        let stream = stream_manager.send(StartStreamingMessage {
             channel_type: channel.channel_type,
             channel: channel.channel.clone(),
             user
@@ -96,6 +108,8 @@ impl ClockSynchronizer {
         // streaming in the next iteration.
         let _ = handle.await;
 
+        failure::ensure!(!buf.is_empty(), "No clock, maybe out of service");
+
         let clocks: Vec<SyncClock> = serde_json::from_slice(&buf)?;
         log::debug!("Synchronized {} clocks in {}", clocks.len(), channel.name);
 
@@ -103,11 +117,68 @@ impl ClockSynchronizer {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
 #[serde(rename_all = "camelCase")]
 struct SyncClock {
     nid: NetworkId,
     tsid: TransportStreamId,
     sid: ServiceId,
     clock: Clock,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::broadcaster::BroadcasterStream;
+    use crate::error::Error;
+    use crate::mpeg_ts_stream::MpegTsStream;
+
+    type Mock = actix::actors::mocker::Mocker<TunerManager>;
+
+    #[actix_rt::test]
+    async fn test_sync_clocks_in_channel() {
+        let mock = Mock::mock(Box::new(|msg, ctx| {
+            if let Some(_) = msg.downcast_ref::<StartStreamingMessage>() {
+                let (_, stream) = BroadcasterStream::new_for_test();
+                let result: Result<_, Error> = Ok(MpegTsStream::new(
+                    Default::default(), stream, ctx.address().recipient()));
+                Box::new(Some(result))
+            } else if let Some(_) = msg.downcast_ref::<StopStreamingMessage>() {
+                Box::new(Some(()))
+            } else {
+                unimplemented!();
+            }
+        })).start();
+
+        let channels = vec![EpgChannel {
+            name: "channel".to_string(),
+            channel_type: ChannelType::GR,
+            channel: "0".to_string(),
+            services: vec![],
+            excluded_services: vec![],
+        }];
+
+        let expected = vec![SyncClock {
+            nid: 1.into(),
+            tsid: 2.into(),
+            sid: 3.into(),
+            clock: Clock { pcr: 10, time: 11 },
+        }];
+
+        let cmd = format!(
+            "echo '{}'", serde_json::to_string(&expected).unwrap());
+        let sync = ClockSynchronizer::new(
+            cmd, channels.clone(), mock.clone().recipient());
+        let results = sync.sync_clocks().await;
+        assert!(results[0].1.is_some());
+        assert_eq!(results[0].1.as_ref().unwrap().len(), 1);
+
+        // Emulate out of services by using `false`
+        let cmd = "false".to_string();
+        let sync = ClockSynchronizer::new(
+            cmd, channels.clone(), mock.clone().recipient());
+        let results = sync.sync_clocks().await;
+        assert!(results[0].1.is_none());
+    }
 }

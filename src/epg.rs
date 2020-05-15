@@ -31,7 +31,7 @@ pub fn start(config: Arc<Config>) -> Addr<Epg> {
 
 pub struct Epg {
     config: Arc<Config>,
-    services: Vec<EpgService>,
+    services: HashMap<ServiceTriple, EpgService>,
     clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
     airtimes: HashMap<EventQuad, Airtime>,
@@ -46,22 +46,38 @@ impl Epg {
     fn new(config: Arc<Config>) -> Self {
         Epg {
             config,
-            services: Vec::new(),
+            services: HashMap::new(),
             clocks: HashMap::new(),
             schedules: HashMap::new(),
             airtimes: HashMap::new(),
         }
     }
 
-    fn find_service_by_triple(
-        &self,
-        triple: ServiceTriple
-    ) -> Option<&EpgService> {
-        self.services.iter().find(|sv| sv.triple() == triple)
-    }
+    fn update_services(
+        &mut self,
+        results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, EpgService>>)>,
+    ) {
+        let mut services = HashMap::new();
 
-    fn update_services(&mut self, services: Vec<EpgService>) {
+        for (channel, result) in results.into_iter() {
+            match result {
+                Some(new_services) => {
+                    services.extend(new_services);
+                }
+                None => {
+                    // Failed to scan services for some reason.  Reuse old
+                    // services if properties of the channel hasn't changed.
+                    for service in self.services.values() {
+                        if service.channel == channel {
+                            services.insert(service.triple(), service.clone());
+                        }
+                    }
+                }
+            }
+        }
+
         self.services = services;
+
         match self.save_services() {
             Ok(_) => (),
             Err(err) => log::error!("Failed to save services: {}", err),
@@ -70,8 +86,34 @@ impl Epg {
 
     fn update_clocks(
         &mut self,
-        clocks: HashMap<ServiceTriple, Clock>) {
+        results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>,
+    ) {
+        let mut clocks = HashMap::new();
+
+        for (channel, result) in results.into_iter() {
+            match result {
+                Some(new_clocks) => {
+                    clocks.extend(new_clocks)
+                }
+                None => {
+                    // Failed to synchronize clocks for some reason.  Reuse old
+                    // clocks if exist.
+                    //
+                    // Assumed that services has been updated at least once
+                    // after launch.
+                    for (triple, service) in self.services.iter() {
+                        if service.channel == channel {
+                            if let Some(clock) = self.clocks.get(triple) {
+                                clocks.insert(triple.clone(), clock.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         self.clocks = clocks;
+
         match self.save_clocks() {
             Ok(_) => (),
             Err(err) => log::error!("Failed to save clocks: {}", err),
@@ -98,7 +140,7 @@ impl Epg {
                 None => 0,
             };
             if num_programs > 0 {
-                let service = self.find_service_by_triple(*triple)
+                let service = self.services.get(triple)
                     .expect("Service must exist");
                 log::info!("Collected {} programs of {} ({})",
                            num_programs, service.name, triple);
@@ -112,7 +154,7 @@ impl Epg {
 
         let midnight = timestamp.date().and_hms(0, 0, 0);
 
-        for service in self.services.iter() {
+        for service in self.services.values() {
             let triple = service.triple();
             self.schedules
                 .entry(triple)
@@ -135,14 +177,38 @@ impl Epg {
         }
     }
 
+    // Must be called before other load functions.
     fn load_services(&mut self) -> Result<(), Error> {
+        let channels: Vec<EpgChannel> = self.config.channels.iter()
+            .filter(|config| !config.disabled)
+            .cloned()
+            .map(EpgChannel::from)
+            .collect();
+
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = PathBuf::from(cache_dir).join("services.json");
                 log::debug!("Loading schedules from {}...",
                             json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                self.services = serde_json::from_reader(reader)?;
+                let services: HashMap<ServiceTriple, EpgService> =
+                    serde_json::from_reader(reader)?;
+                // Drop a service if the channel of the service has been
+                // changed.
+                self.services = services
+                    .into_iter()
+                    .filter(|(_, sv)| {
+                        let not_changed = channels
+                            .iter()
+                            .any(|ch| ch == &sv.channel);
+                        if !not_changed {  // if changed
+                            log::debug!("Drop service#{} ({}) due to changes \
+                                         of the channel config",
+                                        sv.triple(), sv.name);
+                        }
+                        not_changed
+                    })
+                    .collect();
                 log::info!("Loaded {} services", self.services.len());
             }
             None => {
@@ -158,7 +224,21 @@ impl Epg {
                 let json_path = PathBuf::from(cache_dir).join("clocks.json");
                 log::debug!("Loading clocks from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                self.clocks = serde_json::from_reader(reader)?;
+                let clocks: HashMap<ServiceTriple, Clock> =
+                    serde_json::from_reader(reader)?;
+                // Drop a clock if the service triple of the clock is not
+                // contained in `self::services`.
+                self.clocks = clocks
+                    .into_iter()
+                    .filter(|(triple, _)| {
+                        let contained = self.services.contains_key(triple);
+                        if !contained {
+                            log::debug!(
+                                "Drop clock for missing service#{}", triple);
+                        }
+                        contained
+                    })
+                    .collect();
                 log::info!("Loaded {} clocks", self.clocks.len());
             }
             None => {
@@ -174,7 +254,21 @@ impl Epg {
                 let json_path = PathBuf::from(cache_dir).join("schedules.json");
                 log::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                self.schedules = serde_json::from_reader(reader)?;
+                let schedules: HashMap<ServiceTriple, EpgSchedule> =
+                    serde_json::from_reader(reader)?;
+                // Drop a clock if the service triple of the clock is not
+                // contained in `self::services`.
+                self.schedules = schedules
+                    .into_iter()
+                    .filter(|(triple, _)| {
+                        let contained = self.services.contains_key(triple);
+                        if !contained {
+                            log::debug!(
+                                "Drop schedule for missing service#{}", triple);
+                        }
+                        contained
+                    })
+                    .collect();
                 log::info!("Loaded schedules for {} services", self.schedules.len());
             }
             None => {
@@ -293,7 +387,7 @@ impl Handler<QueryChannelsMessage> for Epg {
                 channel:  config.channel.clone(),
                 name: config.name.clone(),
                 services: self.services
-                    .iter()
+                    .values()
                     .filter(|sv| {
                         sv.channel.channel_type == config.channel_type &&
                             sv.channel.channel == config.channel
@@ -369,7 +463,7 @@ impl Handler<QueryServicesMessage> for Epg {
         _: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("{}", msg);
-        Ok(self.services.iter()
+        Ok(self.services.values()
            .filter(|sv| sv.is_exportable())
            .cloned()
            .collect())
@@ -408,7 +502,7 @@ impl Handler<QueryServiceMessage> for Epg {
         match msg {
             QueryServiceMessage::ByNidSid { nid, sid } => {
                 self.services
-                    .iter()
+                    .values()
                     .find(|sv| sv.nid == nid && sv.sid == sid)
                     .cloned()
                     .ok_or(Error::ServiceNotFound)
@@ -509,7 +603,7 @@ impl Handler<QueryProgramMessage> for Epg {
         match msg {
             QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
                 let triple = self.services
-                    .iter()
+                    .values()
                     .find(|sv| sv.nid == nid && sv.sid == sid)
                     .map(|sv| sv.triple())
                     .ok_or(Error::ProgramNotFound)?;
@@ -532,12 +626,12 @@ impl Handler<QueryProgramMessage> for Epg {
 // update services
 
 pub struct UpdateServicesMessage {
-    pub services: Vec<EpgService>,
+    pub results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, EpgService>>)>,
 }
 
 impl fmt::Display for UpdateServicesMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "UpdateServices with {} services", self.services.len())
+        write!(f, "UpdateServices")
     }
 }
 
@@ -554,19 +648,19 @@ impl Handler<UpdateServicesMessage> for Epg {
         _: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("{}", msg);
-        self.update_services(msg.services);
+        self.update_services(msg.results);
     }
 }
 
 // update clocks
 
 pub struct UpdateClocksMessage {
-    pub clocks: HashMap<ServiceTriple, Clock>,
+    pub results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>,
 }
 
 impl fmt::Display for UpdateClocksMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "UpdateClocks with {} clocks", self.clocks.len())
+        write!(f, "UpdateClocks")
     }
 }
 
@@ -583,7 +677,7 @@ impl Handler<UpdateClocksMessage> for Epg {
         _: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("{}", msg);
-        self.update_clocks(msg.clocks);
+        self.update_clocks(msg.results);
     }
 }
 
@@ -936,7 +1030,7 @@ impl From<EitSection> for EpgSection {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 #[derive(Deserialize, Serialize)]
 pub struct EpgChannel {
     pub name: String,
@@ -957,21 +1051,6 @@ impl From<ChannelConfig> for EpgChannel {
             excluded_services: config.excluded_services,
         }
     }
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TsService {
-    nid: NetworkId,
-    tsid: TransportStreamId,
-    sid: ServiceId,
-    #[serde(rename = "type")]
-    service_type: u16,
-    #[serde(default)]
-    logo_id: i16,
-    #[serde(default)]
-    remote_control_key_id: u16,
-    name: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -1005,21 +1084,6 @@ impl EpgService {
             return false;
         }
         true
-    }
-}
-
-impl From<(&EpgChannel, &TsService)> for EpgService {
-    fn from((ch, sv): (&EpgChannel, &TsService)) -> Self {
-        EpgService {
-            nid: sv.nid,
-            tsid: sv.tsid,
-            sid: sv.sid,
-            service_type: sv.service_type,
-            logo_id: sv.logo_id,
-            remote_control_key_id: sv.remote_control_key_id,
-            name: sv.name.clone(),
-            channel: ch.clone(),
-        }
     }
 }
 
@@ -1138,13 +1202,13 @@ mod tests {
         let config = Arc::new(Config::default());
 
         let mut epg = Epg::new(config.clone());
-        epg.services = vec![create_epg_service(triple, channel_type)];
+        epg.services.insert(triple, create_epg_service(triple, channel_type));
         epg.prepare_schedules(Jst::now());
         assert_eq!(epg.schedules.len(), 1);
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
         let mut epg = Epg::new(config.clone());
-        epg.services = vec![create_epg_service(triple, channel_type)];
+        epg.services.insert(triple, create_epg_service(triple, channel_type));
         let sched = create_epg_schedule_with_overnight_events(triple);
         epg.schedules.insert(triple, sched);
 
