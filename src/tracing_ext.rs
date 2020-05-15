@@ -35,6 +35,6 @@ impl FormatTime for HrTime {
         let ts = chrono::Utc::now().timestamp_nanos();
         let secs = ts / NANOS_IN_SEC;
         let nanos = ts & NANOS_IN_SEC;
-        write!(w, "{}.{:>09}", secs, nanos)
+        write!(w, "{}.{:09}", secs, nanos)
     }
 }
