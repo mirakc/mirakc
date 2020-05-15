@@ -159,6 +159,10 @@ where
             }
         }
     }
+
+    if let Err(err) = writer.shutdown().await {
+        log::warn!("{}: Failed to shutdown: {}", stream.id(), err);
+    }
 }
 
 #[cfg(test)]
