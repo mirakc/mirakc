@@ -91,7 +91,7 @@ mirakc starts properly:
 
 ```console
 $ curl -fsSL http://localhost:40772/api/version
-"0.6.0"
+"0.8.0"
 ```
 
 See [docs/config.md](./docs/config.md) for details of `config.yml`.
