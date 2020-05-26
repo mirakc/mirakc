@@ -31,7 +31,7 @@ pub fn start(config: Arc<Config>) -> Addr<Epg> {
 
 pub struct Epg {
     config: Arc<Config>,
-    services: HashMap<ServiceTriple, EpgService>,
+    services: IndexMap<ServiceTriple, EpgService>,  // keeps insertion order
     clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
     airtimes: HashMap<EventQuad, Airtime>,
@@ -46,7 +46,7 @@ impl Epg {
     fn new(config: Arc<Config>) -> Self {
         Epg {
             config,
-            services: HashMap::new(),
+            services: IndexMap::new(),
             clocks: HashMap::new(),
             schedules: HashMap::new(),
             airtimes: HashMap::new(),
@@ -55,9 +55,9 @@ impl Epg {
 
     fn update_services(
         &mut self,
-        results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, EpgService>>)>,
+        results: Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)>,
     ) {
-        let mut services = HashMap::new();
+        let mut services = IndexMap::new();
 
         for (channel, result) in results.into_iter() {
             match result {
@@ -463,6 +463,7 @@ impl Handler<QueryServicesMessage> for Epg {
         _: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("{}", msg);
+        // Assumed that `self.services` keeps insertion order.
         Ok(self.services.values()
            .filter(|sv| sv.is_exportable())
            .cloned()
@@ -626,7 +627,7 @@ impl Handler<QueryProgramMessage> for Epg {
 // update services
 
 pub struct UpdateServicesMessage {
-    pub results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, EpgService>>)>,
+    pub results: Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)>,
 }
 
 impl fmt::Display for UpdateServicesMessage {
@@ -1170,6 +1171,146 @@ impl EpgProgram {
 mod tests {
     use super::*;
     use chrono::{Date, TimeZone};
+
+    #[test]
+    fn test_update_services() {
+        fn create_service(
+            name: &str, triple: ServiceTriple, channel: EpgChannel
+        ) -> EpgService {
+            EpgService {
+                nid: triple.nid(),
+                tsid: triple.tsid(),
+                sid: triple.sid(),
+                service_type: 1,
+                logo_id: 0,
+                remote_control_key_id: 0,
+                name: name.to_string(),
+                channel,
+            }
+        }
+
+        let mut epg = Epg::new(Arc::new(Default::default()));
+
+        let ch1 = EpgChannel {
+            name: "ch1".to_string(),
+            channel_type: ChannelType::GR,
+            channel: "1".to_string(),
+            services: Vec::new(),
+            excluded_services: Vec::new(),
+        };
+
+        let ch2 = EpgChannel {
+            name: "ch2".to_string(),
+            channel_type: ChannelType::GR,
+            channel: "2".to_string(),
+            services: Vec::new(),
+            excluded_services: Vec::new(),
+        };
+
+        let triple1_1 = ServiceTriple::from((1, 1, 1));
+        let triple1_2 = ServiceTriple::from((1, 1, 2));
+        let triple2_3 = ServiceTriple::from((2, 1, 3));
+        let triple2_4 = ServiceTriple::from((2, 1, 4));
+
+        // initial update
+
+        let results = vec![
+            (
+                ch1.clone(),
+                Some(indexmap::indexmap!{
+                    triple1_1 =>
+                        create_service("sv1", triple1_1, ch1.clone()),
+                    triple1_2 =>
+                        create_service("sv2", triple1_2, ch1.clone()),
+                }),
+            ),
+            (
+                ch2.clone(),
+                Some(indexmap::indexmap!{
+                    triple2_3 =>
+                        create_service("sv3", triple2_3, ch2.clone()),
+                    triple2_4 =>
+                        create_service("sv4", triple2_4, ch2.clone()),
+                }),
+            ),
+        ];
+
+        epg.update_services(results);
+        {
+            let iter = epg.services.values().map(|sv| &sv.name);
+            assert!(iter.eq(["sv1", "sv2", "sv3", "sv4"].iter()));
+        }
+
+        // update with a complete list
+
+        let results = vec![
+            (
+                ch1.clone(),
+                Some(indexmap::indexmap!{
+                    triple1_1 =>
+                        create_service("sv1", triple1_1, ch1.clone()),
+                    triple1_2 =>
+                        create_service("sv2", triple1_2, ch1.clone()),
+                }),
+            ),
+            (
+                ch2.clone(),
+                Some(indexmap::indexmap!{
+                    triple2_3 =>
+                        create_service("sv3", triple2_3, ch2.clone()),
+                    triple2_4 =>
+                        create_service("sv4", triple2_4, ch2.clone()),
+                }),
+            ),
+        ];
+
+        epg.update_services(results);
+        {
+            let iter = epg.services.values().map(|sv| &sv.name);
+            assert!(iter.eq(["sv1", "sv2", "sv3", "sv4"].iter()));
+        }
+
+        // update with an incomplete list
+
+        let results = vec![
+            (ch1.clone(), None),
+            (
+                ch2.clone(),
+                Some(indexmap::indexmap!{
+                    triple2_3 =>
+                        create_service("sv3", triple2_3, ch2.clone()),
+                    triple2_4 =>
+                        create_service("sv4", triple2_4, ch2.clone()),
+                }),
+            ),
+        ];
+
+        epg.update_services(results);
+        {
+            let iter = epg.services.values().map(|sv| &sv.name);
+            assert!(iter.eq(["sv1", "sv2", "sv3", "sv4"].iter()));
+        }
+
+
+        // update with a new service
+
+        let results = vec![
+            (
+                ch1.clone(),
+                Some(indexmap::indexmap!{
+                    triple1_1 =>
+                        create_service("sv1.new", triple1_1, ch1.clone()),
+                }),
+            ),
+            (ch2.clone(), None),
+        ];
+
+        epg.update_services(results);
+        {
+            let iter = epg.services.values().map(|sv| &sv.name);
+            assert!(iter.eq(["sv1.new", "sv3", "sv4"].iter()));
+        }
+    }
 
     #[test]
     fn test_epg_service_is_exportable() {

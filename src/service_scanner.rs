@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-
 use actix::prelude::*;
 use failure::Error;
+use indexmap::IndexMap;
 use log;
 use serde::Deserialize;
 use serde_json;
@@ -37,7 +36,7 @@ impl ServiceScanner {
 
     pub async fn scan_services(
         self
-    ) -> Vec<(EpgChannel, Option<HashMap<ServiceTriple, EpgService>>)> {
+    ) -> Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)> {
         log::debug!("Scanning services...");
 
         let mut results = Vec::new();
@@ -45,7 +44,7 @@ impl ServiceScanner {
             let result = match Self::scan_services_in_channel(
                 &channel, &self.command, &self.stream_manager).await {
                 Ok(services) => {
-                    let mut map = HashMap::new();
+                    let mut map = IndexMap::new();
                     for service in services.into_iter() {
                         map.insert(service.triple(), service.clone());
                     }
