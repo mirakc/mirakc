@@ -1,9 +1,8 @@
 {
   "appenders": {
-    "console": { "type": "console" },
     "file": { "type": "file", "filename": "service.log" }
   },
   "categories": {
-    "default": { "appenders": [ "console", "file" ], "level": "debug" }
+    "default": { "appenders": [ "file" ], "level": "debug" }
   }
 }
