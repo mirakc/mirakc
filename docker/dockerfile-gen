@@ -90,7 +90,7 @@ def dockerfile_gen(kind, platform, arch):
   params = {
     'ARCH': arch,
     'RECDVB': '1.3.2',
-    'MIRAKC_ARIB_VERSION': '0.4.0',
+    'MIRAKC_ARIB_VERSION': '0.4.1',
   }
 
   build_deps = set()
