@@ -14,6 +14,7 @@ use crate::tuner::TunerSubscriptionId as CommandPipelineId;
 pub fn spawn_process(
     command: &str,
     input: Stdio,
+    quiet: bool,
 ) -> Result<Child, Error> {
     let words = match shell_words::split(command) {
         Ok(words) => words,
@@ -22,8 +23,8 @@ pub fn spawn_process(
     let words: Vec<&str> = words.iter().map(|word| &word[..]).collect();
     let (prog, args) = words.split_first().unwrap();
     let stderr = match env::var_os("MIRAKC_DEBUG_CHILD_PROCESS") {
-        Some(_) => Stdio::inherit(),
-        None => Stdio::null(),
+        Some(_) if !quiet => Stdio::inherit(),
+        _ => Stdio::null(),
     };
     Command::new(prog)
         .args(args)
@@ -88,7 +89,7 @@ impl CommandPipelineBuilder {
             Stdio::from(self.stdout.take().unwrap())
         };
 
-        let mut process = spawn_process(&command, input)?;
+        let mut process = spawn_process(&command, input, false)?;
         log::debug!("{}: Spawned {}: `{}`",
                     self.id, process.id(), command);
 
@@ -222,15 +223,15 @@ mod tests {
 
     #[test]
     fn test_spawn_process() {
-        let result = spawn_process("sh -c 'exit 0;'", Stdio::null());
+        let result = spawn_process("sh -c 'exit 0;'", Stdio::null(), false);
         assert!(result.is_ok());
         let _ = result.unwrap().wait();
 
-        let result = spawn_process("'", Stdio::null());
+        let result = spawn_process("'", Stdio::null(), false);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().to_string(), r#"Unable to parse: '"#);
+        assert_eq!(result.unwrap_err().to_string(), "Unable to parse: '");
 
-        let result = spawn_process("command-not-found", Stdio::null());
+        let result = spawn_process("command-not-found", Stdio::null(), false);
         assert!(result.is_err());
         assert_matches!(result.unwrap_err(),
                         Error::UnableToSpawn(_, io::Error {..}));
