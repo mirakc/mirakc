@@ -737,17 +737,6 @@ mod tests {
     use crate::broadcaster::BroadcasterStream;
 
     async fn request(req: actix_http::Request) -> actix_web::HttpResponse {
-        let mut config = Config::default();
-        // Disable all filters
-        config.filters.pre_filter = String::new();
-        config.filters.service_filter = String::new();
-        config.filters.program_filter = String::new();
-        config.filters.post_filter = String::new();
-        // Disable tracking airtime
-        config.recorder.track_airtime_command = "true".to_string();
-        // "/dev/null" is enough to test
-        config.mirakurun.openapi_json = "/dev/null".to_string();
-
         let mut app = actix_web::test::init_service(
             actix_web::App::new()
                 .data(config_for_test())
