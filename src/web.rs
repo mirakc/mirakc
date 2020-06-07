@@ -374,12 +374,20 @@ fn make_program_filters(
     pre_filter_required: bool,
     post_filter_required: bool,
 ) -> Result<Vec<String>, Error> {
+    let filter = make_service_filter_command(
+        &config.filters.service_filter, program.quad.sid())?;
+    let mut filters = make_filters(
+        config, channel, Some(program.quad.sid()), Some(program.quad.eid()),
+        filter, pre_filter_required, post_filter_required)?;
     let filter = make_program_filter_command(
         &config.filters.program_filter, program.quad.sid(), program.quad.eid(),
         clock)?;
-    make_filters(
-        config, channel, Some(program.quad.sid()), Some(program.quad.eid()),
-        filter, pre_filter_required, post_filter_required)
+    if filter.is_empty() {
+        log::warn!("Filter not defined");
+    } else {
+        filters.push(filter);
+    }
+    Ok(filters)
 }
 
 fn make_filters(

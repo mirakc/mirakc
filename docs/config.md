@@ -26,7 +26,7 @@ suitable for your environment.
 | [tuners\[\].disabled]            | `false`                                   |
 | [filters.pre-filter]             | `''`                                      |
 | [filters.service-filter]         | `mirakc-arib filter-service --sid={{sid}}`|
-| [filters.program-filter]         | `mirakc-arib filter-program --sid={{sid}} --eid={{eid}} --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} --start-margin=5000 --end-margin=5000 --pre-streaming` |
+| [filters.program-filter]         | `mirakc-arib filter-program --sid={{sid}} --eid={{eid}} --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} --end-margin=2000 --pre-streaming` |
 | [filters.post-filter]            | `''`                                      |
 | [jobs.scan-services.command]     | `mirakc-arib scan-services{{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}` |
 | [jobs.scan-services.schedule]    | `'0 31 5 * * * *'` (execute at 05:31 every day) |

@@ -165,13 +165,13 @@ impl FiltersConfig {
 
     fn default_program_filter() -> String {
         // The --pre-streaming option is used in order to avoid the issue#1313
-        // in actix/actix-web.  PSI/SI TS packets will be sent before the
-        // program starts.
+        // in actix/actix-web.  PAT TS packets will be sent before the program
+        // starts.
         //
         // See masnagam/rust-case-studies for details.
         "mirakc-arib filter-program --sid={{sid}} --eid={{eid}} \
          --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} \
-         --start-margin=5000 --end-margin=5000 --pre-streaming".to_string()
+         --end-margin=2000 --pre-streaming".to_string()
     }
 }
 

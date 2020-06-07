@@ -39,15 +39,18 @@ mirakc has a pipeline to process MPEG-TS packets.
     |
     +--(when using filters)
     |      |
-    |  +---V-------- CommandPipeline --------------+
-    |  | pre-filter (external process) [optional]  |
-    |  |   |                                       |
-    |  |   V                                       |
-    |  | service/program-filter (external process) |
-    |  |   |                                       |
-    |  |   V                                       |
-    |  | post-filter (external process) [optional] |
-    |  +---|---------------------------------------+
+    |  +---V-------- CommandPipeline -----------------+
+    |  | pre-filter (external process) [optional]     |
+    |  |   |                                          |
+    |  |   V                                          |
+    |  | service-filter (external process) [optional] |
+    |  |   |                                          |
+    |  |   V                                          |
+    |  | post-filter (external process) [optional]    |
+    |  |   |                                          |
+    |  |   V                                          |
+    |  | program-filter (external process) [optional] |
+    |  +---|------------------------------------------+
     |      V
     |    tokio::sync::mpsc::channel (as buffer) <web-buffer>
     |      |
