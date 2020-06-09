@@ -401,6 +401,12 @@ fn make_filters(
 ) -> Result<Vec<String>, Error> {
     let mut filters = Vec::new();
 
+    if !config.filters.debug_filter.is_empty() {
+        let cmd = make_filter_command(
+            &config.filters.debug_filter, channel, sid, eid)?;
+        filters.push(cmd);
+    }
+
     if pre_filter_required {
         if config.filters.pre_filter.is_empty() {
             log::warn!("Pre-filter is required, but not defined");

@@ -149,6 +149,8 @@ impl TunerConfig {
 #[serde(deny_unknown_fields)]
 pub struct FiltersConfig {
     #[serde(default)]
+    pub debug_filter: String,
+    #[serde(default)]
     pub pre_filter: String,
     #[serde(default = "FiltersConfig::default_service_filter")]
     pub service_filter: String,
@@ -178,6 +180,7 @@ impl FiltersConfig {
 impl Default for FiltersConfig {
     fn default() -> Self {
         FiltersConfig {
+            debug_filter: String::new(),
             pre_filter: String::new(),
             service_filter: Self::default_service_filter(),
             program_filter: Self::default_program_filter(),
@@ -565,6 +568,7 @@ mod tests {
                 pre-filter: filter
             "#).unwrap(),
             FiltersConfig {
+                debug_filter: String::new(),
                 pre_filter: "filter".to_string(),
                 service_filter: FiltersConfig::default_service_filter(),
                 program_filter: FiltersConfig::default_program_filter(),
@@ -576,6 +580,7 @@ mod tests {
                 service-filter: filter
             "#).unwrap(),
             FiltersConfig {
+                debug_filter: String::new(),
                 pre_filter: String::new(),
                 service_filter: "filter".to_string(),
                 program_filter: FiltersConfig::default_program_filter(),
@@ -587,6 +592,7 @@ mod tests {
                 program-filter: filter
             "#).unwrap(),
             FiltersConfig {
+                debug_filter: String::new(),
                 pre_filter: String::new(),
                 service_filter: FiltersConfig::default_service_filter(),
                 program_filter: "filter".to_string(),
@@ -598,6 +604,7 @@ mod tests {
                 post-filter: filter
             "#).unwrap(),
             FiltersConfig {
+                debug_filter: String::new(),
                 pre_filter: String::new(),
                 service_filter: FiltersConfig::default_service_filter(),
                 program_filter: FiltersConfig::default_program_filter(),
