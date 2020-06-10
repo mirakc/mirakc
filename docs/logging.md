@@ -63,8 +63,10 @@ Logging from child processes is disabled by default.  Defining the following
 environment variables enables it:
 
 ```shell
+export RUST_LOG=info,mirakc=debug
 export MIRAKC_DEBUG_CHILD_PROCESS=
-export MIRAKC_ARIB_LOG=info
+export MIRAKC_ARIB_LOG=warn,filter-program=info
+export MIRAKC_ARIB_LOG_NO_TIMESTAMP=
 ```
 
 See [masnagam/mirakc-arib](https://github.com/masnagam/mirakc-arib#logging)
