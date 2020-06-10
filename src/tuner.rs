@@ -501,7 +501,7 @@ impl TunerSession {
         time_limit: u64,
     ) -> Result<TunerSession, Error> {
         let mut process =
-            command_util::spawn_process(&command, Stdio::null(), true)?;
+            command_util::spawn_process(&command, Stdio::null())?;
         let id = TunerSessionId { tuner_index, tuner_pid: process.id() };
         log::debug!("{}: Spawned {}: `{}`", id, process.id(), command);
 

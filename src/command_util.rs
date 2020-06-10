@@ -7,6 +7,7 @@ use std::task::{Poll, Context};
 
 use failure::Fail;
 use tokio::prelude::*;
+use tokio::io::BufReader;
 
 use crate::tokio_snippet;
 use crate::tuner::TunerSubscriptionId as CommandPipelineId;
@@ -14,7 +15,6 @@ use crate::tuner::TunerSubscriptionId as CommandPipelineId;
 pub fn spawn_process(
     command: &str,
     input: Stdio,
-    quiet: bool,
 ) -> Result<Child, Error> {
     let words = match shell_words::split(command) {
         Ok(words) => words,
@@ -22,17 +22,39 @@ pub fn spawn_process(
     };
     let words: Vec<&str> = words.iter().map(|word| &word[..]).collect();
     let (prog, args) = words.split_first().unwrap();
-    let stderr = match env::var_os("MIRAKC_DEBUG_CHILD_PROCESS") {
-        Some(_) if !quiet => Stdio::inherit(),
-        _ => Stdio::null(),
+    let debug_child_process =
+        env::var_os("MIRAKC_DEBUG_CHILD_PROCESS").is_some();
+    let stderr = if debug_child_process {
+        Stdio::piped()
+    } else {
+        Stdio::null()
     };
-    Command::new(prog)
+    let mut child = Command::new(prog)
         .args(args)
         .stdin(input)
         .stdout(Stdio::piped())
         .stderr(stderr)
         .spawn()
-        .map_err(|err| Error::UnableToSpawn(command.to_string(), err))
+        .map_err(|err| Error::UnableToSpawn(command.to_string(), err))?;
+    if cfg!(not(test)) {
+        if debug_child_process {
+            let child_id = child.id();
+            let child_stderr = tokio_snippet::stdio(child.stderr.take())
+                .map_err(|err| Error::AsyncIoRegistrationFailure(err))?.unwrap();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(child_stderr);
+                let mut line = String::new();
+                while let Ok(n) = reader.read_line(&mut line).await {
+                    if n == 0 {  // EOF
+                        break;
+                    }
+                    log::debug!("stderr#{}: {}", child_id, line.trim());
+                    line.clear();
+                }
+            });
+        }
+    }
+    Ok(child)
 }
 
 // Spawn processes for input commands and build a pipeline, then returns
@@ -57,7 +79,7 @@ pub enum Error {
     #[fail(display = "Unable to spawn: {}: {}", 0, 1)]
     UnableToSpawn(String, io::Error),
     #[fail(display = "Async I/O registration failure: {}", 0)]
-    AsyncIoRegistrationFailure(io::Error)
+    AsyncIoRegistrationFailure(io::Error),
 }
 
 // Alias for making developer's life easier.
@@ -89,7 +111,7 @@ impl CommandPipelineBuilder {
             Stdio::from(self.stdout.take().unwrap())
         };
 
-        let mut process = spawn_process(&command, input, false)?;
+        let mut process = spawn_process(&command, input)?;
         log::debug!("{}: Spawned {}: `{}`",
                     self.id, process.id(), command);
 
@@ -223,15 +245,15 @@ mod tests {
 
     #[test]
     fn test_spawn_process() {
-        let result = spawn_process("sh -c 'exit 0;'", Stdio::null(), false);
+        let result = spawn_process("sh -c 'exit 0;'", Stdio::null());
         assert!(result.is_ok());
         let _ = result.unwrap().wait();
 
-        let result = spawn_process("'", Stdio::null(), false);
+        let result = spawn_process("'", Stdio::null());
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "Unable to parse: '");
 
-        let result = spawn_process("command-not-found", Stdio::null(), false);
+        let result = spawn_process("command-not-found", Stdio::null());
         assert!(result.is_err());
         assert_matches!(result.unwrap_err(),
                         Error::UnableToSpawn(_, io::Error {..}));
