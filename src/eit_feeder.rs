@@ -173,8 +173,10 @@ impl EitCollector {
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let (input, output) = command_util::spawn_pipeline(
+        let mut pipeline = command_util::spawn_pipeline(
             vec![cmd], stream.id())?;
+
+        let (input, output) = pipeline.take_endpoints().unwrap();
 
         let handle = tokio::spawn(stream.pipe(input));
 
@@ -200,7 +202,7 @@ impl EitCollector {
 
         // Explicitly dropping the output of the pipeline is needed.  The output
         // holds the child processes and it kills them when dropped.
-        drop(reader);
+        drop(pipeline);
 
         // Wait for the task so that the tuner is released before a request for
         // streaming in the next iteration.

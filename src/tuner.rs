@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::process::{Child, Stdio};
 use std::sync::Arc;
 
 use actix::prelude::*;
@@ -8,12 +7,11 @@ use log;
 use mustache;
 
 use crate::broadcaster::*;
-use crate::command_util;
+use crate::command_util::{spawn_pipeline, CommandPipeline};
 use crate::config::{Config, TunerConfig};
 use crate::error::Error;
 use crate::models::*;
 use crate::mpeg_ts_stream::MpegTsStream;
-use crate::tokio_snippet;
 
 pub fn start(config: Arc<Config>) -> Addr<TunerManager> {
     TunerManager::new(config).start()
@@ -24,12 +22,11 @@ pub fn start(config: Arc<Config>) -> Addr<TunerManager> {
 #[derive(Clone, Copy, Default, PartialEq)]
 pub struct TunerSessionId {
     tuner_index: usize,
-    tuner_pid: u32,
 }
 
 impl fmt::Display for TunerSessionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "tuner#{}.{}", self.tuner_index, self.tuner_pid)
+        write!(f, "tuner#{}", self.tuner_index)
     }
 }
 
@@ -47,9 +44,7 @@ impl TunerSubscriptionId {
 
 impl fmt::Display for TunerSubscriptionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "tuner#{}.{}.{}",
-               self.session_id.tuner_index, self.session_id.tuner_pid,
-               self.serial_number)
+        write!(f, "{}.{}", self.session_id, self.serial_number)
     }
 }
 
@@ -107,26 +102,32 @@ impl TunerManager {
         }
 
         let found = self.tuners
-            .iter_mut()
-            .find(|tuner| tuner.is_available_for(channel_type));
-        if let Some(tuner) = found {
+            .iter()
+            .position(|tuner| tuner.is_available_for(channel_type));
+        if let Some(index) = found {
             log::info!("tuner#{}: Activate with {} {}",
-                       tuner.index, channel_type, channel);
-            tuner.activate(channel_type, channel)?;
+                       index, channel_type, channel);
+            let filter = self.make_filter_command(
+                index, channel_type, &channel)?;
+            let tuner = &mut self.tuners[index];
+            tuner.activate(channel_type, channel, filter)?;
             return Ok(tuner.subscribe(user));
         }
 
         // No available tuner at this point.  Take over the right to use
         // a tuner used by a low priority user.
         let found = self.tuners
-            .iter_mut()
+            .iter()
             .filter(|tuner| tuner.is_supported_type(channel_type))
-            .find(|tuner| tuner.can_grab(user.priority));
-        if let Some(tuner) = found {
+            .position(|tuner| tuner.can_grab(user.priority));
+        if let Some(index) = found {
             log::info!("tuner#{}: Grab tuner, rectivate with {} {}",
-                       tuner.index, channel_type, channel);
+                       index, channel_type, channel);
+            let filter = self.make_filter_command(
+                index, channel_type, &channel)?;
+            let tuner = &mut self.tuners[index];
             tuner.deactivate();
-            tuner.activate(channel_type, channel)?;
+            tuner.activate(channel_type, channel, filter)?;
             return Ok(tuner.subscribe(user));
         }
 
@@ -143,6 +144,23 @@ impl TunerManager {
     fn stop_streaming(&mut self, id: TunerSubscriptionId) {
         log::info!("{}: Stop streaming", id);
         let _ = self.tuners[id.session_id.tuner_index].stop_streaming(id);
+    }
+
+
+    fn make_filter_command(
+        &self,
+        tuner_index: usize,
+        channel_type: ChannelType,
+        channel: &str,
+    ) -> Result<String, Error> {
+        let template = mustache::compile_str(
+            &self.config.filters.tuner_filter)?;
+        let data = mustache::MapBuilder::new()
+            .insert("index", &tuner_index)?
+            .insert("channel_type", &channel_type)?
+            .insert_str("channel", channel)
+            .build();
+        Ok(template.render_data_to_string(&data)?)
     }
 }
 
@@ -336,10 +354,12 @@ impl Tuner {
         &mut self,
         channel_type: ChannelType,
         channel: String,
+        filter: String,
     ) -> Result<(), Error> {
         let command = self.make_command(channel_type, &channel)?;
         self.activity.activate(
-            self.index, channel_type, channel.clone(), command, self.time_limit)
+            self.index, channel_type, channel.clone(), command, filter,
+            self.time_limit)
     }
 
     fn deactivate(&mut self) {
@@ -408,12 +428,14 @@ impl TunerActivity {
         channel_type: ChannelType,
         channel: String,
         command: String,
+        filter: String,
         time_limit: u64,
     ) -> Result<(), Error> {
         match self {
             Self::Inactive => {
                 let session = TunerSession::new(
-                    tuner_index, channel_type, channel, command, time_limit)?;
+                    tuner_index, channel_type, channel, command, filter,
+                    time_limit)?;
                 *self = Self::Active(session);
                 Ok(())
             }
@@ -486,7 +508,7 @@ struct TunerSession {
     channel: String,
     command: String,
     // Used for closing the tuner in order to take over the right to use it.
-    process: Child,
+    pipeline: CommandPipeline<TunerSessionId>,
     broadcaster: Addr<Broadcaster>,
     subscribers: HashMap<u32, TunerUser>,
     next_serial_number: u32,
@@ -498,22 +520,24 @@ impl TunerSession {
         channel_type: ChannelType,
         channel: String,
         command: String,
+        filter: String,
         time_limit: u64,
     ) -> Result<TunerSession, Error> {
-        let mut process =
-            command_util::spawn_process(&command, Stdio::null())?;
-        let id = TunerSessionId { tuner_index, tuner_pid: process.id() };
-        log::debug!("{}: Spawned {}: `{}`", id, process.id(), command);
-
-        let reader = tokio_snippet::stdio(process.stdout.take())?.unwrap();
+        let mut commands = vec![command.clone()];
+        if filter.len() > 0 {
+            commands.push(filter);
+        }
+        let id = TunerSessionId { tuner_index };
+        let mut pipeline = spawn_pipeline(commands, id)?;
+        let (_, output) = pipeline.take_endpoints()?;
         let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(id.clone(), reader, time_limit, ctx)
+            Broadcaster::new(id.clone(), output, time_limit, ctx)
         });
 
         log::info!("{}: Activated with {} {}", id, channel_type, channel);
 
         Ok(TunerSession {
-            id, channel_type, channel, command, process, broadcaster,
+            id, channel_type, channel, command, pipeline, broadcaster,
             subscribers: HashMap::new(), next_serial_number: 1
         })
     }
@@ -561,7 +585,7 @@ impl TunerSession {
     ) -> (Option<String>, Option<u32>, Vec<MirakurunTunerUser>) {
         (
             Some(self.command.clone()),
-            Some(self.process.id()),
+            Some(self.pipeline.pids().as_slice().first().cloned().unwrap()),
             self.subscribers.values().map(|user| user.get_model()).collect(),
         )
     }
@@ -569,12 +593,6 @@ impl TunerSession {
 
 impl Drop for TunerSession {
     fn drop(&mut self) {
-        // Always kill the process and ignore the error.  Because there is no
-        // method to check whether the process is alive or dead.
-        let _ = self.process.kill();
-        let _ = self.process.wait();
-        log::debug!("{}: Killed {}: {}",
-                    self.id, self.process.id(), self.command);
         log::info!("{}: Deactivated", self.id);
     }
 }
@@ -583,6 +601,7 @@ impl Drop for TunerSession {
 mod tests {
     use super::*;
     use matches::assert_matches;
+    use crate::command_util::Error as CommandUtilError;
 
     #[actix_rt::test]
     async fn test_tuner_is_active() {
@@ -591,7 +610,8 @@ mod tests {
 
         assert!(!tuner.is_active());
 
-        let result = tuner.activate(ChannelType::GR, String::new());
+        let result = tuner.activate(
+            ChannelType::GR, String::new(), String::new());
         assert!(result.is_ok());
         assert!(tuner.is_active());
 
@@ -607,7 +627,8 @@ mod tests {
         {
             let config = create_config("true".to_string());
             let mut tuner = Tuner::new(0, &config);
-            let result = tuner.activate(ChannelType::GR, String::new());
+            let result = tuner.activate(
+                ChannelType::GR, String::new(), String::new());
             assert!(result.is_ok());
             tokio::task::yield_now().await;
         }
@@ -615,18 +636,20 @@ mod tests {
         {
             let config = create_config("cmd '".to_string());
             let mut tuner = Tuner::new(0, &config);
-            let result = tuner.activate(ChannelType::GR, String::new());
+            let result = tuner.activate(
+                ChannelType::GR, String::new(), String::new());
             assert_matches!(result, Err(Error::CommandFailed(
-                command_util::Error::UnableToParse(_))));
+                CommandUtilError::UnableToParse(_))));
             tokio::task::yield_now().await;
         }
 
         {
             let config = create_config("no-such-command".to_string());
             let mut tuner = Tuner::new(0, &config);
-            let result = tuner.activate(ChannelType::GR, String::new());
+            let result = tuner.activate(
+                ChannelType::GR, String::new(), String::new());
             assert_matches!(result, Err(Error::CommandFailed(
-                command_util::Error::UnableToSpawn(..))));
+                CommandUtilError::UnableToSpawn(..))));
             tokio::task::yield_now().await;
         }
     }
@@ -634,11 +657,12 @@ mod tests {
     #[actix_rt::test]
     async fn test_tuner_stop_streaming() {
         let config = create_config("true".to_string());
-        let mut tuner = Tuner::new(0, &config);
+        let mut tuner = Tuner::new(1, &config);
         let result = tuner.stop_streaming(Default::default());
         assert_matches!(result, Err(Error::SessionNotFound));
 
-        let result = tuner.activate(ChannelType::GR, String::new());
+        let result = tuner.activate(
+            ChannelType::GR, String::new(), String::new());
         assert!(result.is_ok());
         let subscription = tuner.subscribe(TunerUser {
             info: TunerUserInfo::Web { remote: None, agent: None },
@@ -660,7 +684,8 @@ mod tests {
         let mut tuner = Tuner::new(0, &config);
         assert!(tuner.can_grab(0.into()));
 
-        tuner.activate(ChannelType::GR, "1".to_string()).unwrap();
+        tuner.activate(
+            ChannelType::GR, "1".to_string(), String::new()).unwrap();
         tuner.subscribe(create_user(0.into()));
 
         assert!(!tuner.can_grab(0.into()));
@@ -689,12 +714,14 @@ mod tests {
     async fn test_tuner_reactivate() {
         let config = create_config("true".to_string());
         let mut tuner = Tuner::new(0, &config);
-        tuner.activate(ChannelType::GR, "1".to_string()).ok();
+        tuner.activate(
+            ChannelType::GR, "1".to_string(), String::new()).ok();
 
         tokio::task::yield_now().await;
 
         tuner.deactivate();
-        let result = tuner.activate(ChannelType::GR, "2".to_string());
+        let result = tuner.activate(
+            ChannelType::GR, "2".to_string(), String::new());
         assert!(result.is_ok());
 
         tokio::task::yield_now().await;

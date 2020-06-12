@@ -50,8 +50,10 @@ pub async fn track_airtime(
         .build();
     let cmd = template.render_data_to_string(&data)?;
 
-    let (input, output) = command_util::spawn_pipeline(
+    let mut pipeline = command_util::spawn_pipeline(
         vec![cmd], stream.id())?;
+
+    let (input, output) = pipeline.take_endpoints().unwrap();
 
     let stop_trigger = stream.take_stop_trigger();
 
@@ -62,6 +64,8 @@ pub async fn track_airtime(
     let quad = program.quad;
     actix::spawn(async move {
         let _ = update_airtime(quad, output, epg).await;
+        // Keep the pipeline until the tracker stops.
+        drop(pipeline);
     });
 
     Ok(stop_trigger)

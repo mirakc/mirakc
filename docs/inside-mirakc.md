@@ -29,7 +29,12 @@ Broadcaster
 mirakc has a pipeline to process MPEG-TS packets.
 
 ```
-  tuner-command (external process)
++------------ CommandPipeline ----------------+
+| tuner-command (external process)            |
+|   |                                         |
+|   V                                         |
+| tuner-filter (external process) [for debug] |
++---|-----------------------------------------+
     |
 +---V------ Broadcaster -----------------+
 | tokio::sync::mpsc::channel (as buffer) |

@@ -149,7 +149,7 @@ impl TunerConfig {
 #[serde(deny_unknown_fields)]
 pub struct FiltersConfig {
     #[serde(default)]
-    pub debug_filter: String,
+    pub tuner_filter: String,
     #[serde(default)]
     pub pre_filter: String,
     #[serde(default = "FiltersConfig::default_service_filter")]
@@ -180,7 +180,7 @@ impl FiltersConfig {
 impl Default for FiltersConfig {
     fn default() -> Self {
         FiltersConfig {
-            debug_filter: String::new(),
+            tuner_filter: String::new(),
             pre_filter: String::new(),
             service_filter: Self::default_service_filter(),
             program_filter: Self::default_program_filter(),
@@ -565,10 +565,22 @@ mod tests {
 
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>(r#"
+                tuner-filter: filter
+            "#).unwrap(),
+            FiltersConfig {
+                tuner_filter: "filter".to_string(),
+                pre_filter: String::new(),
+                service_filter: FiltersConfig::default_service_filter(),
+                program_filter: FiltersConfig::default_program_filter(),
+                post_filter: String::new(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<FiltersConfig>(r#"
                 pre-filter: filter
             "#).unwrap(),
             FiltersConfig {
-                debug_filter: String::new(),
+                tuner_filter: String::new(),
                 pre_filter: "filter".to_string(),
                 service_filter: FiltersConfig::default_service_filter(),
                 program_filter: FiltersConfig::default_program_filter(),
@@ -580,7 +592,7 @@ mod tests {
                 service-filter: filter
             "#).unwrap(),
             FiltersConfig {
-                debug_filter: String::new(),
+                tuner_filter: String::new(),
                 pre_filter: String::new(),
                 service_filter: "filter".to_string(),
                 program_filter: FiltersConfig::default_program_filter(),
@@ -592,7 +604,7 @@ mod tests {
                 program-filter: filter
             "#).unwrap(),
             FiltersConfig {
-                debug_filter: String::new(),
+                tuner_filter: String::new(),
                 pre_filter: String::new(),
                 service_filter: FiltersConfig::default_service_filter(),
                 program_filter: "filter".to_string(),
@@ -604,7 +616,7 @@ mod tests {
                 post-filter: filter
             "#).unwrap(),
             FiltersConfig {
-                debug_filter: String::new(),
+                tuner_filter: String::new(),
                 pre_filter: String::new(),
                 service_filter: FiltersConfig::default_service_filter(),
                 program_filter: FiltersConfig::default_program_filter(),

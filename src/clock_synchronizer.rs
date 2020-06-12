@@ -92,8 +92,10 @@ impl ClockSynchronizer {
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let (input, mut output) = command_util::spawn_pipeline(
+        let mut pipeline = command_util::spawn_pipeline(
             vec![cmd], stream.id())?;
+
+        let (input, mut output) = pipeline.take_endpoints().unwrap();
 
         let handle = tokio::spawn(stream.pipe(input));
 
@@ -102,7 +104,7 @@ impl ClockSynchronizer {
 
         // Explicitly dropping the output of the pipeline is needed.  The output
         // holds the child processes and it kills them when dropped.
-        drop(output);
+        drop(pipeline);
 
         // Wait for the task so that the tuner is released before a request for
         // streaming in the next iteration.

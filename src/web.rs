@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 
 use crate::airtime_tracker;
 use crate::chunk_stream::ChunkStream;
-use crate::command_util;
+use crate::command_util::*;
 use crate::config::{Config, ServerAddr};
 use crate::error::Error;
 use crate::epg::*;
@@ -401,12 +401,6 @@ fn make_filters(
 ) -> Result<Vec<String>, Error> {
     let mut filters = Vec::new();
 
-    if !config.filters.debug_filter.is_empty() {
-        let cmd = make_filter_command(
-            &config.filters.debug_filter, channel, sid, eid)?;
-        filters.push(cmd);
-    }
-
     if pre_filter_required {
         if config.filters.pre_filter.is_empty() {
             log::warn!("Pre-filter is required, but not defined");
@@ -467,8 +461,9 @@ fn streaming(
     } else {
         let stop_trigger2 = stream.take_stop_trigger();
 
-        let (input, output) = command_util::spawn_pipeline(
-            filters, stream.id())?;
+        let mut pipeline = spawn_pipeline(filters, stream.id())?;
+
+        let (input, output) = pipeline.take_endpoints()?;
 
         let stream_id = stream.id();
         actix::spawn(async {
@@ -510,6 +505,8 @@ fn streaming(
                 // iteration.
                 tokio::task::yield_now().await;
             }
+
+            drop(pipeline);
         });
 
         do_streaming(MpegTsStreamTerminator::new(
