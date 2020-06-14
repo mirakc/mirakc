@@ -16,6 +16,7 @@ suitable for your environment.
 | [channels\[\].name]              |                                           |
 | [channels\[\].type]              |                                           |
 | [channels\[\].channel]           |                                           |
+| [channels\[\].extra-args]        | `''`                                      |
 | [channels\[\].services]          | `[]`                                      |
 | [channels\[\].excluded-services] | `[]`                                      |
 | [channels\[\].disabled]          | `false`                                   |
@@ -44,6 +45,7 @@ suitable for your environment.
 [channels\[\].name]: #channels
 [channels\[\].type]: #channels
 [channels\[\].channel]: #channels
+[channels\[\].extra-args]: #channels
 [channels\[\].services]: #channels
 [channels\[\].excluded-services]: #channels
 [channels\[\].disabled]: #channels
@@ -161,6 +163,8 @@ Definitions of channels.  At least, one channel must be defined.
   * One of channel types in `GR`, `BS`, `CS` and `SKY`
 * channel
   * A channel parameter used in a tuner command template
+* extra-args
+  * Extra arguments used in a tuner command template
 * services
   * A list of SIDs (service identifiers) which must be included
   * An empty list means that all services found are included
@@ -194,6 +198,19 @@ channels:
     type: BS
     channel: BS11_2
     excluded-services: [531]
+
+  # Extra arguments for szap-s2j
+  - name: BS SPTV
+    type: SKY
+    channel: CH585
+    extra-args: '-l JCSAT3A'
+    serviceId: [33353]
+
+  # Extra arguments for BonRecTest
+  - name: ND02
+    type: CS
+    channel: '000'
+    extra-args: '--space 1'
 ```
 
 ## tuners
@@ -223,6 +240,8 @@ Command template variables:
   * A duration to open the tuner in seconds
   * `-` means that the tuner is opened until the process terminates
   * TODO: `-` is always specified in the duration variable at this moment
+* extra_args
+  * The `extra-args` property of a channel defined in the `channels`
 
 Cascading upstream Mirakurun-compatible servers is unsupported.  However, it's
 possible to use upstream Mirakurun-compatible servers as tuners.  See the sample

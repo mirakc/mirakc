@@ -80,8 +80,7 @@ impl ClockSynchronizer {
         };
 
         let stream = stream_manager.send(StartStreamingMessage {
-            channel_type: channel.channel_type,
-            channel: channel.channel.clone(),
+            channel: channel.clone(),
             user
         }).await??;
 
@@ -157,6 +156,7 @@ mod tests {
             name: "channel".to_string(),
             channel_type: ChannelType::GR,
             channel: "0".to_string(),
+            extra_args: "".to_string(),
             services: vec![],
             excluded_services: vec![],
         }];

@@ -235,9 +235,7 @@ async fn get_channel_stream(
         query.pre_filter_required(), query.post_filter_required())?;
 
     let stream = tuner_manager.send(StartStreamingMessage {
-        channel_type: path.channel_type,
-        channel: path.channel.clone(),
-        user
+        channel, user
     }).await??;
 
     streaming(&config, stream, filters, None)
@@ -258,7 +256,7 @@ async fn get_channel_service_stream(
     }).await??;
 
     do_get_service_stream(
-        config, tuner_manager, &channel, path.sid, query, user).await
+        config, tuner_manager, channel, path.sid, query, user).await
 }
 
 #[actix_web::get("/services/{id}/stream")]
@@ -276,7 +274,7 @@ async fn get_service_stream(
     }).await??;
 
     do_get_service_stream(
-        config, tuner_manager, &service.channel, service.sid, query, user).await
+        config, tuner_manager, service.channel, service.sid, query, user).await
 }
 
 #[actix_web::get("/programs/{id}/stream")]
@@ -308,8 +306,7 @@ async fn get_program_stream(
         query.pre_filter_required(), query.post_filter_required())?;
 
     let stream = tuner_manager.send(StartStreamingMessage {
-        channel_type: service.channel.channel_type,
-        channel: service.channel.channel.clone(),
+        channel: service.channel.clone(),
         user
     }).await??;
 
@@ -334,19 +331,17 @@ async fn get_docs(
 async fn do_get_service_stream(
     config: actix_web::web::Data<Arc<Config>>,
     tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
-    channel: &EpgChannel,
+    channel: EpgChannel,
     sid: ServiceId,
     query: actix_web::web::Query<StreamQuery>,
     user: TunerUser
 ) -> ApiResult {
     let filters = make_service_filters(
-        &config, channel, sid,
+        &config, &channel, sid,
         query.pre_filter_required(), query.post_filter_required())?;
 
     let stream = tuner_manager.send(StartStreamingMessage {
-        channel_type: channel.channel_type,
-        channel: channel.channel.clone(),
-        user
+        channel, user
     }).await??;
 
     streaming(&config, stream, filters, None)
@@ -1045,6 +1040,7 @@ mod tests {
                         name: "".to_string(),
                         channel_type: msg.channel_type,
                         channel: msg.channel.clone(),
+                        extra_args: "".to_string(),
                         services: Vec::new(),
                         excluded_services: Vec::new(),
                     })
@@ -1071,6 +1067,7 @@ mod tests {
                                     name: "test".to_string(),
                                     channel_type: ChannelType::GR,
                                     channel: "test".to_string(),
+                                    extra_args: "".to_string(),
                                     services: Vec::new(),
                                     excluded_services: Vec::new(),
                                 },

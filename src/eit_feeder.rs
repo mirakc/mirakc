@@ -56,6 +56,7 @@ impl EitFeeder {
                     name: sv.channel.name.clone(),
                     channel_type: sv.channel.channel_type,
                     channel: sv.channel.channel.clone(),
+                    extra_args: sv.channel.extra_args.clone(),
                     services: vec![sv.sid],
                     excluded_services: vec![],
                 });
@@ -161,8 +162,7 @@ impl EitCollector {
         };
 
         let stream = tuner_manager.send(StartStreamingMessage {
-            channel_type: channel.channel_type,
-            channel: channel.channel.clone(),
+            channel: channel.clone(),
             user
         }).await??;
 

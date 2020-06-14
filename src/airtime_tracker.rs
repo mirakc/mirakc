@@ -38,8 +38,7 @@ pub async fn track_airtime(
     };
 
     let mut stream = tuner_manager.send(StartStreamingMessage {
-        channel_type: channel.channel_type,
-        channel: channel.channel.clone(),
+        channel: channel.clone(),
         user
     }).await??;
 

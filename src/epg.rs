@@ -1038,8 +1038,15 @@ pub struct EpgChannel {
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
     pub channel: String,
+    pub extra_args: String,
     pub services: Vec<ServiceId>,
     pub excluded_services: Vec<ServiceId>,
+}
+
+impl fmt::Display for EpgChannel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.channel_type, self.channel)
+    }
 }
 
 impl From<ChannelConfig> for EpgChannel {
@@ -1048,6 +1055,7 @@ impl From<ChannelConfig> for EpgChannel {
             name: config.name,
             channel_type: config.channel_type,
             channel: config.channel,
+            extra_args: config.extra_args,
             services: config.services,
             excluded_services: config.excluded_services,
         }
@@ -1195,16 +1203,18 @@ mod tests {
             name: "ch1".to_string(),
             channel_type: ChannelType::GR,
             channel: "1".to_string(),
-            services: Vec::new(),
-            excluded_services: Vec::new(),
+            extra_args: "".to_string(),
+            services: vec![],
+            excluded_services: vec![],
         };
 
         let ch2 = EpgChannel {
             name: "ch2".to_string(),
             channel_type: ChannelType::GR,
             channel: "2".to_string(),
-            services: Vec::new(),
-            excluded_services: Vec::new(),
+            extra_args: "".to_string(),
+            services: vec![],
+            excluded_services: vec![],
         };
 
         let triple1_1 = ServiceTriple::from((1, 1, 1));
@@ -1586,6 +1596,7 @@ mod tests {
                 name: "Ch".to_string(),
                 channel_type,
                 channel: "ch".to_string(),
+                extra_args: String::new(),
                 services: Vec::new(),
                 excluded_services: Vec::new(),
             }

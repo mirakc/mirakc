@@ -117,6 +117,8 @@ pub struct ChannelConfig {
     pub channel_type: ChannelType,
     pub channel: String,
     #[serde(default)]
+    pub extra_args: String,
+    #[serde(default)]
     pub services: Vec<ServiceId>,
     #[serde(default)]
     pub excluded_services: Vec<ServiceId>,
@@ -435,6 +437,24 @@ mod tests {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
                 channel: "y".to_string(),
+                extra_args: "".to_string(),
+                services: vec![],
+                excluded_services: vec![],
+                disabled: false,
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<ChannelConfig>(r#"
+                name: x
+                type: GR
+                channel: y
+                extra-args: "--extra args"
+            "#).unwrap(),
+            ChannelConfig {
+                name: "x".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "y".to_string(),
+                extra_args: "--extra args".to_string(),
                 services: vec![],
                 excluded_services: vec![],
                 disabled: false,
@@ -451,6 +471,7 @@ mod tests {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
                 channel: "y".to_string(),
+                extra_args: "".to_string(),
                 services: vec![],
                 excluded_services: vec![],
                 disabled: true,
@@ -467,6 +488,7 @@ mod tests {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
                 channel: "y".to_string(),
+                extra_args: "".to_string(),
                 services: vec![],
                 excluded_services: vec![100.into()],
                 disabled: false,
