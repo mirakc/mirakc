@@ -13,7 +13,6 @@ actix-rt = "1.0"
 actix-service = "1.0"
 actix-web = "2.0"
 bytes = "0.5"
-cfg-if = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = "2.33"
 cron = "0.6"
@@ -32,7 +31,6 @@ serde_yaml = "0.8"
 shell-words = "1.0"
 tokio = { version = "0.2", features = ["full"] }
 tracing = "0.1"
-tracing-futures = "0.2"
 tracing-subscriber = "0.2"
 
 [dev-dependencies]

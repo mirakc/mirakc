@@ -1017,7 +1017,6 @@ dependencies = [
  "actix-service 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-web 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "cfg-if 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "cron 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1037,7 +1036,6 @@ dependencies = [
  "shell-words 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.2.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)",
- "tracing-futures 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing-subscriber 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1538,15 +1536,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-futures"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "pin-project 0.4.20 (registry+https://github.com/rust-lang/crates.io-index)",
- "tracing 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "tracing-log"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1940,7 +1929,6 @@ dependencies = [
 "checksum tracing 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)" = "a41f40ed0e162c911ac6fcb53ecdc8134c46905fdbbae8c50add462a538b495f"
 "checksum tracing-attributes 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)" = "99bbad0de3fd923c9c3232ead88510b783e5a4d16a6154adffa3d53308de984c"
 "checksum tracing-core 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)" = "0aa83a9a47081cd522c09c81b31aec2c9273424976f922ad61c053b58350b715"
-"checksum tracing-futures 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)" = "ab7bb6f14721aa00656086e9335d363c5c8747bae02ebe32ea2c7dece5689b4c"
 "checksum tracing-log 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "5e0f8c7178e13481ff6765bd169b33e8d554c5d2bbede5e32c356194be02b9b9"
 "checksum tracing-serde 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "b6ccba2f8f16e0ed268fc765d9b7ff22e965e7185d32f8f1ec8294fe17d86e79"
 "checksum tracing-subscriber 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "1d53c40489aa69c9aed21ff483f26886ca8403df33bdc2d2f87c60c1617826d2"
