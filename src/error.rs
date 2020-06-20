@@ -11,6 +11,8 @@ use crate::command_util;
 
 #[derive(Debug, Fail)]
 pub enum Error {
+    #[fail(display = "Streaming timed out")]
+    StreamingTimedOut,
     #[fail(display = "Tuner unavailable")]
     TunerUnavailable,
     #[fail(display = "Channel not found")]

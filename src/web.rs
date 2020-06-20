@@ -2,6 +2,7 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use actix::prelude::*;
 use actix_files;
@@ -9,9 +10,8 @@ use actix_service;
 use actix_web;
 use bytes::Bytes;
 use futures;
+use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::stream::Stream;
-use tokio::stream::StreamExt;
 use tokio::sync::mpsc;
 
 use crate::airtime_tracker;
@@ -84,6 +84,12 @@ struct ErrorBody {
 impl actix_web::ResponseError for Error {
     fn error_response(&self) -> actix_web::HttpResponse {
         match *self {
+            Error::StreamingTimedOut =>
+                actix_web::HttpResponse::RequestTimeout().json(ErrorBody {
+                    code: actix_web::http::StatusCode::REQUEST_TIMEOUT.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
             Error::TunerUnavailable =>
                 actix_web::HttpResponse::NotFound().json(ErrorBody {
                     code: actix_web::http::StatusCode::NOT_FOUND.as_u16(),
@@ -238,7 +244,7 @@ async fn get_channel_stream(
         channel, user
     }).await??;
 
-    streaming(&config, stream, filters, None)
+    streaming(&config, stream, filters, None).await
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
@@ -315,7 +321,15 @@ async fn get_program_stream(
         stream.id(), tuner_manager.get_ref().clone(), epg.get_ref().clone()
     ).await?;
 
-    streaming(&config, stream, filters, stop_trigger)
+    let result = streaming(&config, stream, filters, stop_trigger).await;
+
+    match result {
+        Err(Error::ProgramNotFound) =>
+            log::warn!("No stream for the program#{}, maybe canceled", path.id),
+        _ => (),
+    }
+
+    result
 }
 
 #[actix_web::get("/docs")]
@@ -344,7 +358,7 @@ async fn do_get_service_stream(
         channel, user
     }).await??;
 
-    streaming(&config, stream, filters, None)
+    streaming(&config, stream, filters, None).await
 }
 
 fn make_service_filters(
@@ -445,14 +459,14 @@ fn make_filter_command(
     Ok(template.render_data_to_string(&data)?)
 }
 
-fn streaming(
+async fn streaming(
     config: &Config,
     mut stream: MpegTsStream,
     filters: Vec<String>,
     stop_trigger: Option<MpegTsStreamStopTrigger>,
 ) -> ApiResult {
     if filters.is_empty() {
-        do_streaming(stream)
+        do_streaming(stream, config.server.stream_time_limit).await
     } else {
         let stop_trigger2 = stream.take_stop_trigger();
 
@@ -504,20 +518,39 @@ fn streaming(
             drop(pipeline);
         });
 
-        do_streaming(MpegTsStreamTerminator::new(
-            receiver, [stop_trigger, stop_trigger2]))
+        do_streaming(
+            MpegTsStreamTerminator::new(receiver, [stop_trigger, stop_trigger2]),
+            config.server.stream_time_limit).await
     }
 }
 
-fn do_streaming<S>(stream: S) -> ApiResult
+async fn do_streaming<S>(stream: S, time_limit: u64) -> ApiResult
 where
+    // actix_web::dev::HttpResponseBuilder::streaming() requires 'static...
     S: Stream<Item = io::Result<Bytes>> + Unpin + 'static,
 {
-    Ok(actix_web::HttpResponse::Ok()
-       .force_close()
-       .set_header("cache-control", "no-store")
-       .set_header("content-type", "video/MP2T")
-       .streaming(stream))
+    // No data is sent to the client until the first TS packet comes from the
+    // streaming pipeline.
+    let mut peekable = stream.peekable();
+    let fut = Pin::new(&mut peekable).peek();
+    match tokio::time::timeout(Duration::from_millis(time_limit), fut).await {
+        Ok(None) => {
+            // No packets come from the pipeline, maybe the program has been
+            // canceled.
+            Err(Error::ProgramNotFound)
+        }
+        Err(_) => {
+            Err(Error::StreamingTimedOut)
+        }
+        Ok(_) =>  {
+            // Send the response headers and start streaming.
+            Ok(actix_web::HttpResponse::Ok()
+               .force_close()
+               .set_header("cache-control", "no-store")
+               .set_header("content-type", "video/MP2T")
+               .streaming(peekable.into_inner()))
+        }
+    }
 }
 
 // extractors
@@ -732,6 +765,7 @@ mod tests {
     use super::*;
     use std::net::SocketAddr;
     use actix_http;
+    use matches::*;
     use crate::broadcaster::BroadcasterStream;
 
     async fn request(req: actix_http::Request) -> actix_web::HttpResponse {
@@ -819,6 +853,9 @@ mod tests {
         let res = get("/api/channels/WOWOW/ch/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
 
+        let res = get("/api/channels/GR/xx/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+
         let decode_values = [0, 1];
 
         let valid_pairs =
@@ -864,6 +901,13 @@ mod tests {
                 decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+
+        for decode in &decode_values {
+            let res = get(format!(
+                "/api/channels/WOWOW/ch/services/2/stream?decode={}",
+                decode).as_str()).await;
+            assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+        }
     }
 
     #[actix_rt::test]
@@ -887,6 +931,12 @@ mod tests {
                                   decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+
+        for decode in &decode_values {
+            let res = get(format!("/api/services/2/stream?decode={}",
+                                  decode).as_str()).await;
+            assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+        }
     }
 
     #[actix_rt::test]
@@ -907,6 +957,12 @@ mod tests {
 
         for decode in &decode_values {
             let res = get(format!("/api/programs/0/stream?decode={}",
+                                  decode).as_str()).await;
+            assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+        }
+
+        for decode in &decode_values {
+            let res = get(format!("/api/programs/200001/stream?decode={}",
                                   decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
@@ -994,6 +1050,15 @@ mod tests {
         assert!(!is_private_ip_addr("8.8.8.8".parse().unwrap()));
     }
 
+    #[actix_rt::test]
+    async fn test_do_streaming() {
+        let result = do_streaming(futures::stream::empty(), 1000).await;
+        assert_matches!(result, Err(Error::ProgramNotFound));
+
+        let result = do_streaming(futures::stream::pending(), 1).await;
+        assert_matches!(result, Err(Error::StreamingTimedOut));
+    }
+
     fn config_for_test() -> Arc<Config> {
         let mut config = Config::default();
         // Disable all filters
@@ -1014,11 +1079,19 @@ mod tests {
             if let Some(_) = msg.downcast_ref::<QueryTunersMessage>() {
                 Box::<Option<Result<Vec<MirakurunTuner>, Error>>>::new(
                     Some(Ok(Vec::new())))
-            } else if let Some(_) = msg.downcast_ref::<StartStreamingMessage>() {
-                let (_, stream) = BroadcasterStream::new_for_test();
-                let result = Ok(MpegTsStream::new(
-                    Default::default(), stream, ctx.address().recipient()));
-                Box::<Option<Result<MpegTsStream, Error>>>::new(Some(result))
+            } else if let Some(msg) = msg.downcast_ref::<StartStreamingMessage>() {
+                if msg.channel.channel == "ch" {
+                    let (mut tx, stream) = BroadcasterStream::new_for_test();
+                    let _ = tx.try_send(Bytes::from("hi"));
+                    let result = Ok(MpegTsStream::new(
+                        Default::default(), stream, ctx.address().recipient()));
+                    Box::<Option<Result<MpegTsStream, Error>>>::new(Some(result))
+                } else {
+                    let (_, stream) = BroadcasterStream::new_for_test();
+                    let result = Ok(MpegTsStream::new(
+                        Default::default(), stream, ctx.address().recipient()));
+                    Box::<Option<Result<MpegTsStream, Error>>>::new(Some(result))
+                }
             } else if let Some(_) = msg.downcast_ref::<StopStreamingMessage>() {
                 Box::<Option<()>>::new(Some(()))
             } else {
@@ -1037,7 +1110,7 @@ mod tests {
                     Err(Error::ChannelNotFound)
                 } else {
                     Ok(EpgChannel {
-                        name: "".to_string(),
+                        name: "test".to_string(),
                         channel_type: msg.channel_type,
                         channel: msg.channel.clone(),
                         extra_args: "".to_string(),
@@ -1055,6 +1128,11 @@ mod tests {
                         if sid.value() == 0 {
                             Err(Error::ServiceNotFound)
                         } else {
+                            let channel = if sid.value() == 1 {
+                                "ch"
+                            } else {
+                                ""
+                            };
                             Ok(EpgService {
                                 nid: *nid,
                                 tsid: 0.into(),
@@ -1066,7 +1144,7 @@ mod tests {
                                 channel: EpgChannel {
                                     name: "test".to_string(),
                                     channel_type: ChannelType::GR,
-                                    channel: "test".to_string(),
+                                    channel: channel.to_string(),
                                     extra_args: "".to_string(),
                                     services: Vec::new(),
                                     excluded_services: Vec::new(),

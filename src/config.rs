@@ -68,6 +68,8 @@ pub struct ServerConfig {
     pub stream_max_chunks: usize,
     #[serde(default = "ServerConfig::default_stream_chunk_size")]
     pub stream_chunk_size: usize,
+    #[serde(default = "ServerConfig::default_stream_time_limit")]
+    pub stream_time_limit: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -95,6 +97,10 @@ impl ServerConfig {
         // TODO: The same value is defined in the broadcaster module.
         4096 * 8
     }
+
+    fn default_stream_time_limit() -> u64 {
+        16 * 1000  // 16s
+    }
 }
 
 impl Default for ServerConfig {
@@ -104,6 +110,7 @@ impl Default for ServerConfig {
             workers: Self::default_workers(),
             stream_max_chunks: Self::default_stream_max_chunks(),
             stream_chunk_size: Self::default_stream_chunk_size(),
+            stream_time_limit: Self::default_stream_time_limit(),
         }
     }
 }
@@ -142,7 +149,7 @@ pub struct TunerConfig {
 
 impl TunerConfig {
     fn default_time_limit() -> u64 {
-        30 * 1000  // ms
+        30 * 1000  // 30s
     }
 }
 
@@ -168,14 +175,19 @@ impl FiltersConfig {
     }
 
     fn default_program_filter() -> String {
-        // The --pre-streaming option is used in order to avoid the issue#1313
-        // in actix/actix-web.  PAT TS packets will be sent before the program
-        // starts.
+        // The --pre-streaming option is NOT used anymore due to the issue#30.
+        // Without the --pre-streaming option, actix-web cannot detect the
+        // client disconnection until trying to write data to the socket.  In
+        // the worst case, the client disconnect is not detected for a few
+        // seconds which depends on a transmission interval of EIT p/f packets.
         //
-        // See masnagam/rust-case-studies for details.
+        // The --pre-streaming was added in order to avoid the issue#1313 in
+        // actix/actix-web.  PAT TS packets will be sent before the program
+        // starts when this option is specified.  See masnagam/rust-case-studies
+        // for details about the issue#1313.
         "mirakc-arib filter-program --sid={{sid}} --eid={{eid}} \
          --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} \
-         --end-margin=2000 --pre-streaming".to_string()
+         --end-margin=2000".to_string()
     }
 }
 
@@ -351,6 +363,7 @@ mod tests {
                 workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
             });
 
         assert_eq!(
@@ -365,6 +378,7 @@ mod tests {
                 workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
             });
 
         assert_eq!(
@@ -381,6 +395,7 @@ mod tests {
                 workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
             });
 
         assert_eq!(
@@ -392,6 +407,7 @@ mod tests {
                 workers: 2,
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
             });
 
         assert_eq!(
@@ -403,6 +419,7 @@ mod tests {
                 workers: ServerConfig::default_workers(),
                 stream_max_chunks: 1000,
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
             });
 
         assert_eq!(
@@ -414,6 +431,19 @@ mod tests {
                 workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: 10000,
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<ServerConfig>(r#"
+                stream-time-limit: 10000
+            "#).unwrap(),
+            ServerConfig {
+                addrs: ServerConfig::default_addrs(),
+                workers: ServerConfig::default_workers(),
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: 10000,
             });
 
         let result = serde_yaml::from_str::<ServerConfig>(r#"

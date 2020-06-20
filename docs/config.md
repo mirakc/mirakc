@@ -13,6 +13,7 @@ suitable for your environment.
 | [server.workers]                 | The number of CPUs                        |
 | [server.stream-chunk-size]       | `32768` (32KiB)                           |
 | [server.stream-max-chunks]       | `1000`                                    |
+| [server.stream-time-limit]       | `16000` (16s)                             |
 | [channels\[\].name]              |                                           |
 | [channels\[\].type]              |                                           |
 | [channels\[\].channel]           |                                           |
@@ -42,6 +43,7 @@ suitable for your environment.
 [server.workers]: #server.workers
 [server.stream-chunk-size]: #server.stream-chunk-size
 [server.stream-max-chunks]: #server.stream-max-chunks
+[server.stream-time-limit]: #server.stream-time-limit
 [channels\[\].name]: #channels
 [channels\[\].type]: #channels
 [channels\[\].channel]: #channels
@@ -152,6 +154,24 @@ Chunks are dropped when the buffer is full.
 
 The default maximum number of chunks is 1000 which is large enough for 10
 seconds buffering if the chunk size is 32 KiB.
+
+## server.stream-time-limit
+
+The time limit for a streaming request.  The request will fail when the time
+reached this limit.
+
+```yaml
+server:
+  stream-time-limit: 20000
+```
+
+The value must be larger than `prepTime` defined in [EPGStation](https://github.com/l3tnun/EPGStation/blob/v1.6.9/src/server/Model/Operator/Recording/RecordingManageModel.ts#L45),
+which is `15000` (15s) in v1.6.9.
+
+This property is needed for avoiding the issue#1313 in actix-web in a streaming
+request for a TV program.  In this case, no data is sent to the client until the
+first TS packet comes from the streaming pipeline.  actix-web cannot detect the
+client disconnect all that time due to the issue#1313.
 
 ## channels
 
