@@ -191,7 +191,7 @@ impl Epg {
                 log::debug!("Loading schedules from {}...",
                             json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                let services: HashMap<ServiceTriple, EpgService> =
+                let services: IndexMap<ServiceTriple, EpgService> =
                     serde_json::from_reader(reader)?;
                 // Drop a service if the channel of the service has been
                 // changed.
