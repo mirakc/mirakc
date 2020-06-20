@@ -1038,6 +1038,7 @@ pub struct EpgChannel {
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
     pub channel: String,
+    #[serde(default)]
     pub extra_args: String,
     pub services: Vec<ServiceId>,
     pub excluded_services: Vec<ServiceId>,
