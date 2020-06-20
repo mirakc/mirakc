@@ -6,13 +6,13 @@ FROM rust:slim-buster AS buildenv
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Use an old cross-compiler which is based on the same version of musl as
-# alpine:3.11.
+# alpine:3.12.
 #
 # The latest one is based on #241263 (2019-12-20) for time64 support.  On the
 # other hand, alpine:3.11 supports musl/1.1.24 which doesn't support time64.
 #
 # * https://musl.cc/
-# * https://pkgs.alpinelinux.org/packages?name=musl&branch=v3.11
+# * https://pkgs.alpinelinux.org/packages?name=musl&branch=v3.12
 #
 ARG MUSLCC_BASE_URL=https://more.musl.cc/9.2.1-20191012/x86_64-linux-musl
 

@@ -23,7 +23,7 @@ RUN cp /build/target/{RUST_TARGET_TRIPLE}/release/mirakc /usr/local/bin/
 
 
 # final image
-FROM {ARCH}/alpine:3.11
+FROM {ARCH}/alpine:3.12
 LABEL maintainer="Masayuki Nagamachi <masnagam@gmail.com>"
 
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
