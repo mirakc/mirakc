@@ -9,6 +9,8 @@ use serde_yaml;
 use crate::models::{ChannelType, ServiceId};
 
 pub fn load(config_path: &str) -> Arc<Config> {
+    const SERVER_STREAM_TIME_LIMIT_MIN: u64 = 15_000;
+
     let reader = File::open(config_path)
         .unwrap_or_else(|err| {
             panic!("Failed to open {}: {}", config_path, err);
@@ -17,6 +19,12 @@ pub fn load(config_path: &str) -> Arc<Config> {
         .unwrap_or_else(|err| {
             panic!("Failed to parse {}: {}", config_path, err);
         });
+    if config.server.stream_time_limit < SERVER_STREAM_TIME_LIMIT_MIN {
+        log::warn!("server.stream_time_limit must be larger than {0}, \
+                    reset it to {0}", SERVER_STREAM_TIME_LIMIT_MIN);
+        config.server.stream_time_limit = SERVER_STREAM_TIME_LIMIT_MIN;
+    }
+
     config.last_modified = std::fs::metadata(config_path)
         .map(|metadata| metadata.modified().ok()).ok().flatten();
     Arc::new(config)
