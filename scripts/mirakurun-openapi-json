@@ -17,7 +17,7 @@ IMAGE='mirakurun-openapi-json/mirakurun'
 CLEAN=no
 PORT=40772
 WAIT=2
-VERSION=
+VERSION=latest
 CONTAINER=
 
 help() {
@@ -26,7 +26,7 @@ Print OpenAPI/Swagger JSON obtained from Mirakurun
 
 USAGE:
   mirakurun-openapi-json -h | --help
-  mirakurun-openapi-json <version>
+  mirakurun-openapi-json [version]
 
 OPTIONS:
   -h, --help
@@ -42,15 +42,16 @@ OPTIONS:
     Time to wait for Mirakurun to start (seconds).
 
 ARGUMENTS:
-  version
-    Mirakurun version like 2.14.0.
+  version  [default: $VERSION]
+    Mirakurun version like 3.1.0, which is one of available tags for the
+    chinachu/mirakurun Docker image.
 
 DESCRIPTION:
   This script obtains OpenAPI/Swagger JSON from Mirakurun launched on a Docker
   container.
 
 TYPICAL USAGE:
-  mirakurun-openapi-json -c 2.14.0 >/path/to/mirakurun.openapi.json
+  mirakurun-openapi-json -c >/path/to/mirakurun.openapi.json
 EOF
   exit 0
 }
@@ -71,8 +72,8 @@ clean() {
     echo "Removed $CONTAINER" >&2
   fi
   if [ "$CLEAN" = yes ]; then
-    $DOCKER image rm -f $IMAGE $BASE_IMAGE >/dev/null
-    echo "Removed $IMAGE and $BASE_IMAGE" >&2
+    $DOCKER image rm -f $IMAGE >/dev/null
+    echo "Removed $IMAGE" >&2
   fi
 }
 
@@ -100,36 +101,16 @@ do
   esac
 done
 
-if [ $# -eq 0 ]; then
-  error "version is required"
+if [ $# -gt 0 ]; then
+  VERSION="$1"
 fi
 
-VERSION="$1"
+IMAGE="chinachu/mirakurun:$VERSION"
 
 trap "clean" EXIT
 
-# There is no official image unfortunately...
-log "Building Docker image for Mirakurun/$VERSION..."
-cat <<EOF | $DOCKER build -t $IMAGE - >/dev/null
-FROM $BASE_IMAGE
-LABEL maintainer="Masayuki Nagamachi <masnagam@gmail.com>"
-
-ENV DOCKER=YES
-
-RUN set -eux \\
- && npm i -g --production --unsafe-perm mirakurun@$VERSION \\
- # cleanup
- && npm cache clean --force \\
- && rm -rf /var/tmp/* \\
- && rm -rf /tmp/*
-
-WORKDIR /usr/local/lib/node_modules/mirakurun
-EXPOSE 40772
-CMD ["npm", "start"]
-EOF
-
-log "Starting Mirakurun/$VERSION..."
-CONTAINER=$($DOCKER run --rm -d --cap-add SYS_ADMIN --cap-add SYS_NICE \
+log "Launching $IMAGE..."
+CONTAINER=$($DOCKER run --rm --init -d --cap-add SYS_ADMIN --cap-add SYS_NICE \
               -p $PORT:40772 $IMAGE)
 
 log "Waiting $WAIT seconds..."
