@@ -39,9 +39,20 @@ process.stdin.on('end', () => {
 
   swagger.paths = paths;
 
-  delete swagger.paths['/channels'].parameters;
-  delete swagger.paths['/services'].parameters;
-  delete swagger.paths['/programs'].parameters;
+  // `swagger.paths[].parameters` must exist even when it's an empty array.
+  // That causes the following error in EPGStation:
+  //
+  //   [ERROR] system - mirakurun updater failed
+  //   [ERROR] system - TypeError: p.parameters is not iterable
+  //     at Client.call (/app/node_modules/mirakurun/lib/client.js:99:36)
+  //     at processTicksAndRejections (internal/process/task_queues.js:97:5)
+  //     at async Client.getServices (/app/node_modules/mirakurun/lib/client.js:186:21)
+  //   [ERROR] system - MirakurunUpdater abort
+  //
+  // `swagger.paths[].<method>.parameters` can be omitted without any error.
+  delete swagger.paths['/channels'].get.parameters;
+  delete swagger.paths['/services'].get.parameters;
+  delete swagger.paths['/programs'].get.parameters;
 
   swagger.definitions.Version = {
     type: 'string',
