@@ -407,6 +407,10 @@ impl MirakurunServiceId {
             nid.value() as u64 * Self::MAGIC_NUMBER + sid.value() as u64)
     }
 
+    pub fn value(&self) -> u64 {
+        self.0
+    }
+
     pub fn nid(&self) -> NetworkId {
         NetworkId::from((self.0 / Self::MAGIC_NUMBER) as u16)
     }

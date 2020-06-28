@@ -145,6 +145,7 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_channel_service_stream)
         .service(get_service_stream)
         .service(get_program_stream)
+        .service(get_iptv_playlist)
         .service(get_docs)
 }
 
@@ -330,6 +331,32 @@ async fn get_program_stream(
     }
 
     result
+}
+
+#[actix_web::get("/iptv/playlist")]
+async fn get_iptv_playlist(
+    req: actix_web::HttpRequest,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+) -> ApiResult {
+    epg.send(QueryServicesMessage).await?
+        .map(|services| {
+            let conn = req.connection_info();
+            let mut lines = vec!["#EXTM3U".to_string()];
+            for sv in services.iter().filter(|sv| sv.service_type == 1) {
+                let id = MirakurunServiceId::from(sv.triple());
+                // The following format is compatible with EPGStation.
+                // See API docs for the `/api/channel.m3u8` endpoint.
+                lines.push(format!(
+                    r#"#EXTINF:-1 tvg-id="{}" group-title="{}",{}"#,
+                    id.value(), sv.channel.channel_type, sv.name));
+                lines.push(format!(
+                    "{}://{}/api/services/{}/stream?decode=1",
+                    conn.scheme(), conn.host(), id.value()));
+            }
+            actix_web::HttpResponse::Ok()
+                .set_header("content-type", "application/x-mpegurl; charset=UTF-8")
+                .body(lines.join("\r\n"))
+        })
 }
 
 #[actix_web::get("/docs")]
@@ -1022,6 +1049,12 @@ mod tests {
         let query = actix_web::web::Query::<StreamQuery>::from_query(
             "post-filter=false&decode=1").unwrap().into_inner();
         assert_eq!(query.post_filter_required(), false);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_iptv_playlist() {
+        let res = get("/api/iptv/playlist").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
     #[actix_rt::test]
