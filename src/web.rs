@@ -849,6 +849,21 @@ mod tests {
     }
 
     #[actix_rt::test]
+    async fn test_get_services() {
+        let res = get("/api/services").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_service() {
+        let res = get("/api/services/1").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/services/0").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+    }
+
+    #[actix_rt::test]
     async fn test_get_programs() {
         let res = get("/api/programs").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
