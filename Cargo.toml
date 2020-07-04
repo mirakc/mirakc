@@ -7,7 +7,7 @@ edition = "2018"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-actix = "0.9"
+actix = { git = "https://github.com/actix/actix.git", version = "0.10.0-alpha.3" }
 actix-files = "0.2"
 actix-rt = "1.0"
 actix-service = "1.0"
