@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -48,6 +49,10 @@ pub struct Config {
     pub tuners: Vec<TunerConfig>,
     #[serde(default)]
     pub filters: FiltersConfig,
+    #[serde(default)]
+    pub pre_filters: HashMap<String, FilterConfig>,
+    #[serde(default)]
+    pub post_filters: HashMap<String, PostFilterConfig>,
     #[serde(default)]
     pub jobs: JobsConfig,
     #[serde(default)]
@@ -166,23 +171,23 @@ impl TunerConfig {
 #[serde(deny_unknown_fields)]
 pub struct FiltersConfig {
     #[serde(default)]
-    pub tuner_filter: String,
-    #[serde(default)]
-    pub pre_filter: String,
+    pub tuner_filter: FilterConfig,
     #[serde(default = "FiltersConfig::default_service_filter")]
-    pub service_filter: String,
+    pub service_filter: FilterConfig,
     #[serde(default = "FiltersConfig::default_program_filter")]
-    pub program_filter: String,
+    pub program_filter: FilterConfig,
     #[serde(default)]
-    pub post_filter: String,
+    pub decode_filter: FilterConfig,
 }
 
 impl FiltersConfig {
-    fn default_service_filter() -> String {
-        "mirakc-arib filter-service --sid={{sid}}".to_string()
+    fn default_service_filter() -> FilterConfig {
+        FilterConfig {
+            command: "mirakc-arib filter-service --sid={{sid}}".to_string()
+        }
     }
 
-    fn default_program_filter() -> String {
+    fn default_program_filter() -> FilterConfig {
         // The --pre-streaming option is NOT used anymore due to the issue#30.
         // Without the --pre-streaming option, actix-web cannot detect the
         // client disconnection until trying to write data to the socket.  In
@@ -193,22 +198,41 @@ impl FiltersConfig {
         // actix/actix-web.  PAT TS packets will be sent before the program
         // starts when this option is specified.  See masnagam/rust-case-studies
         // for details about the issue#1313.
-        "mirakc-arib filter-program --sid={{sid}} --eid={{eid}} \
-         --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} \
-         --end-margin=2000".to_string()
+        FilterConfig {
+            command: "mirakc-arib filter-program --sid={{sid}} --eid={{eid}} \
+                      --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} \
+                      --end-margin=2000".to_string()
+        }
     }
 }
 
 impl Default for FiltersConfig {
     fn default() -> Self {
         FiltersConfig {
-            tuner_filter: String::new(),
-            pre_filter: String::new(),
+            tuner_filter: Default::default(),
             service_filter: Self::default_service_filter(),
+            decode_filter: Default::default(),
             program_filter: Self::default_program_filter(),
-            post_filter: String::new(),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub struct FilterConfig {
+    #[serde(default)]
+    pub command: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub struct PostFilterConfig {
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub content_type: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -314,28 +338,9 @@ mod tests {
 
     #[test]
     fn test_config() {
-        let result = serde_yaml::from_str::<Config>("{}");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Default::default());
-
-        let result = serde_yaml::from_str::<Config>(r#"
-            epg:
-              cache-dir: /path/to/epg
-        "#);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Config {
-            last_modified: Default::default(),
-            epg: EpgConfig {
-                cache_dir: Some("/path/to/epg".to_string()),
-            },
-            server: Default::default(),
-            channels: vec![],
-            tuners: vec![],
-            jobs: Default::default(),
-            filters: Default::default(),
-            recorder: Default::default(),
-            mirakurun: Default::default(),
-        });
+        assert_eq!(
+            serde_yaml::from_str::<Config>("{}").unwrap(),
+            Default::default());
 
         let result = serde_yaml::from_str::<Config>(r#"
             unknown:
@@ -346,6 +351,18 @@ mod tests {
 
     #[test]
     fn test_epg_config() {
+        assert_eq!(
+            serde_yaml::from_str::<EpgConfig>("{}").unwrap(),
+            Default::default());
+
+        assert_eq!(
+            serde_yaml::from_str::<EpgConfig>(r#"
+                cache-dir: /path/to/epg
+            "#).unwrap(),
+            EpgConfig {
+                cache_dir: Some("/path/to/epg".to_string()),
+            });
+
         let result = serde_yaml::from_str::<EpgConfig>(r#"
             unknown:
               property: value
@@ -625,65 +642,106 @@ mod tests {
 
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>(r#"
-                tuner-filter: filter
+                tuner-filter:
+                  command: filter
             "#).unwrap(),
             FiltersConfig {
-                tuner_filter: "filter".to_string(),
-                pre_filter: String::new(),
+                tuner_filter: FilterConfig { command: "filter".to_string() },
                 service_filter: FiltersConfig::default_service_filter(),
+                decode_filter: Default::default(),
                 program_filter: FiltersConfig::default_program_filter(),
-                post_filter: String::new(),
             });
 
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>(r#"
-                pre-filter: filter
+                service-filter:
+                  command: filter
             "#).unwrap(),
             FiltersConfig {
-                tuner_filter: String::new(),
-                pre_filter: "filter".to_string(),
-                service_filter: FiltersConfig::default_service_filter(),
+                tuner_filter: Default::default(),
+                service_filter: FilterConfig { command: "filter".to_string() },
+                decode_filter: Default::default(),
                 program_filter: FiltersConfig::default_program_filter(),
-                post_filter: String::new(),
             });
 
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>(r#"
-                service-filter: filter
+                decode-filter:
+                  command: filter
             "#).unwrap(),
             FiltersConfig {
-                tuner_filter: String::new(),
-                pre_filter: String::new(),
-                service_filter: "filter".to_string(),
+                tuner_filter: Default::default(),
+                service_filter: FiltersConfig::default_service_filter(),
+                decode_filter: FilterConfig { command: "filter".to_string() },
                 program_filter: FiltersConfig::default_program_filter(),
-                post_filter: String::new(),
             });
 
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>(r#"
-                program-filter: filter
+                program-filter:
+                  command: filter
             "#).unwrap(),
             FiltersConfig {
-                tuner_filter: String::new(),
-                pre_filter: String::new(),
+                tuner_filter: Default::default(),
                 service_filter: FiltersConfig::default_service_filter(),
-                program_filter: "filter".to_string(),
-                post_filter: String::new(),
-            });
-
-        assert_eq!(
-            serde_yaml::from_str::<FiltersConfig>(r#"
-                post-filter: filter
-            "#).unwrap(),
-            FiltersConfig {
-                tuner_filter: String::new(),
-                pre_filter: String::new(),
-                service_filter: FiltersConfig::default_service_filter(),
-                program_filter: FiltersConfig::default_program_filter(),
-                post_filter: "filter".to_string(),
+                decode_filter: Default::default(),
+                program_filter: FilterConfig { command: "filter".to_string() },
             });
 
         let result = serde_yaml::from_str::<FiltersConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_filter_config() {
+        assert_eq!(
+            serde_yaml::from_str::<FilterConfig>("{}").unwrap(),
+            Default::default());
+
+        assert_eq!(
+            serde_yaml::from_str::<FilterConfig>(r#"
+                command: filter
+            "#).unwrap(),
+            FilterConfig {
+                command: "filter".to_string(),
+            });
+
+        let result = serde_yaml::from_str::<FilterConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_post_filter_config() {
+        assert_eq!(
+            serde_yaml::from_str::<PostFilterConfig>("{}").unwrap(),
+            Default::default());
+
+        assert_eq!(
+            serde_yaml::from_str::<PostFilterConfig>(r#"
+                command: filter
+            "#).unwrap(),
+            PostFilterConfig {
+                command: "filter".to_string(),
+                content_type: None,
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<PostFilterConfig>(r#"
+                command: filter
+                content-type: video/mp4
+            "#).unwrap(),
+            PostFilterConfig {
+                command: "filter".to_string(),
+                content_type: Some("video/mp4".to_string()),
+            });
+
+        let result = serde_yaml::from_str::<PostFilterConfig>(r#"
             unknown:
               property: value
         "#);

@@ -96,7 +96,7 @@ impl TunerManager {
             .iter_mut()
             .find(|tuner| tuner.is_reuseable(&channel));
         if let Some(tuner) = found {
-            log::info!("tuner#{}: Reuse tuner already activated with {}",
+            log::info!("tuner#{}: Reuse tuner already activated for {}",
                        tuner.index, channel);
             return Ok(tuner.subscribe(user));
         }
@@ -105,10 +105,10 @@ impl TunerManager {
             .iter()
             .position(|tuner| tuner.is_available_for(&channel));
         if let Some(index) = found {
-            log::info!("tuner#{}: Activate with {}", index, channel);
-            let filter = self.make_filter_command(index, &channel)?;
+            log::info!("tuner#{}: Activate for {}", index, channel);
+            let filters = self.make_filter_commands(index, &channel)?;
             let tuner = &mut self.tuners[index];
-            tuner.activate(channel, filter)?;
+            tuner.activate(channel, filters)?;
             return Ok(tuner.subscribe(user));
         }
 
@@ -119,12 +119,12 @@ impl TunerManager {
             .filter(|tuner| tuner.is_supported_type(&channel))
             .position(|tuner| tuner.can_grab(user.priority));
         if let Some(index) = found {
-            log::info!("tuner#{}: Grab tuner, rectivate with {}",
+            log::info!("tuner#{}: Grab tuner, rectivate for {}",
                        index, channel);
-            let filter = self.make_filter_command(index, &channel)?;
+            let filters = self.make_filter_commands(index, &channel)?;
             let tuner = &mut self.tuners[index];
             tuner.deactivate();
-            tuner.activate(channel, filter)?;
+            tuner.activate(channel, filters)?;
             return Ok(tuner.subscribe(user));
         }
 
@@ -142,16 +142,30 @@ impl TunerManager {
         let _ = self.tuners[id.session_id.tuner_index].stop_streaming(id);
     }
 
+    fn make_filter_commands(
+        &self,
+        tuner_index: usize,
+        channel: &EpgChannel,
+    ) -> Result<Vec<String>, Error> {
+        let filter = self.make_filter_command(
+            tuner_index, channel, &self.config.filters.tuner_filter.command)?;
+        if filter.trim().is_empty() {
+            Ok(vec![])
+        } else {
+            Ok(vec![filter])
+        }
+    }
 
     fn make_filter_command(
         &self,
         tuner_index: usize,
         channel: &EpgChannel,
+        filter: &str,
     ) -> Result<String, Error> {
-        let template = mustache::compile_str(
-            &self.config.filters.tuner_filter)?;
+        let template = mustache::compile_str(filter)?;
         let data = mustache::MapBuilder::new()
-            .insert("index", &tuner_index)?
+            .insert("tuner_index", &tuner_index)?
+            .insert_str("tuner_name", &self.tuners[tuner_index].name)
             .insert_str("channel_name", &channel.name)
             .insert("channel_type", &channel.channel_type)?
             .insert_str("channel", &channel.channel)
@@ -345,11 +359,11 @@ impl Tuner {
     fn activate(
         &mut self,
         channel: EpgChannel,
-        filter: String,
+        filters: Vec<String>,
     ) -> Result<(), Error> {
         let command = self.make_command(&channel)?;
         self.activity.activate(
-            self.index, channel, command, filter, self.time_limit)
+            self.index, channel, command, filters, self.time_limit)
     }
 
     fn deactivate(&mut self) {
@@ -414,13 +428,13 @@ impl TunerActivity {
         tuner_index: usize,
         channel: EpgChannel,
         command: String,
-        filter: String,
+        filters: Vec<String>,
         time_limit: u64,
     ) -> Result<(), Error> {
         match self {
             Self::Inactive => {
                 let session = TunerSession::new(
-                    tuner_index, channel, command, filter, time_limit)?;
+                    tuner_index, channel, command, filters, time_limit)?;
                 *self = Self::Active(session);
                 Ok(())
             }
@@ -502,13 +516,11 @@ impl TunerSession {
         tuner_index: usize,
         channel: EpgChannel,
         command: String,
-        filter: String,
+        mut filters: Vec<String>,
         time_limit: u64,
     ) -> Result<TunerSession, Error> {
         let mut commands = vec![command.clone()];
-        if filter.len() > 0 {
-            commands.push(filter);
-        }
+        commands.append(&mut filters);
         let id = TunerSessionId { tuner_index };
         let mut pipeline = spawn_pipeline(commands, id)?;
         let (_, output) = pipeline.take_endpoints()?;
@@ -583,7 +595,7 @@ impl Drop for TunerSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use matches::assert_matches;
+    use assert_matches::*;
     use crate::command_util::Error as CommandUtilError;
 
     #[actix_rt::test]
@@ -593,7 +605,7 @@ mod tests {
 
         assert!(!tuner.is_active());
 
-        let result = tuner.activate(create_channel("1"), String::new());
+        let result = tuner.activate(create_channel("1"), vec![]);
         assert!(result.is_ok());
         assert!(tuner.is_active());
 
@@ -609,7 +621,7 @@ mod tests {
         {
             let config = create_config("true".to_string());
             let mut tuner = Tuner::new(0, &config);
-            let result = tuner.activate(create_channel("1"), String::new());
+            let result = tuner.activate(create_channel("1"), vec![]);
             assert!(result.is_ok());
             tokio::task::yield_now().await;
         }
@@ -617,7 +629,7 @@ mod tests {
         {
             let config = create_config("cmd '".to_string());
             let mut tuner = Tuner::new(0, &config);
-            let result = tuner.activate(create_channel("1"), String::new());
+            let result = tuner.activate(create_channel("1"), vec![]);
             assert_matches!(result, Err(Error::CommandFailed(
                 CommandUtilError::UnableToParse(_))));
             tokio::task::yield_now().await;
@@ -626,7 +638,7 @@ mod tests {
         {
             let config = create_config("no-such-command".to_string());
             let mut tuner = Tuner::new(0, &config);
-            let result = tuner.activate(create_channel("1"), String::new());
+            let result = tuner.activate(create_channel("1"), vec![]);
             assert_matches!(result, Err(Error::CommandFailed(
                 CommandUtilError::UnableToSpawn(..))));
             tokio::task::yield_now().await;
@@ -640,7 +652,7 @@ mod tests {
         let result = tuner.stop_streaming(Default::default());
         assert_matches!(result, Err(Error::SessionNotFound));
 
-        let result = tuner.activate(create_channel("1"), String::new());
+        let result = tuner.activate(create_channel("1"), vec![]);
         assert!(result.is_ok());
         let subscription = tuner.subscribe(TunerUser {
             info: TunerUserInfo::Web { remote: None, agent: None },
@@ -662,7 +674,7 @@ mod tests {
         let mut tuner = Tuner::new(0, &config);
         assert!(tuner.can_grab(0.into()));
 
-        tuner.activate(create_channel("1"), String::new()).unwrap();
+        tuner.activate(create_channel("1"), vec![]).unwrap();
         tuner.subscribe(create_user(0.into()));
 
         assert!(!tuner.can_grab(0.into()));
@@ -691,12 +703,12 @@ mod tests {
     async fn test_tuner_reactivate() {
         let config = create_config("true".to_string());
         let mut tuner = Tuner::new(0, &config);
-        tuner.activate(create_channel("1"), String::new()).ok();
+        tuner.activate(create_channel("1"), vec![]).ok();
 
         tokio::task::yield_now().await;
 
         tuner.deactivate();
-        let result = tuner.activate(create_channel("2"), String::new());
+        let result = tuner.activate(create_channel("2"), vec![]);
         assert!(result.is_ok());
 
         tokio::task::yield_now().await;

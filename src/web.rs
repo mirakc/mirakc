@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
@@ -7,17 +8,18 @@ use std::time::Duration;
 use actix::prelude::*;
 use actix_files;
 use actix_service;
-use actix_web;
+use actix_web::{self, FromRequest};
 use bytes::Bytes;
 use futures;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
+use serde_qs;
 use tokio::sync::mpsc;
 
 use crate::airtime_tracker;
 use crate::chunk_stream::ChunkStream;
 use crate::command_util::*;
-use crate::config::{Config, ServerAddr};
+use crate::config::{Config, ServerAddr, FilterConfig, PostFilterConfig};
 use crate::error::Error;
 use crate::epg::*;
 use crate::models::*;
@@ -229,23 +231,35 @@ async fn get_channel_stream(
     tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
     path: actix_web::web::Path<ChannelPath>,
-    query: actix_web::web::Query<StreamQuery>,
-    user: TunerUser
+    user: TunerUser,
+    filter_setting: FilterSetting,
 ) -> ApiResult {
     let channel = epg.send(QueryChannelMessage {
         channel_type: path.channel_type,
         channel: path.channel.clone(),
     }).await??;
 
-    let filters = make_filters(
-        &config, &channel, None, None, "".to_string(),
-        query.pre_filter_required(), query.post_filter_required())?;
+    let data = mustache::MapBuilder::new()
+        .insert_str("channel_name", &channel.name)
+        .insert("channel_type", &channel.channel_type)?
+        .insert_str("channel", &channel.channel)
+        .build();
+
+    let mut builder = FilterPipelineBuilder::new(data);
+    builder.add_pre_filters(
+        &config.pre_filters, &filter_setting.pre_filters)?;
+    if filter_setting.decode {
+        builder.add_decode_filter(&config.filters.decode_filter)?;
+    }
+    builder.add_post_filters(
+        &config.post_filters, &filter_setting.post_filters)?;
+    let (filters, content_type) = builder.build();
 
     let stream = tuner_manager.send(StartStreamingMessage {
         channel, user
     }).await??;
 
-    streaming(&config, stream, filters, None).await
+    streaming(&config, stream, filters, content_type, None).await
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
@@ -254,8 +268,8 @@ async fn get_channel_service_stream(
     tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
     path: actix_web::web::Path<ChannelServicePath>,
-    query: actix_web::web::Query<StreamQuery>,
-    user: TunerUser
+    user: TunerUser,
+    filter_setting: FilterSetting,
 ) -> ApiResult {
     let channel = epg.send(QueryChannelMessage {
         channel_type: path.channel_type,
@@ -263,7 +277,7 @@ async fn get_channel_service_stream(
     }).await??;
 
     do_get_service_stream(
-        config, tuner_manager, channel, path.sid, query, user).await
+        config, tuner_manager, channel, path.sid, user, filter_setting).await
 }
 
 #[actix_web::get("/services/{id}/stream")]
@@ -272,8 +286,8 @@ async fn get_service_stream(
     tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
     path: actix_web::web::Path<ServicePath>,
-    query: actix_web::web::Query<StreamQuery>,
-    user: TunerUser
+    user: TunerUser,
+    filter_setting: FilterSetting,
 ) -> ApiResult {
     let service = epg.send(QueryServiceMessage::ByNidSid {
         nid: path.id.nid(),
@@ -281,7 +295,8 @@ async fn get_service_stream(
     }).await??;
 
     do_get_service_stream(
-        config, tuner_manager, service.channel, service.sid, query, user).await
+        config, tuner_manager, service.channel, service.sid, user,
+        filter_setting).await
 }
 
 #[actix_web::get("/programs/{id}/stream")]
@@ -290,8 +305,8 @@ async fn get_program_stream(
     tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
     path: actix_web::web::Path<ProgramPath>,
-    query: actix_web::web::Query<StreamQuery>,
-    user: TunerUser
+    user: TunerUser,
+    filter_setting: FilterSetting,
 ) -> ApiResult {
     let program = epg.send(QueryProgramMessage::ByNidSidEid {
         nid: path.id.nid(),
@@ -308,9 +323,26 @@ async fn get_program_stream(
         triple: service.triple(),
     }).await??;
 
-    let filters = make_program_filters(
-        &config, &service.channel, &program, &clock,
-        query.pre_filter_required(), query.post_filter_required())?;
+    let data = mustache::MapBuilder::new()
+        .insert_str("channel_name", &service.channel.name)
+        .insert("channel_type", &service.channel.channel_type)?
+        .insert_str("channel", &service.channel.channel)
+        .insert("sid", &program.quad.sid().value())?
+        .insert("eid", &program.quad.eid().value())?
+        .insert("clock_pcr", &clock.pcr)?
+        .insert("clock_time", &clock.time)?
+        .build();
+
+    let mut builder = FilterPipelineBuilder::new(data);
+    builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
+    builder.add_service_filter(&config.filters.service_filter)?;
+    if filter_setting.decode {
+        builder.add_decode_filter(&config.filters.decode_filter)?;
+    }
+    builder.add_program_filter(&config.filters.program_filter)?;
+    builder.add_post_filters(
+        &config.post_filters, &filter_setting.post_filters)?;
+    let (filters, content_type) = builder.build();
 
     let stream = tuner_manager.send(StartStreamingMessage {
         channel: service.channel.clone(),
@@ -322,7 +354,8 @@ async fn get_program_stream(
         stream.id(), tuner_manager.get_ref().clone(), epg.get_ref().clone()
     ).await?;
 
-    let result = streaming(&config, stream, filters, stop_trigger).await;
+    let result =
+        streaming(&config, stream, filters, content_type, stop_trigger).await;
 
     match result {
         Err(Error::ProgramNotFound) =>
@@ -374,127 +407,47 @@ async fn do_get_service_stream(
     tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
     channel: EpgChannel,
     sid: ServiceId,
-    query: actix_web::web::Query<StreamQuery>,
-    user: TunerUser
+    user: TunerUser,
+    filter_setting: FilterSetting,
 ) -> ApiResult {
-    let filters = make_service_filters(
-        &config, &channel, sid,
-        query.pre_filter_required(), query.post_filter_required())?;
+    let data = mustache::MapBuilder::new()
+        .insert_str("channel_name", &channel.name)
+        .insert("channel_type", &channel.channel_type)?
+        .insert_str("channel", &channel.channel)
+        .insert("sid", &sid.value())?
+        .build();
+
+    let mut builder = FilterPipelineBuilder::new(data);
+    builder.add_pre_filters(
+        &config.pre_filters, &filter_setting.pre_filters)?;
+    builder.add_service_filter(&config.filters.service_filter)?;
+    if filter_setting.decode {
+        builder.add_decode_filter(&config.filters.decode_filter)?;
+    }
+    builder.add_post_filters(
+        &config.post_filters, &filter_setting.post_filters)?;
+    let (filters, content_type) = builder.build();
 
     let stream = tuner_manager.send(StartStreamingMessage {
         channel, user
     }).await??;
 
-    streaming(&config, stream, filters, None).await
-}
-
-fn make_service_filters(
-    config: &Config,
-    channel: &EpgChannel,
-    sid: ServiceId,
-    pre_filter_required: bool,
-    post_filter_required: bool,
-) -> Result<Vec<String>, Error> {
-    let filter = make_service_filter_command(
-        &config.filters.service_filter, sid)?;
-    make_filters(
-        config, channel, Some(sid), None,
-        filter, pre_filter_required, post_filter_required)
-}
-
-fn make_program_filters(
-    config: &Config,
-    channel: &EpgChannel,
-    program: &EpgProgram,
-    clock: &Clock,
-    pre_filter_required: bool,
-    post_filter_required: bool,
-) -> Result<Vec<String>, Error> {
-    let filter = make_service_filter_command(
-        &config.filters.service_filter, program.quad.sid())?;
-    let mut filters = make_filters(
-        config, channel, Some(program.quad.sid()), Some(program.quad.eid()),
-        filter, pre_filter_required, post_filter_required)?;
-    let filter = make_program_filter_command(
-        &config.filters.program_filter, program.quad.sid(), program.quad.eid(),
-        clock)?;
-    if filter.is_empty() {
-        log::warn!("Filter not defined");
-    } else {
-        filters.push(filter);
-    }
-    Ok(filters)
-}
-
-fn make_filters(
-    config: &Config,
-    channel: &EpgChannel,
-    sid: Option<ServiceId>,
-    eid: Option<EventId>,
-    filter: String,
-    pre_filter_required: bool,
-    post_filter_required: bool,
-) -> Result<Vec<String>, Error> {
-    let mut filters = Vec::new();
-
-    if pre_filter_required {
-        if config.filters.pre_filter.is_empty() {
-            log::warn!("Pre-filter is required, but not defined");
-        } else {
-            let cmd = make_filter_command(
-                &config.filters.pre_filter, channel, sid, eid)?;
-            filters.push(cmd);
-        }
-    }
-
-    if filter.is_empty() {
-        log::warn!("Filter not defined");
-    } else {
-        filters.push(filter);
-    }
-
-    if post_filter_required {
-        if config.filters.post_filter.is_empty() {
-            log::warn!("Post-filter is required, but not defined");
-        } else {
-            let cmd = make_filter_command(
-                &config.filters.post_filter, channel, sid, eid)?;
-            filters.push(cmd);
-        }
-    }
-
-    Ok(filters)
-}
-
-fn make_filter_command(
-    command: &str,
-    channel:  &EpgChannel,
-    sid: Option<ServiceId>,
-    eid: Option<EventId>,
-) -> Result<String, Error> {
-    let template = mustache::compile_str(command)?;
-    let mut builder = mustache::MapBuilder::new();
-    builder = builder.insert("channel_type", &channel.channel_type)?;
-    builder = builder.insert_str("channel", &channel.channel);
-    if let Some(sid) = sid {
-        builder = builder.insert_str("sid", sid.value().to_string());
-    }
-    if let Some(eid) = eid {
-        builder = builder.insert_str("eid", eid.value().to_string());
-    }
-    let data = builder.build();
-    Ok(template.render_data_to_string(&data)?)
+    streaming(&config, stream, filters, content_type, None).await
 }
 
 async fn streaming(
     config: &Config,
     mut stream: MpegTsStream,
     filters: Vec<String>,
+    content_type: String,
     stop_trigger: Option<MpegTsStreamStopTrigger>,
 ) -> ApiResult {
     if filters.is_empty() {
-        do_streaming(stream, config.server.stream_time_limit).await
+        do_streaming(
+            stream, content_type, config.server.stream_time_limit).await
     } else {
+        log::debug!("Streaming with filters: {:?}", filters);
+
         let stop_trigger2 = stream.take_stop_trigger();
 
         let mut pipeline = spawn_pipeline(filters, stream.id())?;
@@ -547,11 +500,15 @@ async fn streaming(
 
         do_streaming(
             MpegTsStreamTerminator::new(receiver, [stop_trigger, stop_trigger2]),
-            config.server.stream_time_limit).await
+            content_type, config.server.stream_time_limit).await
     }
 }
 
-async fn do_streaming<S>(stream: S, time_limit: u64) -> ApiResult
+async fn do_streaming<S>(
+    stream: S,
+    content_type: String,
+    time_limit: u64,
+) -> ApiResult
 where
     // actix_web::dev::HttpResponseBuilder::streaming() requires 'static...
     S: Stream<Item = io::Result<Bytes>> + Unpin + 'static,
@@ -574,7 +531,7 @@ where
             Ok(actix_web::HttpResponse::Ok()
                .force_close()
                .set_header("cache-control", "no-store")
-               .set_header("content-type", "video/MP2T")
+               .set_header("content-type", content_type)
                .streaming(peekable))
         }
     }
@@ -605,37 +562,68 @@ struct ProgramPath {
     id: MirakurunProgramId,
 }
 
-#[derive(Deserialize)]
+// actix-web uses the serde_urlencoded crate for parsing the query in an URL.
+// Unfortunately, the Vec support is out of scope for the serde_urlencoded
+// crate and it's suggested to use the serde_qs crate.
+//
+// * nox/serde_urlencoded/issues/46
+//
+// actix-web tried to replace the serde_urlencoded crate with the serde_qs
+// crate:
+//
+// * actix/actix-web/issues/38
+// * actix/actix-web/issues/1211
+//
+// but the owner decided not to do that finally.  The reason is unclear at least
+// for me.
+//
+// Actually, the serde_qs crate works well with actix-web without any
+// difficulty as you can see in code below.
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-struct StreamQuery {
+struct FilterSetting {
     #[serde(default)]
-    pre_filter: Option<bool>,
+    #[serde(deserialize_with = "deserialize_stream_decode_query")]
+    decode: bool,  // default: false
     #[serde(default)]
-    post_filter: Option<bool>,
-
-    // For compatibility with Mirakurun.
-    // The post-filter parameter can override the decode parameter.
+    pre_filters: Vec<String>,  // default: empty
     #[serde(default)]
-    decode: u8,  // default: 0
+    post_filters: Vec<String>,  // default: empty
 }
 
-impl StreamQuery {
-    fn pre_filter_required(&self) -> bool {
-        match self.pre_filter {
-            Some(pre_filter) => pre_filter,
-            None => false,
-        }
-    }
+impl FromRequest for FilterSetting {
+    type Error = actix_web::Error;
+    type Future = futures::future::Ready<Result<Self, Self::Error>>;
+    type Config = ();
 
-    fn post_filter_required(&self) -> bool {
-        match (self.post_filter, self.decode) {
-            (Some(post_filter), _) => post_filter,
-            (None, decode) => decode != 0,  // for compatibility with Mirakurun
+    fn from_request(
+        req: &actix_web::HttpRequest,
+        _: &mut actix_web::dev::Payload
+    ) -> Self::Future {
+        match serde_qs::from_str::<FilterSetting>(req.query_string()) {
+            Ok(query) => futures::future::ok(query),
+            Err(err) => futures::future::err(failure::format_err!(
+                "Failed to parse the query string: {}", err).into()),
         }
     }
 }
 
-impl actix_web::FromRequest for TunerUser {
+fn deserialize_stream_decode_query<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    if s == "0" || s == "false" {
+        return Ok(false);
+    }
+    if s == "1" || s == "true" {
+        return Ok(true);
+    }
+    Err(serde::de::Error::custom(
+        "The value of the decode query must be 0, 1, false or true"))
+}
+
+impl FromRequest for TunerUser {
     type Error = actix_web::Error;
     type Future = futures::future::Ready<Result<Self, Self::Error>>;
     type Config = ();
@@ -669,33 +657,6 @@ impl actix_web::FromRequest for TunerUser {
 
         futures::future::ok(TunerUser { info, priority })
     }
-}
-
-fn make_service_filter_command(
-    command: &str,
-    sid: ServiceId
-) -> Result<String, Error> {
-    let template = mustache::compile_str(command)?;
-    let data = mustache::MapBuilder::new()
-        .insert_str("sid", sid.value().to_string())
-        .build();
-    Ok(template.render_data_to_string(&data)?)
-}
-
-fn make_program_filter_command(
-    command: &str,
-    sid: ServiceId,
-    eid: EventId,
-    clock: &Clock,
-) -> Result<String, Error> {
-    let template = mustache::compile_str(command)?;
-    let data = mustache::MapBuilder::new()
-        .insert_str("sid", sid.value().to_string())
-        .insert_str("eid", eid.value().to_string())
-        .insert_str("clock_pcr", clock.pcr.to_string())
-        .insert_str("clock_time", clock.time.to_string())
-        .build();
-    Ok(template.render_data_to_string(&data)?)
 }
 
 // middleware
@@ -785,6 +746,133 @@ fn is_private_ipv6_addr(ip: Ipv6Addr) -> bool {
     }
 }
 
+// filters
+
+struct FilterPipelineBuilder {
+    data: mustache::Data,
+    filters: Vec<String>,
+    content_type: String,
+}
+
+impl FilterPipelineBuilder {
+    fn new(data: mustache::Data) -> Self {
+        FilterPipelineBuilder {
+            data,
+            filters: Vec::new(),
+            content_type: "video/MP2T".to_string(),
+        }
+    }
+
+    fn build(self) -> (Vec<String>, String) {
+        (self.filters, self.content_type)
+    }
+
+    fn add_pre_filters(
+        &mut self,
+        pre_filters: &HashMap<String, FilterConfig>,
+        names: &Vec<String>
+    ) -> Result<(), Error> {
+        for name in names.iter() {
+            if pre_filters.contains_key(name) {
+                self.add_pre_filter(&pre_filters[name], name)?;
+            } else {
+                log::warn!("No such pre-filter: {}", name);
+            }
+        }
+        Ok(())
+    }
+
+    fn add_pre_filter(
+        &mut self,
+        config: &FilterConfig,
+        name: &str,
+    ) -> Result<(), Error> {
+        let filter = self.make_filter(&config.command)?;
+        if filter.is_empty() {
+            log::warn!("pre-filter({}) not valid", name);
+        } else {
+            self.filters.push(filter);
+        }
+        Ok(())
+    }
+
+    fn add_service_filter(
+        &mut self,
+        config: &FilterConfig,
+    ) -> Result<(), Error> {
+        let filter = self.make_filter(&config.command)?;
+        if filter.is_empty() {
+            log::warn!("service-filter not valid");
+        } else {
+            self.filters.push(filter);
+        }
+        Ok(())
+    }
+
+    fn add_decode_filter(
+        &mut self,
+        config: &FilterConfig
+    ) -> Result<(), Error> {
+        let filter = self.make_filter(&config.command)?;
+        if filter.is_empty() {
+            log::warn!("decode-filter not valid");
+        } else {
+            self.filters.push(filter);
+        }
+        Ok(())
+    }
+
+    fn add_program_filter(
+        &mut self,
+        config: &FilterConfig,
+    ) -> Result<(), Error> {
+        let filter = self.make_filter(&config.command)?;
+        if filter.is_empty() {
+            log::warn!("program-filter not valid");
+        } else {
+            self.filters.push(filter);
+        }
+        Ok(())
+    }
+
+    fn add_post_filters(
+        &mut self,
+        post_filters: &HashMap<String, PostFilterConfig>,
+        names: &Vec<String>
+    ) -> Result<(), Error> {
+        for name in names.iter() {
+            if post_filters.contains_key(name) {
+                self.add_post_filter(&post_filters[name], name)?;
+            } else {
+                log::warn!("No such post-filter: {}", name);
+            }
+        }
+        Ok(())
+    }
+
+    fn add_post_filter(
+        &mut self,
+        config: &PostFilterConfig,
+        name: &str,
+    ) -> Result<(), Error> {
+        let filter = self.make_filter(&config.command)?;
+        if filter.is_empty() {
+            log::warn!("post-filter({}) not valid", name);
+        } else {
+            self.filters.push(filter);
+            if let Some(content_type) = config.content_type.as_ref() {
+                self.content_type = content_type.clone();
+            }
+        }
+        Ok(())
+    }
+
+    fn make_filter(&self, command: &str) -> Result<String, Error> {
+        let template = mustache::compile_str(command)?;
+        Ok(template.render_data_to_string(&self.data)?.trim().to_string())
+    }
+}
+
 // tests
 
 #[cfg(test)]
@@ -792,7 +880,7 @@ mod tests {
     use super::*;
     use std::net::SocketAddr;
     use actix_http;
-    use matches::*;
+    use assert_matches::*;
     use crate::broadcaster::BroadcasterStream;
 
     async fn request(req: actix_http::Request) -> actix_web::HttpResponse {
@@ -1010,62 +1098,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_stream_query() {
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "").unwrap().into_inner();
-        assert_eq!(query.pre_filter_required(), false);
-        assert_eq!(query.post_filter_required(), false);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "pre-filter=true").unwrap().into_inner();
-        assert_eq!(query.pre_filter_required(), true);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "pre-filter=false").unwrap().into_inner();
-        assert_eq!(query.pre_filter_required(), false);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "pre-filter");
-        assert!(query.is_err());
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "pre-filter=");
-        assert!(query.is_err());
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "pre-filter=1");
-        assert!(query.is_err());
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "post-filter=true").unwrap().into_inner();
-        assert_eq!(query.post_filter_required(), true);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "post-filter=false").unwrap().into_inner();
-        assert_eq!(query.post_filter_required(), false);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "decode=1").unwrap().into_inner();
-        assert_eq!(query.post_filter_required(), true);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "decode=0").unwrap().into_inner();
-        assert_eq!(query.post_filter_required(), false);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "decode=2").unwrap().into_inner();
-        assert_eq!(query.post_filter_required(), true);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "post-filter=true&decode=0").unwrap().into_inner();
-        assert_eq!(query.post_filter_required(), true);
-
-        let query = actix_web::web::Query::<StreamQuery>::from_query(
-            "post-filter=false&decode=1").unwrap().into_inner();
-        assert_eq!(query.post_filter_required(), false);
-    }
-
     #[actix_rt::test]
     async fn test_get_iptv_playlist() {
         let res = get("/api/iptv/playlist").await;
@@ -1100,20 +1132,121 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_do_streaming() {
-        let result = do_streaming(futures::stream::empty(), 1000).await;
+        let result = do_streaming(
+            futures::stream::empty(), "video/MP2T".to_string(), 1000).await;
         assert_matches!(result, Err(Error::ProgramNotFound));
 
-        let result = do_streaming(futures::stream::pending(), 1).await;
+        let result = do_streaming(
+            futures::stream::pending(), "video/MP2T".to_string(), 1).await;
         assert_matches!(result, Err(Error::StreamingTimedOut));
+    }
+
+    #[actix_rt::test]
+    async fn test_filter_setting() {
+        async fn do_test(
+            query: &str
+        ) -> Result<FilterSetting, <FilterSetting as FromRequest>::Error> {
+            let uri = format!("/stream{}", query);
+            let (req, mut payload) = actix_web::test::TestRequest::with_uri(&uri)
+                .method(actix_web::http::Method::GET)
+                .to_http_parts();
+            FilterSetting::from_request(&req, &mut payload).await
+        }
+
+        assert_matches!(do_test("").await, Ok(v) => {
+            assert!(!v.decode);
+            assert!(v.pre_filters.is_empty());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?unknown=0").await, Ok(v) => {
+            assert!(!v.decode);
+            assert!(v.pre_filters.is_empty());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?decode=0").await, Ok(v) => {
+            assert!(!v.decode);
+            assert!(v.pre_filters.is_empty());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?decode=1").await, Ok(v) => {
+            assert!(v.decode);
+            assert!(v.pre_filters.is_empty());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?decode=false").await, Ok(v) => {
+            assert!(!v.decode);
+            assert!(v.pre_filters.is_empty());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?decode=true").await, Ok(v) => {
+            assert!(v.decode);
+            assert!(v.pre_filters.is_empty());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?decode=x").await, Err(_));
+
+        assert_matches!(do_test("?pre-filters[0]=a").await, Ok(v) => {
+            assert!(!v.decode);
+            assert_eq!(v.pre_filters.len(), 1);
+            assert_eq!(v.pre_filters[0], "a".to_string());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?pre-filters[0]=a&pre-filters[1]=b").await, Ok(v) => {
+            assert!(!v.decode);
+            assert_eq!(v.pre_filters.len(), 2);
+            assert_eq!(v.pre_filters[0], "a".to_string());
+            assert_eq!(v.pre_filters[1], "b".to_string());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?pre-filters[1]=a").await, Ok(v) => {
+            assert!(!v.decode);
+            assert_eq!(v.pre_filters.len(), 1);
+            assert_eq!(v.pre_filters[0], "a".to_string());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?pre-filters[1]=a&pre-filters[2]=b").await, Ok(v) => {
+            assert!(!v.decode);
+            assert_eq!(v.pre_filters.len(), 2);
+            assert_eq!(v.pre_filters[0], "a".to_string());
+            assert_eq!(v.pre_filters[1], "b".to_string());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?pre-filters=a").await, Err(_));
+        assert_matches!(do_test("?pre-filters[x]=a").await, Err(_));
+        assert_matches!(do_test("?pre-filters[0]=a&pre-filters[0]=b").await, Err(_));
+
+        assert_matches!(do_test("?decode=1&pre-filters[0]=a&post-filters[0]=b").await, Ok(v) => {
+            assert!(v.decode);
+            assert_eq!(v.pre_filters.len(), 1);
+            assert_eq!(v.pre_filters[0], "a".to_string());
+            assert_eq!(v.post_filters.len(), 1);
+            assert_eq!(v.post_filters[0], "b".to_string());
+        });
+
+        assert_matches!(do_test("?pre-filters[0]=a&decode=1&post-filters[0]=b").await, Ok(v) => {
+            assert!(v.decode);
+            assert_eq!(v.pre_filters.len(), 1);
+            assert_eq!(v.pre_filters[0], "a".to_string());
+            assert_eq!(v.post_filters.len(), 1);
+            assert_eq!(v.post_filters[0], "b".to_string());
+        });
     }
 
     fn config_for_test() -> Arc<Config> {
         let mut config = Config::default();
         // Disable all filters
-        config.filters.pre_filter = String::new();
-        config.filters.service_filter = String::new();
-        config.filters.program_filter = String::new();
-        config.filters.post_filter = String::new();
+        config.filters.service_filter = Default::default();
+        config.filters.program_filter = Default::default();
         // Disable tracking airtime
         config.recorder.track_airtime_command = "true".to_string();
         // "/dev/null" is enough to test

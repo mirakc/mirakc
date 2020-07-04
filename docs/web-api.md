@@ -33,19 +33,24 @@ to some kind of issue in BonDriver_Mirakurun or mirakc.
 See [issues/4](https://github.com/masnagam/mirakc/issues/4) for details
 (discussion in Japanese).
 
-[/api/version]: #/api/version
-[/api/status]: #/api/status
-[/api/channels]: #/api/channels
-[/api/channels/{channel_type}/{channel}/stream]: #/api/channels/{channel_type}/{channel}/stream
-[/api/channels/{channel_type}/{channel}/services/{sid}/stream]: #/api/channels/{channel_type}/{channel}/services/{sid}/stream
-[/api/services]: #/api/services
-[/api/services/{id}]: #/api/services/{id}
-[/api/services/{id}/stream]: #/api/services/{id}/stream
-[/api/programs]: #/api/programs
-[/api/programs/{id}]: #/api/programs/{id}
-[/api/programs/{id}/stream]: #/api/programs/{id}/stream
-[/api/tuners]: #/api/tuners
-[/api/docs]: #/api/docs
+Web API endpoints listed below have been implemented as the mirakc extensions:
+
+* [/api/iptv/playlist]
+
+[/api/version]: #apiversion
+[/api/status]: #apistatus
+[/api/channels]: #apichannels
+[/api/channels/{channel_type}/{channel}/stream]: #apichannelschannel_typechannelstream
+[/api/channels/{channel_type}/{channel}/services/{sid}/stream]: #apichannelschannel_typechannelservicessidstream
+[/api/services]: #apiservices
+[/api/services/{id}]: #apiservicesid
+[/api/services/{id}/stream]: #apiservicesidstream
+[/api/programs]: #apiprograms
+[/api/programs/{id}]: #apiprogramsid
+[/api/programs/{id}/stream]: #apiprogramsidstream
+[/api/tuners]: #apituners
+[/api/docs]: #apidocs
+[/api/iptv/playlist]: #apiiptvplaylist
 
 ## Incompatibility of the `X-Mirakurun-Priority` header
 
@@ -112,8 +117,8 @@ Returns a program.
 
 Starts streaming for a program.
 
-PSI/SI packets are sent before the program starts in order to avoid
-[issue#1313](https://github.com/actix/actix-web/issues/1313) in `actix-web`.
+The streaming will starts when the program starts and stops when the program
+ends.
 
 ## /api/tuners
 
@@ -123,9 +128,21 @@ Query parameters have **NOT** been supported.
 
 ## /api/docs
 
-Returns a Swagger JSON data extracted from a Mirakurun by using
-[scripts/mirakurun-openapi-json](../scripts/mirakurun-openapi-json)
-([issues/13](https://github.com/masnagam/mirakc/issues/13)).
+Returns a Swagger JSON data extracted from a Mirakurun by using the following
+command:
+
+```shell
+./scripts/mirakurun-openapi-json -c -w 10 $MIRAKURUN_VERSION | \
+  ./scripts/fixup-openapi-json >/etc/mirakurun.openapi.json
+```
+
+See also [issues/13](https://github.com/masnagam/mirakc/issues/13).
+
+## /api/iptv/playlist
+
+Returns a M3U8 playlist includes all TV services.
+
+The format of the M3U8 playlist is compatible with EPGStation.
 
 [EPGStation]: https://github.com/l3tnun/EPGStation
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc

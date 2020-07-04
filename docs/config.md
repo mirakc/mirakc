@@ -26,10 +26,12 @@ suitable for your environment.
 | [tuners\[\].command]             |                                           |
 | [tuners\[\].time-limit]          | `30000` (30s)                             |
 | [tuners\[\].disabled]            | `false`                                   |
-| [filters.pre-filter]             | `''`                                      |
-| [filters.service-filter]         | `mirakc-arib filter-service --sid={{sid}}`|
-| [filters.program-filter]         | `mirakc-arib filter-program --sid={{sid}} --eid={{eid}} --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} --end-margin=2000 --pre-streaming` |
-| [filters.post-filter]            | `''`                                      |
+| [filters.tuner-filter.command]   | `''`                                      |
+| [filters.service-filter.command] | `mirakc-arib filter-service --sid={{sid}}`|
+| [filters.decode-filter.command]  | `''`                                      |
+| [filters.program-filter.command] | `mirakc-arib filter-program --sid={{sid}} --eid={{eid}} --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} --end-margin=2000` |
+| [pre-filters]                    | `{}`                                      |
+| [post-filters]                   | `{}`                                      |
 | [jobs.scan-services.command]     | `mirakc-arib scan-services{{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}` |
 | [jobs.scan-services.schedule]    | `'0 31 5 * * * *'` (execute at 05:31 every day) |
 | [jobs.sync-clocks.command]       | `mirakc-arib sync-clocks{{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}` |
@@ -56,16 +58,18 @@ suitable for your environment.
 [tuners\[\].command]: #tuners
 [tuners\[\].time-limit]: #tuners
 [tuners\[\].disabled]: #tuners
-[filters.pre-filter]: #filters.pre-filter
-[filters.service-filter]: #filters.service-filter
-[filters.program-filter]: #filters.program-filter
-[filters.post-filter]: #filters.post-filter
-[jobs.scan-services.command]: #jobs.scan-services.command
-[jobs.scan-services.schedule]: #jobs.scan-services.schedule
-[jobs.sync-clocks.command]: #jobs.sync-clocks.command
-[jobs.sync-clocks.schedule]: #jobs.sync-clocks.schedule
-[jobs.update-schedules.command]: #jobs.update-schedules.command
-[jobs.update-schedules.schedule]: #jobs.update-schdules.schedule
+[filters.tuner-filter.command]: #filters.tuner-filter
+[filters.service-filter.command]: #filters.service-filter
+[filters.decode-filter.command]: #filters.decode-filter
+[filters.program-filter.command]: #filters.program-filter
+[pre-filters]: #pre-filters
+[post-filters]: #post-filters
+[jobs.scan-services.command]: #jobs.scan-services
+[jobs.scan-services.schedule]: #jobs.scan-services
+[jobs.sync-clocks.command]: #jobs.sync-clocks
+[jobs.sync-clocks.schedule]: #jobs.sync-clocks
+[jobs.update-schedules.command]: #jobs.update-schedules
+[jobs.update-schedules.schedule]: #jobs.update-schdules
 [mirakurun.openapi-json]: #mirakurun.openapi-json
 
 ## epg.cache-dir
@@ -291,93 +295,130 @@ tuners:
 Definitions of filters used in
 [the streaming pipeline](./inside-mirakc.md#streaming-pipeline).
 
-### filters.pre-filter
+Each filter definition has the following properties:
 
-A Mustache template string of a command to process TS packets before a packet
-filter program.
+* command
+  * A Mustache template string of the filter command
+  * The command must read data from `stdin`, and output the processed data to
+    `stdout`
+  * An empty string means that the filter is not defined
+* content-type (optional)
+  * A string of the content-type of data output from the filter
+  * Absence of this property means that the filter doesn't change the
+    content-type of the input data
+  * Available only for the `post-filters`
 
-The command must read TS packets from `stdin`, and output the processed TS
-packets to `stdout`.
+Each Mustache template string defined in the `command` property will be rendered
+with the following template data:
 
-An empty string means that no pre-filter program is applied even when the
-`pre-filter=true` query parameter is specified in a streaming API endpoint.
-
-Template variables:
-
-* channel
-  * The `channel` property of a channel defined in the `channels`
+* tuner_index
+  * The index of a tuner
+  * Available only for the tuner-filter
+* tuner_name
+  * The `name` property of a tuner defined in the `tuners`
+  * Available only for the tuner-filter
+* channel_name
+  * The `name` property of a channel defined in the `channels`
 * channel_type
   * The `type` property of a channel defined in the `channels`
-* sid (optional)
-  * The idenfiter of the service
-* eid (optional)
-  * The event identifier of the program
+* channel
+  * The `channel` property of a channel defined in the `channels`
+* sid
+  * The 16-bit integer identifier of a service (SID)
+  * Available only for the service streaming and the program streaming
+* eid
+  * The 16-bit integer identifier of a program (EID)
+  * Available only for the program streaming
+* clock_pcr
+  * A PCR value of synchronized clock for a service
+  * Available only for the program streaming
+* clock_time
+  * A UNIX time (ms) of synchronized clock for a service
+  * Available only for the program streaming
+
+### filters.tuner-filter
+
+A filter which can be used for processing TS packets from a tuner command before
+broadcasting the TS packets to subscribers.
+
+This filter will be used not only for streaming API endpoints but also
+background jobs if it's defined.
+
+For example, this filter can be used for the drop-check for each tuner.
 
 ### filters.service-filter
 
-A Mustache template string of a command to drop TS packets which are not
-included in a service.
+A filter to drop TS packets which are not included in a specified service.
 
-The command must read TS packets from `stdin`, and output the filtered TS
-packets to `stdout`.
+This filter will be used in the following streaming API endpoints:
 
-Template variables:
+* [/api/channels/{channel_type}/{channel}/services/{sid}/stream](./web-api.md#apichannelschannel_typechannelservicessidstream)
+* [/api/services/{id}/stream](./web-api.md#apiservicesidstream)
+* [/api/programs/{id}/stream](./web-api.md#apiprogramsidstream)
 
-* sid
-  * The idenfiter of the service
+### filters.decode-filter
+
+A filter to decode TS packets.
+
+The `decode` query parameter for each streaming API endpoint configures the
+decode-filter of the streaming.
 
 ### filters.program-filter
 
-A Mustache template string of a command to drop TS packets which are not
-required for playback of a program in a service.
+A filter to control streaming for a specified program.
 
-The command must read TS packets from `stdin`, and output the filtered TS
-packets to `stdout`.
+This filter starts streaming when the program starts and stops streaming when
+the program ends.
 
-Template variables:
+This filter will be used in the following streaming API endpoints:
 
-* sid
-  * The idenfiter of the service
-* eid
-  * The event identifier of the program
-* clock_pcr
-  * A PCR value of synchronized clock for the service
-* clock_time
-  * A UNIX time (ms) of synchronized clock for the service
+* [/api/programs/{id}/stream](./web-api.md#apiprogramsidstream)
 
-### filters.post-filter
+### pre-filters
 
-A Mustache template string of a command to process TS packets after a packet
-filter program.
+A map of named filters which can be inserted at the input-side endpoint of the
+filter pipeline.
 
-The command must read TS packets from `stdin`, and output the processed TS
-packets to `stdout`.
+The `pre-filters` query parameter for each streaming API endpoint configures the
+pre-filters of the streaming.
 
-An empty string means that no post-filter command is applied even when the
-`post-filter=true` query parameter is specified in a streaming API endpoint.
+The following request:
 
-For compatibility with Mirakurun, the command is applied when the following both
-conditions are met:
+```
+curl 'http://mirakc:40772/api/programs/{id}/stream?decode=1&pre-filters[0]=record'
+```
 
-* The `decode=1` query parameter is specified
-* The `post-filter` query parameter is NOT specified
+will build the following filter pipeline:
 
-Template variables:
+```
+pre-filters.record | service-filter | decode-filter | program-filter
+```
 
-* channel
-  * The `channel` property of a channel defined in the `channels`
-* channel_type
-  * The `type` property of a channel defined in the `channels`
-* sid (optional)
-  * The idenfiter of the service
-* eid (optional)
-  * The event identifier of the program
+### post-filters
+
+A map of named filters which can be inserted at the output-side endpoint of the
+filter pipeline.
+
+The `post-filters` query parameter for each streaming API endpoint configures
+the post-filters of the streaming.
+
+The following request:
+
+```
+curl 'http://mirakc:40772/api/programs/{id}/stream?decode=1&post-filters[0]=transcode'
+```
+
+will build the following filter pipeline:
+
+```
+service-filter | decode-filter | program-filter | post-filter.transcode
+```
 
 ## jobs
 
 Definitions for background jobs.
 
-Each job definition has the following two properties:
+Each job definition has the following properties:
 
 * command
   * A Mustache template string of a command

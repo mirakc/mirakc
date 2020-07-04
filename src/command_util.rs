@@ -40,18 +40,24 @@ pub fn spawn_process(
         .map_err(|err| Error::UnableToSpawn(command.to_string(), err))?;
     if cfg!(not(test)) {
         if debug_child_process {
+            let prog = prog.to_string();
             let child_id = child.id();
             let child_stderr = tokio_snippet::stdio(child.stderr.take())
                 .map_err(|err| Error::AsyncIoRegistrationFailure(err))?.unwrap();
             tokio::spawn(async move {
                 let mut reader = BufReader::new(child_stderr);
-                let mut line = String::new();
-                while let Ok(n) = reader.read_line(&mut line).await {
+                let mut data = Vec::with_capacity(4096);
+                // BufReader::read_line() gets stuck if an invalid character
+                // sequence is found.  Therefore, we use BufReader::read_until()
+                // here in order to avoid such a situation.
+                while let Ok(n) = reader.read_until(0x0A, &mut data).await {
                     if n == 0 {  // EOF
                         break;
                     }
-                    log::debug!("stderr#{}: {}", child_id, line.trim());
-                    line.clear();
+                    log::debug!("{}#{}: {}", prog, child_id,
+                                // data may contain non-utf8 sequence.
+                                String::from_utf8_lossy(&data).trim_end());
+                    data.clear();
                 }
             });
         }
@@ -309,7 +315,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use matches::*;
+    use assert_matches::*;
 
     #[test]
     fn test_spawn_process() {

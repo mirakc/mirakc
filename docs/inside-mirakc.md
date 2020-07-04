@@ -33,7 +33,7 @@ mirakc has a pipeline to process MPEG-TS packets.
 | tuner-command (external process)            |
 |   |                                         |
 |   V                                         |
-| tuner-filter (external process) [for debug] |
+| tuner-filter (external process) [optional]  |
 +---|-----------------------------------------+
     |
 +---V------ Broadcaster -----------------+
@@ -44,17 +44,20 @@ mirakc has a pipeline to process MPEG-TS packets.
     |
     +--(when using filters)
     |      |
-    |  +---V-------- CommandPipeline -----------------+
-    |  | pre-filter (external process) [optional]     |
+    |  +---V-- CommandPipeline (Filter Pipeline) -----+
+    |  | pre-filters (external process) [optional]    |
     |  |   |                                          |
     |  |   V                                          |
     |  | service-filter (external process) [optional] |
     |  |   |                                          |
     |  |   V                                          |
-    |  | post-filter (external process) [optional]    |
+    |  | decode-filter (external process) [optional]  |
     |  |   |                                          |
     |  |   V                                          |
     |  | program-filter (external process) [optional] |
+    |  |   |                                          |
+    |  |   V                                          |
+    |  | post-filters (external process) [optional]   |
     |  +---|------------------------------------------+
     |      V
     |    tokio::sync::mpsc::channel (as buffer) <web-buffer>
