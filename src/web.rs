@@ -575,7 +575,7 @@ where
                .force_close()
                .set_header("cache-control", "no-store")
                .set_header("content-type", "video/MP2T")
-               .streaming(peekable.into_inner()))
+               .streaming(peekable))
         }
     }
 }
