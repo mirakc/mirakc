@@ -158,6 +158,8 @@ where
                 break;
             }
         }
+
+        // TODO: Should yield here like web::streaming()?
     }
 
     if let Err(err) = writer.shutdown().await {
