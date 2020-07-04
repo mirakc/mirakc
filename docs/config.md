@@ -411,7 +411,7 @@ curl 'http://mirakc:40772/api/programs/{id}/stream?decode=1&post-filters[0]=tran
 will build the following filter pipeline:
 
 ```
-service-filter | decode-filter | program-filter | post-filter.transcode
+service-filter | decode-filter | program-filter | post-filters.transcode
 ```
 
 ## jobs
