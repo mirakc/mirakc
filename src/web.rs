@@ -1191,6 +1191,21 @@ mod tests {
 
         assert_matches!(do_test("?decode=x").await, Err(_));
 
+        assert_matches!(do_test("?pre-filters[]=a").await, Ok(v) => {
+            assert!(!v.decode);
+            assert_eq!(v.pre_filters.len(), 1);
+            assert_eq!(v.pre_filters[0], "a".to_string());
+            assert!(v.post_filters.is_empty());
+        });
+
+        assert_matches!(do_test("?pre-filters[]=a&pre-filters[]=b").await, Ok(v) => {
+            assert!(!v.decode);
+            assert_eq!(v.pre_filters.len(), 2);
+            assert_eq!(v.pre_filters[0], "a".to_string());
+            assert_eq!(v.pre_filters[1], "b".to_string());
+            assert!(v.post_filters.is_empty());
+        });
+
         assert_matches!(do_test("?pre-filters[0]=a").await, Ok(v) => {
             assert!(!v.decode);
             assert_eq!(v.pre_filters.len(), 1);
@@ -1225,7 +1240,7 @@ mod tests {
         assert_matches!(do_test("?pre-filters[x]=a").await, Err(_));
         assert_matches!(do_test("?pre-filters[0]=a&pre-filters[0]=b").await, Err(_));
 
-        assert_matches!(do_test("?decode=1&pre-filters[0]=a&post-filters[0]=b").await, Ok(v) => {
+        assert_matches!(do_test("?decode=1&pre-filters[]=a&post-filters[]=b").await, Ok(v) => {
             assert!(v.decode);
             assert_eq!(v.pre_filters.len(), 1);
             assert_eq!(v.pre_filters[0], "a".to_string());
@@ -1233,7 +1248,7 @@ mod tests {
             assert_eq!(v.post_filters[0], "b".to_string());
         });
 
-        assert_matches!(do_test("?pre-filters[0]=a&decode=1&post-filters[0]=b").await, Ok(v) => {
+        assert_matches!(do_test("?pre-filters[]=a&decode=1&post-filters[]=b").await, Ok(v) => {
             assert!(v.decode);
             assert_eq!(v.pre_filters.len(), 1);
             assert_eq!(v.pre_filters[0], "a".to_string());
