@@ -40,7 +40,7 @@ tuners:
   # Add tuners available on a local machine.
   - name: Tuner0
     types: [GR]
-    command: recpt1 --device /dev/px4video2 {{channel}} {{duration}} -
+    command: recpt1 --device /dev/px4video2 {{channel}} - -
 
 filter:
   # Optionally, you can specify a command to process TS packets before sending
