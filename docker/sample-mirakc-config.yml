@@ -66,27 +66,25 @@ tuners:
   - name: bs1
     types: [BS]
     command: >-
-      recpt1 --device /dev/px4video0 {{channel}} {{duration}} -
+      recpt1 --device /dev/px4video0 {{channel}} - -
   # Use a tuner on a remote host connected with SSH.
   # You need to mount a SSH private key onto a Docker container.
   - name: remote-dvb
     types: [GR]
     command: >-
-      ssh <REMOTE-HOST> recdvb {{channel}} {{duration}} -
+      ssh <REMOTE-HOST> recdvb {{channel}} - -
   # Use a Mirakurun-compatible server as a tuner.
   # The duration query parameter works only for mirakc servers.
-  #
-  # TODO: '-' is always specified in the duration variable at this moment.
   - name: upstream
     types: [GR, BS]
     command: >-
       curl -sG <BASE-URL>/api/channels/{{channel_type}}/{{channel}}/stream
-      -d duration={{duration}}
 
 filters:
   # Optionally, you can specify a command to process TS packets before sending
   # them to a client.
   #
   # The following command processes TS packets on a remote server.
-  post-filter: >-
-    socat - tcp-connect:<REMOTE-HOST>:<REMOTE-PORT>
+  decode-filter:
+    command: >-
+      socat - tcp-connect:<REMOTE-HOST>:<REMOTE-PORT>

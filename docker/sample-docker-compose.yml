@@ -16,18 +16,21 @@ services:
       - 40772:40772
     volumes:
       - mirakc-epg:/var/lib/mirakc/epg
-      - ./config.yml:/etc/mirakc/config.yml:ro
+      - ./sample-mirakc-config.yml:/etc/mirakc/config.yml:ro
     environment:
       TZ: Asia/Tokyo
       # Log level of `mirakc`.
       # See README.md in masnagam/mirakc.
-      RUST_LOG: info
-      # Output info-level log messages from child processes like
-      # `mirakc-arib collect-eits` for debugging purpose.
+      #
+      # `mirakc-debug` is needed for logging messages from child processes.
+      RUST_LOG: info,mirakc=debug
+      # Output log messages from child processes like
+      # `mirakc-arib collect-eits` for debugging purposes.
       #
       # Normally, you don't need to define the following environment variables.
       MIRAKC_DEBUG_CHILD_PROCESS: ''
-      MIRAKC_ARIG_LOG: info
+      MIRAKC_ARIG_LOG: info,filter-service=debug,filter-program=debug
+      MIRAKC_ARIB_LOG_NO_TIMESTAMP: ''
     logging:
       driver: json-file
       options:
