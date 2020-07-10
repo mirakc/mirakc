@@ -18,6 +18,7 @@ Web API endpoints listed below have been implemented at this moment:
 | [/api/programs/{id}/stream]                     | :heavy_check_mark:         |
 | [/api/tuners]                                   | :heavy_check_mark:         |
 | [/api/docs]                                     | :heavy_check_mark:         |
+| [/api/iptv/playlist]                            |                            |
 
 The endpoints above are enough to run [EPGStation].
 
