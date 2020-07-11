@@ -7,10 +7,16 @@ on:
 
 jobs:
   linux-build:
+    if: github.actor != 'dependabot[bot]' || contains(github.event.pull_request.labels.*.name, 'rust')
   macos-build:
+    if: github.actor != 'dependabot[bot]' || contains(github.event.pull_request.labels.*.name, 'rust')
   arm-linux-build:
-  auto-merge:
+    if: github.actor != 'dependabot[bot]' || contains(github.event.pull_request.labels.*.name, 'rust')
+  auto-merge-rust:
+    if: github.actor == 'dependabot[bot]' && contains(github.event.pull_request.labels.*.name, 'rust')
     needs:
       - linux-build
       - macos-build
       - arm-linux-build
+  auto-merge-javascript:
+    if: github.actor == 'dependabot[bot]' && contains(github.event.pull_request.labels.*.name, 'javascript')

@@ -4,6 +4,7 @@ updates:
     directory: /
     schedule:
       interval: daily
+    versioning-strategy: lockfile-only
   - package-ecosystem: npm
     directory: /scripts/perf-metrics
     schedule:
