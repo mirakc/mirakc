@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  linux-build:
+  macos-build:
+  arm-linux-build:
+  docker-build-images:
+    needs:
+      - linux-build
+      - macos-build
+      - arm-linux-build

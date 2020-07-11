@@ -1,12 +1,3 @@
-name: Docker
-
-on:
-  push:
-    branches:
-      - master
-    tags:
-      - '*'
-
 env:
   IMAGE: masnagam/mirakc
   MAIN_PLATFORM: debian
@@ -15,7 +6,7 @@ env:
   MIRAKURUN_VERSION: '3.1.0'
 
 jobs:
-  build-images:
+  docker-build-images:
     # Don't run on a fork.
     if: github.repository == 'masnagam/mirakc'
     strategy:
@@ -70,14 +61,15 @@ jobs:
           docker tag $IMAGE:${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${{ matrix.arch }}
           docker push $IMAGE:${{ matrix.arch }}
         if: env.VERSION != 'master' && matrix.platform == env.MAIN_PLATFORM
-  build-multiarch-image:
+  docker-build-multiarch-image:
     strategy:
       matrix:
         platform:
           - alpine
           - debian
     runs-on: ubuntu-latest
-    needs: build-images
+    needs:
+      - docker-build-images
     steps:
       - name: Set VERSION
         run: |-

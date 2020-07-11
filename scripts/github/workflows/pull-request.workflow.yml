@@ -1,0 +1,16 @@
+name: Pull Request
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  linux-build:
+  macos-build:
+  arm-linux-build:
+  auto-merge:
+    needs:
+      - linux-build
+      - macos-build
+      - arm-linux-build

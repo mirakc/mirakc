@@ -1,21 +1,11 @@
-name: macOS
-
-on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
-
 jobs:
-  build:
+  linux-build:
     strategy:
       matrix:
         rust:
           - stable
           #- nightly
-    runs-on: macOS-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: hecrj/setup-rust-action@v1
         with:

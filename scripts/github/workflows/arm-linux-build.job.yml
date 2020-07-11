@@ -1,15 +1,5 @@
-name: ARM-Linux
-
-on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
-
 jobs:
-  build:
+  arm-linux-build:
     strategy:
       matrix:
         target:

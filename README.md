@@ -2,10 +2,7 @@
 
 > A Mirakurun clone written in Rust
 
-[![linux-status](https://github.com/masnagam/mirakc/workflows/Linux/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=Linux)
-[![macos-status](https://github.com/masnagam/mirakc/workflows/macOS/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=macOS)
-[![arm-linux-status](https://github.com/masnagam/mirakc/workflows/ARM-Linux/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=ARM-Linux)
-[![docker-status](https://github.com/masnagam/mirakc/workflows/Docker/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=Docker)
+[![ci-status](https://github.com/masnagam/mirakc/workflows/CI/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=CI)
 [![alpine-size](https://img.shields.io/docker/image-size/masnagam/mirakc/alpine?label=Alpine)](https://hub.docker.com/repository/docker/masnagam/mirakc/tags?page=1&name=alpine)
 [![debian-size](https://img.shields.io/docker/image-size/masnagam/mirakc/debian?label=Debian)](https://hub.docker.com/repository/docker/masnagam/mirakc/tags?page=1&name=debian)
 
