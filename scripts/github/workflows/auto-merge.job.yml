@@ -2,7 +2,7 @@ jobs:
   auto-merge-rust:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-scripts@v2
+      - uses: actions/github-script@v2
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
@@ -20,7 +20,7 @@ jobs:
   auto-merge-javascript:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-scripts@v2
+      - uses: actions/github-script@v2
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |

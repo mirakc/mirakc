@@ -66,7 +66,7 @@ jobs:
       - arm-linux-build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-scripts@v2
+      - uses: actions/github-script@v2
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
@@ -85,7 +85,7 @@ jobs:
     if: github.actor == 'dependabot[bot]' && contains(github.event.pull_request.labels.*.name, 'javascript')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-scripts@v2
+      - uses: actions/github-script@v2
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
