@@ -5,6 +5,8 @@ updates:
     schedule:
       interval: daily
     versioning-strategy: lockfile-only
+    ignore:
+      - dependency-name: actix
   - package-ecosystem: npm
     directory: /scripts/perf-metrics
     schedule:
