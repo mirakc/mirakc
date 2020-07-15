@@ -19,8 +19,8 @@ RUN curl -fsSL https://github.com/stz2012/recpt1/tarball/master \
 WORKDIR /build/recpt1
 RUN ./autogen.sh
 RUN ./configure --prefix=/usr/local --host={GCC_HOST_TRIPLE}
-RUN curl -fsSL https://gist.githubusercontent.com/masnagam/263985322d1eaa5ef2a6e27d57f297d1/raw/8c5d8e4ad3029bc74ebd4e721a1d539a4468134a/stz2012-recpt1-cr.patch \
-    | patch -p1  # replace CR with LF in log messages
+RUN curl -fsSL https://gist.githubusercontent.com/masnagam/263985322d1eaa5ef2a6e27d57f297d1/raw/2a935310f4521ef245edf1df89282ce5345233f5/stz2012-recpt1-cr.patch \
+    | patch -p1  # remove CR in log messages
 RUN make -j $(nproc)
 RUN make install
 
