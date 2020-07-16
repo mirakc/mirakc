@@ -1,23 +1,5 @@
 jobs:
-  auto-merge-rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/github-script@v2
-        with:
-          github-token: ${{secrets.GITHUB_TOKEN}}
-          script: |
-            await github.pullRequests.createReview({
-              owner: context.payload.repository.owner.login,
-              repo: context.payload.repository.name,
-              pull_number: context.payload.pull_request.number,
-              event: 'APPROVE'
-            })
-            await github.pullRequests.merge({
-              owner: context.payload.repository.owner.login,
-              repo: context.payload.repository.name,
-              pull_number: context.payload.pull_request.number
-            })
-  auto-merge-javascript:
+  auto-merge:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v2
