@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
@@ -9,7 +10,7 @@ use actix::prelude::*;
 use actix_files;
 use actix_service;
 use actix_web::{self, FromRequest};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use futures;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -372,28 +373,29 @@ async fn get_iptv_playlist(
     epg: actix_web::web::Data<Addr<EpgActor>>,
     mut filter_setting: FilterSetting,
 ) -> ApiResult {
+    const INITIAL_BUFSIZE: usize = 8 * 1024;  // 8KB
+
     filter_setting.decode = true;  // always decode
     let query = serde_qs::to_string(&filter_setting).expect("Never fails");
 
-    epg.send(QueryServicesMessage).await?
-        .map(|services| {
-            let conn = req.connection_info();
-            let mut lines = vec!["#EXTM3U".to_string()];
-            for sv in services.iter().filter(|sv| sv.service_type == 1) {
-                let id = MirakurunServiceId::from(sv.triple());
-                // The following format is compatible with EPGStation.
-                // See API docs for the `/api/channel.m3u8` endpoint.
-                lines.push(format!(
-                    r#"#EXTINF:-1 tvg-id="{}" group-title="{}",{}"#,
-                    id.value(), sv.channel.channel_type, sv.name));
-                lines.push(format!(
-                    "{}://{}/api/services/{}/stream?{}",
-                    conn.scheme(), conn.host(), id.value(), query));
-            }
-            actix_web::HttpResponse::Ok()
-                .set_header("content-type", "application/x-mpegurl; charset=UTF-8")
-                .body(lines.join("\r\n"))
-        })
+    let services = epg.send(QueryServicesMessage).await??;
+
+    let conn = req.connection_info();
+    let mut buf = BytesMut::with_capacity(INITIAL_BUFSIZE);
+    buf.write_str("#EXTM3U\n")?;
+    for sv in services.iter().filter(|sv| sv.service_type == 1) {
+        let id = MirakurunServiceId::from(sv.triple());
+        // The following format is compatible with EPGStation.
+        // See API docs for the `/api/channel.m3u8` endpoint.
+        write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}\",{}\n",
+               id.value(), sv.channel.channel_type, sv.name)?;
+        write!(buf, "{}://{}/api/services/{}/stream?{}\n",
+               conn.scheme(), conn.host(), id.value(), query)?;
+    }
+
+    Ok(actix_web::HttpResponse::Ok()
+       .set_header("content-type", "application/x-mpegurl; charset=UTF-8")
+       .body(buf))
 }
 
 #[actix_web::get("/docs")]

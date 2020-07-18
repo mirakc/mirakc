@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt;
 use std::io;
 
 use actix;
@@ -29,6 +30,8 @@ pub enum Error {
     AccessDenied,
     #[fail(display = "Command failed: {}", 0)]
     CommandFailed(command_util::Error),
+    #[fail(display = "std::fmt::error: {}", 0)]
+    FmtError(fmt::Error),
     #[fail(display = "std::io::error: {}", 0)]
     IoError(io::Error),
     #[fail(display = "JSON error: {}", 0)]
@@ -48,6 +51,12 @@ pub enum Error {
 impl From<command_util::Error> for Error {
     fn from(err: command_util::Error) -> Self {
         Self::CommandFailed(err)
+    }
+}
+
+impl From<fmt::Error> for Error {
+    fn from(err: fmt::Error) -> Self {
+        Self::FmtError(err)
     }
 }
 
