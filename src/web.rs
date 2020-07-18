@@ -370,7 +370,11 @@ async fn get_program_stream(
 async fn get_iptv_playlist(
     req: actix_web::HttpRequest,
     epg: actix_web::web::Data<Addr<EpgActor>>,
+    mut filter_setting: FilterSetting,
 ) -> ApiResult {
+    filter_setting.decode = true;  // always decode
+    let query = serde_qs::to_string(&filter_setting).expect("Never fails");
+
     epg.send(QueryServicesMessage).await?
         .map(|services| {
             let conn = req.connection_info();
@@ -383,8 +387,8 @@ async fn get_iptv_playlist(
                     r#"#EXTINF:-1 tvg-id="{}" group-title="{}",{}"#,
                     id.value(), sv.channel.channel_type, sv.name));
                 lines.push(format!(
-                    "{}://{}/api/services/{}/stream?decode=1",
-                    conn.scheme(), conn.host(), id.value()));
+                    "{}://{}/api/services/{}/stream?{}",
+                    conn.scheme(), conn.host(), id.value(), query));
             }
             actix_web::HttpResponse::Ok()
                 .set_header("content-type", "application/x-mpegurl; charset=UTF-8")
@@ -579,7 +583,7 @@ struct ProgramPath {
 //
 // Actually, the serde_qs crate works well with actix-web without any
 // difficulty as you can see in code below.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 struct FilterSetting {
     #[serde(default)]

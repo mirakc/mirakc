@@ -145,5 +145,12 @@ Returns a M3U8 playlist includes all TV services.
 
 The format of the M3U8 playlist is compatible with EPGStation.
 
+The following query parameters can be specified:
+
+* pre-filters
+* post-filters
+
+The specified query parameters are added to URLs in the playlist.
+
 [EPGStation]: https://github.com/l3tnun/EPGStation
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
