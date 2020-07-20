@@ -40,3 +40,6 @@ assert_matches = "1.3"
 
 [profile.release]
 lto = true
+
+[patch.crates-io]
+actix-http = { git = "https://github.com/masnagam/actix-web", branch = "fix-1611" }

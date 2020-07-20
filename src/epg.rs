@@ -1138,7 +1138,7 @@ impl EpgProgram {
         }
     }
 
-    fn _end_at(&self) -> DateTime<Jst> {
+    pub fn end_at(&self) -> DateTime<Jst> {
         self.start_at + self.duration
     }
 

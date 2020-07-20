@@ -21,6 +21,7 @@ use crate::airtime_tracker;
 use crate::chunk_stream::ChunkStream;
 use crate::command_util::*;
 use crate::config::{Config, ServerAddr, FilterConfig, PostFilterConfig};
+use crate::datetime_ext::Jst;
 use crate::error::Error;
 use crate::epg::*;
 use crate::models::*;
@@ -149,6 +150,7 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_service_stream)
         .service(get_program_stream)
         .service(get_iptv_playlist)
+        .service(get_iptv_epg)
         .service(get_docs)
 }
 
@@ -382,19 +384,84 @@ async fn get_iptv_playlist(
 
     let conn = req.connection_info();
     let mut buf = BytesMut::with_capacity(INITIAL_BUFSIZE);
-    buf.write_str("#EXTM3U\n")?;
-    for sv in services.iter().filter(|sv| sv.service_type == 1) {
+    write!(buf, "#EXTM3U\n")?;
+    for sv in services.iter() {
         let id = MirakurunServiceId::from(sv.triple());
         // The following format is compatible with EPGStation.
         // See API docs for the `/api/channel.m3u8` endpoint.
-        write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}\",{}\n",
-               id.value(), sv.channel.channel_type, sv.name)?;
+        match sv.service_type {
+            0x01 | 0xA1 | 0xA5 =>  // video
+                write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}\", {}\n",
+                       id.value(), sv.channel.channel_type, sv.name)?,
+            0x02 | 0xA2 | 0xA6 =>  // audio
+                write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}-Radio\" radio=true, {}\n",
+                       id.value(), sv.channel.channel_type, sv.name)?,
+            _ => unreachable!(),
+        }
         write!(buf, "{}://{}/api/services/{}/stream?{}\n",
                conn.scheme(), conn.host(), id.value(), query)?;
     }
 
     Ok(actix_web::HttpResponse::Ok()
        .set_header("content-type", "application/x-mpegurl; charset=UTF-8")
+       .body(buf))
+}
+
+#[actix_web::get("/iptv/epg")]
+async fn get_iptv_epg(
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    query: actix_web::web::Query<IptvEpgQuery>,
+) -> ApiResult {
+    const INITIAL_BUFSIZE: usize = 8 * 1024 * 1024;  // 8MB
+    const DATETIME_FORMAT: &'static str = "%Y%m%d%H%M%S %z";
+
+    let end_after = Jst::midnight();
+    let start_before = end_after + chrono::Duration::days(query.days as i64);
+
+    let services = epg.send(QueryServicesMessage).await??;
+    let programs = epg.send(QueryProgramsMessage).await??;
+
+    let mut buf = BytesMut::with_capacity(INITIAL_BUFSIZE);
+    write!(buf, r#"<?xml version="1.0" encoding="UTF-8" ?>"#)?;
+    write!(buf, r#"<!DOCTYPE tv SYSTEM "xmltv.dtd">"#)?;
+    write!(buf, r#"<tv generator-info-name="{}">"#, server_name())?;
+    for sv in services.iter() {
+        let id = MirakurunServiceId::from(sv.triple());
+        write!(buf, r#"<channel id="{}"><display-name lang="ja">{}</display-name></channel>"#,
+               id.value(), sv.name)?;
+    }
+    for pg in programs
+        .iter()
+        .filter(|pg| pg.name.is_some())
+        .filter(|pg| pg.start_at < start_before && pg.end_at() > end_after) {
+        let id = MirakurunServiceId::from(pg.quad);
+        write!(buf, r#"<programme start="{}" stop="{}" channel="{}">"#,
+               pg.start_at.format(DATETIME_FORMAT),
+               pg.end_at().format(DATETIME_FORMAT),
+               id.value())?;
+        if let Some(name) = pg.name.as_ref() {
+            write!(buf, r#"<title lang="ja">{}</title>"#, name)?;
+        }
+        if let Some(desc) = pg.description.as_ref() {
+            write!(buf, r#"<desc lang="ja">"#)?;
+            write!(buf, "{}", desc)?;
+            if let Some(extended) = pg.extended.as_ref() {
+                for (key, value) in extended.iter() {
+                    if key.is_empty() {
+                        write!(buf, "{}", value)?;
+                    } else {
+                        write!(buf, "\n{}\n{}", key, value)?;
+                    }
+                }
+            }
+            write!(buf, r#"</desc>"#)?;
+        }
+        write!(buf, r#"</programme>"#)?;
+    }
+    write!(buf, r#"</tv>"#)?;
+
+    Ok(actix_web::HttpResponse::Ok()
+       .set_header("content-type", "application/xml; charset=UTF-8")
        .body(buf))
 }
 
@@ -663,6 +730,16 @@ impl FromRequest for TunerUser {
 
         futures::future::ok(TunerUser { info, priority })
     }
+}
+
+#[derive(Deserialize)]
+struct IptvEpgQuery {
+    #[serde(default = "IptvEpgQuery::default_days")]
+    days: u8,
+}
+
+impl IptvEpgQuery {
+    fn default_days() -> u8 { 3 }
 }
 
 // middleware
