@@ -4,7 +4,11 @@ jobs:
     steps:
       - uses: actions/github-script@v2
         with:
-          github-token: ${{secrets.GITHUB_TOKEN}}
+          # Use a Personal Access Token instead of GITHUB_TOKEN.
+          #
+          # Scripts using GITHUB_TOKEN cannot trigger new workflow runs.
+          # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#triggering-new-workflows-using-a-personal-access-token
+          github-token: ${{secrets.GH_TOKEN}}
           script: |
             await github.pulls.createReview({
               owner: context.payload.repository.owner.login,

@@ -65,7 +65,7 @@ jobs:
     steps:
       - uses: actions/github-script@v2
         with:
-          github-token: ${{secrets.GITHUB_TOKEN}}
+          github-token: ${{secrets.GH_TOKEN}}
           script: |
             await github.pulls.createReview({
               owner: context.payload.repository.owner.login,
