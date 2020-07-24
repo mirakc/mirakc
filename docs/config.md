@@ -29,7 +29,7 @@ suitable for your environment.
 | [filters.tuner-filter.command]   | `''`                                      |
 | [filters.service-filter.command] | `mirakc-arib filter-service --sid={{sid}}`|
 | [filters.decode-filter.command]  | `''`                                      |
-| [filters.program-filter.command] | `mirakc-arib filter-program --sid={{sid}} --eid={{eid}} --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} --end-margin=2000` |
+| [filters.program-filter.command] | `mirakc-arib filter-program --sid={{sid}} --eid={{eid}} --clock-pid={{clock_pid}} --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} --end-margin=2000` |
 | [pre-filters]                    | `{}`                                      |
 | [post-filters]                   | `{}`                                      |
 | [jobs.scan-services.command]     | `mirakc-arib scan-services{{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}` |
@@ -328,6 +328,9 @@ with the following template data:
   * Available only for the service streaming and the program streaming
 * eid
   * The 16-bit integer identifier of a program (EID)
+  * Available only for the program streaming
+* clock_pid
+  * A PID of PCR packets to be used for the clock synchronization
   * Available only for the program streaming
 * clock_pcr
   * A PCR value of synchronized clock for a service

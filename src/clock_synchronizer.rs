@@ -131,6 +131,7 @@ struct SyncClock {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::*;
     use crate::broadcaster::BroadcasterStream;
     use crate::error::Error;
     use crate::mpeg_ts_stream::MpegTsStream;
@@ -165,7 +166,7 @@ mod tests {
             nid: 1.into(),
             tsid: 2.into(),
             sid: 3.into(),
-            clock: Clock { pcr: 10, time: 11 },
+            clock: Clock { pid: 1, pcr: 2, time: 3 },
         }];
 
         let cmd = format!(
@@ -173,14 +174,24 @@ mod tests {
         let sync = ClockSynchronizer::new(
             cmd, channels.clone(), mock.clone().recipient());
         let results = sync.sync_clocks().await;
-        assert!(results[0].1.is_some());
-        assert_eq!(results[0].1.as_ref().unwrap().len(), 1);
+        assert_eq!(results.len(), 1);
+        assert_matches!(&results[0], (_, Some(v)) => {
+            let triple = (1, 2, 3).into();
+            assert_eq!(v.len(), 1);
+            assert!(v.contains_key(&triple));
+            assert_matches!(v[&triple], Clock { pid, pcr, time } => {
+                assert_eq!(pid, 1);
+                assert_eq!(pcr, 2);
+                assert_eq!(time, 3);
+            });
+        });
 
         // Emulate out of services by using `false`
         let cmd = "false".to_string();
         let sync = ClockSynchronizer::new(
             cmd, channels.clone(), mock.clone().recipient());
         let results = sync.sync_clocks().await;
-        assert!(results[0].1.is_none());
+        assert_eq!(results.len(), 1);
+        assert_matches!(&results[0], (_, None));
     }
 }

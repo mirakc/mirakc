@@ -1033,6 +1033,7 @@ impl From<EitSection> for EpgSection {
 
 #[derive(Clone, PartialEq)]
 #[derive(Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug))]
 pub struct EpgChannel {
     pub name: String,
     #[serde(rename = "type")]

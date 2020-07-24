@@ -200,8 +200,8 @@ impl FiltersConfig {
         // for details about the issue#1313.
         FilterConfig {
             command: "mirakc-arib filter-program --sid={{sid}} --eid={{eid}} \
-                      --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} \
-                      --end-margin=2000".to_string()
+                      --clock-pid={{clock_pid}} --clock-pcr={{clock_pcr}} \
+                      --clock-time={{clock_time}} --end-margin=2000".to_string()
         }
     }
 }

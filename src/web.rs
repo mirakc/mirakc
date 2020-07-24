@@ -332,6 +332,7 @@ async fn get_program_stream(
         .insert_str("channel", &service.channel.channel)
         .insert("sid", &program.quad.sid().value())?
         .insert("eid", &program.quad.eid().value())?
+        .insert("clock_pid", &clock.pid)?
         .insert("clock_pcr", &clock.pcr)?
         .insert("clock_time", &clock.time)?
         .build();
@@ -1436,7 +1437,7 @@ mod tests {
             } else if let Some(msg) = msg.downcast_ref::<QueryClockMessage>() {
                 let result = match msg.triple.sid().value() {
                     0 => Err(Error::ClockNotSynced),
-                    _ => Ok(Clock { pcr: 0, time: 0 }),
+                    _ => Ok(Clock { pid: 0, pcr: 0, time: 0 }),
                 };
                 Box::<Option<Result<Clock, Error>>>::new(Some(result))
             } else if let Some(_) = msg.downcast_ref::<QueryProgramsMessage>() {

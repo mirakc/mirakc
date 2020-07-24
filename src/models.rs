@@ -97,6 +97,7 @@ impl From<u16> for EventId {
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 #[derive(Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug))]
 pub struct ServiceTriple(u64);
 
 impl ServiceTriple {
@@ -212,6 +213,8 @@ impl From<(NetworkId, TransportStreamId, ServiceId, EventId)> for EventQuad {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Clock {
+    // PID of PCR packets
+    pub pid: u16,
     // 27MHz, 42bits PCR value corresponding to the time
     pub pcr: i64,
     // UNIX time in ms
