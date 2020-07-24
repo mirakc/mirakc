@@ -19,6 +19,7 @@ Web API endpoints listed below have been implemented at this moment:
 | [/api/tuners]                                   | :heavy_check_mark:         |
 | [/api/docs]                                     | :heavy_check_mark:         |
 | [/api/iptv/playlist]                            |                            |
+| [/api/iptv/epg]                                 |                            |
 
 The endpoints above are enough to run [EPGStation].
 
@@ -139,9 +140,31 @@ command:
 
 See also [issues/13](https://github.com/masnagam/mirakc/issues/13).
 
-## /api/iptv/playlist
+## Web API endpoints for IPTV clients
 
-Returns a M3U8 playlist includes all TV services.
+Using these endpoints, you can integrate mirakc with IPTV clients which support
+the M3U8 playlist and the XMLTV document.
+
+For example, you can integrate mirakc with PVR IPTV Simple Client in Jodi with
+the following settings:
+
+* General | M3U Play List URL
+  * `http://<host>:<port>/api/iptv/playlist`
+* EPG Settings | XMLTV URL
+  * `http://<host>:<port>/api/iptv/epg`
+
+After rebooting the Kodi, the following features will be available:
+
+* TV
+  * Channels
+  * Guide
+* Radio (if channels defined in `config.yml` have audio-only services)
+  * Channels
+  * Guide
+
+### /api/iptv/playlist
+
+Returns a M3U8 playlist which includes all TV services.
 
 The format of the M3U8 playlist is compatible with EPGStation.
 
@@ -151,6 +174,15 @@ The following query parameters can be specified:
 * post-filters
 
 The specified query parameters are added to URLs in the playlist.
+
+### /api/iptv/epg
+
+Returns a XMLTV document which contains TV program information for a specified
+number of days.
+
+The following query parameters can be specified:
+
+* days (1-8)
 
 [EPGStation]: https://github.com/l3tnun/EPGStation
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc

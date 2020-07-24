@@ -13,6 +13,7 @@ mod job;
 mod models;
 mod mpeg_ts_stream;
 mod service_scanner;
+mod string_table;
 mod tokio_snippet;
 mod tracing_ext;
 mod tuner;
@@ -59,6 +60,7 @@ async fn main() -> Result<(), Error> {
         "--config option or MIRAKC_CONFIG environment must be specified");
 
     let config = config::load(config_path);
+    let string_table = string_table::load(&config.resource.strings_yaml);
 
     let tuner_manager = tuner::start(config.clone());
 
@@ -70,7 +72,9 @@ async fn main() -> Result<(), Error> {
     let _job_manager = job::start(
         config.clone(), tuner_manager.clone(), epg.clone(), eit_feeder.clone());
 
-    web::serve(config.clone(), tuner_manager.clone(), epg.clone()).await?;
+    web::serve(
+        config.clone(), string_table.clone(), tuner_manager.clone(),
+        epg.clone()).await?;
 
     Ok(())
 }

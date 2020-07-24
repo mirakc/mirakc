@@ -26,6 +26,7 @@ use crate::error::Error;
 use crate::epg::*;
 use crate::models::*;
 use crate::mpeg_ts_stream::*;
+use crate::string_table::*;
 use crate::tuner::*;
 
 #[cfg(not(test))]
@@ -40,6 +41,7 @@ type EpgActor = actix::actors::mocker::Mocker<Epg>;
 
 pub async fn serve(
     config: Arc<Config>,
+    string_table: Arc<StringTable>,
     tuner_manager: Addr<TunerManager>,
     epg: Addr<Epg>,
 ) -> Result<(), Error> {
@@ -48,6 +50,7 @@ pub async fn serve(
         move || {
             actix_web::App::new()
                 .data(config.clone())
+                .data(string_table.clone())
                 .data(tuner_manager.clone())
                 .data(epg.clone())
                 .wrap(actix_web::middleware::Logger::default())
@@ -410,6 +413,7 @@ async fn get_iptv_playlist(
 
 #[actix_web::get("/iptv/epg")]
 async fn get_iptv_epg(
+    string_table: actix_web::web::Data<Arc<StringTable>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
     query: actix_web::web::Query<IptvEpgQuery>,
 ) -> ApiResult {
@@ -434,7 +438,8 @@ async fn get_iptv_epg(
     for pg in programs
         .iter()
         .filter(|pg| pg.name.is_some())
-        .filter(|pg| pg.start_at < start_before && pg.end_at() > end_after) {
+        .filter(|pg| pg.start_at < start_before && pg.end_at() > end_after)
+    {
         let id = MirakurunServiceId::from(pg.quad);
         write!(buf, r#"<programme start="{}" stop="{}" channel="{}">"#,
                pg.start_at.format(DATETIME_FORMAT),
@@ -456,6 +461,20 @@ async fn get_iptv_epg(
                 }
             }
             write!(buf, r#"</desc>"#)?;
+        }
+        if let Some(genres) = pg.genres.as_ref() {
+            for genre in genres.iter() {
+                let genre_str = &string_table.genres[genre.lv1 as usize].genre;
+                let subgenre_str = &string_table.genres[genre.lv1 as usize]
+                    .subgenres[genre.lv2 as usize];
+                if subgenre_str.is_empty() {
+                    write!(buf, r#"<category lang="ja">{}</category>"#,
+                           genre_str)?;
+                } else {
+                    write!(buf, r#"<category lang="ja">{} / {}</category>"#,
+                           genre_str, subgenre_str)?;
+                }
+            }
         }
         write!(buf, r#"</programme>"#)?;
     }

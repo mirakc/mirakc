@@ -38,6 +38,7 @@ suitable for your environment.
 | [jobs.sync-clocks.schedule]      | `'0 3 12 * * * *'` (execute at 12:03 every day) |
 | [jobs.update-schedules.command]  | `mirakc-arib collect-eits{{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}` |
 | [jobs.update-schedules.schedule] | `'0 7,37 * * * * *'` (execute at 7 and 37 minutes every hour) |
+| [resource.strings-yaml]          | `/etc/mirakc/strings.yml`                 |
 | [mirakurun.openapi-json]         | `/etc/mirakurun.openapi.json`             |
 
 [epg.cache-dir]: #epg.cache-dir
@@ -70,6 +71,7 @@ suitable for your environment.
 [jobs.sync-clocks.schedule]: #jobs.sync-clocks
 [jobs.update-schedules.command]: #jobs.update-schedules
 [jobs.update-schedules.schedule]: #jobs.update-schdules
+[resource.strings-yaml]: #resource.strings-yaml
 [mirakurun.openapi-json]: #mirakurun.openapi-json
 
 ## epg.cache-dir
@@ -474,6 +476,13 @@ Command template variables:
   * A list of SIDs which must be included
 * xsids
   * A list of SIDs which must be excluded
+
+## resource.strings-yaml
+
+`resource.strings-yaml` specifies a path to a YAML file which contains strings
+used in mirakc at runtime.
+
+> TODO: This might be obsoleted by other tools like GNU gettext in the future.
 
 ## mirakurun.openapi-json
 

@@ -58,6 +58,8 @@ pub struct Config {
     #[serde(default)]
     pub recorder: RecorderConfig,
     #[serde(default)]
+    pub resource: ResourceConfig,
+    #[serde(default)]
     pub mirakurun: MirakurunConfig,
 }
 
@@ -306,6 +308,28 @@ impl Default for RecorderConfig {
         RecorderConfig {
             track_airtime_command: "mirakc-arib track-airtime \
                                     --sid={{sid}} --eid={{eid}}".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub struct ResourceConfig {
+    #[serde(default = "ResourceConfig::default_strings_yaml")]
+    pub strings_yaml: String,
+}
+
+impl ResourceConfig {
+    fn default_strings_yaml() -> String {
+        "/etc/mirakc/strings.yml".to_string()
+    }
+}
+
+impl Default for ResourceConfig {
+    fn default() -> Self {
+        ResourceConfig {
+            strings_yaml: Self::default_strings_yaml(),
         }
     }
 }
@@ -815,6 +839,27 @@ mod tests {
             serde_yaml::from_str::<JobConfig>(r#"{"schedule":""}"#).is_err());
 
         let result = serde_yaml::from_str::<JobConfig>(r#"
+            unknown:
+              property: value
+        "#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resource_config() {
+        assert_eq!(
+            serde_yaml::from_str::<ResourceConfig>("{}").unwrap(),
+            Default::default());
+
+        assert_eq!(
+            serde_yaml::from_str::<ResourceConfig>(r#"
+                strings-yaml: /path/to/strings.yml
+            "#).unwrap(),
+            ResourceConfig {
+                strings_yaml: "/path/to/strings.yml".to_string(),
+            });
+
+        let result = serde_yaml::from_str::<ResourceConfig>(r#"
             unknown:
               property: value
         "#);

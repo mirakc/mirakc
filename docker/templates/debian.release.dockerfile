@@ -12,12 +12,13 @@ RUN cp /build/target/{RUST_TARGET_TRIPLE}/release/mirakc /usr/local/bin/
 #
 # There is no arm32v6/debian image.  So, we use DEBIAN_ARCH instead of ARCH.
 FROM {DEBIAN_ARCH}/debian:buster-slim
-LABEL maintainer="Masayuki Nagamachi <masnagam@gmail.com>"
+LABEL maintainer="masnagam <masnagam@gmail.com>"
 
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
 COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/
 COPY --from=mirakc-arib-build /build/bin/mirakc-arib /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
+COPY ./resources/strings.yml /etc/mirakc/strings.yml
 COPY ./mirakurun.openapi.json /etc/mirakurun.openapi.json
 
 RUN set -eux \
