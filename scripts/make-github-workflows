@@ -19,6 +19,7 @@ $(yq m $BASEDIR/github/workflows/ci.workflow.yml \
     $BASEDIR/github/workflows/linux-build.job.yml \
     $BASEDIR/github/workflows/macos-build.job.yml \
     $BASEDIR/github/workflows/arm-linux-build.job.yml \
+    $BASEDIR/github/workflows/coverage.job.yml \
     $BASEDIR/github/workflows/docker.job.yml)
 EOF
 
@@ -34,5 +35,6 @@ $(yq m $BASEDIR/github/workflows/pull-request.workflow.yml \
     $BASEDIR/github/workflows/linux-build.job.yml \
     $BASEDIR/github/workflows/macos-build.job.yml \
     $BASEDIR/github/workflows/arm-linux-build.job.yml \
+    $BASEDIR/github/workflows/coverage.job.yml \
     $BASEDIR/github/workflows/auto-merge.job.yml)
 EOF

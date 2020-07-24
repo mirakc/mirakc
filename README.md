@@ -1,8 +1,9 @@
 # mirakc
 
-> A Mirakurun clone written in Rust
+> A Mirakurun-compatible PVR backend written in Rust
 
 [![ci-status](https://github.com/masnagam/mirakc/workflows/CI/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=CI)
+[![codecov](https://codecov.io/gh/masnagam/mirakc/branch/master/graph/badge.svg)](https://codecov.io/gh/masnagam/mirakc)
 [![alpine-size](https://img.shields.io/docker/image-size/masnagam/mirakc/alpine?label=Alpine)](https://hub.docker.com/repository/docker/masnagam/mirakc/tags?page=1&name=alpine)
 [![debian-size](https://img.shields.io/docker/image-size/masnagam/mirakc/debian?label=Debian)](https://hub.docker.com/repository/docker/masnagam/mirakc/tags?page=1&name=debian)
 

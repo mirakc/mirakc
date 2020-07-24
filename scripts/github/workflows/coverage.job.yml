@@ -1,0 +1,15 @@
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hecrj/setup-rust-action@v1
+      - uses: actions/checkout@v2
+      - name: Generate coverage data
+        run: |
+          cargo install cargo-tarpaulin
+          cargo build
+          cargo tarpaulin --out Xml
+      - name: Upload coverage data to Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          file: cobertura.xml

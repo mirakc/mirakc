@@ -55,6 +55,24 @@ jobs:
         run: cross build -v --release --target=${{ matrix.target }}
       - name: Run tests
         run: cross test -v --release --target=${{ matrix.target }}
+  coverage:
+    needs:
+      - linux-build
+      - macos-build
+      - arm-linux-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hecrj/setup-rust-action@v1
+      - uses: actions/checkout@v2
+      - name: Generate coverage data
+        run: |
+          cargo install cargo-tarpaulin
+          cargo build
+          cargo tarpaulin --out Xml
+      - name: Upload coverage data to Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          file: cobertura.xml
   docker-build-images:
     needs:
       - linux-build
