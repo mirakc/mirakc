@@ -1,10 +1,11 @@
 [package]
 name = "mirakc"
 version = "0.12.0"
-authors = ["Masayuki Nagamachi <masnagam@gmail.com>"]
-description = "A Mirakurun clone written in Rust"
+authors = ["masnagam <masnagam@gmail.com>"]
+description = "A Mirakurun-compatible PVR backend written in Rust"
 edition = "2018"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 actix = "0.10.0-alpha.3"
