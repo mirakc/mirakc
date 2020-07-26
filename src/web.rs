@@ -393,12 +393,16 @@ async fn get_iptv_playlist(
         let id = MirakurunServiceId::from(sv.triple());
         // The following format is compatible with EPGStation.
         // See API docs for the `/api/channel.m3u8` endpoint.
+        //
+        // U+3000 (IDEOGRAPHIC SPACE) at the end of each line is required for
+        // avoiding garbled characters in `ＮＨＫＢＳプレミアム`.  Kodi or PVR
+        // IPTV Simple Client seems to treat it as Latin-1 when removing U+3000.
         match sv.service_type {
             0x01 | 0xA1 | 0xA5 =>  // video
-                write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}\", {}\n",
+                write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}\", {}　\n",
                        id.value(), sv.channel.channel_type, sv.name)?,
             0x02 | 0xA2 | 0xA6 =>  // audio
-                write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}-Radio\" radio=true, {}\n",
+                write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}-Radio\" radio=true, {}　\n",
                        id.value(), sv.channel.channel_type, sv.name)?,
             _ => unreachable!(),
         }
