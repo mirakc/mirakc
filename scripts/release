@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -eu
+
+PROGNAME="$(basename $0)"
+BASEDIR="$(cd $(dirname $0); pwd)"
+PROJDIR="$(cd $BASEDIR/..; pwd)"
+
+VERSION="$1"
+
+echo "Bumping the version to $VERSION..."
+sed -i -e "s/^version = .*/version = \"$VERSION\"/" $PROJDIR/Cargo.toml
+cargo build
+git add $PROJDIR/Cargo.*
+git commit -m "misc: Bump version to $VERSION"
+
+# TODO: Genereate CHANGELOG.md
+
+echo "Making an annotated tag for $VERSION..."
+git tag -a "$VERSION" -m "release: $VERSION"
