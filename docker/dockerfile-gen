@@ -55,6 +55,7 @@ from __future__ import print_function
 
 import json
 import os
+import subprocess
 import sys
 
 from docopt import docopt
@@ -92,6 +93,19 @@ def dockerfile_gen(kind, platform, arch):
     'RECDVB': '1.3.2',
     'MIRAKC_ARIB_VERSION': '0.9.0',
   }
+
+  if kind == 'devcontainer':
+    # See comments in templates/*.devcontainer.dockerfile for details.
+    params['RUSTC_COMMIT_HASH'] = subprocess.check_output(
+      """
+      docker run --rm rust:buster rustc -vV | \
+      grep 'commit-hash' | cut -d ' ' -f 2
+      """, shell=True).strip()
+    params['RUST_TOOLCHAIN_PATH'] = subprocess.check_output(
+      """
+      docker run --rm rust:buster rustup toolchain list -v | \
+      grep '(default)' | cut -f 2
+      """, shell=True).strip()
 
   build_deps = set()
   for deps in config['build-deps'].values():

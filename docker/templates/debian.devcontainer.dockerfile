@@ -7,7 +7,7 @@
 
 # Change sourceMap hash values in .devcontainer/devcontainer.json when using a
 # different version of Rust.
-FROM rust:1.44.0-buster
+FROM rust:buster
 
 # This Dockerfile adds a non-root user with sudo access. Use the "remoteUser"
 # property in devcontainer.json to use it. On Linux, the container user's GID/UIDs
@@ -57,3 +57,34 @@ ENV DEBIAN_FRONTEND=dialog
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
 COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/
 COPY --from=mirakc-arib-build /build/bin/mirakc-arib /usr/local/bin/
+
+# WORKAROUND
+# ----------
+# For the `lldb.launch.sourceMap` property defined in .vscode/settings.json, the
+# following environment variables must be defined on a remote container before
+# a debugger starts.
+#
+#   * MIRAKC_DEV_RUSTC_COMMIT_HASH
+#   * MIRAKC_DEV_RUST_TOOLCHAIN_PATH
+#
+# The devcontainer.json has properties to define environment variables on the
+# remote container.  However, none of them work properly with the CodeLLDB
+# extension.  When trying to start a debug session, the following error message
+# will be shown on the debug console:
+#
+#   Could not set source map: the replacement path doesn't exist: "<path>"
+#
+# even though "<path>" exists on the remote container.
+#
+# Directly setting the target.source-map by using
+# settings.'lldb.launch.xxxCommands' also outputs the same error message.
+#
+# Exporting the environment variables by using the CMD instruction doesn't work.
+# The environment variables are not defined on a debuggee process.  Because the
+# debuggee process is NOT a child process of the init process which executes a
+# script of the CMD instruction.
+#
+# The only way to solve this issue is providing the values for the environment
+# variables from somewhere outside the system.
+ENV MIRAKC_DEV_RUSTC_COMMIT_HASH="{RUSTC_COMMIT_HASH}"
+ENV MIRAKC_DEV_RUST_TOOLCHAIN_PATH="{RUST_TOOLCHAIN_PATH}"

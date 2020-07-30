@@ -65,3 +65,34 @@ ENV PATH="/root/.cargo/bin:$PATH"
 
 # See https://github.com/rust-lang/rust/pull/58575#issuecomment-496026747
 ENV RUSTFLAGS="-C target-feature=-crt-static"
+
+# WORKAROUND
+# ----------
+# For the `lldb.launch.sourceMap` property defined in .vscode/settings.json, the
+# following environment variables must be defined on a remote container before
+# a debugger starts.
+#
+#   * MIRAKC_DEV_RUSTC_COMMIT_HASH
+#   * MIRAKC_DEV_RUST_TOOLCHAIN_PATH
+#
+# The devcontainer.json has properties to define environment variables on the
+# remote container.  However, none of them work properly with the CodeLLDB
+# extension.  When trying to start a debug session, the following error message
+# will be shown on the debug console:
+#
+#   Could not set source map: the replacement path doesn't exist: "<path>"
+#
+# even though "<path>" exists on the remote container.
+#
+# Directly setting the target.source-map by using
+# settings.'lldb.launch.xxxCommands' also outputs the same error message.
+#
+# Exporting the environment variables by using the CMD instruction doesn't work.
+# The environment variables are not defined on a debuggee process.  Because the
+# debuggee process is NOT a child process of the init process which executes a
+# script of the CMD instruction.
+#
+# The only way to solve this issue is providing the values for the environment
+# variables from somewhere outside the system.
+ENV MIRAKC_DEV_RUSTC_COMMIT_HASH="{RUSTC_COMMIT_HASH}"
+ENV MIRAKC_DEV_RUST_TOOLCHAIN_PATH="{RUST_TOOLCHAIN_PATH}"

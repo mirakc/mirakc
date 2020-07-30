@@ -8,6 +8,20 @@
     // SIGPIPE doesn't stop the debugger.
     "process handle SIGPIPE -n true -p true -s false"
   ],
+  "lldb.launch.sourceMap": {
+    // For debugging on a local machine, set the following environment variables
+    // before VS Code launches:
+    //
+    //   MIRAKC_DEV_RUSTC_COMMIT_HASH:
+    //     rustc -vV | grep 'commit-hash' | cut -d ' ' -f 2
+    //
+    //   MIRAKC_DEV_RUST_TOOLCHAIN_PATH:
+    //     rustup toolchain list -v | grep '(default)' | cut -f 2
+    //
+    // The commands above must be executed on the local machine where VSCode
+    // will be launched.
+    "/rustc/${env:MIRAKC_DEV_RUSTC_COMMIT_HASH}": "${env:MIRAKC_DEV_RUST_TOOLCHAIN_PATH}/lib/rustlib/src/rust"
+  },
   "lldb.verboseLogging": true,
   "search.exclude": {
     "**/target": true
