@@ -1,6 +1,4 @@
-#!/bin/sh
-
-set -eu
+#!/bin/sh -eu
 
 PROGNAME="$(basename $0)"
 BASEDIR="$(cd $(dirname $0); pwd)"
@@ -9,10 +7,13 @@ PROJDIR="$(cd $BASEDIR/..; pwd)"
 VERSION="$1"
 
 echo "Bumping the version to $VERSION..."
-sed -i -e "s/^version = .*/version = \"$VERSION\"/" $PROJDIR/Cargo.toml
+# Don't use the -i option of `sed`.
+# The incompatibility between macOS and GNU will cause troubles.
+sed -e "s/^version = .*/version = \"$VERSION\"/" $PROJDIR/Cargo.toml| \
+  sponge $PROJDIR/Cargo.toml
 cargo build
 git add $PROJDIR/Cargo.*
-git commit -m "misc: Bump version to $VERSION"
+git commit -m "misc: bump version to $VERSION"
 
 # TODO: Genereate CHANGELOG.md
 
