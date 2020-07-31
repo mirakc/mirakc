@@ -1111,7 +1111,7 @@ dependencies = [
 
 [[package]]
 name = "mirakc"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "actix 0.10.0-alpha.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-files 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
