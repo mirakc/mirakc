@@ -3,7 +3,7 @@ env:
   MAIN_PLATFORM: debian
   DOCKER_BUILDKIT: 1
   DOCKER_CLI_EXPERIMENTAL: enabled
-  MIRAKURUN_VERSION: '3.1.0'
+  MIRAKURUN_VERSION: '3.3.0'
 
 jobs:
   docker-build-images:
