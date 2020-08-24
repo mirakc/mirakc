@@ -93,7 +93,7 @@ impl Drop for MpegTsStreamStopTrigger {
 // reduce the delay as much as possible.
 //
 // See a discussion in Japanese on:
-// https://github.com/masnagam/mirakc/issues/4#issuecomment-583818912.
+// https://github.com/mirakc/mirakc/issues/4#issuecomment-583818912.
 
 pub struct MpegTsStreamTerminator<S, T> {
     inner: S,

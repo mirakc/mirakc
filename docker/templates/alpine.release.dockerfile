@@ -24,7 +24,7 @@ RUN cp /build/target/{RUST_TARGET_TRIPLE}/release/mirakc /usr/local/bin/
 
 # final image
 FROM {ARCH}/alpine:3.12
-LABEL maintainer="masnagam <masnagam@gmail.com>"
+LABEL maintainer="Contributors of mirakc"
 
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
 COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/

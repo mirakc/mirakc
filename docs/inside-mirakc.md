@@ -86,4 +86,4 @@ The `web-buffer` can be tuned by the following configuration properties:
 * [server.stream-max-chunks](./config.md#server.stream-max-chunks)
 
 See also the Japanese discussion on
-[issues/18](https://github.com/masnagam/mirakc/issues/18).
+[issues/18](https://github.com/mirakc/mirakc/issues/18).

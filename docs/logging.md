@@ -69,6 +69,6 @@ export MIRAKC_ARIB_LOG=warn,filter-program=info
 export MIRAKC_ARIB_LOG_NO_TIMESTAMP=
 ```
 
-See [masnagam/mirakc-arib](https://github.com/masnagam/mirakc-arib#logging)
+See [mirakc/mirakc-arib](https://github.com/mirakc/mirakc-arib#logging)
 about log levels which can be used in the `MIRAKC_ARIB_LOG` environment
 variable.

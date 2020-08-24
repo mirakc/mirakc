@@ -5,21 +5,21 @@
 There are two types of pre-built images in [DockerHub]:
 
 * Multi-Arch images
-  * masnagam/mirakc:latest
-    * Alias of masnagam/mirakc:$LATEST_VERSION
-  * masnagam/mirakc:$PLATFORM
-    * Alias of masnagam/mirakc:$LATEST_VERSION-$PLATFORM
-  * masnagam/mirakc:$VERSION
-    * Alias of masnagam/mirakc:$VERSION-debian
-  * masnagam/mirakc:$VERSION-$PLATFORM
+  * mirakc/mirakc:latest
+    * Alias of mirakc/mirakc:$LATEST_VERSION
+  * mirakc/mirakc:$PLATFORM
+    * Alias of mirakc/mirakc:$LATEST_VERSION-$PLATFORM
+  * mirakc/mirakc:$VERSION
+    * Alias of mirakc/mirakc:$VERSION-debian
+  * mirakc/mirakc:$VERSION-$PLATFORM
 * Image for each architecture
-  * masnagam/mirakc:$ARCH
-    * Alias of masnagam/mirakc:$LATEST_VERSION-$ARCH
-  * masnagam/mirack:$PLATFORM-$ARCH
-    * Alias of masnagam/mirakc:$LATEST_VERSION-debian-$ARCH
-  * masnagam/mirack:$VERSION-$ARCH
-    * Alias of masnagam/mirakc:$VERSION-debian-$ARCH
-  * masnagam/mirack:$VERSION-$PLATFORM-$ARCH
+  * mirakc/mirakc:$ARCH
+    * Alias of mirakc/mirakc:$LATEST_VERSION-$ARCH
+  * mirakc/mirack:$PLATFORM-$ARCH
+    * Alias of mirakc/mirakc:$LATEST_VERSION-debian-$ARCH
+  * mirakc/mirack:$VERSION-$ARCH
+    * Alias of mirakc/mirakc:$VERSION-debian-$ARCH
+  * mirakc/mirack:$VERSION-$PLATFORM-$ARCH
 
 Where:
 
@@ -55,7 +55,7 @@ Specify one of pre-built images in the `FROM` directive in `Dockerfile`.  And
 then install additional software like below:
 
 ```Dockerfile
-FROM masnagam/mirakc:alpine
+FROM mirakc/mirakc:alpine
 
 RUN apk add --no-cache ffmpeg
 ...
@@ -64,7 +64,7 @@ RUN apk add --no-cache ffmpeg
 Use an architecture-specific image if you like to cross-build a custom image:
 
 ```Dockerfile
-FROM masnagam/mirakc:alpine-arm64v8
+FROM mirakc/mirakc:alpine-arm64v8
 
 RUN apk add --no-cache ffmpeg
 ...
@@ -76,7 +76,7 @@ If you want to create a cleaner image, you can copy only necessary files from a
 pre-built image like below:
 
 ```Dockerfile
-FROM masnagam/mirakc:alpine AS mirakc-image
+FROM mirakc/mirakc:alpine AS mirakc-image
 
 FROM alpine:3.12
 
@@ -116,7 +116,7 @@ below:
 
 ```console
 $ docker images --format "{{.Repository}}:{{.Tag}}"
-masnagam/mirakc:alpine-arm64v8
+mirakc/mirakc:alpine-arm64v8
 <none>:<none>
 ...
 ```
@@ -143,7 +143,7 @@ new architecture and build an image using it.
 
 [recdvb]: http://cgi1.plala.or.jp/~sat/?x=entry:entry180805-164428
 [recpt1]: https://github.com/stz2012/recpt1
-[mirakc-arib]: https://github.com/masnagam/mirakc-arib
+[mirakc-arib]: https://github.com/mirakc/mirakc-arib
 [curl]: https://curl.haxx.se/docs/manpage.html
 [socat]: http://www.dest-unreach.org/socat/doc/socat.html
-[DockerHub]: https://hub.docker.com/r/masnagam/mirakc
+[DockerHub]: https://hub.docker.com/r/mirakc/mirakc

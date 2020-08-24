@@ -1,7 +1,7 @@
 [package]
 name = "mirakc"
 version = "0.13.1"
-authors = ["masnagam <masnagam@gmail.com>"]
+authors = ["Contributors of mirakc"]
 description = "A Mirakurun-compatible PVR backend written in Rust"
 edition = "2018"
 license = "MIT OR Apache-2.0"

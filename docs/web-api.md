@@ -32,7 +32,7 @@ some of them don't need for playback.
 
 Unfortunately, mirakc doesn't work with [BonDriver_Mirakurun] at this point due
 to some kind of issue in BonDriver_Mirakurun or mirakc.
-See [issues/4](https://github.com/masnagam/mirakc/issues/4) for details
+See [issues/4](https://github.com/mirakc/mirakc/issues/4) for details
 (discussion in Japanese).
 
 Web API endpoints listed below have been implemented as the mirakc extensions:
@@ -138,7 +138,7 @@ command:
   ./scripts/fixup-openapi-json >/etc/mirakurun.openapi.json
 ```
 
-See also [issues/13](https://github.com/masnagam/mirakc/issues/13).
+See also [issues/13](https://github.com/mirakc/mirakc/issues/13).
 
 ## Web API endpoints for IPTV clients
 

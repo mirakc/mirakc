@@ -2,7 +2,7 @@ version: '3.7'
 
 services:
   mirakc:
-    image: masnagam/mirakc
+    image: mirakc/mirakc
     container_name: mirakc
     init: true
     restart: unless-stopped
@@ -20,7 +20,7 @@ services:
     environment:
       TZ: Asia/Tokyo
       # Log level of `mirakc`.
-      # See README.md in masnagam/mirakc.
+      # See README.md in mirakc/mirakc.
       #
       # `mirakc-debug` is needed for logging messages from child processes.
       RUST_LOG: info,mirakc=debug

@@ -2,10 +2,10 @@
 
 > A Mirakurun-compatible PVR backend written in Rust
 
-[![ci-status](https://github.com/masnagam/mirakc/workflows/CI/badge.svg)](https://github.com/masnagam/mirakc/actions?workflow=CI)
-[![codecov](https://codecov.io/gh/masnagam/mirakc/branch/master/graph/badge.svg)](https://codecov.io/gh/masnagam/mirakc)
-[![alpine-size](https://img.shields.io/docker/image-size/masnagam/mirakc/alpine?label=Alpine)](https://hub.docker.com/repository/docker/masnagam/mirakc/tags?page=1&name=alpine)
-[![debian-size](https://img.shields.io/docker/image-size/masnagam/mirakc/debian?label=Debian)](https://hub.docker.com/repository/docker/masnagam/mirakc/tags?page=1&name=debian)
+[![ci-status](https://github.com/mirakc/mirakc/workflows/CI/badge.svg)](https://github.com/mirakc/mirakc/actions?workflow=CI)
+[![codecov](https://codecov.io/gh/mirakc/mirakc/branch/master/graph/badge.svg)](https://codecov.io/gh/mirakc/mirakc)
+[![alpine-size](https://img.shields.io/docker/image-size/mirakc/mirakc/alpine?label=Alpine)](https://hub.docker.com/repository/docker/mirakc/mirakc/tags?page=1&name=alpine)
+[![debian-size](https://img.shields.io/docker/image-size/mirakc/mirakc/debian?label=Debian)](https://hub.docker.com/repository/docker/mirakc/mirakc/tags?page=1&name=debian)
 
 ## Quick Start
 
@@ -57,7 +57,7 @@ version: '3.7'
 
 services:
   mirakc:
-    image: masnagam/mirakc:alpine
+    image: mirakc/mirakc:alpine
     container_name: mirakc
     init: true
     restart: unless-stopped
@@ -190,7 +190,7 @@ shall be dual licensed as above, without any additional terms or conditions.
 
 [Mirakurun]: https://github.com/Chinachu/Mirakurun
 [EPGStation]: https://github.com/l3tnun/EPGStation
-[DockerHub]: https://hub.docker.com/r/masnagam/mirakc
+[DockerHub]: https://hub.docker.com/r/mirakc/mirakc
 [BonDriver_Mirakurun]: https://github.com/Chinachu/BonDriver_Mirakurun
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
 [LICENSE-APACHE]: ./LICENSE-APACHE
