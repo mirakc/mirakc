@@ -8,8 +8,9 @@ jobs:
         run: |
           cargo install cargo-tarpaulin
           cargo build
-          cargo tarpaulin --out Xml
-      - name: Upload coverage data to Codecov
-        uses: codecov/codecov-action@v1
+          cargo tarpaulin --out Lcov
+      - name: Upload coverage data to Coveralls
+        uses: coverallsapp/github-action@master
         with:
-          file: cobertura.xml
+          github-token: ${{ secrets.github_token }}
+          path-to-lcov: ./lcov.info
