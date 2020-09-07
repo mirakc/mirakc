@@ -12,7 +12,7 @@
     "commander": "^6.1.0",
     "easy-table": "^1.1.1",
     "ms": "^2.1.2",
-    "node-fetch": "^2.6.0",
+    "node-fetch": "^2.6.1",
     "stream-to-string": "^1.2.0"
   },
   "private": true
