@@ -38,6 +38,8 @@ pub enum Error {
     JsonError(serde_json::Error),
     #[fail(display = "YAML error: {}", 0)]
     YamlError(serde_yaml::Error),
+    #[fail(display = "Querystring error: {}", 0)]
+    QuerystringError(serde_qs::Error),
     #[fail(display = "Mailbox error: {}", 0)]
     MailboxError(actix::MailboxError),
     #[fail(display = "Mustache error: {}", 0)]
@@ -75,6 +77,12 @@ impl From<serde_json::Error> for Error {
 impl From<serde_yaml::Error> for Error {
     fn from(err: serde_yaml::Error) -> Self {
         Self::YamlError(err)
+    }
+}
+
+impl From<serde_qs::Error> for Error {
+    fn from(err: serde_qs::Error) -> Self {
+        Self::QuerystringError(err)
     }
 }
 

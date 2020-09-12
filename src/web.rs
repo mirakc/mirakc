@@ -699,8 +699,7 @@ impl FromRequest for FilterSetting {
     ) -> Self::Future {
         match serde_qs::from_str::<FilterSetting>(req.query_string()) {
             Ok(query) => futures::future::ok(query),
-            Err(err) => futures::future::err(failure::format_err!(
-                "Failed to parse the query string: {}", err).into()),
+            Err(err) => futures::future::err(Error::from(err).into()),
         }
     }
 }
@@ -731,7 +730,7 @@ impl FromRequest for TunerUser {
     ) -> Self::Future {
         let remote = req
             .connection_info()
-            .remote()
+            .realip_remote_addr()
             .map(|v| v.to_string());
 
         let agent = req
