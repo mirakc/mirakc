@@ -1,6 +1,5 @@
 env:
   IMAGE: mirakc/mirakc
-  OLD_IMAGE: masnagam/mirakc  # TODO: remove old images
   MAIN_PLATFORM: debian
   DOCKER_BUILDKIT: 1
   DOCKER_CLI_EXPERIMENTAL: enabled
@@ -47,32 +46,20 @@ jobs:
       - name: Push image
         run: |-
           docker push $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}
-          # TODO: remove old images
-          docker tag $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} $OLD_IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}
-          docker push $OLD_IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}
       - name: Update latest tags for each platform
         run: |-
           docker tag $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${{ matrix.platform }}-${{ matrix.arch }}
           docker push $IMAGE:${{ matrix.platform }}-${{ matrix.arch }}
-          # TODO: remove old images
-          docker tag $IMAGE:${{ matrix.platform }}-${{ matrix.arch }} $OLD_IMAGE:${{ matrix.platform }}-${{ matrix.arch }}
-          docker push $OLD_IMAGE:${{ matrix.platform }}-${{ matrix.arch }}
         if: env.VERSION != 'master'
       - name: Update the main platform tags
         run: |-
           docker tag $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${VERSION}-${{ matrix.arch }}
           docker push $IMAGE:${VERSION}-${{ matrix.arch }}
-          # TODO: remove old images
-          docker tag $IMAGE:${VERSION}-${{ matrix.arch }} $OLD_IMAGE:${VERSION}-${{ matrix.arch }}
-          docker push $OLD_IMAGE:${VERSION}-${{ matrix.arch }}
         if: matrix.platform == env.MAIN_PLATFORM
       - name: Update latest tags for the main platform
         run: |-
           docker tag $IMAGE:${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${{ matrix.arch }}
           docker push $IMAGE:${{ matrix.arch }}
-          # TODO: remove old images
-          docker tag $IMAGE:${{ matrix.arch }} $OLD_IMAGE:${{ matrix.arch }}
-          docker push $OLD_IMAGE:${{ matrix.arch }}
         if: env.VERSION != 'master' && matrix.platform == env.MAIN_PLATFORM
   docker-build-multiarch-image:
     strategy:
@@ -101,12 +88,6 @@ jobs:
           docker manifest annotate $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v7 --os linux --arch arm --variant v7
           docker manifest annotate $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-arm64v8 --os linux --arch arm64 --variant v8
           docker manifest push $IMAGE:${VERSION}-${{ matrix.platform }}
-          # TODO: remove old images
-          docker manifest create $OLD_IMAGE:${VERSION}-${{ matrix.platform }} $OLD_IMAGE:${VERSION}-${{ matrix.platform }}-amd64 $OLD_IMAGE:${VERSION}-${{ matrix.platform }}-arm32v6 $OLD_IMAGE:${VERSION}-${{ matrix.platform }}-arm32v7 $OLD_IMAGE:${VERSION}-${{ matrix.platform }}-arm64v8
-          docker manifest annotate $OLD_IMAGE:${VERSION}-${{ matrix.platform }} $OLD_IMAGE:${VERSION}-${{ matrix.platform }}-arm32v6 --os linux --arch arm --variant v6
-          docker manifest annotate $OLD_IMAGE:${VERSION}-${{ matrix.platform }} $OLD_IMAGE:${VERSION}-${{ matrix.platform }}-arm32v7 --os linux --arch arm --variant v7
-          docker manifest annotate $OLD_IMAGE:${VERSION}-${{ matrix.platform }} $OLD_IMAGE:${VERSION}-${{ matrix.platform }}-arm64v8 --os linux --arch arm64 --variant v8
-          docker manifest push $OLD_IMAGE:${VERSION}-${{ matrix.platform }}
       - name: Update latest tag for each platform
         run: |-
           docker manifest create $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-amd64 $IMAGE:${{ matrix.platform }}-arm32v6 $IMAGE:${{ matrix.platform }}-arm32v7 $IMAGE:${{ matrix.platform }}-arm64v8
@@ -114,12 +95,6 @@ jobs:
           docker manifest annotate $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-arm32v7 --os linux --arch arm --variant v7
           docker manifest annotate $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-arm64v8 --os linux --arch arm64 --variant v8
           docker manifest push $IMAGE:${{ matrix.platform }}
-          # TODO: remove old images
-          docker manifest create $OLD_IMAGE:${{ matrix.platform }} $OLD_IMAGE:${{ matrix.platform }}-amd64 $OLD_IMAGE:${{ matrix.platform }}-arm32v6 $OLD_IMAGE:${{ matrix.platform }}-arm32v7 $OLD_IMAGE:${{ matrix.platform }}-arm64v8
-          docker manifest annotate $OLD_IMAGE:${{ matrix.platform }} $OLD_IMAGE:${{ matrix.platform }}-arm32v6 --os linux --arch arm --variant v6
-          docker manifest annotate $OLD_IMAGE:${{ matrix.platform }} $OLD_IMAGE:${{ matrix.platform }}-arm32v7 --os linux --arch arm --variant v7
-          docker manifest annotate $OLD_IMAGE:${{ matrix.platform }} $OLD_IMAGE:${{ matrix.platform }}-arm64v8 --os linux --arch arm64 --variant v8
-          docker manifest push $OLD_IMAGE:${{ matrix.platform }}
         if: env.VERSION != 'master'
       - name: Update the version tag for the main platform
         run: |-
@@ -128,12 +103,6 @@ jobs:
           docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm32v7 --os linux --arch arm --variant v7
           docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm64v8 --os linux --arch arm64 --variant v8
           docker manifest push $IMAGE:$VERSION
-          # TODO: remove old images
-          docker manifest create $OLD_IMAGE:$VERSION $OLD_IMAGE:${VERSION}-amd64 $OLD_IMAGE:${VERSION}-arm32v6 $OLD_IMAGE:${VERSION}-arm32v7 $OLD_IMAGE:${VERSION}-arm64v8
-          docker manifest annotate $OLD_IMAGE:$VERSION $OLD_IMAGE:${VERSION}-arm32v6 --os linux --arch arm --variant v6
-          docker manifest annotate $OLD_IMAGE:$VERSION $OLD_IMAGE:${VERSION}-arm32v7 --os linux --arch arm --variant v7
-          docker manifest annotate $OLD_IMAGE:$VERSION $OLD_IMAGE:${VERSION}-arm64v8 --os linux --arch arm64 --variant v8
-          docker manifest push $OLD_IMAGE:$VERSION
         if: matrix.platform == env.MAIN_PLATFORM
       - name: Update the latest tag for the main platform
         run: |-
@@ -142,10 +111,4 @@ jobs:
           docker manifest annotate $IMAGE $IMAGE:arm32v7 --os linux --arch arm --variant v7
           docker manifest annotate $IMAGE $IMAGE:arm64v8 --os linux --arch arm64 --variant v8
           docker manifest push $IMAGE
-          # TODO: remove old images
-          docker manifest create $OLD_IMAGE $OLD_IMAGE:amd64 $OLD_IMAGE:arm32v6 $OLD_IMAGE:arm32v7 $OLD_IMAGE:arm64v8
-          docker manifest annotate $OLD_IMAGE $OLD_IMAGE:arm32v6 --os linux --arch arm --variant v6
-          docker manifest annotate $OLD_IMAGE $OLD_IMAGE:arm32v7 --os linux --arch arm --variant v7
-          docker manifest annotate $OLD_IMAGE $OLD_IMAGE:arm64v8 --os linux --arch arm64 --variant v8
-          docker manifest push $OLD_IMAGE
         if: env.VERSION != 'master' && matrix.platform == env.MAIN_PLATFORM
