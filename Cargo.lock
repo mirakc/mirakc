@@ -1169,7 +1169,7 @@ dependencies = [
  "shell-words 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.2.22 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
- "tracing-subscriber 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing-subscriber 0.2.13 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1861,7 +1861,7 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.2.12"
+version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "ansi_term 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1874,6 +1874,7 @@ dependencies = [
  "sharded-slab 0.0.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec 1.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "thread_local 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing-core 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing-log 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing-serde 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2323,7 +2324,7 @@ dependencies = [
 "checksum tracing-core 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)" = "f50de3927f93d202783f4513cda820ab47ef17f624b03c096e86ef00c67e6b5f"
 "checksum tracing-log 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "5e0f8c7178e13481ff6765bd169b33e8d554c5d2bbede5e32c356194be02b9b9"
 "checksum tracing-serde 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "fb65ea441fbb84f9f6748fd496cf7f63ec9af5bca94dd86456978d055e8eb28b"
-"checksum tracing-subscriber 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)" = "82bb5079aa76438620837198db8a5c529fb9878c730bc2b28179b0241cf04c10"
+"checksum tracing-subscriber 0.2.13 (registry+https://github.com/rust-lang/crates.io-index)" = "4ef0a5e15477aa303afbfac3a44cba9b6430fdaad52423b1e6c0dbbe28c3eedd"
 "checksum trust-dns-proto 0.19.5 (registry+https://github.com/rust-lang/crates.io-index)" = "cdd7061ba6f4d4d9721afedffbfd403f20f39a4301fee1b70d6fcd09cca69f28"
 "checksum trust-dns-resolver 0.19.5 (registry+https://github.com/rust-lang/crates.io-index)" = "0f23cdfdc3d8300b3c50c9e84302d3bd6d860fb9529af84ace6cf9665f181b77"
 "checksum typenum 1.12.0 (registry+https://github.com/rust-lang/crates.io-index)" = "373c8a200f9e67a0c95e62a4f52fbf80c23b4381c05a17845531982fa99e6b33"
