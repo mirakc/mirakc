@@ -53,6 +53,7 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [/api/tuners]: #apituners
 [/api/docs]: #apidocs
 [/api/iptv/playlist]: #apiiptvplaylist
+[/api/iptv/epg]: #apiiptvepg
 
 ## Incompatibility of the `X-Mirakurun-Priority` header
 
