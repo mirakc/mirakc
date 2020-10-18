@@ -433,11 +433,11 @@ async fn get_iptv_epg(
     let mut buf = BytesMut::with_capacity(INITIAL_BUFSIZE);
     write!(buf, r#"<?xml version="1.0" encoding="UTF-8" ?>"#)?;
     write!(buf, r#"<!DOCTYPE tv SYSTEM "xmltv.dtd">"#)?;
-    write!(buf, r#"<tv generator-info-name="{}">"#, server_name())?;
+    write!(buf, r#"<tv generator-info-name="{}">"#, escape(&server_name()))?;
     for sv in services.iter() {
         let id = MirakurunServiceId::from(sv.triple());
         write!(buf, r#"<channel id="{}"><display-name lang="ja">{}</display-name></channel>"#,
-               id.value(), sv.name)?;
+               id.value(), escape(&sv.name))?;
     }
     for pg in programs
         .iter()
@@ -450,17 +450,17 @@ async fn get_iptv_epg(
                pg.end_at().format(DATETIME_FORMAT),
                id.value())?;
         if let Some(name) = pg.name.as_ref() {
-            write!(buf, r#"<title lang="ja">{}</title>"#, name)?;
+            write!(buf, r#"<title lang="ja">{}</title>"#, escape(&name))?;
         }
         if let Some(desc) = pg.description.as_ref() {
             write!(buf, r#"<desc lang="ja">"#)?;
-            write!(buf, "{}", desc)?;
+            write!(buf, "{}", escape(&desc))?;
             if let Some(extended) = pg.extended.as_ref() {
                 for (key, value) in extended.iter() {
                     if key.is_empty() {
-                        write!(buf, "{}", value)?;
+                        write!(buf, "{}", escape(&value))?;
                     } else {
-                        write!(buf, "\n{}\n{}", key, value)?;
+                        write!(buf, "\n{}\n{}", escape(&key), escape(&value))?;
                     }
                 }
             }
@@ -473,10 +473,10 @@ async fn get_iptv_epg(
                     .subgenres[genre.lv2 as usize];
                 if subgenre_str.is_empty() {
                     write!(buf, r#"<category lang="ja">{}</category>"#,
-                           genre_str)?;
+                           escape(&genre_str))?;
                 } else {
                     write!(buf, r#"<category lang="ja">{} / {}</category>"#,
-                           genre_str, subgenre_str)?;
+                           escape(&genre_str), escape(&subgenre_str))?;
                 }
             }
         }
@@ -979,6 +979,48 @@ impl FilterPipelineBuilder {
     }
 }
 
+// Took from https://github.com/rust-lang/rust/blob/master/src/librustdoc/html/escape.rs
+
+#[inline(always)]
+fn escape<'a>(str: &'a str) -> Escape<'a> {
+    Escape(str)
+}
+
+struct Escape<'a>(pub &'a str);
+
+impl<'a> std::fmt::Display for Escape<'a> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Because the internet is always right, turns out there's not that many
+        // characters to escape: http://stackoverflow.com/questions/7381974
+        let Escape(s) = *self;
+        let pile_o_bits = s;
+        let mut last = 0;
+        for (i, ch) in s.bytes().enumerate() {
+            match ch as char {
+                '<' | '>' | '&' | '\'' | '"' => {
+                    fmt.write_str(&pile_o_bits[last..i])?;
+                    let s = match ch as char {
+                        '>' => "&gt;",
+                        '<' => "&lt;",
+                        '&' => "&amp;",
+                        '\'' => "&#39;",
+                        '"' => "&quot;",
+                        _ => unreachable!(),
+                    };
+                    fmt.write_str(s)?;
+                    last = i + 1;
+                }
+                _ => {}
+            }
+        }
+
+        if last < s.len() {
+            fmt.write_str(&pile_o_bits[last..])?;
+        }
+        Ok(())
+    }
+}
+
 // tests
 
 #[cfg(test)]
@@ -1361,6 +1403,11 @@ mod tests {
             assert_eq!(v.post_filters.len(), 1);
             assert_eq!(v.post_filters[0], "b".to_string());
         });
+    }
+
+    #[test]
+    fn test_escape() {
+        assert_eq!("a&lt;a&gt;a&amp;a&#39;a&quot;a", format!("{}", escape(r#"a<a>a&a'a"a"#)));
     }
 
     fn config_for_test() -> Arc<Config> {
