@@ -185,7 +185,7 @@ pub struct FiltersConfig {
 impl FiltersConfig {
     fn default_service_filter() -> FilterConfig {
         FilterConfig {
-            command: "mirakc-arib filter-service --sid={{sid}}".to_string()
+            command: "mirakc-arib filter-service --sid={{{sid}}}".to_string()
         }
     }
 
@@ -201,9 +201,9 @@ impl FiltersConfig {
         // starts when this option is specified.  See masnagam/rust-case-studies
         // for details about the issue#1313.
         FilterConfig {
-            command: "mirakc-arib filter-program --sid={{sid}} --eid={{eid}} \
-                      --clock-pid={{clock_pid}} --clock-pcr={{clock_pcr}} \
-                      --clock-time={{clock_time}} --end-margin=2000".to_string()
+            command: "mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} \
+                      --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} \
+                      --clock-time={{{clock_time}}} --end-margin=2000".to_string()
         }
     }
 }
@@ -253,8 +253,8 @@ impl JobsConfig {
     fn default_scan_services() -> JobConfig {
         JobConfig {
             command: "mirakc-arib scan-services\
-                      {{#sids}} --sids={{.}}{{/sids}}\
-                      {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
+                      {{#sids}} --sids={{{.}}}{{/sids}}\
+                      {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
             schedule: "0 31 5 * * * *".to_string(),
         }
     }
@@ -262,8 +262,8 @@ impl JobsConfig {
     fn default_sync_clocks() -> JobConfig {
         JobConfig {
             command: "mirakc-arib sync-clocks\
-                      {{#sids}} --sids={{.}}{{/sids}}\
-                      {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
+                      {{#sids}} --sids={{{.}}}{{/sids}}\
+                      {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
             schedule: "0 3 12 * * * *".to_string(),
         }
     }
@@ -271,8 +271,8 @@ impl JobsConfig {
     fn default_update_schedules() -> JobConfig {
         JobConfig {
             command: "mirakc-arib collect-eits\
-                      {{#sids}} --sids={{.}}{{/sids}}\
-                      {{#xsids}} --xsids={{.}}{{/xsids}}".to_string(),
+                      {{#sids}} --sids={{{.}}}{{/sids}}\
+                      {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
             schedule: "0 7,37 * * * * *".to_string(),
         }
     }
@@ -307,7 +307,7 @@ impl Default for RecorderConfig {
     fn default() -> Self {
         RecorderConfig {
             track_airtime_command: "mirakc-arib track-airtime \
-                                    --sid={{sid}} --eid={{eid}}".to_string(),
+                                    --sid={{{sid}}} --eid={{{eid}}}".to_string(),
         }
     }
 }

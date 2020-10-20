@@ -27,16 +27,16 @@ suitable for your environment.
 | [tuners\[\].time-limit]          | `30000` (30s)                             |
 | [tuners\[\].disabled]            | `false`                                   |
 | [filters.tuner-filter.command]   | `''`                                      |
-| [filters.service-filter.command] | `mirakc-arib filter-service --sid={{sid}}`|
+| [filters.service-filter.command] | `mirakc-arib filter-service --sid={{{sid}}}`|
 | [filters.decode-filter.command]  | `''`                                      |
-| [filters.program-filter.command] | `mirakc-arib filter-program --sid={{sid}} --eid={{eid}} --clock-pid={{clock_pid}} --clock-pcr={{clock_pcr}} --clock-time={{clock_time}} --end-margin=2000` |
+| [filters.program-filter.command] | `mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} --clock-time={{{clock_time}}} --end-margin=2000` |
 | [pre-filters]                    | `{}`                                      |
 | [post-filters]                   | `{}`                                      |
-| [jobs.scan-services.command]     | `mirakc-arib scan-services{{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}` |
+| [jobs.scan-services.command]     | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.scan-services.schedule]    | `'0 31 5 * * * *'` (execute at 05:31 every day) |
-| [jobs.sync-clocks.command]       | `mirakc-arib sync-clocks{{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}` |
+| [jobs.sync-clocks.command]       | `mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.sync-clocks.schedule]      | `'0 3 12 * * * *'` (execute at 12:03 every day) |
-| [jobs.update-schedules.command]  | `mirakc-arib collect-eits{{#sids}} --sids={{.}}{{/sids}}{{#xsids}} --xsids={{.}}{{/xsids}}` |
+| [jobs.update-schedules.command]  | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.update-schedules.schedule] | `'0 7,37 * * * * *'` (execute at 7 and 37 minutes every hour) |
 | [resource.strings-yaml]          | `/etc/mirakc/strings.yml`                 |
 | [mirakurun.openapi-json]         | `/etc/mirakurun.openapi.json`             |
@@ -277,7 +277,7 @@ below.
 tuners:
   - name: GR0
     types: [GR]
-    command: recdvb {{channel}} {{duration}} -
+    command: recdvb {{{channel}}} {{{duration}}} -
 
   - name: Disabled
     types: [GR]
@@ -288,7 +288,7 @@ tuners:
   - name: upstream
     types: [GR, BS]
     command: >-
-      curl -sG http://upstream:40772/api/channels/{{channel_type}}/{{channel}}/stream
+      curl -sG http://upstream:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream
 
 ```
 
