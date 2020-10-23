@@ -2,7 +2,7 @@ use std::io;
 use std::pin::Pin;
 
 use actix::prelude::*;
-use bytes::Bytes;
+use actix_web::web::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::stream::{Stream, StreamExt};
 

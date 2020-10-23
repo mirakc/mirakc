@@ -10,7 +10,7 @@ use actix::prelude::*;
 use actix_files;
 use actix_service;
 use actix_web::{self, FromRequest};
-use bytes::{Bytes, BytesMut};
+use actix_web::web::{Bytes, BytesMut};
 use futures;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};

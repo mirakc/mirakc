@@ -1294,7 +1294,6 @@ dependencies = [
  "actix-service",
  "actix-web",
  "assert_matches",
- "bytes",
  "chrono",
  "clap",
  "cron",

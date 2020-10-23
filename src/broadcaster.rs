@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use actix::prelude::*;
 use actix::dev::{MessageResponse, ResponseChannel};
-use bytes::Bytes;
+use actix_web::web::Bytes;
 use humantime;
 use log;
 use tokio::io::AsyncRead;
@@ -235,7 +235,6 @@ mod tests {
     use std::cmp;
     use std::pin::Pin;
     use std::task::{Poll, Context};
-    use bytes::Buf;
     use tokio::stream::StreamExt;
     use tokio::sync::mpsc;
 
@@ -332,9 +331,9 @@ mod tests {
             buf: &mut [u8]
         ) -> Poll<io::Result<usize>> {
             match Pin::new(&mut self.0).poll_next(cx) {
-                Poll::Ready(Some(mut chunk)) => {
+                Poll::Ready(Some(chunk)) => {
                     let len = cmp::min(chunk.len(), buf.len());
-                    chunk.copy_to_slice(&mut buf[..len]);
+                    buf[..len].copy_from_slice(&chunk[..len]);
                     Poll::Ready(Ok(len))
                 }
                 Poll::Ready(None) => Poll::Ready(Ok(0)),
