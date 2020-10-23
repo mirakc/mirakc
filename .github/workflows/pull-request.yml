@@ -15,14 +15,20 @@ jobs:
           #- nightly
     runs-on: ubuntu-latest
     steps:
-      - uses: hecrj/setup-rust-action@v1
-        with:
-          rust-version: ${{ matrix.rust }}
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
       - name: Build
-        run: cargo build -v --release
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -v --release
       - name: Run tests
-        run: cargo test -v --release
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -v --release
   macos-build:
     strategy:
       matrix:
@@ -31,14 +37,20 @@ jobs:
           #- nightly
     runs-on: macOS-latest
     steps:
-      - uses: hecrj/setup-rust-action@v1
-        with:
-          rust-version: ${{ matrix.rust }}
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
       - name: Build
-        run: cargo build -v --release
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -v --release
       - name: Run tests
-        run: cargo test -v --release
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -v --release
   arm-linux-build:
     strategy:
       matrix:
@@ -48,13 +60,24 @@ jobs:
           - aarch64-unknown-linux-gnu
     runs-on: ubuntu-latest
     steps:
-      - name: Install cross
-        run: cargo install cross
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
       - name: Build
-        run: cross build -v --release --target=${{ matrix.target }}
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: -v --release --target=${{ matrix.target }}
       - name: Run tests
-        run: cross test -v --release --target=${{ matrix.target }}
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: test
+          args: -v --release --target=${{ matrix.target }}
   coverage:
     needs:
       - linux-build
@@ -62,18 +85,26 @@ jobs:
       - arm-linux-build
     runs-on: ubuntu-latest
     steps:
-      - uses: hecrj/setup-rust-action@v1
       - uses: actions/checkout@v2
-      - name: Generate coverage data
-        run: |
-          cargo install cargo-tarpaulin
-          cargo build
-          cargo tarpaulin --out Lcov
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features --no-fail-fast
+        env:
+          CARGO_INCREMENTAL: '0'
+          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+      - uses: actions-rs/grcov@v0.1
+        id: coverage
       - name: Upload coverage data to Coveralls
         uses: coverallsapp/github-action@master
         with:
-          github-token: ${{ secrets.github_token }}
-          path-to-lcov: ./lcov.info
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: ${{ steps.coverage.outputs.report }}
   auto-merge:
     if: github.actor == 'dependabot[bot]'
     needs:

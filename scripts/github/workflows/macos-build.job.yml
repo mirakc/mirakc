@@ -7,11 +7,17 @@ jobs:
           #- nightly
     runs-on: macOS-latest
     steps:
-      - uses: hecrj/setup-rust-action@v1
-        with:
-          rust-version: ${{ matrix.rust }}
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
       - name: Build
-        run: cargo build -v --release
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: -v --release
       - name: Run tests
-        run: cargo test -v --release
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -v --release
