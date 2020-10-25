@@ -11,6 +11,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
+          override: true
       - name: Build
         uses: actions-rs/cargo@v1
         with:
