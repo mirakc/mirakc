@@ -15,7 +15,7 @@ actix-service = "1.0"
 actix-web = "3.2"
 chrono = { version = "0.4", features = ["serde"] }
 clap = "2.33"
-cron = "0.6"
+cron = "0.7"
 failure = "0.1"
 futures = "0.3"
 humantime = "2.0"
