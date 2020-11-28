@@ -48,7 +48,7 @@ pub async fn serve(
     let server_config = config.server.clone();
     let mut server = actix_web::HttpServer::new(
         move || {
-            actix_web::App::new()
+            let app = actix_web::App::new()
                 .data(config.clone())
                 .data(string_table.clone())
                 .data(tuner_manager.clone())
@@ -57,7 +57,22 @@ pub async fn serve(
                 .wrap(actix_web::middleware::DefaultHeaders::new()
                       .header("Server", server_name()))
                 .wrap(AccessControl)
-                .service(create_api_service())
+                .service(create_api_service());
+            config.server.mounts.iter().fold(app, |app, (mount_point, mount)| {
+                let sv = actix_files::Files::new(&mount_point, &mount.path)
+                    .disable_content_disposition();
+                let sv = if let Some(ref index_file) = mount.index {
+                    sv.index_file(index_file)
+                } else {
+                    sv
+                };
+                let sv = if mount.listing {
+                    sv.show_files_listing()
+                } else {
+                    sv
+                };
+                app.service(sv)
+            })
         });
     for addr in server_config.addrs.iter() {
         server = match addr {

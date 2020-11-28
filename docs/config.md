@@ -14,6 +14,7 @@ suitable for your environment.
 | [server.stream-chunk-size]       | `32768` (32KiB)                           |
 | [server.stream-max-chunks]       | `1000`                                    |
 | [server.stream-time-limit]       | `16000` (16s)                             |
+| [server.mounts]                  | `{}`                                      |
 | [channels\[\].name]              |                                           |
 | [channels\[\].type]              |                                           |
 | [channels\[\].channel]           |                                           |
@@ -47,6 +48,7 @@ suitable for your environment.
 [server.stream-chunk-size]: #server.stream-chunk-size
 [server.stream-max-chunks]: #server.stream-max-chunks
 [server.stream-time-limit]: #server.stream-time-limit
+[server.mounts]: #server.mounts
 [channels\[\].name]: #channels
 [channels\[\].type]: #channels
 [channels\[\].channel]: #channels
@@ -178,6 +180,31 @@ This property is needed for avoiding the issue#1313 in actix-web in a streaming
 request for a TV program.  In this case, no data is sent to the client until the
 first TS packet comes from the streaming pipeline.  actix-web cannot detect the
 client disconnect all that time due to the issue#1313.
+
+## server.mounts
+
+Definitions of mount points for static files and folders on the file system.
+
+* path
+  * An absolute path to a file or directory on the file system
+* index (default: `None`)
+  * A name of the index file
+* listing (default: `false`)
+  * Show entries listing for directories
+
+```yaml
+mounts:
+  /file:
+    path: /path/to/file
+  /public:
+    path: /path/to/public
+    listing: true
+  /:
+    path: /path/to/html
+    index: index.html
+```
+
+This property can be used for providing some kind of Web UI for mirakc.
 
 ## channels
 

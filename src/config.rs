@@ -3,6 +3,7 @@ use std::fs::File;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use indexmap::IndexMap;
 use num_cpus;
 use serde::Deserialize;
 use serde_yaml;
@@ -85,6 +86,8 @@ pub struct ServerConfig {
     pub stream_chunk_size: usize,
     #[serde(default = "ServerConfig::default_stream_time_limit")]
     pub stream_time_limit: u64,
+    #[serde(default)]
+    pub mounts: IndexMap<String, MountConfig>,  // keeps the insertion order
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -126,8 +129,20 @@ impl Default for ServerConfig {
             stream_max_chunks: Self::default_stream_max_chunks(),
             stream_chunk_size: Self::default_stream_chunk_size(),
             stream_time_limit: Self::default_stream_time_limit(),
+            mounts: Default::default(),
         }
     }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub struct MountConfig {
+    pub path: String,
+    #[serde(default)]
+    pub index: Option<String>,
+    #[serde(default)]
+    pub listing: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -359,6 +374,7 @@ impl Default for MirakurunConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indexmap::indexmap;
 
     #[test]
     fn test_config() {
@@ -413,6 +429,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                mounts: Default::default(),
             });
 
         assert_eq!(
@@ -428,6 +445,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                mounts: Default::default(),
             });
 
         assert_eq!(
@@ -445,6 +463,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                mounts: Default::default(),
             });
 
         assert_eq!(
@@ -457,6 +476,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                mounts: Default::default(),
             });
 
         assert_eq!(
@@ -469,6 +489,7 @@ mod tests {
                 stream_max_chunks: 1000,
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                mounts: Default::default(),
             });
 
         assert_eq!(
@@ -481,6 +502,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: 10000,
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                mounts: Default::default(),
             });
 
         assert_eq!(
@@ -493,6 +515,44 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: 10000,
+                mounts: Default::default(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<ServerConfig>(r#"
+                mounts:
+                  /ui:
+                    path: /path/to/ui
+                  /public:
+                    path: /path/to/public
+                    listing: true
+                  /:
+                    path: /path/to/folder
+                    index: index.html
+            "#).unwrap(),
+            ServerConfig {
+                addrs: ServerConfig::default_addrs(),
+                workers: ServerConfig::default_workers(),
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
+                mounts: indexmap!{
+                    "/ui".to_string() => MountConfig {
+                        path: "/path/to/ui".to_string(),
+                        index: None,
+                        listing: false,
+                    },
+                    "/public".to_string() => MountConfig {
+                        path: "/path/to/public".to_string(),
+                        index: None,
+                        listing: true,
+                    },
+                    "/".to_string() => MountConfig {
+                        path: "/path/to/folder".to_string(),
+                        index: Some("index.html".to_string()),
+                        listing: false,
+                    },
+                }
             });
 
         let result = serde_yaml::from_str::<ServerConfig>(r#"
