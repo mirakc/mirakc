@@ -28,7 +28,7 @@ num_cpus = "1.10"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 serde_yaml = "0.8"
-serde_qs = "0.7"
+serde_qs = "0.8"
 shell-words = "1.0"
 tokio = { version = "0.2.23", features = ["full"] }
 tracing = "0.1"
