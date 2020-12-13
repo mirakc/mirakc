@@ -130,7 +130,7 @@ jobs:
         id: docker_meta
         uses: crazy-max/ghaction-docker-meta@v1
         with:
-          images: ${{ IMAGE }}
+          images: ${{ env.IMAGE }}
           tag-latest: false
           tag-semver: ${{ matrix.latest-tags }}
       - name: Show Docker metadata
