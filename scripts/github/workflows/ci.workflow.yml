@@ -23,6 +23,12 @@ jobs:
       matrix:
         include:
           - platform: alpine
-            latest-tags: '{{version}}-alpine'
+            tag-latest: false
+            tag-semver: ''
+            tag-custom: master-alpine
+            tag-custom-only: true
           - platform: debian
-            latest-tags: '{{version}}-debian,{{version}}'
+            tag-latest: false
+            tag-semver: ''
+            tag-custom: master-debian,master
+            tag-custom-only: true

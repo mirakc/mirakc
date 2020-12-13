@@ -11,6 +11,15 @@ jobs:
       matrix:
         include:
           - platform: alpine
-            latest-tags: '{{version}}-alpine,alpine'
+            tag-latest: false
+            tag-semver: |
+              {{version}}-alpine
+            tag-custom: alpine
+            tag-custom-only: false
           - platform: debian
-            latest-tags: '{{version}}-debian,debian,{{version}},latest'
+            tag-latest: true
+            tag-semver: |
+              {{version}}-debian
+              {{version}}
+            tag-custom: debian
+            tag-custom-only: false

@@ -107,9 +107,15 @@ jobs:
       matrix:
         include:
           - platform: alpine
-            latest-tags: '{{version}}-alpine'
+            tag-latest: false
+            tag-semver: ''
+            tag-custom: master-alpine
+            tag-custom-only: true
           - platform: debian
-            latest-tags: '{{version}}-debian,{{version}}'
+            tag-latest: false
+            tag-semver: ''
+            tag-custom: master-debian,master
+            tag-custom-only: true
         platform:
           - alpine
           - debian
@@ -118,7 +124,7 @@ jobs:
           - arm32v6
           - arm32v7
           - arm64v8
-          # latest-tags is defined in *.workflow.yml
+          # tag-* values are defined in *.workflow.yml
     if: github.repository == 'mirakc/mirakc'
     runs-on: ubuntu-latest
     steps:
@@ -131,13 +137,10 @@ jobs:
         uses: crazy-max/ghaction-docker-meta@v1
         with:
           images: ${{ env.IMAGE }}
-          tag-latest: false
-          tag-semver: ${{ matrix.latest-tags }}
-      - name: Show Docker metadata
-        run: |-
-          echo "version: ${{ steps.docker_meta.version }}"
-          echo "tags   : ${{ steps.docker_meta.tags }}"
-          echo "labels : ${{ steps.docker_meta.labels }}"
+          tag-latest: ${{ matrix.tag-latest }}
+          tag-semver: ${{ matrix.tag-semver }}
+          tag-custom: ${{ matrix.tag-custom }}
+          tag-custom-only: ${{ matrix.tag-custom-only }}
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v1
       - name: Setup Docker Buildx
