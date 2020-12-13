@@ -19,12 +19,25 @@ jobs:
           - arm32v6
           - arm32v7
           - arm64v8
+        # latest-tags is defined in *.workflow.yml
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Set VERSION
         run: |-
           echo "VERSION=${GITHUB_REF#refs/*/}" >>$GITHUB_ENV
+      - name: Docker metadata
+        id: docker_meta
+        uses: crazy-max/ghaction-docker-meta@v1
+        with:
+          images: ${{ IMAGE }}
+          tag-latest: false
+          tag-semver: ${{ matrix.latest-tags }}
+      - name: Show Docker metadata
+        run: |-
+          echo "version: ${{ steps.docker_meta.version }}"
+          echo "tags   : ${{ steps.docker_meta.tags }}"
+          echo "labels : ${{ steps.docker_meta.labels }}"
       - name: Setup QEMU user-mode emulation
         id: qemu
         uses: docker/setup-qemu-action@v1

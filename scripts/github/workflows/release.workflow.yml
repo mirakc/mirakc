@@ -6,3 +6,11 @@ on:
       - '*'
 
 jobs:
+  docker-build-images:
+    strategy:
+      matrix:
+        include:
+          - platform: alpine
+            latest-tags: '{{version}}-alpine,alpine'
+          - platform: debian
+            latest-tags: '{{version}}-debian,debian,{{version}},latest'

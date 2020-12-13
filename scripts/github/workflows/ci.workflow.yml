@@ -19,3 +19,10 @@ jobs:
       - linux-build
       - macos-build
       - arm-linux-build
+    strategy:
+      matrix:
+        include:
+          - platform: alpine
+            latest-tags: '{{version}}-alpine'
+          - platform: debian
+            latest-tags: '{{version}}-debian,{{version}}'

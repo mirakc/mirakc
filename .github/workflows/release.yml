@@ -8,9 +8,13 @@ on:
       - '*'
 jobs:
   docker-build-images:
-    if: github.repository == 'mirakc/mirakc'
     strategy:
       matrix:
+        include:
+          - platform: alpine
+            latest-tags: '{{version}}-alpine,alpine'
+          - platform: debian
+            latest-tags: '{{version}}-debian,debian,{{version}},latest'
         platform:
           - alpine
           - debian
@@ -19,12 +23,26 @@ jobs:
           - arm32v6
           - arm32v7
           - arm64v8
+          # latest-tags is defined in *.workflow.yml
+    if: github.repository == 'mirakc/mirakc'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Set VERSION
         run: |-
           echo "VERSION=${GITHUB_REF#refs/*/}" >>$GITHUB_ENV
+      - name: Docker metadata
+        id: docker_meta
+        uses: crazy-max/ghaction-docker-meta@v1
+        with:
+          images: ${{ IMAGE }}
+          tag-latest: false
+          tag-semver: ${{ matrix.latest-tags }}
+      - name: Show Docker metadata
+        run: |-
+          echo "version: ${{ steps.docker_meta.version }}"
+          echo "tags   : ${{ steps.docker_meta.tags }}"
+          echo "labels : ${{ steps.docker_meta.labels }}"
       - name: Setup QEMU user-mode emulation
         id: qemu
         uses: docker/setup-qemu-action@v1
@@ -80,8 +98,10 @@ jobs:
         run: |-
           echo "VERSION=${GITHUB_REF#refs/*/}" >>$GITHUB_ENV
       - name: Login to DockerHub
-        run: |-
-          docker login -u ${{ secrets.DOCKERHUB_USER }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Create and push the manifest for each platform
         run: |-
           docker manifest create $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-amd64 $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v6 $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v7 $IMAGE:${VERSION}-${{ matrix.platform }}-arm64v8
