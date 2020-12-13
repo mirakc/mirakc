@@ -44,15 +44,9 @@ jobs:
           echo "tags   : ${{ steps.docker_meta.tags }}"
           echo "labels : ${{ steps.docker_meta.labels }}"
       - name: Setup QEMU user-mode emulation
-        id: qemu
         uses: docker/setup-qemu-action@v1
-      - name: Available platforms (QEMU)
-        run: echo ${{ steps.qemu.outputs.platforms }}
       - name: Setup Docker Buildx
-        id: buildx
         uses: docker/setup-buildx-action@v1
-      - name: Available platforms (Buildx)
-        run: echo ${{ steps.buildx.outputs.platforms }}
       - name: Make mirakurun.openapi.json
         run: |-
           # Wait 10 seconds for safety.
