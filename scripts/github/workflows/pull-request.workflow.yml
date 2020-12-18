@@ -20,4 +20,3 @@ jobs:
       - linux-build
       - macos-build
       - arm-linux-build
-      - coverage

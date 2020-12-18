@@ -104,7 +104,6 @@ jobs:
       - linux-build
       - macos-build
       - arm-linux-build
-      - coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v2
