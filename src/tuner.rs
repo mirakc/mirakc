@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use actix::prelude::*;
 use log;
@@ -20,18 +21,29 @@ pub fn start(config: Arc<Config>) -> Addr<TunerManager> {
 
 // identifiers
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(test, derive(Default))]
 pub struct TunerSessionId {
     tuner_index: usize,
+    session_number: u32,
+}
+
+impl TunerSessionId {
+    pub fn new(tuner_index: usize) -> Self {
+        static COUNTER:AtomicU32 = AtomicU32::new(0);
+        let session_number = COUNTER.fetch_add(1, Ordering::Relaxed);
+        TunerSessionId { tuner_index, session_number }
+    }
 }
 
 impl fmt::Display for TunerSessionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "tuner#{}", self.tuner_index)
+        write!(f, "tuner#{}.{}", self.tuner_index, self.session_number)
     }
 }
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(test, derive(Default))]
 pub struct TunerSubscriptionId {
     session_id: TunerSessionId,
     serial_number: u32,
@@ -112,14 +124,14 @@ impl TunerManager {
             return Ok(tuner.subscribe(user));
         }
 
-        // No available tuner at this point.  Take over the right to use
-        // a tuner used by a low priority user.
+        // No available tuner at this point.
+        // Grab a tuner used by lower priority users.
         let found = self.tuners
             .iter()
             .filter(|tuner| tuner.is_supported_type(&channel))
             .position(|tuner| tuner.can_grab(user.priority));
         if let Some(index) = found {
-            log::info!("tuner#{}: Grab tuner, rectivate for {}",
+            log::info!("tuner#{}: Grab tuner, reactivate for {}",
                        index, channel);
             let filters = self.make_filter_commands(index, &channel)?;
             let tuner = &mut self.tuners[index];
@@ -521,7 +533,7 @@ impl TunerSession {
     ) -> Result<TunerSession, Error> {
         let mut commands = vec![command.clone()];
         commands.append(&mut filters);
-        let id = TunerSessionId { tuner_index };
+        let id = TunerSessionId::new(tuner_index);
         let mut pipeline = spawn_pipeline(commands, id)?;
         let (_, output) = pipeline.take_endpoints()?;
         let broadcaster = Broadcaster::create(|ctx| {
