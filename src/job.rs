@@ -1,3 +1,4 @@
+use std::env;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -116,6 +117,10 @@ impl JobManager {
     }
 
     fn scan_services(&mut self, ctx: &mut Context<Self>) {
+        if Self::is_job_disabled_for_debug("scan-services") {
+            log::debug!("scan-services: disabled for debug");
+            return;
+        }
         self.invoke_scan_services(ctx);
         self.schedule_scan_services(ctx);
     }
@@ -154,6 +159,10 @@ impl JobManager {
     }
 
     fn sync_clocks(&mut self, ctx: &mut Context<Self>) {
+        if Self::is_job_disabled_for_debug("sync-clocks") {
+            log::debug!("sync-clocks: disabled for debug");
+            return;
+        }
         self.invoke_sync_clocks(ctx);
         self.schedule_sync_clocks(ctx);
     }
@@ -192,6 +201,10 @@ impl JobManager {
     }
 
     fn update_schedules(&mut self, ctx: &mut Context<Self>) {
+        if Self::is_job_disabled_for_debug("update-schedules") {
+            log::debug!("update-schedules: disabled for debug");
+            return;
+        }
         self.invoke_update_schedules(ctx);
         self.schedule_update_schedules(ctx);
     }
@@ -236,6 +249,14 @@ impl JobManager {
             .cloned()
             .map(EpgChannel::from)
             .collect()
+    }
+
+    fn is_job_disabled_for_debug(job: &str) -> bool {
+        env::var("MIRAKC_DEBUG_DISABLE_JOBS")
+            .ok()
+            .map(|var| var.split_whitespace().position(|s| s == job))
+            .flatten()
+            .is_some()
     }
 }
 
