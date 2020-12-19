@@ -112,21 +112,13 @@ jobs:
             tag-semver: ''
             tag-custom: master-alpine
             tag-custom-only: true
-            platforms:
-              - linux/amd64
-              - linux/arm/v6
-              - linux/arm/v7
-              - linux/arm64/v8
+            platforms: 'linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8'
           - target: debian # main target
             tag-latest: false
             tag-semver: ''
             tag-custom: master-debian,master
             tag-custom-only: true
-            platforms:
-              - linux/amd64
-              #- linux/arm/v5  # not supported by docker/setup-*-action
-              - linux/arm/v7
-              - linux/arm64/v8
+            platforms: 'linux/amd64,linux/arm/v7,linux/arm64/v8'
         target:
           - alpine
           - debian

@@ -14,17 +14,10 @@ jobs:
         include:
           # tag-* values are defined in *.workflow.yml
           - target: alpine
-            platforms:
-              - linux/amd64
-              - linux/arm/v6
-              - linux/arm/v7
-              - linux/arm64/v8
+            platforms: 'linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8'
           - target: debian
-            platforms:
-              - linux/amd64
-              #- linux/arm/v5  # not supported by docker/setup-*-action
-              - linux/arm/v7
-              - linux/arm64/v8
+            # docker/setup-*-action has not supported linux/arm/v5
+            platforms: 'linux/amd64,linux/arm/v7,linux/arm64/v8'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
