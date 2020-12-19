@@ -1,7 +1,6 @@
 /.devcontainer/Dockerfile
 /.devcontainer/config.yml
 /.devcontainer/epg/
-/Dockerfile
 /mirakurun.openapi.json
 /target
 *.pyc

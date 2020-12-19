@@ -1,6 +1,10 @@
 **/.DS_Store
 **/.git
-docker/
+.devcontainer/
+.github/
+.vscode/
+docs/
 scripts/
 target/
-studies/
+.gitignore
+Dockerfile.*
