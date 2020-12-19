@@ -82,8 +82,8 @@ is full.
 
 The `web-buffer` can be tuned by the following configuration properties:
 
-* [server.stream-chunk-size](./config.md#server.stream-chunk-size)
-* [server.stream-max-chunks](./config.md#server.stream-max-chunks)
+* [server.stream-chunk-size](./config.md#serverstream-chunk-size)
+* [server.stream-max-chunks](./config.md#serverstream-max-chunks)
 
 See also the Japanese discussion on
 [issues/18](https://github.com/mirakc/mirakc/issues/18).

@@ -42,13 +42,13 @@ suitable for your environment.
 | [resource.strings-yaml]          | `/etc/mirakc/strings.yml`                 |
 | [mirakurun.openapi-json]         | `/etc/mirakurun.openapi.json`             |
 
-[epg.cache-dir]: #epg.cache-dir
-[server.addrs]: #server.addrs
-[server.workers]: #server.workers
-[server.stream-chunk-size]: #server.stream-chunk-size
-[server.stream-max-chunks]: #server.stream-max-chunks
-[server.stream-time-limit]: #server.stream-time-limit
-[server.mounts]: #server.mounts
+[epg.cache-dir]: #epgcache-dir
+[server.addrs]: #serveraddrs
+[server.workers]: #serverworkers
+[server.stream-chunk-size]: #serverstream-chunk-size
+[server.stream-max-chunks]: #serverstream-max-chunks
+[server.stream-time-limit]: #serverstream-time-limit
+[server.mounts]: #servermounts
 [channels\[\].name]: #channels
 [channels\[\].type]: #channels
 [channels\[\].channel]: #channels
@@ -61,20 +61,20 @@ suitable for your environment.
 [tuners\[\].command]: #tuners
 [tuners\[\].time-limit]: #tuners
 [tuners\[\].disabled]: #tuners
-[filters.tuner-filter.command]: #filters.tuner-filter
-[filters.service-filter.command]: #filters.service-filter
-[filters.decode-filter.command]: #filters.decode-filter
-[filters.program-filter.command]: #filters.program-filter
+[filters.tuner-filter.command]: #filterstuner-filter
+[filters.service-filter.command]: #filtersservice-filter
+[filters.decode-filter.command]: #filtersdecode-filter
+[filters.program-filter.command]: #filtersprogram-filter
 [pre-filters]: #pre-filters
 [post-filters]: #post-filters
-[jobs.scan-services.command]: #jobs.scan-services
-[jobs.scan-services.schedule]: #jobs.scan-services
-[jobs.sync-clocks.command]: #jobs.sync-clocks
-[jobs.sync-clocks.schedule]: #jobs.sync-clocks
-[jobs.update-schedules.command]: #jobs.update-schedules
-[jobs.update-schedules.schedule]: #jobs.update-schdules
-[resource.strings-yaml]: #resource.strings-yaml
-[mirakurun.openapi-json]: #mirakurun.openapi-json
+[jobs.scan-services.command]: #jobsscan-services
+[jobs.scan-services.schedule]: #jobsscan-services
+[jobs.sync-clocks.command]: #jobssync-clocks
+[jobs.sync-clocks.schedule]: #jobssync-clocks
+[jobs.update-schedules.command]: #jobsupdate-schedules
+[jobs.update-schedules.schedule]: #jobsupdate-schdules
+[resource.strings-yaml]: #resourcestrings-yaml
+[mirakurun.openapi-json]: #mirakurunopenapi-json
 
 ## epg.cache-dir
 
