@@ -7,39 +7,41 @@ on:
     tags:
       - '*'
 jobs:
-  docker-build-images:
+  docker:
     strategy:
       matrix:
         include:
-          - platform: alpine
+          # tag-* values are defined in *.workflow.yml
+          - target: alpine
             tag-latest: false
             tag-semver: |
               {{version}}-alpine
             tag-custom: alpine
             tag-custom-only: false
-          - platform: debian
+            platforms:
+              - linux/amd64
+              - linux/arm/v6
+              - linux/arm/v7
+              - linux/arm64/v8
+          - target: debian # main target
             tag-latest: true
             tag-semver: |
               {{version}}-debian
               {{version}}
             tag-custom: debian
             tag-custom-only: false
-        platform:
+            platforms:
+              - linux/amd64
+              #- linux/arm/v5  # not supported by docker/setup-*-action
+              - linux/arm/v7
+              - linux/arm64/v8
+        target:
           - alpine
           - debian
-        arch:
-          - amd64
-          - arm32v6
-          - arm32v7
-          - arm64v8
-          # tag-* values are defined in *.workflow.yml
     if: github.repository == 'mirakc/mirakc'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Set VERSION
-        run: |-
-          echo "VERSION=${GITHUB_REF#refs/*/}" >>$GITHUB_ENV
       - name: Docker metadata
         id: docker_meta
         uses: crazy-max/ghaction-docker-meta@v1
@@ -53,89 +55,33 @@ jobs:
         uses: docker/setup-qemu-action@v1
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Make mirakurun.openapi.json
-        run: |-
-          # Wait 10 seconds for safety.
-          ./scripts/mirakurun-openapi-json -w 10 $MIRAKURUN_VERSION | ./scripts/fixup-openapi-json >mirakurun.openapi.json
-      - name: Build image
-        run: |-
-          ./docker/dockerfile-gen ${{ matrix.platform }} ${{ matrix.arch }} >Dockerfile
-          docker build -t $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} --no-cache .
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |-
+            ${{ runner.os }}-buildx-
       - name: Login to Docker Hub
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Push image
+      - name: Make mirakurun.openapi.json
         run: |-
-          docker push $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}
-      - name: Update latest tags for each platform
-        run: |-
-          docker tag $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${{ matrix.platform }}-${{ matrix.arch }}
-          docker push $IMAGE:${{ matrix.platform }}-${{ matrix.arch }}
-        if: env.VERSION != 'master'
-      - name: Update the main platform tags
-        run: |-
-          docker tag $IMAGE:${VERSION}-${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${VERSION}-${{ matrix.arch }}
-          docker push $IMAGE:${VERSION}-${{ matrix.arch }}
-        if: matrix.platform == env.MAIN_PLATFORM
-      - name: Update latest tags for the main platform
-        run: |-
-          docker tag $IMAGE:${{ matrix.platform }}-${{ matrix.arch }} $IMAGE:${{ matrix.arch }}
-          docker push $IMAGE:${{ matrix.arch }}
-        if: env.VERSION != 'master' && matrix.platform == env.MAIN_PLATFORM
-  docker-build-multiarch-image:
-    strategy:
-      matrix:
-        platform:
-          - alpine
-          - debian
-    runs-on: ubuntu-latest
-    needs:
-      - docker-build-images
-    steps:
-      - name: Set VERSION
-        run: |-
-          echo "VERSION=${GITHUB_REF#refs/*/}" >>$GITHUB_ENV
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
+          # Wait 10 seconds for safety.
+          ./scripts/mirakurun-openapi-json -w 10 $MIRAKURUN_VERSION | ./scripts/fixup-openapi-json >mirakurun.openapi.json
+      - name: Build and push
+        uses: docker/build-push-action@v2
         with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Create and push the manifest for each platform
-        run: |-
-          docker manifest create $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-amd64 $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v6 $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v7 $IMAGE:${VERSION}-${{ matrix.platform }}-arm64v8
-          docker manifest annotate $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v6 --os linux --arch arm --variant v6
-          docker manifest annotate $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-arm32v7 --os linux --arch arm --variant v7
-          docker manifest annotate $IMAGE:${VERSION}-${{ matrix.platform }} $IMAGE:${VERSION}-${{ matrix.platform }}-arm64v8 --os linux --arch arm64 --variant v8
-          docker manifest push $IMAGE:${VERSION}-${{ matrix.platform }}
-      - name: Update latest tag for each platform
-        run: |-
-          docker manifest create $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-amd64 $IMAGE:${{ matrix.platform }}-arm32v6 $IMAGE:${{ matrix.platform }}-arm32v7 $IMAGE:${{ matrix.platform }}-arm64v8
-          docker manifest annotate $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-arm32v6 --os linux --arch arm --variant v6
-          docker manifest annotate $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-arm32v7 --os linux --arch arm --variant v7
-          docker manifest annotate $IMAGE:${{ matrix.platform }} $IMAGE:${{ matrix.platform }}-arm64v8 --os linux --arch arm64 --variant v8
-          docker manifest push $IMAGE:${{ matrix.platform }}
-        if: env.VERSION != 'master'
-      - name: Update the version tag for the main platform
-        run: |-
-          docker manifest create $IMAGE:$VERSION $IMAGE:${VERSION}-amd64 $IMAGE:${VERSION}-arm32v6 $IMAGE:${VERSION}-arm32v7 $IMAGE:${VERSION}-arm64v8
-          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm32v6 --os linux --arch arm --variant v6
-          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm32v7 --os linux --arch arm --variant v7
-          docker manifest annotate $IMAGE:$VERSION $IMAGE:${VERSION}-arm64v8 --os linux --arch arm64 --variant v8
-          docker manifest push $IMAGE:$VERSION
-        if: matrix.platform == env.MAIN_PLATFORM
-      - name: Update the latest tag for the main platform
-        run: |-
-          docker manifest create $IMAGE $IMAGE:amd64 $IMAGE:arm32v6 $IMAGE:arm32v7 $IMAGE:arm64v8
-          docker manifest annotate $IMAGE $IMAGE:arm32v6 --os linux --arch arm --variant v6
-          docker manifest annotate $IMAGE $IMAGE:arm32v7 --os linux --arch arm --variant v7
-          docker manifest annotate $IMAGE $IMAGE:arm64v8 --os linux --arch arm64 --variant v8
-          docker manifest push $IMAGE
-        if: env.VERSION != 'master' && matrix.platform == env.MAIN_PLATFORM
+          context: .
+          file: Dockerfile.${{ matrix.target }}
+          platforms: ${{ matrix.platforms }}
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
+          push: false # TODO: true
 env:
   IMAGE: mirakc/mirakc
-  MAIN_PLATFORM: debian
-  DOCKER_BUILDKIT: 1
-  DOCKER_CLI_EXPERIMENTAL: enabled
   MIRAKURUN_VERSION: '3.3.0'

@@ -6,17 +6,17 @@ on:
       - '*'
 
 jobs:
-  docker-build-images:
+  docker:
     strategy:
       matrix:
         include:
-          - platform: alpine
+          - target: alpine
             tag-latest: false
             tag-semver: |
               {{version}}-alpine
             tag-custom: alpine
             tag-custom-only: false
-          - platform: debian
+          - target: debian  # main target
             tag-latest: true
             tag-semver: |
               {{version}}-debian
