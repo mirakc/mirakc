@@ -341,13 +341,13 @@ impl Actor for Epg {
     fn started(&mut self, _: &mut Self::Context) {
         log::debug!("Started");
         if let Err(err) = self.load_services() {
-            log::error!("Failed to load services: {}", err);
+            log::warn!("Failed to load services: {}", err);
         }
         if let Err(err) = self.load_clocks() {
-            log::error!("Failed to load clocks: {}", err);
+            log::warn!("Failed to load clocks: {}", err);
         }
         if let Err(err) = self.load_schedules() {
-            log::error!("Failed to load schedules: {}", err);
+            log::warn!("Failed to load schedules: {}", err);
         }
         self.collect_programs();
     }
