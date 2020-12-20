@@ -6,19 +6,16 @@ on:
       - master
 
 jobs:
-  linux-build:
-  macos-build:
-  arm-linux-build:
+  build:
+  cross-build:
   coverage:
     needs:
-      - linux-build
-      - macos-build
-      - arm-linux-build
+      - build
+      - cross-build
   docker:
     needs:
-      - linux-build
-      - macos-build
-      - arm-linux-build
+      - build
+      - cross-build
     strategy:
       matrix:
         include:

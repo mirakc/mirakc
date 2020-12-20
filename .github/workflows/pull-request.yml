@@ -7,13 +7,16 @@ on:
     branches:
       - master
 jobs:
-  linux-build:
+  build:
     strategy:
       matrix:
+        runner:
+          - macOS-latest
+          - ubuntu-latest
         rust:
           - stable
           #- nightly
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -38,40 +41,11 @@ jobs:
         with:
           command: test
           args: -v --release
-  macos-build:
+  cross-build:
     strategy:
       matrix:
-        rust:
-          - stable
-          #- nightly
-    runs-on: macOS-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ matrix.rust }}
-          override: true
-      - name: Cache for Cargo
-        uses: actions/cache@v2
-        with:
-          path: |-
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -v --release
-      - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -v --release
-  arm-linux-build:
-    strategy:
-      matrix:
+        runner:
+          - ubuntu-latest
         rust:
           - stable
           #- nightly
@@ -79,7 +53,7 @@ jobs:
           - arm-unknown-linux-gnueabi
           - armv7-unknown-linux-gnueabihf
           - aarch64-unknown-linux-gnu
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -109,9 +83,8 @@ jobs:
           args: -v --release --target=${{ matrix.target }}
   coverage:
     needs:
-      - linux-build
-      - macos-build
-      - arm-linux-build
+      - build
+      - cross-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -128,9 +101,8 @@ jobs:
   auto-merge:
     if: github.actor == 'dependabot[bot]'
     needs:
-      - linux-build
-      - macos-build
-      - arm-linux-build
+      - build
+      - cross-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v2

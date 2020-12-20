@@ -6,17 +6,14 @@ on:
       - master
 
 jobs:
-  linux-build:
-  macos-build:
-  arm-linux-build:
+  build:
+  cross-build:
   coverage:
     needs:
-      - linux-build
-      - macos-build
-      - arm-linux-build
+      - build
+      - cross-build
   auto-merge:
     if: github.actor == 'dependabot[bot]'
     needs:
-      - linux-build
-      - macos-build
-      - arm-linux-build
+      - build
+      - cross-build

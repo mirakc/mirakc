@@ -1,11 +1,14 @@
 jobs:
-  macos-build:
+  build:
     strategy:
       matrix:
+        runner:
+          - macOS-latest
+          - ubuntu-latest
         rust:
           - stable
           #- nightly
-    runs-on: macOS-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1

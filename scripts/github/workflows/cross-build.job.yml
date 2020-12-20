@@ -1,7 +1,9 @@
 jobs:
-  arm-linux-build:
+  cross-build:
     strategy:
       matrix:
+        runner:
+          - ubuntu-latest
         rust:
           - stable
           #- nightly
@@ -9,7 +11,7 @@ jobs:
           - arm-unknown-linux-gnueabi
           - armv7-unknown-linux-gnueabihf
           - aarch64-unknown-linux-gnu
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1

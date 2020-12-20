@@ -16,9 +16,8 @@ EOF
 cat <<EOF >$PROJDIR/.github/workflows/ci.yml
 $HEADER
 $(yq m $BASEDIR/github/workflows/ci.workflow.yml \
-    $BASEDIR/github/workflows/linux-build.job.yml \
-    $BASEDIR/github/workflows/macos-build.job.yml \
-    $BASEDIR/github/workflows/arm-linux-build.job.yml \
+    $BASEDIR/github/workflows/build.job.yml \
+    $BASEDIR/github/workflows/cross-build.job.yml \
     $BASEDIR/github/workflows/coverage.job.yml \
     $BASEDIR/github/workflows/docker.job.yml)
 EOF
@@ -32,9 +31,8 @@ EOF
 cat <<EOF >$PROJDIR/.github/workflows/pull-request.yml
 $HEADER
 $(yq m $BASEDIR/github/workflows/pull-request.workflow.yml \
-    $BASEDIR/github/workflows/linux-build.job.yml \
-    $BASEDIR/github/workflows/macos-build.job.yml \
-    $BASEDIR/github/workflows/arm-linux-build.job.yml \
+    $BASEDIR/github/workflows/build.job.yml \
+    $BASEDIR/github/workflows/cross-build.job.yml \
     $BASEDIR/github/workflows/coverage.job.yml \
     $BASEDIR/github/workflows/auto-merge.job.yml)
 EOF
