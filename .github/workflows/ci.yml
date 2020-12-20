@@ -19,18 +19,18 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ matrix.rust }}
-          override: true
       - name: Cache for Cargo
         uses: actions/cache@v2
         with:
-          path: |-
+          path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
       - name: Build
         uses: actions-rs/cargo@v1
         with:
@@ -56,19 +56,19 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v2
+      - name: Cache for Cargo
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
           target: ${{ matrix.target }}
           override: true
-      - name: Cache for Cargo
-        uses: actions/cache@v2
-        with:
-          path: |-
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
       - name: Build
         uses: actions-rs/cargo@v1
         with:
@@ -142,17 +142,14 @@ jobs:
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |-
-            ${{ runner.os }}-buildx-
+          key: ${{ runner.os }}-buildx-${{ matrix.target }}-${{ github.sha }}
       - name: Login to Docker Hub
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Make mirakurun.openapi.json
-        run: |-
-          # Wait 10 seconds for safety.
+        run: |
           ./scripts/mirakurun-openapi-json -w 10 $MIRAKURUN_VERSION | ./scripts/fixup-openapi-json >mirakurun.openapi.json
       - name: Build and push
         uses: docker/build-push-action@v2
