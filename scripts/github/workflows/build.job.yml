@@ -19,6 +19,8 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.rust }}-
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
