@@ -12,6 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Cache for Cargo
+        # Disable cache due to actions/cache#403 and rust-lang/cargo#8603
+        if: "!startsWith(matrix.runner, 'macOS')"
         uses: actions/cache@v2
         with:
           path: |

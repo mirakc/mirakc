@@ -20,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Cache for Cargo
+        if: "!startsWith(matrix.runner, 'macOS')"
         uses: actions/cache@v2
         with:
           path: |
