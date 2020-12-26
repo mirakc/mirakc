@@ -4,7 +4,7 @@ BASEDIR=$(cd $(dirname $0); pwd)
 
 set -eu
 
-MIRAKC_ARIB_VERSION='0.10.1'
+MIRAKC_ARIB_VERSION='0.10.2'
 ARCHIVE="https://github.com/mirakc/mirakc-arib/archive/$MIRAKC_ARIB_VERSION.tar.gz"
 
 curl -fsSL $ARCHIVE | tar -xz --strip-components=1
