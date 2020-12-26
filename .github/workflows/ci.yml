@@ -178,7 +178,7 @@ jobs:
           labels: ${{ steps.docker_meta.outputs.labels }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache
-          push: false # TODO: true
+          push: true
 env:
   IMAGE: mirakc/mirakc
   MIRAKURUN_VERSION: '3.4.0'
