@@ -15,24 +15,30 @@ EOF
 
 cat <<EOF >$PROJDIR/.github/workflows/ci.yml
 $HEADER
-$(yq m $BASEDIR/github/workflows/ci.workflow.yml \
-    $BASEDIR/github/workflows/build.job.yml \
-    $BASEDIR/github/workflows/cross-build.job.yml \
-    $BASEDIR/github/workflows/coverage.job.yml \
-    $BASEDIR/github/workflows/docker.job.yml)
+$(docker run --rm -v $BASEDIR/github/workflows:/workdir mikefarah/yq:3 yq m \
+    ci.workflow.yml \
+    build.job.yml \
+    cross-build.job.yml \
+    coverage.job.yml \
+    docker.job.yml \
+)
 EOF
 
 cat <<EOF >$PROJDIR/.github/workflows/release.yml
 $HEADER
-$(yq m $BASEDIR/github/workflows/release.workflow.yml \
-    $BASEDIR/github/workflows/docker.job.yml)
+$(docker run --rm -v $BASEDIR/github/workflows:/workdir mikefarah/yq:3 yq m \
+    release.workflow.yml \
+    docker.job.yml \
+)
 EOF
 
 cat <<EOF >$PROJDIR/.github/workflows/pull-request.yml
 $HEADER
-$(yq m $BASEDIR/github/workflows/pull-request.workflow.yml \
-    $BASEDIR/github/workflows/build.job.yml \
-    $BASEDIR/github/workflows/cross-build.job.yml \
-    $BASEDIR/github/workflows/coverage.job.yml \
-    $BASEDIR/github/workflows/auto-merge.job.yml)
+$(docker run --rm -v $BASEDIR/github/workflows:/workdir mikefarah/yq:3 yq m \
+    pull-request.workflow.yml \
+    build.job.yml \
+    cross-build.job.yml \
+    coverage.job.yml \
+    auto-merge.job.yml \
+)
 EOF

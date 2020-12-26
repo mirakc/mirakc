@@ -1,6 +1,6 @@
 env:
   IMAGE: mirakc/mirakc
-  MIRAKURUN_VERSION: '3.3.0'
+  MIRAKURUN_VERSION: '3.4.0'
 
 jobs:
   docker:
