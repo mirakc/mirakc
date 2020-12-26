@@ -227,7 +227,7 @@ impl Handler<QueryTunersMessage> for TunerManager {
         log::debug!("{}", msg);
         let tuners: Vec<MirakurunTuner> = self.tuners
             .iter()
-            .map(|tuner| tuner.get_model())
+            .map(|tuner| tuner.get_mirakurun_model())
             .collect();
         Ok(tuners)
     }
@@ -397,8 +397,8 @@ impl Tuner {
         Ok(())
     }
 
-    fn get_model(&self) -> MirakurunTuner {
-        let (command, pid, users) = self.activity.get_models();
+    fn get_mirakurun_model(&self) -> MirakurunTuner {
+        let (command, pid, users) = self.activity.get_mirakurun_models();
 
         MirakurunTuner {
             index: self.index,
@@ -500,12 +500,12 @@ impl TunerActivity {
         }
     }
 
-    fn get_models(
+    fn get_mirakurun_models(
         &self
     ) -> (Option<String>, Option<u32>, Vec<MirakurunTunerUser>) {
         match self {
             Self::Inactive => (None, None, Vec::new()),
-            Self::Active(session) => session.get_models(),
+            Self::Active(session) => session.get_mirakurun_models(),
         }
     }
 }
@@ -587,13 +587,13 @@ impl TunerSession {
         Ok(self.subscribers.len())
     }
 
-    fn get_models(
+    fn get_mirakurun_models(
         &self
     ) -> (Option<String>, Option<u32>, Vec<MirakurunTunerUser>) {
         (
             Some(self.command.clone()),
             Some(self.pipeline.pids().as_slice().first().cloned().unwrap()),
-            self.subscribers.values().map(|user| user.get_model()).collect(),
+            self.subscribers.values().map(|user| user.get_mirakurun_model()).collect(),
         )
     }
 }
@@ -667,7 +667,7 @@ mod tests {
         let result = tuner.activate(create_channel("1"), vec![]);
         assert!(result.is_ok());
         let subscription = tuner.subscribe(TunerUser {
-            info: TunerUserInfo::Web { remote: None, agent: None },
+            info: TunerUserInfo::Web { id: "".to_string(), agent: None },
             priority: 0.into(),
         });
 

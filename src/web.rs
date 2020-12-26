@@ -277,10 +277,11 @@ async fn get_channel_stream(
     let (filters, content_type) = builder.build();
 
     let stream = tuner_manager.send(StartStreamingMessage {
-        channel, user
+        channel,
+        user: user.clone(),
     }).await??;
 
-    streaming(&config, stream, filters, content_type, None).await
+    streaming(&config, user, stream, filters, content_type, None).await
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
@@ -368,7 +369,7 @@ async fn get_program_stream(
 
     let stream = tuner_manager.send(StartStreamingMessage {
         channel: service.channel.clone(),
-        user
+        user: user.clone(),
     }).await??;
 
     let stop_trigger = airtime_tracker::track_airtime(
@@ -377,7 +378,7 @@ async fn get_program_stream(
     ).await?;
 
     let result =
-        streaming(&config, stream, filters, content_type, stop_trigger).await;
+        streaming(&config, user, stream, filters, content_type, stop_trigger).await;
 
     match result {
         Err(Error::ProgramNotFound) =>
@@ -541,14 +542,16 @@ async fn do_get_service_stream(
     let (filters, content_type) = builder.build();
 
     let stream = tuner_manager.send(StartStreamingMessage {
-        channel, user
+        channel,
+        user: user.clone(),
     }).await??;
 
-    streaming(&config, stream, filters, content_type, None).await
+    streaming(&config, user, stream, filters, content_type, None).await
 }
 
 async fn streaming(
     config: &Config,
+    user: TunerUser,
     mut stream: MpegTsStream,
     filters: Vec<String>,
     content_type: String,
@@ -556,7 +559,7 @@ async fn streaming(
 ) -> ApiResult {
     if filters.is_empty() {
         do_streaming(
-            stream, content_type, config.server.stream_time_limit).await
+            user, stream, content_type, config.server.stream_time_limit).await
     } else {
         log::debug!("Streaming with filters: {:?}", filters);
 
@@ -611,12 +614,14 @@ async fn streaming(
         });
 
         do_streaming(
+            user,
             MpegTsStreamTerminator::new(receiver, [stop_trigger, stop_trigger2]),
             content_type, config.server.stream_time_limit).await
     }
 }
 
 async fn do_streaming<S>(
+    user: TunerUser,
     stream: S,
     content_type: String,
     time_limit: u64,
@@ -644,6 +649,7 @@ where
                .force_close()
                .set_header("cache-control", "no-store")
                .set_header("content-type", content_type)
+               .set_header("x-mirakurun-tuner-user-id", user.get_mirakurun_model().id)
                .streaming(peekable))
         }
     }
@@ -743,10 +749,11 @@ impl FromRequest for TunerUser {
         req: &actix_web::HttpRequest,
         _: &mut actix_web::dev::Payload
     ) -> Self::Future {
-        let remote = req
+        let id = req
             .connection_info()
             .realip_remote_addr()
-            .map(|v| v.to_string());
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| format!("unix:{}", ms_since_unix_epoch()));
 
         let agent = req
             .headers()
@@ -756,7 +763,7 @@ impl FromRequest for TunerUser {
                 value.to_str().ok().map_or(String::new(), |s| s.to_string())
             });
 
-        let info = TunerUserInfo::Web { remote, agent };
+        let info = TunerUserInfo::Web { id, agent };
 
         let priority = req.headers().get_all("x-mirakurun-priority")
             .filter_map(|value| value.to_str().ok())
@@ -768,6 +775,13 @@ impl FromRequest for TunerUser {
 
         futures::future::ok(TunerUser { info, priority })
     }
+}
+
+fn ms_since_unix_epoch() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|dur| dur.as_millis())
+        .unwrap_or(0)
 }
 
 #[derive(Deserialize)]
@@ -1139,6 +1153,7 @@ mod tests {
     async fn test_get_channel_stream() {
         let res = get("/api/channels/GR/ch/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
 
         let res = get("/api/channels/GR/0/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -1170,6 +1185,7 @@ mod tests {
     async fn test_get_channel_service_stream() {
         let res = get("/api/channels/GR/ch/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
 
         let res = get("/api/channels/GR/0/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -1207,6 +1223,7 @@ mod tests {
     async fn test_get_service_stream() {
         let res = get("/api/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
 
         let res = get("/api/services/0/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -1236,6 +1253,7 @@ mod tests {
     async fn test_get_program_stream() {
         let res = get("/api/programs/100001/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
 
         let res = get("/api/programs/0/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -1295,12 +1313,14 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_do_streaming() {
+        let user = user_for_test(0.into());
+
         let result = do_streaming(
-            futures::stream::empty(), "video/MP2T".to_string(), 1000).await;
+            user.clone(), futures::stream::empty(), "video/MP2T".to_string(), 1000).await;
         assert_matches!(result, Err(Error::ProgramNotFound));
 
         let result = do_streaming(
-            futures::stream::pending(), "video/MP2T".to_string(), 1).await;
+            user.clone(),  futures::stream::pending(), "video/MP2T".to_string(), 1).await;
         assert_matches!(result, Err(Error::StreamingTimedOut));
     }
 
@@ -1545,5 +1565,12 @@ mod tests {
                 unimplemented!();
             }
         })).start()
+    }
+
+    fn user_for_test(priority: TunerUserPriority) -> TunerUser {
+        TunerUser {
+            info: TunerUserInfo::Web { id: "".to_string(), agent: None },
+            priority
+        }
     }
 }

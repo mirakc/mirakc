@@ -318,16 +318,15 @@ impl EpgGenre {
 pub enum TunerUserInfo {
     Job { name: String },
     Tracker { stream_id: MpegTsStreamId },
-    Web { remote: Option<String>, agent: Option<String> },
+    Web { id: String, agent: Option<String> },
 }
 
 impl TunerUserInfo {
-    fn get_model(&self) -> (String, Option<String>) {
-        match self.clone() {
-            Self::Job { name } => (name, None),
-            Self::Tracker { stream_id } =>
-                (format!("Tracker({})", stream_id), None),
-            Self::Web { remote, agent } => (remote.unwrap_or_default(), agent),
+    fn get_mirakurun_model(&self) -> (String, Option<String>) {
+        match self {
+            Self::Job { name } => (format!("job:{}", name), None),
+            Self::Tracker { stream_id } => (format!("tracker:{}", stream_id), None),
+            Self::Web { id, agent } => (id.clone(), agent.clone()),
         }
     }
 }
@@ -338,14 +337,10 @@ impl fmt::Display for TunerUserInfo {
             Self::Job { name } => write!(f, "Job({})", name),
             Self::Tracker { stream_id } =>
                 write!(f, "Tracker({})", stream_id),
-            Self::Web { remote: None, agent: None } =>
-                write!(f, r#"Web"#),
-            Self::Web { remote: Some(remote), agent: None } =>
-                write!(f, r#"Web(remote="{}")"#, remote),
-            Self::Web { remote: None, agent: Some(agent) } =>
-                write!(f, r#"Web(agent="{}")"#, agent),
-            Self::Web { remote: Some(remote), agent: Some(agent) } =>
-                write!(f, r#"Web(remote="{}" agent="{}")"#, remote, agent),
+            Self::Web { id, agent: None } =>
+                write!(f, r#"Web(id="{}")"#, id),
+            Self::Web { id, agent: Some(agent) } =>
+                write!(f, r#"Web(id="{}" agent="{}")"#, id, agent),
         }
     }
 }
@@ -382,8 +377,8 @@ pub struct TunerUser {
 }
 
 impl TunerUser {
-    pub fn get_model(&self) -> MirakurunTunerUser {
-        let (id, agent) = self.info.get_model();
+    pub fn get_mirakurun_model(&self) -> MirakurunTunerUser {
+        let (id, agent) = self.info.get_mirakurun_model();
         MirakurunTunerUser { id, agent, priority: self.priority.0 }
     }
 }
@@ -521,6 +516,7 @@ pub struct MirakurunTunerUser {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
     pub priority: i32,
+    // url, disableDecoder, streamSetting and streamInfo properties are not supported.
 }
 
 #[derive(Debug)]
