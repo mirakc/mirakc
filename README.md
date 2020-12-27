@@ -38,7 +38,8 @@ tuners:
   # Add tuners available on a local machine.
   - name: Tuner0
     types: [GR]
-    command: recpt1 --device /dev/px4video2 {{{channel}}} - -
+    command: >-
+      recpt1 --device /dev/px4video2 {{{channel}}} - -
 
 filter:
   # Optionally, you can specify a command to process TS packets before sending
@@ -47,7 +48,8 @@ filter:
   # The following command processes TS packets on a remote server listening on
   # TCP port 40774.
   decode-filter:
-    command: socat - tcp-connect:remote:40774
+    command: >-
+      socat - tcp-connect:remote:40774
 ```
 
 Create `docker-compose.yml`:

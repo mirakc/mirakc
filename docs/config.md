@@ -304,11 +304,13 @@ below.
 tuners:
   - name: GR0
     types: [GR]
-    command: recdvb {{{channel}}} {{{duration}}} -
+    command: >-
+      recdvb {{{channel}}} {{{duration}}} -
 
   - name: Disabled
     types: [GR]
-    command: cat /dev/null
+    command: >-
+      cat /dev/null
     disabled: true
 
   # A tuner can be defined by using an "upstream" Mirakurun-compatible server.

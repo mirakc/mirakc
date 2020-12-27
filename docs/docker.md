@@ -7,35 +7,29 @@ There are two types of pre-built images in [DockerHub]:
 * Multi-Arch images
   * mirakc/mirakc:latest
     * Alias of mirakc/mirakc:$LATEST_VERSION
-  * mirakc/mirakc:$PLATFORM
-    * Alias of mirakc/mirakc:$LATEST_VERSION-$PLATFORM
+  * mirakc/mirakc:$DISTRIBUTION
+    * Alias of mirakc/mirakc:$LATEST_VERSION-$DISTRIBUTION
   * mirakc/mirakc:$VERSION
     * Alias of mirakc/mirakc:$VERSION-debian
-  * mirakc/mirakc:$VERSION-$PLATFORM
-* Image for each architecture
-  * mirakc/mirakc:$ARCH
-    * Alias of mirakc/mirakc:$LATEST_VERSION-$ARCH
-  * mirakc/mirack:$PLATFORM-$ARCH
-    * Alias of mirakc/mirakc:$LATEST_VERSION-debian-$ARCH
-  * mirakc/mirack:$VERSION-$ARCH
-    * Alias of mirakc/mirakc:$VERSION-debian-$ARCH
-  * mirakc/mirack:$VERSION-$PLATFORM-$ARCH
+  * mirakc/mirakc:$VERSION-$DISTRIBUTION
 
 Where:
 
 * VERSION
   * master or version tags
   * LATEST_VERSION points to the latest version tag
-* PLATFORM
+* DISTRIBUTION
   * alpine
     * Based on alpine:3.12
   * debian (main platform)
     * Based on debian:buster-slim
-* ARCH
-  * amd64
-  * arm32v6 (linux/arm/v6 for alpine, linux/arm/v5 for debian)
-  * arm32v7
-  * arm64v8
+
+Platforms listed below are supported:
+
+* linux/amd64
+* linux/arm/v6 (only for alpine)
+* linux/arm/v7
+* linux/arm64/v8
 
 Each image contains the following executables other than mirakc:
 
@@ -56,15 +50,6 @@ then install additional software like below:
 
 ```Dockerfile
 FROM mirakc/mirakc:alpine
-
-RUN apk add --no-cache ffmpeg
-...
-```
-
-Use an architecture-specific image if you like to cross-build a custom image:
-
-```Dockerfile
-FROM mirakc/mirakc:alpine-arm64v8
 
 RUN apk add --no-cache ffmpeg
 ...
@@ -100,46 +85,36 @@ Use an architecture-specific image if you like to cross-build a custom image.
 
 ## Build an image from source
 
-First, create a Dockerfile for your target platform/architecture by using
-[dockerfile-gen](../docker/dockerfile-gen):
+This repository contains the following two Dockerfile files for `docker buildx`:
+
+* [Dockerfile.alpine](../Dockerfile.alpine) for alpine-based images
+* [Dockerfile.debian](../Dockerfile.debian) for debian-based images
+
+Use the `--platform` option for specifying your target platforms like blow:
 
 ```shell
-./docker/dockerfile-gen alpine arm64v8 >Dockerfile
-docker build -t $(id -un)/mirakc:alpine-arm64v8 .
-```
-
-See `dockerfile-gen -h` for supported architecture.
-
-A generated Dockerfile contains multi-stage builds for compiling the
-executables.  The multi-stage builds creates untagged intermediate images like
-below:
-
-```console
-$ docker images --format "{{.Repository}}:{{.Tag}}"
-mirakc/mirakc:alpine-arm64v8
-<none>:<none>
-...
-```
-
-The following command removes **all untagged images** including the intermediate
-images:
-
-```console
-$ docker images -f dangling=true -q | xargs docker rmi
+docker buildx build -t $(id -un)/mirakc:arm32v7 -f Dockerfile.debian \
+  --platform=linux/arm/v7 .
 ```
 
 The following command transfers the created image to a remote docker daemon
 which can be accessed using SSH:
 
-```console
-$ docker save $(id -un)/alpine-mirakc:arm64v8 | docker -H ssh://remote load
+```shell
+docker save $(id -un)/mirakc:arm32v7 | docker -H ssh://remote load
 ```
 
-### Support new architecture
+### Support new architectures
 
-Set properties in [docker/templates/params.json](../docker/templates/params/json)
-for a new architecture you like to add.  And then create a Dockerfile for the
-new architecture and build an image using it.
+`Dockerfile.*` uses scripts in [docker/build-scripts](../docker/build-scripts) for
+cross-compiling tools like `recpt1`.  If you want to create Docker images which
+have not been supported at this point, you need to modify those scripts.
+
+`vars.*.sh` defines variables used in other scripts.  The target platform string
+will be passed using the `TARGETPLATFORM` environment variable in the build time.
+See the following page for details about `BUILDPLATFORM` and `TARGETPLATFORM`:
+
+* https://docs.docker.com/buildx/working-with-buildx/#build-multi-platform-images
 
 [recdvb]: http://cgi1.plala.or.jp/~sat/?x=entry:entry180805-164428
 [recpt1]: https://github.com/stz2012/recpt1
