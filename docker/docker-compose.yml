@@ -1,0 +1,65 @@
+version: '3.7'
+
+services:
+  mirakc-sample:
+    # In this sample, we build a image from source.
+    #
+    # Replace `mirakc` with `mirakc/mirakc` if you like to use a
+    # pre-built image in Docker Hub.
+    image: mirakc-sample
+    build:
+      context: ../
+      dockerfile: ./docker/Dockerfile.debian
+    container_name: mirakc-sample
+    hostname: mirakc-sample
+    init: true
+    restart: unless-stopped
+    # We don't define the `devices` properties in this sample.  Instead, we
+    # assume that there are a Mirakurun-compatible server, and we use it as a
+    # tuner.  See config.yml in this folder.
+    #
+    # Normally, you need to define the `devices` property with paths to tuner
+    # devices on the PVR Linux machine, like below:
+    #
+    # devices:
+    #   - /dev/px4video0
+    #   - /dev/px4video2
+    networks:
+      - default-network
+    ports:
+      - 40772:40772
+    volumes:
+      - mirakc-epg:/var/lib/mirakc/epg
+      - ./config.yml:/etc/mirakc/config.yml:ro
+    environment:
+      TZ: Asia/Tokyo
+      # Enable logging messages from mirakc.
+      # See docs/logging.md for details.
+      #
+      # Setting `mirakc=debug` is needed if you like to see messages from child
+      # processes.
+      RUST_LOG: info,mirakc=debug
+      # Enable logging messages from child processes without timestamps.
+      #
+      # The log levels of `filter-service` and `filter-program` are `debug`,
+      # otherwise `info`.
+      #
+      # Normally, you don't need to define the following environment variables.
+      MIRAKC_DEBUG_CHILD_PROCESS: ''
+      MIRAKC_ARIG_LOG: info,filter-service=debug,filter-program=debug
+      MIRAKC_ARIB_LOG_NO_TIMESTAMP: ''
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+
+networks:
+  default-network:
+    name: mirakc_network
+    driver: bridge
+
+volumes:
+  mirakc-epg:
+    name: mirakc_epg
+    driver: local
