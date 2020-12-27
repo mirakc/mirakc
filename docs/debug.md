@@ -27,20 +27,13 @@ export MIRAKC_DEV_RUST_TOOLCHAIN_PATH="$( \
 ## Debugging with a remote container
 
 Before starting to debug using VS Code Remote Containers, you need to create
-`Dockerfile` in the `.devcontainer` folder with the following command:
-
-```shell
-./docker/dockerfile-gen -d amd64 >.devcontainer/Dockerfile
-```
-
-create `mirakurun.openapi.json` in the project root folder with the following
-command:
+`mirakurun.openapi.json` in the project root folder with the following command:
 
 ```shell
 ./scripts/mirakurun-openapi-json -c >mirakurun.openapi.json
 ```
 
-and then create `.devcontainer/config.yml`:
+and then create and edit `.devcontainer/config.yml`:
 
 ```shell
 vi .devcontainer/config.yml
