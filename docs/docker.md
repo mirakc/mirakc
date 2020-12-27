@@ -87,13 +87,13 @@ Use an architecture-specific image if you like to cross-build a custom image.
 
 This repository contains the following two Dockerfile files for `docker buildx`:
 
-* [Dockerfile.alpine](../Dockerfile.alpine) for alpine-based images
-* [Dockerfile.debian](../Dockerfile.debian) for debian-based images
+* [Dockerfile.alpine](../docker/Dockerfile.alpine) for alpine-based images
+* [Dockerfile.debian](../docker/Dockerfile.debian) for debian-based images
 
 Use the `--platform` option for specifying your target platforms like blow:
 
 ```shell
-docker buildx build -t $(id -un)/mirakc:arm32v7 -f Dockerfile.debian \
+docker buildx build -t $(id -un)/mirakc:arm32v7 -f docker/Dockerfile.debian \
   --platform=linux/arm/v7 .
 ```
 
