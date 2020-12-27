@@ -1,9 +1,14 @@
-// See https://github.com/microsoft/vscode-dev-containers/tree/master/containers/rust
+// See https://github.com/microsoft/vscode-dev-containers/blob/master/containers/rust/.devcontainer/devcontainer.json
 {
   "name": "mirakc-devcontainer",
-  "dockerFile": "Dockerfile",
-  "runArgs": [ "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined" ],
+
+  "build": {
+    "context": "..",
+    "dockerfile": "Dockerfile"
+  },
+
   "appPort": 40772,
+  "runArgs": [ "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined" ],
 
   "containerEnv": {
     "TZ": "Asia/Tokyo",
@@ -12,12 +17,18 @@
 
   "settings": {
     "terminal.integrated.shell.linux": "/bin/bash",
-    "lldb.executable": "/usr/bin/lldb"
+    "lldb.executable": "/usr/bin/lldb",
+    "files.watcherExclude": {
+      "**/target/**": true
+    }
   },
 
   "extensions": [
     "rust-lang.rust",
     "bungcip.better-toml",
-    "vadimcn.vscode-lldb"
-  ]
+    "vadimcn.vscode-lldb",
+    "mutantdino.resourcemonitor"
+  ],
+
+  "remoteUser": "vscode"
 }

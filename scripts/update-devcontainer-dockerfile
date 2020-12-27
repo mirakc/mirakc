@@ -1,0 +1,18 @@
+#!/bin/sh
+
+BASEDIR=$(cd $(dirname $0); pwd)
+PROJDIR=$(cd $BASEDIR/..; pwd)
+
+IMG='mcr.microsoft.com/vscode/devcontainers/rust:1'
+
+echo "Getting the commit hash of rustc contained in $IMG..." >&2
+COMMIT_HASH=$(docker run --rm $IMG rustc -vV | grep 'commit-hash' | cut -d ' ' -f 2)
+
+echo "Getting the path of the default toolchain contained in $IMG..." >&2
+TOOLCHAIN_PATH=$(docker run --rm $IMG rustup toolchain list -v | grep '(default)' | cut -f 2)
+
+echo "Updating sourcemap variables in $PROJDIR/.devcontainer/Dockerfile..." >&2
+# Use `|` instead of `/` because TOOLCHAIN_PATH contains `/`.
+sed -e "s|^ENV MIRAKC_DEV_RUSTC_COMMIT_HASH=.*|ENV MIRAKC_DEV_RUSTC_COMMIT_HASH=\"$COMMIT_HASH\"|" \
+    -e "s|^ENV MIRAKC_DEV_RUST_TOOLCHAIN_PATH=.*|ENV MIRAKC_DEV_RUST_TOOLCHAIN_PATH=\"$TOOLCHAIN_PATH\"|" \
+    $PROJDIR/.devcontainer/Dockerfile | sponge $PROJDIR/.devcontainer/Dockerfile
