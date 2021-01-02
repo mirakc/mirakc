@@ -9,7 +9,7 @@ use mustache;
 
 use crate::broadcaster::*;
 use crate::command_util::{spawn_pipeline, CommandPipeline};
-use crate::config::{Config, TunerConfig};
+use crate::config::{Config, FilterConfig, TunerConfig};
 use crate::epg::EpgChannel;
 use crate::error::Error;
 use crate::models::*;
@@ -113,13 +113,16 @@ impl TunerManager {
             return Ok(tuner.subscribe(user));
         }
 
+        // Clone the config in order to avoid compile errors from the borrow checker.
+        let config = self.config.clone();
+
         let found = self.tuners
-            .iter()
-            .position(|tuner| tuner.is_available_for(&channel));
-        if let Some(index) = found {
-            log::info!("tuner#{}: Activate for {}", index, channel);
-            let filters = self.make_filter_commands(index, &channel)?;
-            let tuner = &mut self.tuners[index];
+            .iter_mut()
+            .find(|tuner| tuner.is_available_for(&channel));
+        if let Some(tuner) = found {
+            log::info!("tuner#{}: Activate for {}", tuner.index, channel);
+            let filters = Self::make_filter_commands(
+                &tuner, &channel, &config.filters.tuner_filter)?;
             tuner.activate(channel, filters)?;
             return Ok(tuner.subscribe(user));
         }
@@ -127,14 +130,13 @@ impl TunerManager {
         // No available tuner at this point.
         // Grab a tuner used by lower priority users.
         let found = self.tuners
-            .iter()
+            .iter_mut()
             .filter(|tuner| tuner.is_supported_type(&channel))
-            .position(|tuner| tuner.can_grab(user.priority));
-        if let Some(index) = found {
-            log::info!("tuner#{}: Grab tuner, reactivate for {}",
-                       index, channel);
-            let filters = self.make_filter_commands(index, &channel)?;
-            let tuner = &mut self.tuners[index];
+            .find(|tuner| tuner.can_grab(user.priority));
+        if let Some(tuner) = found {
+            log::info!("tuner#{}: Grab tuner, reactivate for {}", tuner.index, channel);
+            let filters = Self::make_filter_commands(
+                &tuner, &channel, &config.filters.tuner_filter)?;
             tuner.deactivate();
             tuner.activate(channel, filters)?;
             return Ok(tuner.subscribe(user));
@@ -155,12 +157,11 @@ impl TunerManager {
     }
 
     fn make_filter_commands(
-        &self,
-        tuner_index: usize,
+        tuner: &Tuner,
         channel: &EpgChannel,
+        filter: &FilterConfig,
     ) -> Result<Vec<String>, Error> {
-        let filter = self.make_filter_command(
-            tuner_index, channel, &self.config.filters.tuner_filter.command)?;
+        let filter = Self::make_filter_command(tuner, channel, &filter.command)?;
         if filter.trim().is_empty() {
             Ok(vec![])
         } else {
@@ -169,15 +170,14 @@ impl TunerManager {
     }
 
     fn make_filter_command(
-        &self,
-        tuner_index: usize,
+        tuner: &Tuner,
         channel: &EpgChannel,
         filter: &str,
     ) -> Result<String, Error> {
         let template = mustache::compile_str(filter)?;
         let data = mustache::MapBuilder::new()
-            .insert("tuner_index", &tuner_index)?
-            .insert_str("tuner_name", &self.tuners[tuner_index].name)
+            .insert("tuner_index", &tuner.index)?
+            .insert_str("tuner_name", &tuner.name)
             .insert_str("channel_name", &channel.name)
             .insert("channel_type", &channel.channel_type)?
             .insert_str("channel", &channel.channel)
