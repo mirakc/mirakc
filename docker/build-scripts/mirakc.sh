@@ -1,8 +1,11 @@
+set -eu
+
 BASEDIR=$(cd $(dirname $0); pwd)
+TARGET=$1
+BUILDPLATFORM=$2
+TARGETPLATFORM=$3
 
 . $BASEDIR/vars.sh
-
-set -eu
 
 TRIPLE=$(echo "$RUST_TARGET_TRIPLE" | tr '-' '_' | tr [:lower:] [:upper:])
 

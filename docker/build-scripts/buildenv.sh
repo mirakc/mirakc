@@ -1,8 +1,11 @@
+set -eu
+
 BASEDIR=$(cd $(dirname $0); pwd)
+TARGET=$1
+BUILDPLATFORM=$2
+TARGETPLATFORM=$3
 
 . $BASEDIR/vars.sh
-
-set -eu
 
 apt-get update
 apt-get install -y --no-install-recommends $BUILD_DEPS

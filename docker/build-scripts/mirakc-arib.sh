@@ -1,8 +1,11 @@
+set -eu
+
 BASEDIR=$(cd $(dirname $0); pwd)
+TARGET=$1
+BUILDPLATFORM=$2
+TARGETPLATFORM=$3
 
 . $BASEDIR/vars.sh
-
-set -eu
 
 MIRAKC_ARIB_VERSION='0.10.2'
 ARCHIVE="https://github.com/mirakc/mirakc-arib/archive/$MIRAKC_ARIB_VERSION.tar.gz"

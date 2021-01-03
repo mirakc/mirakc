@@ -1,8 +1,11 @@
+set -eu
+
 BASEDIR=$(cd $(dirname $0); pwd)
+TARGET=$1
+BUILDPLATFORM=$2
+TARGETPLATFORM=$3
 
 . $BASEDIR/vars.sh
-
-set -eu
 
 PATCH=https://gist.githubusercontent.com/masnagam/263985322d1eaa5ef2a6e27d57f297d1/raw/2a935310f4521ef245edf1df89282ce5345233f5/stz2012-recpt1-cr.patch
 
