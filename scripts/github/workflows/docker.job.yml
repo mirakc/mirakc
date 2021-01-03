@@ -38,7 +38,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ matrix.target }}-${{ github.sha }}
+          key: ${{ runner.os }}-buildx-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
           restore-keys: |
             ${{ runner.os }}-buildx-${{ matrix.target }}-
       - name: Login to Docker Hub
