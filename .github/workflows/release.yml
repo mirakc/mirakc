@@ -75,6 +75,10 @@ jobs:
           push: true
       - name: Test
         run: |
+          # Enable experimental CLI features in Docker daemon
+          echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
+          sudo service docker restart
+
           for platform in $(echo ${{ matrix.platforms }} | tr ',' ' ')
           do
             echo "Testing $IMAGE:${{ steps.docker_meta.outputs.version }} for $platform..."
