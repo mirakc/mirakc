@@ -75,10 +75,14 @@ jobs:
           push: true
       - name: Test
         run: |
-          docker run --rm $IMAGE:${{ steps.docker_meta.outputs.version }} --version
-          docker run --rm --entrypoint=recdvb $IMAGE:${{ steps.docker_meta.outputs.version }} --version
-          docker run --rm --entrypoint=recpt1 $IMAGE:${{ steps.docker_meta.outputs.version }} --version
-          docker run --rm --entrypoint=mirakc-arib $IMAGE:${{ steps.docker_meta.outputs.version }} --version
+          for platform in $(echo ${{ matrix.platforms }} | tr ',' ' ')
+          do
+            echo "Testing $IMAGE:${{ steps.docker_meta.outputs.version }} for $platform..."
+            docker run --rm --platform=$platform $IMAGE:${{ steps.docker_meta.outputs.version }} --version
+            docker run --rm --platform=$platform --entrypoint=recdvb $IMAGE:${{ steps.docker_meta.outputs.version }} --version
+            docker run --rm --platform=$platform --entrypoint=recpt1 $IMAGE:${{ steps.docker_meta.outputs.version }} --version
+            docker run --rm --platform=$platform --entrypoint=mirakc-arib $IMAGE:${{ steps.docker_meta.outputs.version }} --version
+          done
 env:
   IMAGE: mirakc/mirakc
   MIRAKURUN_VERSION: '3.4.0'
