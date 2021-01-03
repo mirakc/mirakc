@@ -61,3 +61,9 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache
           push: true
+      - name: Test
+        run: |
+          docker run --rm $IMAGE:${{ steps.docker_meta.outputs.version }} --version
+          docker run --rm --entrypoint=recdvb $IMAGE:${{ steps.docker_meta.outputs.version }} --version
+          docker run --rm --entrypoint=recpt1 $IMAGE:${{ steps.docker_meta.outputs.version }} --version
+          docker run --rm --entrypoint=mirakc-arib $IMAGE:${{ steps.docker_meta.outputs.version }} --version
