@@ -4,9 +4,51 @@ PROGNAME="$(basename $0)"
 BASEDIR="$(cd $(dirname $0); pwd)"
 PROJDIR="$(cd $BASEDIR/..; pwd)"
 
+help() {
+    cat <<EOF >&2
+Usage: $PROGNAME [options] <VERSION>
+
+Help Options:
+  -h, --help
+
+Arguments:
+  VERSION
+    Version string in the semver format.
+EOF
+    exit 0
+}
+
+log() {
+  echo "$1" >&2
+}
+
+error() {
+  log "ERROR: $1"
+  exit 1
+}
+
+while [ $# -gt 0 ]
+do
+  case "$1" in
+    '-h' | '--help')
+      help
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [ $# -eq 0 ]; then
+  error "VERSION is required"
+fi
+
 VERSION="$1"
 
-echo "Bumping the version to $VERSION..."
+log "Pulling changes from origin..."
+git pull
+
+log "Bumping the version to $VERSION..."
 # Don't use the -i option of `sed`.
 # The incompatibility between macOS and GNU will cause troubles.
 sed -e "s/^version = .*/version = \"$VERSION\"/" $PROJDIR/Cargo.toml| \
@@ -17,5 +59,14 @@ git commit -m "misc: bump version to $VERSION"
 
 # TODO: Genereate CHANGELOG.md
 
-echo "Making an annotated tag for $VERSION..."
+log "Making an annotated tag for $VERSION..."
 git tag -a "$VERSION" -m "release: $VERSION"
+
+cat <<EOF >&2
+Done.
+
+Run the following commands after confirmation:
+
+  git push -u origin master
+  git push origin $VERSION
+EOF

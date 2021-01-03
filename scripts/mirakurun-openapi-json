@@ -61,7 +61,7 @@ log() {
 }
 
 error() {
-  log "$1"
+  log "ERROR: $1"
   exit 1
 }
 
@@ -69,11 +69,11 @@ clean() {
   sleep 1
   if [ -n "$CONTAINER" ]; then
     $DOCKER container rm -f "$CONTAINER" >/dev/null
-    echo "Removed $CONTAINER" >&2
+    log "Removed $CONTAINER"
   fi
   if [ "$CLEAN" = yes ]; then
     $DOCKER image rm -f $IMAGE >/dev/null
-    echo "Removed $IMAGE" >&2
+    log "Removed $IMAGE"
   fi
 }
 

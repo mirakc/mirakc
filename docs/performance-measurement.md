@@ -4,7 +4,7 @@ The performance metrics shown in [README.md](../README.md) were collected by
 using the following command executed on a local PC:
 
 ```console
-$ sh ./scripts/measure.sh http://mirakc:40772 >/dev/null
+$ ./scripts/measure http://mirakc:40772 >/dev/null
 Reading TS packets from mx...
 Reading TS packets from cx...
 Reading TS packets from ex...
@@ -54,7 +54,7 @@ with the following environment:
 
 where a Prometheus server was running on the local PC.
 
-[scripts/measure.sh](../scripts/measure.sh) performs:
+[scripts/measure](../scripts/measure) performs:
 
 * Receiving TS streams from 4 GR and 4 BS services for 10 minutes
   * `cat` is used as post-filter

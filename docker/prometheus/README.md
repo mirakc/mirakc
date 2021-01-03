@@ -13,7 +13,7 @@ TZ=Asia/Tokyo
 
 The `TARGET_IP` environment variables defines an IP address of a target server
 for a performance measurement using
-[scripts/measure.sh](../../scripts/measure.sh).
+[scripts/measure](../../scripts/measure).
 
 Create a `mirakc-prometheus` container with the `mirakc_prometheus_network`
 network and the `mirakc_prometheus_data` volume, and start them in the
