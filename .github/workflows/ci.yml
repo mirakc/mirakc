@@ -91,8 +91,13 @@ jobs:
       - build
       - cross-build
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
       - name: Cache for Cargo
         uses: actions/cache@v2
         with:
@@ -100,19 +105,22 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-tarpaulin-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-tarpaulin-
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-      - name: Run cargo-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1
-        with:
-          args: '-- --test-threads 1'
+            ${{ runner.os }}-cargo-nightly-
+      - name: Generate coverage data
+        run: |
+          cargo +nightly test --all-features
+        env:
+          CARGO_INCREMENTAL: 0
+          RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort
+          RUSTDOCFLAGS: -Cpanic=abort
+      - uses: actions-rs/grcov@v0.1
+        id: coverage
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v1
+        with:
+          file: ${{ steps.coverage.outputs.report }}
   docker:
     needs:
       - build
