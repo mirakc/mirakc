@@ -1,0 +1,12 @@
+branch: true
+ignore-not-existing: true
+llvm: true
+output-type: lcov
+output-path: ./lcov.info
+excl-line: '<coverage:exclude/>|unimplemented\!|unreachable\!'
+excl-start: '<coverage:exclude>'
+excl-stop: '</coverage:exclude>'
+ignore:
+  - src/error.rs
+  - src/main.rs
+  - src/tracing_ext.rs
