@@ -339,6 +339,7 @@ impl Actor for Epg {
     type Context = Context<Self>;
 
     fn started(&mut self, _: &mut Self::Context) {
+        // It's guaranteed that no response is sent before cached EPG data is loaded.
         log::debug!("Started");
         if let Err(err) = self.load_services() {
             log::warn!("Failed to load services: {}", err);

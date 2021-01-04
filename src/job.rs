@@ -264,6 +264,7 @@ impl Actor for JobManager {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        // It's guaranteed that no response is sent before initial jobs are invoked.
         log::debug!("Started");
         self.scan_services(ctx);
         self.sync_clocks(ctx);

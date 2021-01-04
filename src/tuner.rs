@@ -190,6 +190,7 @@ impl Actor for TunerManager {
     type Context = actix::Context<Self>;
 
     fn started(&mut self, _: &mut Self::Context) {
+        // It's guaranteed that no response is sent before tuners are loaded.
         log::debug!("Started");
         self.load_tuners();
     }
