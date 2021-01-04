@@ -21,10 +21,21 @@ jobs:
           CARGO_INCREMENTAL: '0'
           RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
           RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+      - name: Install grcov
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: grcov
       - name: Generate coverage data
-        uses: actions-rs/grcov@v0.1
-        id: coverage
+        # actions-rs/grcov has not supported options like --excl-line
+        run: >-
+          grcov target/debug --branch --llvm --ignore-not-existing -s .
+          --ignore '*/src/main.rs' --ignore '*/src/error.rs' --ignore '*/src/tracing_ext.rs'
+          --excl-line '<coverage:exclude/>|unimplemented!|unreachable!'
+          --excl-start '<coverage:exclude>'
+          --excl-stop '</coverage:exclude>'
+          -t lcov -o lcov.info
       - name: Update to codecov.io
         uses: codecov/codecov-action@v1
         with:
-          file: ${{ steps.coverage.outputs.report }}
+          file: lcov.info
