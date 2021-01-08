@@ -20,7 +20,7 @@ failure = "0.1.8"
 futures = "0.3.8"
 humantime = "2.0.1"
 indexmap = { version = "1.6.1", features = ["serde-1"] }
-libc = "0.2.81"
+libc = "0.2.82"
 log = "0.4.11"
 mio = "0.6.22"
 mustache = "0.9.0"
