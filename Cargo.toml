@@ -30,7 +30,7 @@ serde_json = { version = "1.0.61", features = ["preserve_order"] }
 serde_yaml = "0.8.15"
 serde_qs = "0.8.2"
 shell-words = "1.0.0"
-tokio = { version = "0.2.23", features = ["full"] }
+tokio = { version = "1.0.1", features = ["full"] }
 tracing = "0.1.22"
 tracing-subscriber = "0.2.15"
 
