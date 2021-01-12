@@ -1,0 +1,30 @@
+port: 8888
+uid: root
+gid: root
+
+mirakurunPath: http://host.docker.internal:40772/
+
+dbtype: sqlite
+
+ffmpeg: /usr/bin/ffmpeg
+ffprobe: /usr/bin/ffmpeg
+
+encodeProcessNum: 2
+concurrentEncodeNum: 1
+
+stream:
+  live:
+    ts:
+      m2ts:
+        - name: raw
+      mp4:
+        - name: '720p'
+          cmd: >-
+            %FFMPEG% -re -dual_mono_mode main -i pipe:0 -sn -threads 0
+            -c:a aac -ar 48000 -b:a 192k -ac 2
+            -c:v libx264 -vf yadif,scale=-2:720 -b:v 3000k -profile:v baseline
+            -preset veryfast -tune fastdecode,zerolatency
+            -movflags frag_keyframe+empty_moov+faststart+default_base_moof
+            -y -f mp4 pipe:1
+
+recordedFormat: '%YEAR%-%MONTH%-%DAY%-%HOUR%%MIN%-%TYPE%-%CH%-%SID%-%ID%'

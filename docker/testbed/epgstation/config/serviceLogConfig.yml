@@ -1,0 +1,8 @@
+appenders:
+  file:
+    type: file
+    filename: service.log
+categories:
+  default:
+    appenders: [file]
+    level: debug
