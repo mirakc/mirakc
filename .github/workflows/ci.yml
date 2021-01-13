@@ -129,36 +129,37 @@ jobs:
       - cross-build
     strategy:
       matrix:
-        include:
-          # tag-* values are defined in *.workflow.yml
-          - target: alpine
-            tag-latest: false
-            tag-semver: ''
-            tag-custom: master-alpine
-            tag-custom-only: true
-            platforms: 'linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8'
-          - target: debian # main target
-            tag-latest: false
-            tag-semver: ''
-            tag-custom: master-debian,master
-            tag-custom-only: true
-            platforms: 'linux/amd64,linux/arm/v7,linux/arm64/v8'
         target:
           - alpine
           - debian
-    if: github.repository == 'mirakc/mirakc'
+        include:
+          - target: alpine
+            platforms: >-
+              linux/amd64, linux/arm/v6, linux/arm/v7, linux/arm64/v8,
+          - target: debian
+            platforms: >-
+              linux/amd64, linux/arm/v7, linux/arm64/v8,
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Docker metadata
-        id: docker_meta
-        uses: crazy-max/ghaction-docker-meta@v1
-        with:
-          images: ${{ env.IMAGE }}
-          tag-latest: ${{ matrix.tag-latest }}
-          tag-semver: ${{ matrix.tag-semver }}
-          tag-custom: ${{ matrix.tag-custom }}
-          tag-custom-only: ${{ matrix.tag-custom-only }}
+      - name: Docker tags
+        id: docker-tags
+        run: |
+          IMAGE="${{ env.DOCKERHUB_IMAGE }}"
+          VERSION="$(git symbolic-ref -q --short HEAD || git describe --tags --exact-match)"
+          TAGS="$IMAGE:${VERSION}-${{ matrix.target }}"
+          if [ "${{ matrix.target }}" = "debian" ]; then
+            TAGS="$TAGS,$IMAGE:${VERSION}"
+          fi
+          # Always update latest image tags.
+          TAGS="$TAGS,$IMAGE:${{ matrix.target }}"
+          if [ "${{ matrix.target }}" = "debian" ]; then
+            TAGS="$TAGS,$IMAGE:latest"
+          fi
+          echo "Version: $VERSION"
+          echo "Tags: $TAGS"
+          echo "::set-output name=version::$VERSION"
+          echo "::set-output name=tags::$TAGS"
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v1
       - name: Setup Docker Buildx
@@ -184,25 +185,25 @@ jobs:
           context: .
           file: docker/Dockerfile.${{ matrix.target }}
           platforms: ${{ matrix.platforms }}
-          tags: ${{ steps.docker_meta.outputs.tags }}
-          labels: ${{ steps.docker_meta.outputs.labels }}
+          tags: ${{ steps.docker-tags.outputs.tags }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache
           push: true
       - name: Test
         run: |
-          # Enable experimental CLI features in Docker daemon
+          # Enable experimental CLI features in Docker daemon.
           echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
           sudo service docker restart
 
+          IMAGE="${{ env.DOCKERHUB_IMAGE }}:${{ steps.docker-tags.outputs.version }}-${{ matrix.target }}"
           for platform in $(echo ${{ matrix.platforms }} | tr ',' ' ')
           do
-            echo "Testing $IMAGE:${{ steps.docker_meta.outputs.version }} for $platform..."
-            docker run --rm --platform=$platform $IMAGE:${{ steps.docker_meta.outputs.version }} --version
-            docker run --rm --platform=$platform --entrypoint=recdvb $IMAGE:${{ steps.docker_meta.outputs.version }} --version
-            docker run --rm --platform=$platform --entrypoint=recpt1 $IMAGE:${{ steps.docker_meta.outputs.version }} --version
-            docker run --rm --platform=$platform --entrypoint=mirakc-arib $IMAGE:${{ steps.docker_meta.outputs.version }} --version
+            echo "Testing $IMAGE for $platform..."
+            docker run --rm --platform=$platform $IMAGE --version
+            docker run --rm --platform=$platform --entrypoint=recdvb $IMAGE --version
+            docker run --rm --platform=$platform --entrypoint=recpt1 $IMAGE --version
+            docker run --rm --platform=$platform --entrypoint=mirakc-arib $IMAGE --version
           done
 env:
-  IMAGE: mirakc/mirakc
-  MIRAKURUN_VERSION: '3.4.0'
+  DOCKERHUB_IMAGE: mirakc/mirakc
+  MIRAKURUN_VERSION: '3.5.0'

@@ -16,16 +16,3 @@ jobs:
     needs:
       - build
       - cross-build
-    strategy:
-      matrix:
-        include:
-          - target: alpine
-            tag-latest: false
-            tag-semver: ''
-            tag-custom: master-alpine
-            tag-custom-only: true
-          - target: debian  # main target
-            tag-latest: false
-            tag-semver: ''
-            tag-custom: master-debian,master
-            tag-custom-only: true

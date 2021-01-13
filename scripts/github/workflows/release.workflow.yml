@@ -7,19 +7,3 @@ on:
 
 jobs:
   docker:
-    strategy:
-      matrix:
-        include:
-          - target: alpine
-            tag-latest: false
-            tag-semver: |
-              {{version}}-alpine
-            tag-custom: alpine
-            tag-custom-only: false
-          - target: debian  # main target
-            tag-latest: true
-            tag-semver: |
-              {{version}}-debian
-              {{version}}
-            tag-custom: debian
-            tag-custom-only: false
