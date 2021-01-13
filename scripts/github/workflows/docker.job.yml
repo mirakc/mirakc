@@ -1,22 +1,23 @@
 env:
   DOCKERHUB_IMAGE: mirakc/mirakc
+  MAIN_DISTRO: debian
   MIRAKURUN_VERSION: '3.5.0'
 
 jobs:
   docker:
     strategy:
       matrix:
-        target:
+        distro:
           - alpine
           - debian
         include:
-          - target: alpine
+          - distro: alpine
             platforms: >-
               linux/amd64,
               linux/arm/v6,
               linux/arm/v7,
               linux/arm64/v8,
-          - target: debian
+          - distro: debian
             # docker/setup-*-action has not supported linux/arm/v5.
             platforms: >-
               linux/amd64,
@@ -28,22 +29,30 @@ jobs:
       - name: Docker tags
         id: docker-tags
         run: |
-          IMAGE="${{ env.DOCKERHUB_IMAGE }}"
-          VERSION="$(git symbolic-ref -q --short HEAD || git describe --tags --exact-match)"
-          TAGS="$IMAGE:${VERSION}-${{ matrix.target }}"
-          if [ "${{ matrix.target }}" = "debian" ]; then
-            TAGS="$TAGS,$IMAGE:${VERSION}"
-          fi
-          if [ "$VERSION" != "master" ]; then
-            # Always update latest image tags.
-            TAGS="$TAGS,$IMAGE:${{ matrix.target }}"
-            if [ "${{ matrix.target }}" = "debian" ]; then
+          IMAGE="$DOCKERHUB_IMAGE"
+          if echo "$GITHUB_REF" | grep -e '^refs/heads/' >/dev/null 2>&1; then
+            GIT_BRANCH=$(echo "$GITHUB_REF" | sed -e 's|^refs/heads/||')
+            MAIN_TAG="$IMAGE:$GIT_BRANCH-${{ matrix.distro }}"
+            TAGS="$MAIN_TAG"
+            if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
+              TAGS="$TAGS,$IMAGE:$GIT_BRANCH"
+            fi
+          else
+            GIT_TAG=$(echo "$GITHUB_REF" | sed -e 's|^refs/tags/||')
+            MAIN_TAG="$IMAGE:$GIT_TAG-${{ matrix.distro }}"
+            TAGS="$MAIN_TAG"
+            if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
+              TAGS="$TAGS,$IMAGE:$GIT_TAG"
+            fi
+            # Always update latest image tags when a new git tag is created.
+            TAGS="$TAGS,$IMAGE:${{ matrix.distro }}"
+            if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
               TAGS="$TAGS,$IMAGE:latest"
             fi
           fi
-          echo "Version: $VERSION"
+          echo "Main tag: $MAIN_TAG"
           echo "Tags: $TAGS"
-          echo "::set-output name=version::$VERSION"
+          echo "::set-output name=main-tag::$MAIN_TAG"
           echo "::set-output name=tags::$TAGS"
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v1
@@ -53,9 +62,9 @@ jobs:
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
+          key: ${{ runner.os }}-buildx-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
           restore-keys: |
-            ${{ runner.os }}-buildx-${{ matrix.target }}-
+            ${{ runner.os }}-buildx-${{ matrix.distro }}-
       - name: Login to Docker Hub
         uses: docker/login-action@v1
         with:
@@ -69,7 +78,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: .
-          file: docker/Dockerfile.${{ matrix.target }}
+          file: docker/Dockerfile.${{ matrix.distro }}
           platforms: ${{ matrix.platforms }}
           tags: ${{ steps.docker-tags.outputs.tags }}
           cache-from: type=local,src=/tmp/.buildx-cache
@@ -81,12 +90,12 @@ jobs:
           echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
           sudo service docker restart
 
-          IMAGE="${{ env.DOCKERHUB_IMAGE }}:${{ steps.docker-tags.outputs.version }}-${{ matrix.target }}"
+          TAG="${{ steps.docker-tags.outputs.main-tag }}"
           for platform in $(echo ${{ matrix.platforms }} | tr ',' ' ')
           do
-            echo "Testing $IMAGE for $platform..."
-            docker run --rm --platform=$platform $IMAGE --version
-            docker run --rm --platform=$platform --entrypoint=recdvb $IMAGE --version
-            docker run --rm --platform=$platform --entrypoint=recpt1 $IMAGE --version
-            docker run --rm --platform=$platform --entrypoint=mirakc-arib $IMAGE --version
+            echo "Testing $TAG for $platform..."
+            docker run --rm --platform=$platform $TAG --version
+            docker run --rm --platform=$platform --entrypoint=recdvb $TAG --version
+            docker run --rm --platform=$platform --entrypoint=recpt1 $TAG --version
+            docker run --rm --platform=$platform --entrypoint=mirakc-arib $TAG --version
           done
