@@ -17,7 +17,7 @@ chrono = { version = "0.4.19", features = ["serde"] }
 clap = "2.33.3"
 cron = "0.7.0"
 failure = "0.1.8"
-futures = "0.3.9"
+futures = "0.3.10"
 humantime = "2.1.0"
 indexmap = { version = "1.6.1", features = ["serde-1"] }
 libc = "0.2.82"
