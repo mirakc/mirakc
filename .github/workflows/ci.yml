@@ -53,6 +53,7 @@ jobs:
           - stable
           #- nightly
         target:
+          - i686-unknown-linux-gnu
           - arm-unknown-linux-gnueabi
           - armv7-unknown-linux-gnueabihf
           - aarch64-unknown-linux-gnu
@@ -135,10 +136,10 @@ jobs:
         include:
           - distro: alpine
             platforms: >-
-              linux/amd64, linux/arm/v6, linux/arm/v7, linux/arm64/v8,
+              linux/386, linux/amd64, linux/arm/v6, linux/arm/v7, linux/arm64/v8,
           - distro: debian
             platforms: >-
-              linux/amd64, linux/arm/v7, linux/arm64/v8,
+              linux/386, linux/amd64, linux/arm/v7, linux/arm64/v8,
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2

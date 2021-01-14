@@ -25,7 +25,17 @@ cmake -B. -S. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake
 
 if [ "$USE_MUSL" = yes ]; then
   # See https://gist.github.com/uru2/cb3f7b553c2c58570ca9bf18e47cebb3
-  CPPFLAGS='-Wno-error=zero-as-null-pointer-constant' make -j $(nproc) vendor
+  CXXFLAGS_EXTRA='-Wno-error=zero-as-null-pointer-constant'
+  if [ "$TARGETPLATFORM" = 'linux/386' ]; then
+    # Disable SSP in order solve link errors.
+    # See https://bugs.gentoo.org/706210
+    CXXFLAGS_EXTRA="$CXXFLAGS_EXTRA -fno-stack-protector"
+  fi
+  # TODO
+  # ----
+  # Introduce a CMake variable used as CXXFLAGS_EXTRA defined in Makefile.common
+  # in tsduck-arib.
+  CPPFLAGS="$CXXFLAGS_EXTRA" make -j $(nproc) vendor
 else
   make -j $(nproc) vendor
 fi

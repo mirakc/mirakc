@@ -3,6 +3,14 @@ MIRAKC_CFLAGS=
 MIRAKC_RUSTFLAGS=
 
 case "$TARGETPLATFORM" in
+  'linux/386')
+    GCC_HOST_TRIPLE='i686-linux-gnu'
+    GCC_ARCH='x86'
+    GCC="${GCC_HOST_TRIPLE}-gcc"
+    GXX="${GCC_HOST_TRIPLE}-g++"
+    RUST_TARGET_TRIPLE='i686-unknown-linux-gnu'
+    BUILD_DEPS="$BUILD_DEPS g++-${GCC_HOST_TRIPLE}"
+    ;;
   'linux/amd64')
     GCC_HOST_TRIPLE='x86_64-linux-gnu'
     GCC_ARCH='x86_64'
