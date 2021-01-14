@@ -1,7 +1,3 @@
-USE_MUSL=yes
-MIRAKC_CFLAGS=
-MIRAKC_RUSTFLAGS=
-
 case "$TARGETPLATFORM" in
   'linux/386')
     GCC_HOST_TRIPLE='i686-linux-musl'
@@ -22,13 +18,11 @@ case "$TARGETPLATFORM" in
     GCC_HOST_TRIPLE='armv7l-linux-musleabihf'
     GCC_ARCH='arm'
     RUST_TARGET_TRIPLE='armv7-unknown-linux-musleabihf'
-    MIRAKC_CFLAGS='-mfpu=neon'
     ;;
-  'linux/arm64')
+  'linux/arm64/v8' | 'linux/arm64')
     GCC_HOST_TRIPLE='aarch64-linux-musl'
     GCC_ARCH='aarch64'
     RUST_TARGET_TRIPLE='aarch64-unknown-linux-musl'
-    MIRAKC_RUSTFLAGS='-C link-arg=-lgcc'
     ;;
   *)
     echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" >&2

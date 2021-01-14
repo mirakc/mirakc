@@ -1,7 +1,3 @@
-USE_MUSL=no
-MIRAKC_CFLAGS=
-MIRAKC_RUSTFLAGS=
-
 case "$TARGETPLATFORM" in
   'linux/386')
     GCC_HOST_TRIPLE='i686-linux-gnu'
@@ -35,7 +31,7 @@ case "$TARGETPLATFORM" in
     RUST_TARGET_TRIPLE='arm-unknown-linux-gnueabihf'
     BUILD_DEPS="$BUILD_DEPS g++-${GCC_HOST_TRIPLE}"
     ;;
-  'linux/arm64')
+  'linux/arm64/v8' | 'linux/arm64')
     GCC_HOST_TRIPLE='aarch64-linux-gnu'
     GCC_ARCH='aarch64'
     GCC="${GCC_HOST_TRIPLE}-gcc"

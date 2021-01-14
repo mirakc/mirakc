@@ -12,7 +12,7 @@ apt-get install -y --no-install-recommends $BUILD_DEPS
 
 rustup target add $RUST_TARGET_TRIPLE
 
-if [ "$USE_MUSL" = yes ]; then
+if [ "$TARGET" = alpine ]; then
   # Use a cross-compiler working with musl@1.1.24 used in alpine:3.12.
   #
   # * https://musl.cc/

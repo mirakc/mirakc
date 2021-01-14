@@ -23,10 +23,10 @@ EOF
 
 cmake -B. -S. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake
 
-if [ "$USE_MUSL" = yes ]; then
+if [ "$TARGET" = alpine ]; then
   # See https://gist.github.com/uru2/cb3f7b553c2c58570ca9bf18e47cebb3
   CXXFLAGS_EXTRA='-Wno-error=zero-as-null-pointer-constant'
-  if [ "$TARGETPLATFORM" = 'linux/386' ]; then
+  if [ "$TARGETPLATFORM" = linux/386 ]; then
     # Disable SSP in order solve link errors.
     # See https://bugs.gentoo.org/706210
     CXXFLAGS_EXTRA="$CXXFLAGS_EXTRA -fno-stack-protector"
