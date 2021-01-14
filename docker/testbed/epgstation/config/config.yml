@@ -1,4 +1,4 @@
-port: 8888
+port: 8889
 uid: root
 gid: root
 
@@ -26,5 +26,3 @@ stream:
             -preset veryfast -tune fastdecode,zerolatency
             -movflags frag_keyframe+empty_moov+faststart+default_base_moof
             -y -f mp4 pipe:1
-
-recordedFormat: '%YEAR%-%MONTH%-%DAY%-%HOUR%%MIN%-%TYPE%-%CH%-%SID%-%ID%'
