@@ -3,7 +3,7 @@ jobs:
     strategy:
       matrix:
         runner:
-          - macOS-latest
+          - macos-latest
           - ubuntu-latest
         rust:
           - stable
@@ -11,9 +11,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v2
+      # Took from rust-analyzer/rust-analyzer#6208
+      - name: Install GNU tar (workaround for actions/cache#403)
+        if: matrix.runner == 'macos-latest'
+        run: |
+          brew install gnu-tar
+          echo PATH="/usr/local/opt/gnu-tar/libexec/gnubin:$PATH" >>$GITHUB_ENV
       - name: Cache for Cargo
-        # Disable cache due to actions/cache#403 and rust-lang/cargo#8603
-        if: "!startsWith(matrix.runner, 'macOS')"
         uses: actions/cache@v2
         with:
           path: |
