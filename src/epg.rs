@@ -1119,8 +1119,8 @@ pub struct EpgProgram {
     pub name: Option<String>,
     pub description: Option<String>,
     pub extended: Option<IndexMap<String, String>>,
-    pub video: Option<EpgVideoInfo>,
-    pub audio: Option<EpgAudioInfo>,
+    pub video: Option<ComponentDescriptor>,
+    pub audios: HashMap<u8, AudioComponentDescriptor>,  // component_tag -> value
     pub genres: Option<Vec<EpgGenre>>,
 }
 
@@ -1135,7 +1135,7 @@ impl EpgProgram {
             description: None,
             extended: None,
             video: None,
-            audio: None,
+            audios: HashMap::new(),  // assumed that component_tag is unique in the same event
             genres: None,
         }
     }
@@ -1151,17 +1151,17 @@ impl EpgProgram {
         for desc in event.descriptors.iter() {
             match desc {
                 EitDescriptor::ShortEvent { event_name, text } => {
-                    self.name = Some(event_name.clone());
-                    self.description = Some(text.clone());
+                    self.name = event_name.clone();
+                    self.description = text.clone();
                 }
-                EitDescriptor::Component { stream_content, component_type } => {
-                    self.video = Some(
-                        EpgVideoInfo::new(*stream_content, *component_type));
+                EitDescriptor::Component(value) => {
+                    self.video = Some(value.clone());
                 }
-                EitDescriptor::AudioComponent {
-                    component_type, sampling_rate } => {
-                    self.audio = Some(
-                        EpgAudioInfo::new(*component_type, *sampling_rate));
+                EitDescriptor::AudioComponent(value) => {
+                    self.audios
+                        .entry(value.component_tag)
+                        .and_modify(|entry| *entry = value.clone())
+                        .or_insert_with(|| value.clone());
                 }
                 EitDescriptor::Content { nibbles } => {
                     self.genres = Some(nibbles.iter()

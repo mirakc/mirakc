@@ -345,6 +345,16 @@ async fn get_program_stream(
         triple: service.triple(),
     }).await??;
 
+    let video_tags: Vec<u8> = program.video
+        .iter()
+        .map(|video| video.component_tag)
+        .collect();
+
+    let audio_tags: Vec<u8> = program.audios
+        .values()
+        .map(|audio| audio.component_tag)
+        .collect();
+
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &service.channel.name)
         .insert("channel_type", &service.channel.channel_type)?
@@ -354,6 +364,8 @@ async fn get_program_stream(
         .insert("clock_pid", &clock.pid)?
         .insert("clock_pcr", &clock.pcr)?
         .insert("clock_time", &clock.time)?
+        .insert("video_tags", &video_tags)?
+        .insert("audio_tags", &audio_tags)?
         .build();
 
     let mut builder = FilterPipelineBuilder::new(data);

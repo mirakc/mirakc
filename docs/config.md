@@ -30,7 +30,7 @@ suitable for your environment.
 | [filters.tuner-filter.command]   | `''`                                      |
 | [filters.service-filter.command] | `mirakc-arib filter-service --sid={{{sid}}}`|
 | [filters.decode-filter.command]  | `''`                                      |
-| [filters.program-filter.command] | `mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} --clock-time={{{clock_time}}} --end-margin=2000` |
+| [filters.program-filter.command] | `mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} --clock-time={{{clock_time}}} --end-margin=2000{{#video_tags}} --video-tag={{{.}}}{{/video_tags}}{{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}` |
 | [pre-filters]                    | `{}`                                      |
 | [post-filters]                   | `{}`                                      |
 | [jobs.scan-services.command]     | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
@@ -368,6 +368,12 @@ with the following template data:
   * Available only for the program streaming
 * clock_time
   * A UNIX time (ms) of synchronized clock for a service
+  * Available only for the program streaming
+* video_tags
+  * `component_tag` of a video stream in the program
+  * Available only for the program streaming
+* audio_tags
+  * `component_tag`s of audio streams in the program
   * Available only for the program streaming
 
 ### filters.tuner-filter

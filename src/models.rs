@@ -5,6 +5,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
+use crate::eit_feeder::{AudioComponentDescriptor, ComponentDescriptor };
 use crate::epg::{EpgChannel, EpgService, EpgProgram};
 use crate::mpeg_ts_stream::MpegTsStreamId;
 
@@ -219,81 +220,6 @@ pub struct Clock {
     pub pcr: i64,
     // UNIX time in ms
     pub time: i64,
-}
-
-#[derive(Clone, Debug)]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EpgVideoInfo {
-    #[serde(rename = "type")]
-    pub video_type: Option<String>,
-    pub resolution: Option<String>,
-    pub stream_content: u8,
-    pub component_type: u8,
-}
-
-impl EpgVideoInfo {
-    pub fn new(stream_content: u8, component_type: u8) -> EpgVideoInfo {
-        EpgVideoInfo {
-            video_type: Self::get_video_type(stream_content),
-            resolution: Self::get_resolution(component_type),
-            stream_content,
-            component_type,
-        }
-    }
-
-    fn get_video_type(stream_content: u8) -> Option<String> {
-        match stream_content {
-            0x01 => Some("mpeg2".to_string()),
-            0x05 => Some("h.264".to_string()),
-            0x09 => Some("h.265".to_string()),
-            _    => None,
-        }
-    }
-
-    fn get_resolution(component_type: u8) -> Option<String> {
-        match component_type {
-            0x01..=0x04 => Some("480i".to_string()),
-            0x83        => Some("4320p".to_string()),
-            0x91..=0x94 => Some("2160p".to_string()),
-            0xA1..=0xA4 => Some("480p".to_string()),
-            0xB1..=0xB4 => Some("1080i".to_string()),
-            0xC1..=0xC4 => Some("720p".to_string()),
-            0xD1..=0xD4 => Some("240p".to_string()),
-            0xE1..=0xE4 => Some("1080p".to_string()),
-            0xF1..=0xF4 => Some("180p".to_string()),
-            _           => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EpgAudioInfo {
-    pub sampling_rate: i32,
-    pub component_type: u8,
-}
-
-impl EpgAudioInfo {
-    pub fn new(component_type: u8, sampling_rate: u8) -> EpgAudioInfo {
-        EpgAudioInfo {
-            component_type,
-            sampling_rate: Self::get_sampling_rate(sampling_rate),
-        }
-    }
-
-    fn get_sampling_rate(sampling_rate: u8) -> i32 {
-        match sampling_rate {
-            1 => 16_000,
-            2 => 22_050,
-            3 => 24_000,
-            5 => 32_000,
-            6 => 44_100,
-            7 => 48_000,
-            _ => -1,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -612,9 +538,9 @@ pub struct MirakurunProgram {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extended: Option<IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub video: Option<EpgVideoInfo>,
+    pub video: Option<MirakurunProgramVideo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<EpgAudioInfo>,
+    pub audio: Option<MirakurunProgramAudio>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub genres: Option<Vec<EpgGenre>>,
 }
@@ -632,10 +558,104 @@ impl From<EpgProgram> for MirakurunProgram {
             name: program.name,
             description: program.description,
             extended: program.extended,
-            video: program.video,
-            audio: program.audio,
+            video: program.video.map(MirakurunProgramVideo::from),
+            // Unkike Mirakurun, return properties of the main audio.
+            // Mirakurun returns the last audio info in descriptors.
+            // See src/Mirakurun/epg.ts#L373 in Chinachu/Mirakurun.
+            audio: program.audios
+                .values()
+                .find(|audio| audio.main_component_flag)
+                .cloned()
+                .map(MirakurunProgramAudio::from),
             genres: program.genres,
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MirakurunProgramVideo {
+    #[serde(rename = "type")]
+    video_type: Option<String>,
+    resolution: Option<String>,
+    stream_content: u8,
+    component_type: u8,
+}
+
+impl MirakurunProgramVideo {
+    fn new(stream_content: u8, component_type: u8) -> Self {
+        Self {
+            video_type: Self::get_video_type(stream_content),
+            resolution: Self::get_resolution(component_type),
+            stream_content,
+            component_type,
+        }
+    }
+
+    fn get_video_type(stream_content: u8) -> Option<String> {
+        match stream_content {
+            0x01 => Some("mpeg2".to_string()),
+            0x05 => Some("h.264".to_string()),
+            0x09 => Some("h.265".to_string()),
+            _    => None,
+        }
+    }
+
+    fn get_resolution(component_type: u8) -> Option<String> {
+        match component_type {
+            0x01..=0x04 => Some("480i".to_string()),
+            0x83        => Some("4320p".to_string()),
+            0x91..=0x94 => Some("2160p".to_string()),
+            0xA1..=0xA4 => Some("480p".to_string()),
+            0xB1..=0xB4 => Some("1080i".to_string()),
+            0xC1..=0xC4 => Some("720p".to_string()),
+            0xD1..=0xD4 => Some("240p".to_string()),
+            0xE1..=0xE4 => Some("1080p".to_string()),
+            0xF1..=0xF4 => Some("180p".to_string()),
+            _           => None,
+        }
+    }
+}
+
+impl From<ComponentDescriptor> for MirakurunProgramVideo {
+    fn from(video: ComponentDescriptor) -> Self {
+        Self::new(video.stream_content, video.component_type)
+    }
+}
+
+#[derive(Clone, Debug)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MirakurunProgramAudio {
+    sampling_rate: i32,
+    component_type: u8,
+}
+
+impl MirakurunProgramAudio {
+    fn new(sampling_rate: u8, component_type: u8) -> Self {
+        Self {
+            sampling_rate: Self::get_sampling_rate(sampling_rate),
+            component_type,
+        }
+    }
+
+    fn get_sampling_rate(sampling_rate: u8) -> i32 {
+        match sampling_rate {
+            1 => 16_000,
+            2 => 22_050,
+            3 => 24_000,
+            5 => 32_000,
+            6 => 44_100,
+            7 => 48_000,
+            _ => -1,
+        }
+    }
+}
+
+impl From<AudioComponentDescriptor> for MirakurunProgramAudio {
+    fn from(audio: AudioComponentDescriptor) -> Self {
+        Self::new(audio.sampling_rate, audio.component_type)
     }
 }
 

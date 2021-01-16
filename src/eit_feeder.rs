@@ -287,19 +287,13 @@ impl EitEvent {
 pub enum EitDescriptor {
     #[serde(rename_all = "camelCase")]
     ShortEvent {
-        event_name: String,
-        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        event_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
     },
-    #[serde(rename_all = "camelCase")]
-    Component {
-        stream_content: u8,
-        component_type: u8,
-    },
-    #[serde(rename_all = "camelCase")]
-    AudioComponent {
-        component_type: u8,
-        sampling_rate: u8,
-    },
+    Component(ComponentDescriptor),
+    AudioComponent(AudioComponentDescriptor),
     #[serde(rename_all = "camelCase")]
     Content {
         nibbles: Vec<(u8, u8, u8, u8)>,
@@ -308,4 +302,35 @@ pub enum EitDescriptor {
     ExtendedEvent {
         items: Vec<(String, String)>,
     },
+}
+
+#[derive(Clone)]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComponentDescriptor {
+    pub stream_content: u8,
+    pub component_type: u8,
+    pub component_tag: u8,
+    pub language_code: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+#[derive(Clone)]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioComponentDescriptor {
+    pub stream_content: u8,
+    pub component_type: u8,
+    pub component_tag: u8,
+    pub simulcast_group_tag: u8,
+    pub es_multi_lingual_flag: bool,
+    pub main_component_flag: bool,
+    pub quality_indicator: u8,
+    pub sampling_rate: u8,
+    pub language_code: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language_code2: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }

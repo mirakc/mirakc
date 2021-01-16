@@ -218,7 +218,10 @@ impl FiltersConfig {
         FilterConfig {
             command: "mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} \
                       --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} \
-                      --clock-time={{{clock_time}}} --end-margin=2000".to_string()
+                      --clock-time={{{clock_time}}} --end-margin=2000\
+                      {{#video_tags}} --video-tag={{{.}}}{{/video_tags}}\
+                      {{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}\
+                      ".to_string()
         }
     }
 }
