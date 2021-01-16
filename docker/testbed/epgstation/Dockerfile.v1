@@ -1,2 +1,0 @@
-FROM l3tnun/epgstation:v1.7.6-alpine
-RUN apk add --no-cache ffmpeg

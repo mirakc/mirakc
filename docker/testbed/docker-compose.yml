@@ -1,41 +1,40 @@
 version: '3.7'
 
+x-epgstation: &common-properties
+  init: true
+  restart: unless-stopped
+  networks:
+    - default-network
+  environment:
+    NODE_ENV: production
+    TZ: Asia/Tokyo
+
 services:
   epgstation-v1:
     container_name: mirakc-testbed-epgstation-v1
     image: mirakc-testbed/epgstation:v1
     build:
       context: ./epgstation
-      dockerfile: Dockerfile.v1
-    init: true
-    restart: unless-stopped
-    networks:
-      - default-network
+      args:
+        TAG: v1.7.6-alpine
     ports:
       - 8888:8888
     volumes:
-      - ./epgstation/config:/app/config:ro
-    environment:
-      NODE_ENV: production
-      TZ: Asia/Tokyo
+      - ./epgstation/config-v1:/app/config:ro
+    <<: *common-properties
 
   epgstation-v2:
     container_name: mirakc-testbed-epgstation-v2
     image: mirakc-testbed/epgstation:v2
     build:
       context: ./epgstation
-      dockerfile: Dockerfile.v2
-    init: true
-    restart: unless-stopped
-    networks:
-      - default-network
+      args:
+        TAG: alpine
     ports:
       - 8889:8889
     volumes:
-      - ./epgstation/config:/app/config:ro
-    environment:
-      NODE_ENV: production
-      TZ: Asia/Tokyo
+      - ./epgstation/config-v2:/app/config:ro
+    <<: *common-properties
 
 networks:
   default-network:

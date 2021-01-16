@@ -8,14 +8,17 @@ Docker.
 The docker-testbed is constructed with two containers listed below:
 
 * epgstation-v1
-  * EPGStation v1 built using [./epgstation/Dockerfile.v1](./epgstation/Docker.v1)
+  * EPGStation v1 built using [./epgstation/Dockerfile](./epgstation/Dockerfile)
+    with `TAG=v1.7.6-alpine`
   * Listen tcp/8888 on the localhost
+  * Configuration files are stored in [./epgstation/config-v1](./epgstation/config-v1)
 * epgstation-v2
-  * EPGStation v2 built using [./epgstation/Dockerfile.v2](./epgstation/Docker.v2)
+  * EPGStation v2 built using [./epgstation/Dockerfile](./epgstation/Dockerfile)
+    with `TAG=alpine`
   * Listen tcp/8889 on the localhost
+  * Configuration files are stored in [./epgstation/config-v2](./epgstation/config-v2)
 
-These containers use sqlite3 as databases.  Configuration files are contained in
-[./epgstation/config](./epgstation/config).
+Both container use sqlite3.
 
 No mirakc container is included in the docker-testbed.  A mirakc server has to
 be execuded outside the docker-testbed.
