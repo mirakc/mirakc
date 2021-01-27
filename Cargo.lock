@@ -14,7 +14,7 @@ dependencies = [
  "derive_more",
  "futures-channel",
  "futures-util",
- "log 0.4.13",
+ "log 0.4.14",
  "once_cell",
  "parking_lot",
  "pin-project 0.4.27",
@@ -35,7 +35,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
- "log 0.4.13",
+ "log 0.4.14",
  "pin-project 0.4.27",
  "tokio",
  "tokio-util",
@@ -55,7 +55,7 @@ dependencies = [
  "either",
  "futures-util",
  "http",
- "log 0.4.13",
+ "log 0.4.14",
  "trust-dns-proto",
  "trust-dns-resolver",
 ]
@@ -73,7 +73,7 @@ dependencies = [
  "derive_more",
  "futures-core",
  "futures-util",
- "log 0.4.13",
+ "log 0.4.14",
  "mime",
  "mime_guess",
  "percent-encoding",
@@ -113,7 +113,7 @@ dependencies = [
  "itoa",
  "language-tags",
  "lazy_static",
- "log 0.4.13",
+ "log 0.4.14",
  "mime",
  "percent-encoding",
  "pin-project 1.0.2",
@@ -145,7 +145,7 @@ checksum = "bbd1f7dbda1645bf7da33554db60891755f6c01c1b2169e2f4c492098d30c235"
 dependencies = [
  "bytestring",
  "http",
- "log 0.4.13",
+ "log 0.4.14",
  "regex",
  "serde",
 ]
@@ -177,7 +177,7 @@ dependencies = [
  "actix-utils",
  "futures-channel",
  "futures-util",
- "log 0.4.13",
+ "log 0.4.14",
  "mio",
  "mio-uds",
  "num_cpus",
@@ -205,7 +205,7 @@ dependencies = [
  "actix-rt",
  "actix-server",
  "actix-service",
- "log 0.4.13",
+ "log 0.4.14",
  "socket2",
 ]
 
@@ -218,7 +218,7 @@ dependencies = [
  "derive_more",
  "futures-channel",
  "lazy_static",
- "log 0.4.13",
+ "log 0.4.14",
  "num_cpus",
  "parking_lot",
  "threadpool",
@@ -251,7 +251,7 @@ dependencies = [
  "futures-channel",
  "futures-sink",
  "futures-util",
- "log 0.4.13",
+ "log 0.4.14",
  "pin-project 0.4.27",
  "slab",
 ]
@@ -282,7 +282,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "fxhash",
- "log 0.4.13",
+ "log 0.4.14",
  "mime",
  "pin-project 1.0.2",
  "regex",
@@ -408,7 +408,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "derive_more",
  "futures-core",
- "log 0.4.13",
+ "log 0.4.14",
  "mime",
  "percent-encoding",
  "rand",
@@ -877,7 +877,7 @@ checksum = "8cdc09201b2e8ca1b19290cf7e65de2246b8e91fb6874279722189c4de7b94dc"
 dependencies = [
  "cc",
  "libc",
- "log 0.4.13",
+ "log 0.4.14",
  "rustc_version",
  "winapi 0.3.9",
 ]
@@ -1094,16 +1094,16 @@ version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e19e8d5c34a3e0e2223db8e060f9e8264aeeb5c5fc64a4ee9965c062211c024b"
 dependencies = [
- "log 0.4.13",
+ "log 0.4.14",
 ]
 
 [[package]]
 name = "log"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcf3805d4480bb5b86070dcfeb9e2cb2ebc148adb753c5cca5f884d1d65a42b2"
+checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
 ]
 
 [[package]]
@@ -1199,7 +1199,7 @@ dependencies = [
  "iovec",
  "kernel32-sys",
  "libc",
- "log 0.4.13",
+ "log 0.4.14",
  "miow 0.2.2",
  "net2",
  "slab",
@@ -1212,7 +1212,7 @@ version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0840c1c50fd55e521b247f949c241c9997709f23bd7f023b9762cd561e935656"
 dependencies = [
- "log 0.4.13",
+ "log 0.4.14",
  "mio",
  "miow 0.3.6",
  "winapi 0.3.9",
@@ -1270,7 +1270,7 @@ dependencies = [
  "humantime",
  "indexmap",
  "libc",
- "log 0.4.13",
+ "log 0.4.14",
  "mio",
  "mustache",
  "num_cpus",
@@ -2002,7 +2002,7 @@ dependencies = [
  "futures-core",
  "futures-io",
  "futures-sink",
- "log 0.4.13",
+ "log 0.4.14",
  "pin-project-lite 0.1.11",
  "tokio",
 ]
@@ -2014,7 +2014,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f47026cdc4080c07e49b37087de021820269d996f581aac150ef9e5583eefe3"
 dependencies = [
  "cfg-if 1.0.0",
- "log 0.4.13",
+ "log 0.4.14",
  "pin-project-lite 0.2.4",
  "tracing-attributes",
  "tracing-core",
@@ -2057,7 +2057,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e0f8c7178e13481ff6765bd169b33e8d554c5d2bbede5e32c356194be02b9b9"
 dependencies = [
  "lazy_static",
- "log 0.4.13",
+ "log 0.4.14",
  "tracing-core",
 ]
 
@@ -2105,7 +2105,7 @@ dependencies = [
  "futures",
  "idna",
  "lazy_static",
- "log 0.4.13",
+ "log 0.4.14",
  "rand",
  "smallvec",
  "thiserror",
@@ -2124,7 +2124,7 @@ dependencies = [
  "futures",
  "ipconfig",
  "lazy_static",
- "log 0.4.13",
+ "log 0.4.14",
  "lru-cache",
  "resolv-conf",
  "smallvec",
@@ -2270,7 +2270,7 @@ checksum = "1114f89ab1f4106e5b55e688b828c0ab0ea593a1ea7c094b141b14cbaaec2d62"
 dependencies = [
  "bumpalo",
  "lazy_static",
- "log 0.4.13",
+ "log 0.4.14",
  "proc-macro2",
  "quote",
  "syn",
