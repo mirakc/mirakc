@@ -1,9 +1,8 @@
-#!/bin/sh
-
-set -eu
+#!/bin/sh -eu
 
 PROGNAME=$(basename $0)
 BASEDIR=$(cd $(dirname $0); pwd)
+IMAGE='chinachu/mirakurun'
 
 if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
   DOCKER='docker'
@@ -11,29 +10,26 @@ else
   DOCKER='sudo docker'
 fi
 
-BASE_IMAGE='node:10-buster-slim'
-IMAGE='mirakurun-openapi-json/mirakurun'
-
 CLEAN=no
 PORT=40772
-WAIT=2
+WAIT=10
 VERSION=latest
 CONTAINER=
 
 help() {
   cat <<EOF >&2
-Print OpenAPI/Swagger JSON obtained from Mirakurun
+Print OpenAPI/Swagger JSON obtained from Mirakurun.
 
 USAGE:
-  mirakurun-openapi-json -h | --help
-  mirakurun-openapi-json [version]
+  $PROGNAME [<version>]
+  $PROGNAME -h | --help
 
 OPTIONS:
   -h, --help
-    Show help
+    Show help.
 
   -c, --clean
-    Remove $IMAGE and $BASE_IMAGE at exit.
+    Remove $IMAGE at exit.
 
   -p, --port  [default: $PORT]
     TCP port to be exposed for Mirakurun.
@@ -44,7 +40,7 @@ OPTIONS:
 ARGUMENTS:
   version  [default: $VERSION]
     Mirakurun version like 3.1.0, which is one of available tags for the
-    chinachu/mirakurun Docker image.
+    $IMAGE Docker image.
 
 DESCRIPTION:
   This script obtains OpenAPI/Swagger JSON from Mirakurun launched on a Docker
@@ -72,8 +68,8 @@ clean() {
     log "Removed $CONTAINER"
   fi
   if [ "$CLEAN" = yes ]; then
-    $DOCKER image rm -f $IMAGE >/dev/null
-    log "Removed $IMAGE"
+    $DOCKER image rm -f $IMAGE:$VERSION >/dev/null
+    log "Removed $IMAGE:$VERSION"
   fi
 }
 
@@ -105,13 +101,11 @@ if [ $# -gt 0 ]; then
   VERSION="$1"
 fi
 
-IMAGE="chinachu/mirakurun:$VERSION"
+trap "clean" EXIT INT TERM
 
-trap "clean" EXIT
-
-log "Launching $IMAGE..."
+log "Launching $IMAGE:$VERSION..."
 CONTAINER=$($DOCKER run --rm --init -d --cap-add SYS_ADMIN --cap-add SYS_NICE \
-              -p $PORT:40772 $IMAGE)
+                    -p $PORT:40772 $IMAGE:$VERSION)
 
 log "Waiting $WAIT seconds..."
 sleep $WAIT

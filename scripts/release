@@ -6,13 +6,15 @@ PROJDIR="$(cd $BASEDIR/..; pwd)"
 
 help() {
     cat <<EOF >&2
-Usage: $PROGNAME [options] <VERSION>
+USAGE:
+  $PROGNAME <version>
+  $PROGNAME -h | --help
 
-Help Options:
+OPTIONS:
   -h, --help
 
-Arguments:
-  VERSION
+ARGUMENTS:
+  version
     Version string in the semver format.
 EOF
     exit 0

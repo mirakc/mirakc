@@ -1,15 +1,69 @@
-#!/bin/sh
+#!/bin/sh -eu
 
 BASEDIR=$(cd $(dirname $0); pwd)
 PROJDIR=$(cd $BASEDIR/..; pwd)
 
-IMG='mcr.microsoft.com/vscode/devcontainers/rust:1'
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+  DOCKER='docker'
+else
+  DOCKER='sudo docker'
+fi
 
-echo "Getting the commit hash of rustc contained in $IMG..." >&2
-COMMIT_HASH=$(docker run --rm $IMG rustc -vV | grep 'commit-hash' | cut -d ' ' -f 2)
+IMAGE='mcr.microsoft.com/vscode/devcontainers/rust:1'
+CLEAN=no
 
-echo "Getting the path of the default toolchain contained in $IMG..." >&2
-TOOLCHAIN_PATH=$(docker run --rm $IMG rustup toolchain list -v | grep '(default)' | cut -f 2)
+help() {
+  cat <<EOF >&2
+Print OpenAPI/Swagger JSON obtained from Mirakurun.
+
+USAGE:
+  $PROGNAME [options]
+  $PROGNAME -h | --help
+
+OPTIONS:
+  -h, --help
+    Show help.
+
+  -c, --clean
+    Remove $IMAGE at exit.
+EOF
+  exit 0
+}
+
+clean() {
+  sleep 1
+  if [ "$CLEAN" = yes ]; then
+    $DOCKER image rm -f $IMAGE >/dev/null
+    echo "Removed $IMAGE"
+  fi
+}
+
+while [ $# -gt 0 ]
+do
+  case "$1" in
+    '-h' | '--help')
+      help
+      ;;
+    '-c' | '--clean')
+      CLEAN=yes
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+trap "clean" EXIT INT TERM
+
+echo "Downloading $IMAGE..."
+$DOCKER image pull $IMAGE
+
+echo "Getting the commit hash of rustc contained in $IMAGE..." >&2
+COMMIT_HASH=$($DOCKER run --rm $IMAGE rustc -vV | grep 'commit-hash' | cut -d ' ' -f 2)
+
+echo "Getting the path of the default toolchain contained in $IMAGE..." >&2
+TOOLCHAIN_PATH=$($DOCKER run --rm $IMAGE rustup toolchain list -v | grep '(default)' | cut -f 2)
 
 echo "Updating sourcemap variables in $PROJDIR/.devcontainer/Dockerfile..." >&2
 # Use `|` instead of `/` because TOOLCHAIN_PATH contains `/`.
