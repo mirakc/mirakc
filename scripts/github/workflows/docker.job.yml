@@ -73,9 +73,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Make mirakurun.openapi.json
-        # Wait 10 seconds for safety.
         run: |
-          ./scripts/mirakurun-openapi-json -w 10 $MIRAKURUN_VERSION | ./scripts/fixup-openapi-json >mirakurun.openapi.json
+          ./scripts/mirakurun-openapi-json $MIRAKURUN_VERSION | ./scripts/fixup-openapi-json >mirakurun.openapi.json
       - name: Build and push
         uses: docker/build-push-action@v2
         with:
@@ -100,4 +99,5 @@ jobs:
             docker run --rm --platform=$platform --entrypoint=recdvb $TAG --version
             docker run --rm --platform=$platform --entrypoint=recpt1 $TAG --version
             docker run --rm --platform=$platform --entrypoint=mirakc-arib $TAG --version
+            docker run --rm --platform=$platform --entrypoint=mirakc $TAG --version
           done
