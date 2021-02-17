@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - trial-*
 
 jobs:
   build:
