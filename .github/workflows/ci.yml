@@ -194,13 +194,18 @@ jobs:
         uses: docker/setup-qemu-action@v1
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Cache Docker layers
+      - name: Cache for buildenv and tools
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.docker-buildenv-tools-cache
+          key: ${{ runner.os }}-docker-buildenv-tools-${{ matrix.distro }}-${{ hashFiles('docker/build-scripts/*') }}
+      - name: Cache for mirakc
         uses: actions/cache@v2
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
+          key: ${{ runner.os }}-docker-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
           restore-keys: |
-            ${{ runner.os }}-buildx-${{ matrix.distro }}-
+            ${{ runner.os }}-docker-${{ matrix.distro }}-
       - name: Login to Docker Hub
         uses: docker/login-action@v1
         with:
@@ -209,6 +214,28 @@ jobs:
       - name: Make mirakurun.openapi.json
         run: |
           ./scripts/mirakurun-openapi-json $MIRAKURUN_VERSION | ./scripts/fixup-openapi-json >mirakurun.openapi.json
+      - name: Build buildenv
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: docker/Dockerfile.${{ matrix.distro }}
+          target: buildenv
+          platforms: ${{ matrix.platforms }}
+          cache-from: |
+            type=local,src=/tmp/.docker-buildenv-tools-cache
+          cache-to: |
+            type=local,dest=/tmp/.docker-buildenv-tools-cache
+      - name: Build tools
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: docker/Dockerfile.${{ matrix.distro }}
+          target: mirakc-tools
+          platforms: ${{ matrix.platforms }}
+          cache-from: |
+            type=local,src=/tmp/.docker-buildenv-tools-cache
+          cache-to: |
+            type=local,dest=/tmp/.docker-buildenv-tools-cache
       - name: Build and push
         uses: docker/build-push-action@v2
         with:
@@ -217,10 +244,10 @@ jobs:
           platforms: ${{ matrix.platforms }}
           tags: ${{ steps.docker-tags.outputs.tags }}
           cache-from: |
-            mirakc/buildenv:${{ steps.docker-tags.outputs.version }}-${{ matrix.distro }}
-            mirakc/tools:${{ steps.docker-tags.outputs.version }}-${{ matrix.distro }}
-            type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
+            type=local,src=/tmp/.docker-buildenv-tools-cache
+            type=local,src=/tmp/.docker-cache
+          cache-to: |
+            type=local,dest=/tmp/.docker-cache
           push: true
       - name: Test
         run: |
