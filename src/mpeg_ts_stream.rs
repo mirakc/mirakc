@@ -1,41 +1,57 @@
+use std::fmt;
 use std::io;
 use std::pin::Pin;
 
-use actix::prelude::*;
 use actix_web::web::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::stream::{Stream, StreamExt};
 
-use crate::broadcaster::BroadcasterStream;
-use crate::tuner::StopStreamingMessage;
-pub use crate::tuner::TunerSubscriptionId as MpegTsStreamId;
+use crate::error::Error;
 
-pub struct MpegTsStream {
-    id: MpegTsStreamId,
-    stream: BroadcasterStream,
-    stop_trigger: Option<MpegTsStreamStopTrigger>,
+pub struct MpegTsStream<T, S> {
+    id: T,
+    stream: S,
+    range: Option<MpegTsStreamRange>,
+    decoded: bool,
 }
 
-impl MpegTsStream {
-    pub fn new(
-        id: MpegTsStreamId,
-        stream: BroadcasterStream,
-        recipient: Recipient<StopStreamingMessage>
-    ) -> Self {
-        MpegTsStream {
-            id, stream,
-            stop_trigger: Some(MpegTsStreamStopTrigger::new(id, recipient))
-        }
+impl<T, S> MpegTsStream<T, S> {
+    pub fn new(id: T, stream: S) -> Self {
+        MpegTsStream { id, stream, decoded: false, range: None, }
     }
 
-    pub fn id(&self) -> MpegTsStreamId {
-        self.id
+    pub fn with_range(id: T, stream: S, range: MpegTsStreamRange) -> Self {
+        MpegTsStream { id, stream, decoded: false, range: Some(range), }
     }
 
-    pub fn take_stop_trigger(&mut self) -> Option<MpegTsStreamStopTrigger> {
-        self.stop_trigger.take()
+    pub fn decoded(mut self) -> Self {
+        self.decoded = true;
+        self
     }
 
+    pub fn is_decoded(&self) -> bool {
+        self.decoded
+    }
+
+    pub fn range(&self) -> Option<MpegTsStreamRange> {
+        self.range.clone()
+    }
+}
+
+impl<T, S> MpegTsStream<T, S>
+where
+    T: Clone,
+{
+    pub fn id(&self) -> T {
+        self.id.clone()
+    }
+}
+
+impl<T, S> MpegTsStream<T, S>
+where
+    T: fmt::Display + Clone + Unpin,
+    S: Stream<Item = io::Result<Bytes>> + Unpin,
+{
     pub async fn pipe<W>(self, writer: W)
     where
         W: AsyncWrite + Unpin,
@@ -44,8 +60,12 @@ impl MpegTsStream {
     }
 }
 
-impl Stream for MpegTsStream {
-    type Item = io::Result<Bytes>;
+impl<T, S> Stream for MpegTsStream<T, S>
+where
+    T: Unpin,
+    S: Stream + Unpin,
+{
+    type Item = S::Item;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
@@ -55,26 +75,56 @@ impl Stream for MpegTsStream {
     }
 }
 
-pub struct MpegTsStreamStopTrigger {
-    id: MpegTsStreamId,
-    recipient: Recipient<StopStreamingMessage>,
+#[derive(Clone)]
+pub struct MpegTsStreamRange {
+    pub first: u64,
+    pub last: u64,
+    pub size: Option<u64>,
 }
 
-impl MpegTsStreamStopTrigger {
-    fn new(
-        id: MpegTsStreamId,
-        recipient: Recipient<StopStreamingMessage>
-    ) -> Self {
-        Self { id, recipient }
+impl MpegTsStreamRange {
+    pub fn bound(first: u64, size: u64) -> Result<Self, Error> {
+        if size == 0 {
+            return Err(Error::NoContent);
+        }
+        if first >= size {
+            return Err(Error::OutOfRange);
+        }
+        Ok(Self::new(first, size - 1, Some(size)))
     }
-}
 
-impl Drop for MpegTsStreamStopTrigger {
-    fn drop(&mut self) {
-        log::debug!("{}: Closing...", self.id);
-        let _ = self.recipient.do_send(StopStreamingMessage {
-            id: self.id
-        });
+    pub fn unbound(first: u64, size: u64) -> Result<Self, Error> {
+        if size == 0 {
+            return Err(Error::NoContent);
+        }
+        if first >= size {
+            return Err(Error::OutOfRange);
+        }
+        Ok(Self::new(first, size - 1, None))
+    }
+
+    pub fn is_partial(&self) -> bool {
+        if let Some(size) = self.size {
+            self.first != 0 || self.last + 1 != size
+        } else {
+            true
+        }
+    }
+
+    pub fn bytes(&self) -> u64 {
+        self.last - self.first + 1
+    }
+
+    pub fn make_content_range(&self) -> String {
+        if let Some(size) = self.size {
+            format!("bytes {}-{}/{}", self.first, self.last, size)
+        } else  {
+            format!("bytes {}-{}/*", self.first, self.last)
+        }
+    }
+
+    fn new(first: u64, last: u64, size: Option<u64>) -> Self {
+        MpegTsStreamRange { first, last, size, }
     }
 }
 
@@ -100,10 +150,7 @@ pub struct MpegTsStreamTerminator<S, T> {
     _stop_trigger: T,
 }
 
-impl<S, T> MpegTsStreamTerminator<S, T>
-where
-    S: Stream<Item = io::Result<Bytes>> + Unpin
-{
+impl<S, T> MpegTsStreamTerminator<S, T> {
     pub fn new(inner: S, _stop_trigger: T) -> Self {
         Self { inner, _stop_trigger }
     }
@@ -111,7 +158,7 @@ where
 
 impl<S, T> Stream for MpegTsStreamTerminator<S, T>
 where
-    S: Stream<Item = io::Result<Bytes>> + Unpin,
+    S: Stream + Unpin,
     T: Unpin,
 {
     type Item = S::Item;
@@ -124,8 +171,10 @@ where
     }
 }
 
-async fn pipe<W>(mut stream: MpegTsStream, mut writer: W)
+async fn pipe<T, S, W>(mut stream: MpegTsStream<T, S>, mut writer: W)
 where
+    T: fmt::Display + Clone + Unpin,
+    S: Stream<Item = io::Result<Bytes>> + Unpin,
     W: AsyncWrite + Unpin,
 {
     loop {
@@ -173,36 +222,17 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_pipe() {
-        let addr = TestActor.start();
+        let (mut tx, rx) = tokio::sync::mpsc::channel(1);
 
-        let (mut tx, stream) = BroadcasterStream::new_for_test();
-
-        let stream = MpegTsStream::new(
-            Default::default(), stream, addr.recipient());
+        let stream = MpegTsStream::new(0, rx);
         let writer = TestWriter::new(b"hello");
         let handle = tokio::spawn(stream.pipe(writer));
 
-        let result = tx.send(Bytes::from("hello")).await;
+        let result = tx.send(Ok(Bytes::from("hello"))).await;
         assert!(result.is_ok());
 
         drop(tx);
         let _ = handle.await.unwrap();
-    }
-
-    struct TestActor;
-
-    impl Actor for TestActor {
-        type Context = Context<Self>;
-    }
-
-    impl Handler<StopStreamingMessage> for TestActor {
-        type Result = ();
-
-        fn handle(
-            &mut self,
-            _: StopStreamingMessage,
-            _: &mut Self::Context,
-        ) -> Self::Result {}
     }
 
     struct TestWriter {

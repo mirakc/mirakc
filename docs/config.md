@@ -27,6 +27,7 @@ suitable for your environment.
 | [tuners\[\].command]             |                                           |
 | [tuners\[\].time-limit]          | `30000` (30s)                             |
 | [tuners\[\].disabled]            | `false`                                   |
+| [tuners\[\].decoded]             | `false`                                   |
 | [filters.tuner-filter.command]   | `''`                                      |
 | [filters.service-filter.command] | `mirakc-arib filter-service --sid={{{sid}}}`|
 | [filters.decode-filter.command]  | `''`                                      |
@@ -39,6 +40,12 @@ suitable for your environment.
 | [jobs.sync-clocks.schedule]      | `'0 3 12 * * * *'` (execute at 12:03 every day) |
 | [jobs.update-schedules.command]  | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.update-schedules.schedule] | `'0 7,37 * * * * *'` (execute at 7 and 37 minutes every hour) |
+| [timeshift\[\].service-triple]   |                                           |
+| [timeshift\[\].file]             |                                           |
+| [timeshift\[\].chunk-size]       | 163840000 (4KiB * 40000 ~ 160MB)          |
+| [timeshift\[\].num-chunks]       |                                           |
+| [timeshift\[\].num-reserves]     | 1                                         |
+| [timeshift\[\].priority]         | 128                                       |
 | [resource.strings-yaml]          | `/etc/mirakc/strings.yml`                 |
 | [mirakurun.openapi-json]         | `/etc/mirakurun.openapi.json`             |
 
@@ -61,6 +68,7 @@ suitable for your environment.
 [tuners\[\].command]: #tuners
 [tuners\[\].time-limit]: #tuners
 [tuners\[\].disabled]: #tuners
+[tuners\[\].decoded]: #tuners
 [filters.tuner-filter.command]: #filterstuner-filter
 [filters.service-filter.command]: #filtersservice-filter
 [filters.decode-filter.command]: #filtersdecode-filter
@@ -73,6 +81,12 @@ suitable for your environment.
 [jobs.sync-clocks.schedule]: #jobssync-clocks
 [jobs.update-schedules.command]: #jobsupdate-schedules
 [jobs.update-schedules.schedule]: #jobsupdate-schdules
+[timeshift\[\].service-triple]: #timeshift
+[timeshift\[\].file]: #timeshift
+[timeshift\[\].chunk-size]: #timeshift
+[timeshift\[\].num-chunks]: #timeshift
+[timeshift\[\].num-reserves]: #timeshift
+[timeshift\[\].priority]: #timeshift
 [resource.strings-yaml]: #resourcestrings-yaml
 [mirakurun.openapi-json]: #mirakurunopenapi-json
 
@@ -282,6 +296,8 @@ Definitions of tuners.  At least, one tuner must be defined.
   * Stop streaming if no TS packet comes from the tuner for the time limit
 * disabled (optional)
   * Disable the tuner
+* decoded (optional)
+  * PES packets are decoded by the tuner command
 
 Command template variables:
 
@@ -356,10 +372,10 @@ with the following template data:
   * The `channel` property of a channel defined in the `channels`
 * sid
   * The 16-bit integer identifier of a service (SID)
-  * Available only for the service streaming and the program streaming
+  * Available only for the service streaming, the program streaming and the record streaming
 * eid
   * The 16-bit integer identifier of a program (EID)
-  * Available only for the program streaming
+  * Available only for the program streaming and the record streaming
 * clock_pid
   * A PID of PCR packets to be used for the clock synchronization
   * Available only for the program streaming
@@ -371,10 +387,19 @@ with the following template data:
   * Available only for the program streaming
 * video_tags
   * `component_tag` of a video stream in the program
-  * Available only for the program streaming
+  * Available only for the program streaming and the record streaming
 * audio_tags
   * `component_tag`s of audio streams in the program
-  * Available only for the program streaming
+  * Available only for the program streaming and the record streaming
+* id
+  * The identifier of a record
+  * Available only for the record streaming
+* duration
+  * A duration of a record in seconds
+  * Available only for the record streaming
+* size
+  * Size of a record in bytes
+  * Available only for the record streaming
 
 ### filters.tuner-filter
 
@@ -511,6 +536,50 @@ Command template variables:
   * A list of SIDs which must be included
 * xsids
   * A list of SIDs which must be excluded
+
+## timeshift
+
+Definitions of timeshift recordings.
+
+* service-triple
+  * A tuple of NID, TSID and SID of a service stream to record
+* file
+  * A path to a file used as a ring buffer to record the service stream
+* chunk-size
+  * Size of a data chunk
+  * Must be a multiple of 8192
+* num-chunks
+  * The maximum number of chunks in the file
+    * The maximum size of the file is computed by `chunk-size * num-chunks`
+  * Must be larger than 2
+* num-reserves
+  * The number of chunks in the gap between the head and the tail of the ring buffer
+  * Must be larger than 0
+  * `num-chunks - num-reserves` must be larger than 1
+* priority
+  * The priority of streaming
+  * Should be larger than 0
+
+```yaml
+timeshift:
+  bs1:
+    service-triple: [4, 16625, 101]  # BS1
+    file: /path/to/bs1.timeshift.m2ts
+    num-chunks: 4000  # about 640GB
+```
+
+The timeshift recording of mirakc is a similar function to the Timeshift Machine
+implemented on TVs and recorders produced by Toshiba.  The timeshift recording
+records TS packets in a service stream into a fixed-size file used as a 'ring'
+buffer.  User can playback TV programs recorded in the file until they are
+purged due to the file size limit.
+
+The timeshift recording has the following limitations:
+
+* All of recorded data is volatile
+  * It will be empty when restarting
+* Duration of a record currently being recorded is updated only when a chunk is
+  filled or the TV program ends
 
 ## resource.strings-yaml
 

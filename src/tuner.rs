@@ -21,6 +21,8 @@ pub fn start(config: Arc<Config>) -> Addr<TunerManager> {
 
 // identifiers
 
+type TunerStream = MpegTsStream<TunerSubscriptionId, BroadcasterStream>;
+
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(test, derive(Debug, Default))]
 pub struct TunerSessionId {
@@ -71,6 +73,13 @@ pub struct TunerManager {
 struct TunerSubscription {
     id: TunerSubscriptionId,
     broadcaster: Addr<Broadcaster>,
+    decoded: bool,
+}
+
+impl TunerSubscription {
+    fn new(id: TunerSubscriptionId, broadcaster: Addr<Broadcaster>) -> Self {
+        Self { id, broadcaster, decoded: false, }
+    }
 }
 
 impl TunerManager {
@@ -248,11 +257,11 @@ impl fmt::Display for StartStreamingMessage {
 }
 
 impl Message for StartStreamingMessage {
-    type Result = Result<MpegTsStream, Error>;
+    type Result = Result<TunerStream, Error>;
 }
 
 impl Handler<StartStreamingMessage> for TunerManager {
-    type Result = ActorResponse<Self, MpegTsStream, Error>;
+    type Result = ActorResponse<Self, TunerStream, Error>;
 
     fn handle(
         &mut self,
@@ -262,7 +271,7 @@ impl Handler<StartStreamingMessage> for TunerManager {
         log::debug!("{}", msg);
 
         let subscription = match self.activate_tuner(msg.channel, msg.user) {
-            Ok(broadcaster) => broadcaster,
+            Ok(subscription) => subscription,
             Err(err) => return ActorResponse::reply(Err(Error::from(err))),
         };
 
@@ -270,7 +279,7 @@ impl Handler<StartStreamingMessage> for TunerManager {
             subscription.broadcaster.send(SubscribeMessage {
                 id: subscription.id
             }))
-            .map(move |result, act, ctx| {
+            .map(move |result, act, _ctx| {
                 if result.is_ok() {
                     log::info!("{}: Started streaming", subscription.id);
                 } else {
@@ -279,10 +288,8 @@ impl Handler<StartStreamingMessage> for TunerManager {
                     act.deactivate_tuner(subscription.id);
                 }
                 result
-                    .map(|stream| {
-                        MpegTsStream::new(
-                            subscription.id, stream, ctx.address().recipient())
-                    })
+                    .map(|stream| MpegTsStream::new(subscription.id, stream))
+                    .map(|stream| if subscription.decoded { stream.decoded() } else { stream })
                     .map_err(Error::from)
             });
 
@@ -327,6 +334,7 @@ struct Tuner {
     channel_types: Vec<ChannelType>,
     command: String,
     time_limit: u64,
+    decoded: bool,
     activity: TunerActivity,
 }
 
@@ -341,6 +349,7 @@ impl Tuner {
             channel_types: config.channel_types.clone(),
             command: config.command.clone(),
             time_limit: config.time_limit,
+            decoded: config.decoded,
             activity: TunerActivity::Inactive,
         }
     }
@@ -384,7 +393,9 @@ impl Tuner {
     }
 
     fn subscribe(&mut self, user: TunerUser) -> TunerSubscription {
-        self.activity.subscribe(user)
+        let mut subscription = self.activity.subscribe(user);
+        subscription.decoded = self.decoded;
+        subscription
     }
 
     fn stop_streaming(
@@ -562,7 +573,7 @@ impl TunerSession {
         log::info!("{}: Subscribed: {}", id, user);
         self.subscribers.insert(serial_number, user);
 
-        TunerSubscription { id, broadcaster: self.broadcaster.clone() }
+        TunerSubscription::new(id, self.broadcaster.clone())
     }
 
     fn can_grab(&self, priority: TunerUserPriority) -> bool {
@@ -602,6 +613,29 @@ impl TunerSession {
 impl Drop for TunerSession {
     fn drop(&mut self) {
         log::info!("{}: Deactivated", self.id);
+    }
+}
+
+pub struct TunerStreamStopTrigger {
+    id: TunerSubscriptionId,
+    recipient: Recipient<StopStreamingMessage>,
+}
+
+impl TunerStreamStopTrigger {
+    pub fn new(
+        id: TunerSubscriptionId,
+        recipient: Recipient<StopStreamingMessage>
+    ) -> Self {
+        Self { id, recipient }
+    }
+}
+
+impl Drop for TunerStreamStopTrigger {
+    fn drop(&mut self) {
+        log::debug!("{}: Closing...", self.id);
+        let _ = self.recipient.do_send(StopStreamingMessage {
+            id: self.id
+        });
     }
 }
 
@@ -777,6 +811,7 @@ mod tests {
             command,
             time_limit: 10 * 1000,
             disabled: false,
+            decoded: false,
         }
     }
 

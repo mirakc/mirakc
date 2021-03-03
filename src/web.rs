@@ -1,16 +1,16 @@
-use std::collections::HashMap;
+use std::fmt;
 use std::fmt::Write as _;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
 
 use actix::prelude::*;
 use actix_files;
 use actix_service;
 use actix_web::{self, FromRequest};
 use actix_web::web::{Bytes, BytesMut};
+use chrono::{DateTime, Duration};
 use futures;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -20,13 +20,15 @@ use tokio::sync::mpsc;
 use crate::airtime_tracker;
 use crate::chunk_stream::ChunkStream;
 use crate::command_util::*;
-use crate::config::{Config, ServerAddr, FilterConfig, PostFilterConfig};
-use crate::datetime_ext::Jst;
+use crate::config::{Config, ServerAddr};
+use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
 use crate::error::Error;
 use crate::epg::*;
+use crate::filter::*;
 use crate::models::*;
 use crate::mpeg_ts_stream::*;
 use crate::string_table::*;
+use crate::timeshift::*;
 use crate::tuner::*;
 
 #[cfg(not(test))]
@@ -39,11 +41,17 @@ type EpgActor = Epg;
 #[cfg(test)]
 type EpgActor = actix::actors::mocker::Mocker<Epg>;
 
+#[cfg(not(test))]
+type TimeshiftManagerActor = TimeshiftManager;
+#[cfg(test)]
+type TimeshiftManagerActor = actix::actors::mocker::Mocker<TimeshiftManager>;
+
 pub async fn serve(
     config: Arc<Config>,
     string_table: Arc<StringTable>,
     tuner_manager: Addr<TunerManager>,
     epg: Addr<Epg>,
+    timeshift_manager: Addr<TimeshiftManager>,
 ) -> Result<(), Error> {
     let server_config = config.server.clone();
     let mut server = actix_web::HttpServer::new(
@@ -53,6 +61,7 @@ pub async fn serve(
                 .data(string_table.clone())
                 .data(tuner_manager.clone())
                 .data(epg.clone())
+                .data(timeshift_manager.clone())
                 .wrap(actix_web::middleware::Logger::default())
                 .wrap(actix_web::middleware::DefaultHeaders::new()
                       .header("Server", server_name()))
@@ -136,6 +145,24 @@ impl actix_web::ResponseError for Error {
                     reason: None,
                     errors: Vec::new(),
                 }),
+            Error::RecordNotFound =>
+                actix_web::HttpResponse::NotFound().json(ErrorBody {
+                    code: actix_web::http::StatusCode::NOT_FOUND.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
+            Error::OutOfRange =>
+                actix_web::HttpResponse::RangeNotSatisfiable().json(ErrorBody {
+                    code: actix_web::http::StatusCode::RANGE_NOT_SATISFIABLE.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
+            Error::NoContent =>
+                actix_web::HttpResponse::NoContent().json(ErrorBody {
+                    code: actix_web::http::StatusCode::NO_CONTENT.as_u16(),
+                    reason: None,
+                    errors: Vec::new(),
+                }),
             Error::AccessDenied =>
                 actix_web::HttpResponse::Forbidden().json(ErrorBody {
                     code: actix_web::http::StatusCode::FORBIDDEN.as_u16(),
@@ -167,6 +194,12 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_channel_service_stream)
         .service(get_service_stream)
         .service(get_program_stream)
+        .service(get_timeshift_recorders)
+        .service(get_timeshift_recorder)
+        .service(get_timeshift_records)
+        .service(get_timeshift_record)
+        .service(get_timeshift_stream)
+        .service(get_timeshift_record_stream)
         .service(get_iptv_playlist)
         .service(get_iptv_epg)
         .service(get_docs)
@@ -197,7 +230,8 @@ async fn get_services(
 ) -> ApiResult {
     epg.send(QueryServicesMessage).await?
         .map(|services| services.into_iter()
-             .map(MirakurunService::from).collect::<Vec<MirakurunService>>())
+             .map(MirakurunService::from)
+             .collect::<Vec<MirakurunService>>())
         .map(|services| actix_web::HttpResponse::Ok().json(services))
 }
 
@@ -220,7 +254,8 @@ async fn get_programs(
 ) -> ApiResult {
     epg.send(QueryProgramsMessage).await?
         .map(|programs| programs.into_iter()
-             .map(MirakurunProgram::from).collect::<Vec<MirakurunProgram>>())
+             .map(MirakurunProgram::from)
+             .collect::<Vec<MirakurunProgram>>())
         .map(|programs| actix_web::HttpResponse::Ok().json(programs))
 }
 
@@ -260,6 +295,15 @@ async fn get_channel_stream(
         channel: path.channel.clone(),
     }).await??;
 
+    let stream = tuner_manager.send(StartStreamingMessage {
+        channel: channel.clone(),
+        user: user.clone(),
+    }).await??;
+
+    // stop_trigger must be created here in order to stop streaming when an error occurs.
+    let stop_trigger = TunerStreamStopTrigger::new(
+        stream.id(), tuner_manager.get_ref().clone().recipient());
+
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &channel.name)
         .insert("channel_type", &channel.channel_type)?
@@ -269,19 +313,14 @@ async fn get_channel_stream(
     let mut builder = FilterPipelineBuilder::new(data);
     builder.add_pre_filters(
         &config.pre_filters, &filter_setting.pre_filters)?;
-    if filter_setting.decode {
+    if !stream.is_decoded() && filter_setting.decode {
         builder.add_decode_filter(&config.filters.decode_filter)?;
     }
     builder.add_post_filters(
         &config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    let stream = tuner_manager.send(StartStreamingMessage {
-        channel,
-        user: user.clone(),
-    }).await??;
-
-    streaming(&config, user, stream, filters, content_type, None).await
+    streaming(&config, user, stream, filters, content_type, stop_trigger).await
 }
 
 #[actix_web::get("/channels/{channel_type}/{channel}/services/{sid}/stream")]
@@ -345,6 +384,15 @@ async fn get_program_stream(
         triple: service.triple(),
     }).await??;
 
+    let stream = tuner_manager.send(StartStreamingMessage {
+        channel: service.channel.clone(),
+        user: user.clone(),
+    }).await??;
+
+    // stream_stop_trigger must be created here in order to stop streaming when an error occurs.
+    let stream_stop_trigger = TunerStreamStopTrigger::new(
+        stream.id(), tuner_manager.get_ref().clone().recipient());
+
     let video_tags: Vec<u8> = program.video
         .iter()
         .map(|video| video.component_tag)
@@ -370,8 +418,7 @@ async fn get_program_stream(
 
     let mut builder = FilterPipelineBuilder::new(data);
     builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
-    builder.add_service_filter(&config.filters.service_filter)?;
-    if filter_setting.decode {
+    if !stream.is_decoded() && filter_setting.decode {
         builder.add_decode_filter(&config.filters.decode_filter)?;
     }
     builder.add_program_filter(&config.filters.program_filter)?;
@@ -379,18 +426,15 @@ async fn get_program_stream(
         &config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    let stream = tuner_manager.send(StartStreamingMessage {
-        channel: service.channel.clone(),
-        user: user.clone(),
-    }).await??;
-
-    let stop_trigger = airtime_tracker::track_airtime(
+    let tracker_stop_trigger = airtime_tracker::track_airtime(
         &config.recorder.track_airtime_command, &service.channel, &program,
         stream.id(), tuner_manager.get_ref().clone(), epg.get_ref().clone()
     ).await?;
 
+    let stop_triggers = vec![stream_stop_trigger, tracker_stop_trigger];
+
     let result =
-        streaming(&config, user, stream, filters, content_type, stop_trigger).await;
+        streaming(&config, user, stream, filters, content_type, stop_triggers).await;
 
     match result {
         Err(Error::ProgramNotFound) =>
@@ -399,6 +443,162 @@ async fn get_program_stream(
     }
 
     result
+}
+
+#[actix_web::get("/timeshift")]
+async fn get_timeshift_recorders(
+    timeshift_manager: actix_web::web::Data<Addr<TimeshiftManagerActor>>,
+) -> ApiResult {
+    timeshift_manager.send(QueryTimeshiftRecordersMessage).await?
+        .map(|recorders| recorders.into_iter()
+             .map(WebTimeshiftRecorder::from)
+             .collect::<Vec<WebTimeshiftRecorder>>())
+        .map(|recorders| actix_web::HttpResponse::Ok().json(recorders))
+}
+
+#[actix_web::get("/timeshift/{recorder}")]
+async fn get_timeshift_recorder(
+    timeshift_manager: actix_web::web::Data<Addr<TimeshiftManagerActor>>,
+    path: actix_web::web::Path<TimeshiftRecorderPath>,
+) -> ApiResult {
+    timeshift_manager.send(QueryTimeshiftRecorderMessage {
+        recorder_name: path.recorder.clone(),
+    }).await?
+        .map(WebTimeshiftRecorder::from)
+        .map(|recorder| actix_web::HttpResponse::Ok().json(recorder))
+}
+
+#[actix_web::get("/timeshift/{recorder}/records")]
+async fn get_timeshift_records(
+    timeshift_manager: actix_web::web::Data<Addr<TimeshiftManagerActor>>,
+    path: actix_web::web::Path<TimeshiftRecorderPath>,
+) -> ApiResult {
+    timeshift_manager.send(QueryTimeshiftRecordsMessage {
+        recorder_name: path.recorder.clone(),
+    }).await?
+        .map(|records| records.into_iter()
+             .map(WebTimeshiftRecord::from)
+             .collect::<Vec<WebTimeshiftRecord>>())
+        .map(|records| actix_web::HttpResponse::Ok().json(records))
+}
+
+#[actix_web::get("/timeshift/{recorder}/records/{record}")]
+async fn get_timeshift_record(
+    timeshift_manager: actix_web::web::Data<Addr<TimeshiftManagerActor>>,
+    path: actix_web::web::Path<TimeshiftRecordPath>,
+) -> ApiResult {
+    timeshift_manager.send(QueryTimeshiftRecordMessage {
+        recorder_name: path.recorder.clone(),
+        record_id: path.record,
+    }).await?
+        .map(WebTimeshiftRecord::from)
+        .map(|record| actix_web::HttpResponse::Ok().json(record))
+}
+
+#[actix_web::get("/timeshift/{recorder}/stream")]
+async fn get_timeshift_stream(
+    config: actix_web::web::Data<Arc<Config>>,
+    timeshift_manager: actix_web::web::Data<Addr<TimeshiftManagerActor>>,
+    path: actix_web::web::Path<TimeshiftRecorderPath>,
+    user: TunerUser,
+    stream_query: actix_web::web::Query<TimeshiftStreamQuery>,
+    filter_setting: FilterSetting,
+) -> ApiResult {
+    let recorder = timeshift_manager.send(QueryTimeshiftRecorderMessage {
+        recorder_name: path.recorder.clone(),
+    }).await??;
+
+    let (stream, stop_trigger) = timeshift_manager.send(StartTimeshiftStreamingMessage {
+        recorder_name: path.recorder.clone(),
+        record_id: stream_query.record,
+    }).await??;
+
+    let data = mustache::MapBuilder::new()
+        .insert_str("channel_name", &recorder.service.channel.name)
+        .insert("channel_type", &recorder.service.channel.channel_type)?
+        .insert_str("channel", &recorder.service.channel.channel)
+        .insert("sid", &recorder.service.sid.value())?
+        .build();
+
+    let mut builder = FilterPipelineBuilder::new(data);
+    builder.add_pre_filters(
+        &config.pre_filters, &filter_setting.pre_filters)?;
+    // The stream has already been decoded.
+    builder.add_post_filters(
+        &config.post_filters, &filter_setting.post_filters)?;
+    let (filters, content_type) = builder.build();
+
+    streaming(&config, user, stream, filters, content_type, stop_trigger).await
+}
+
+#[actix_web::get("/timeshift/{recorder}/records/{record}/stream")]
+async fn get_timeshift_record_stream(
+    req: actix_web::HttpRequest,
+    config: actix_web::web::Data<Arc<Config>>,
+    timeshift_manager: actix_web::web::Data<Addr<TimeshiftManagerActor>>,
+    path: actix_web::web::Path<TimeshiftRecordPath>,
+    user: TunerUser,
+    filter_setting: FilterSetting,
+) -> ApiResult {
+    let recorder = timeshift_manager.send(QueryTimeshiftRecorderMessage {
+        recorder_name: path.recorder.clone(),
+    }).await??;
+
+    let record = timeshift_manager.send(QueryTimeshiftRecordMessage{
+        recorder_name: path.recorder.clone(),
+        record_id: path.record,
+    }).await??;
+
+    let start_pos = req
+        .headers()
+        .get(actix_web::http::header::RANGE)
+        .iter()
+        .flat_map(|header| header.to_str().ok())
+        .flat_map(|header| http_range::HttpRange::parse(header, record.size).ok())
+        .flat_map(|ranges| ranges.iter().cloned().next())
+        .map(|range| range.start)
+        .next();
+
+    let (stream, stop_trigger) = timeshift_manager.send(StartTimeshiftRecordStreamingMessage {
+        recorder_name: path.recorder.clone(),
+        record_id: path.record,
+        start_pos,
+    }).await??;
+
+    let video_tags: Vec<u8> = record.program.video
+        .iter()
+        .map(|video| video.component_tag)
+        .collect();
+
+    let audio_tags: Vec<u8> = record.program.audios
+        .values()
+        .map(|audio| audio.component_tag)
+        .collect();
+
+    let duration = record.end_time - record.start_time;
+
+    let data = mustache::MapBuilder::new()
+        .insert_str("channel_name", &recorder.service.channel.name)
+        .insert("channel_type", &recorder.service.channel.channel_type)?
+        .insert_str("channel", &recorder.service.channel.channel)
+        .insert("sid", &recorder.service.sid.value())?
+        .insert("eid", &record.program.quad.eid())?
+        .insert("video_tags", &video_tags)?
+        .insert("audio_tags", &audio_tags)?
+        .insert("id", &record.id)?
+        .insert("duration", &duration.num_seconds())?
+        .insert("size", &record.size)?
+        .build();
+
+    let mut builder = FilterPipelineBuilder::new(data);
+    builder.add_pre_filters(
+        &config.pre_filters, &filter_setting.pre_filters)?;
+    // The stream has already been decoded.
+    builder.add_post_filters(
+        &config.post_filters, &filter_setting.post_filters)?;
+    let (filters, content_type) = builder.build();
+
+    streaming(&config, user, stream, filters, content_type, stop_trigger).await
 }
 
 #[actix_web::get("/iptv/playlist")]
@@ -535,6 +735,15 @@ async fn do_get_service_stream(
     user: TunerUser,
     filter_setting: FilterSetting,
 ) -> ApiResult {
+    let stream = tuner_manager.send(StartStreamingMessage {
+        channel: channel.clone(),
+        user: user.clone(),
+    }).await??;
+
+    // stop_trigger must be created here in order to stop streaming when an error occurs.
+    let stop_trigger = TunerStreamStopTrigger::new(
+        stream.id(), tuner_manager.get_ref().clone().recipient());
+
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &channel.name)
         .insert("channel_type", &channel.channel_type)?
@@ -545,37 +754,37 @@ async fn do_get_service_stream(
     let mut builder = FilterPipelineBuilder::new(data);
     builder.add_pre_filters(
         &config.pre_filters, &filter_setting.pre_filters)?;
-    builder.add_service_filter(&config.filters.service_filter)?;
-    if filter_setting.decode {
+    if !stream.is_decoded() && filter_setting.decode {
         builder.add_decode_filter(&config.filters.decode_filter)?;
     }
+    builder.add_service_filter(&config.filters.service_filter)?;
     builder.add_post_filters(
         &config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    let stream = tuner_manager.send(StartStreamingMessage {
-        channel,
-        user: user.clone(),
-    }).await??;
-
-    streaming(&config, user, stream, filters, content_type, None).await
+    streaming(&config, user, stream, filters, content_type, stop_trigger).await
 }
 
-async fn streaming(
+async fn streaming<T, S, D>(
     config: &Config,
     user: TunerUser,
-    mut stream: MpegTsStream,
+    stream: MpegTsStream<T, S>,
     filters: Vec<String>,
     content_type: String,
-    stop_trigger: Option<MpegTsStreamStopTrigger>,
-) -> ApiResult {
+    stop_triggers: D,
+) -> ApiResult
+where
+    T: fmt::Display + Clone + Unpin + 'static,
+    S: Stream<Item = io::Result<Bytes>> + Unpin + 'static,
+    D: Unpin + 'static,
+{
+    let range = stream.range();
     if filters.is_empty() {
         do_streaming(
-            user, stream, content_type, config.server.stream_time_limit).await
+            user, stream, content_type, range, stop_triggers,
+            config.server.stream_time_limit).await
     } else {
         log::debug!("Streaming with filters: {:?}", filters);
-
-        let stop_trigger2 = stream.take_stop_trigger();
 
         let mut pipeline = spawn_pipeline(filters, stream.id())?;
 
@@ -626,27 +835,31 @@ async fn streaming(
         });
 
         do_streaming(
-            user,
-            MpegTsStreamTerminator::new(receiver, [stop_trigger, stop_trigger2]),
-            content_type, config.server.stream_time_limit).await
+            user, receiver, content_type, range, stop_triggers,
+            config.server.stream_time_limit).await
     }
 }
 
-async fn do_streaming<S>(
+async fn do_streaming<S, D>(
     user: TunerUser,
     stream: S,
     content_type: String,
+    range: Option<MpegTsStreamRange>,
+    stop_trigger: D,
     time_limit: u64,
 ) -> ApiResult
 where
     // actix_web::dev::HttpResponseBuilder::streaming() requires 'static...
     S: Stream<Item = io::Result<Bytes>> + Unpin + 'static,
+    D: Unpin + 'static,
 {
+    let stream = MpegTsStreamTerminator::new(stream, stop_trigger);
+
     // No data is sent to the client until the first TS packet comes from the
     // streaming pipeline.
     let mut peekable = stream.peekable();
     let fut = Pin::new(&mut peekable).peek();
-    match tokio::time::timeout(Duration::from_millis(time_limit), fut).await {
+    match tokio::time::timeout(std::time::Duration::from_millis(time_limit), fut).await {
         Ok(None) => {
             // No packets come from the pipeline, maybe the program has been
             // canceled.
@@ -657,12 +870,23 @@ where
         }
         Ok(_) =>  {
             // Send the response headers and start streaming.
-            Ok(actix_web::HttpResponse::Ok()
-               .force_close()
+            let mut builder = actix_web::HttpResponse::Ok();
+            builder
+                .force_close()
                .set_header("cache-control", "no-store")
                .set_header("content-type", content_type)
-               .set_header("x-mirakurun-tuner-user-id", user.get_mirakurun_model().id)
-               .streaming(peekable))
+               .set_header("x-mirakurun-tuner-user-id", user.get_mirakurun_model().id);
+            if let Some(range) = range {
+                if range.is_partial() {
+                    builder
+                        .status(actix_web::http::StatusCode::PARTIAL_CONTENT);
+                }
+                builder
+                    .set_header("accept-ranges", "bytes")
+                    .set_header("content-range", range.make_content_range())
+                    .no_chunking(range.bytes());
+            }
+            Ok(builder.streaming(peekable))
         }
     }
 }
@@ -690,6 +914,23 @@ struct ServicePath {
 #[derive(Deserialize)]
 struct ProgramPath {
     id: MirakurunProgramId,
+}
+
+#[derive(Deserialize)]
+struct TimeshiftRecorderPath {
+    recorder: String,
+}
+
+#[derive(Deserialize)]
+struct TimeshiftRecordPath {
+    recorder: String,
+    record: TimeshiftRecordId,
+}
+
+#[derive(Deserialize)]
+struct TimeshiftStreamQuery {
+    #[serde(default)]
+    record: Option<TimeshiftRecordId>,
 }
 
 // actix-web uses the serde_urlencoded crate for parsing the query in an URL.
@@ -893,133 +1134,6 @@ fn is_private_ipv6_addr(ip: Ipv6Addr) -> bool {
     }
 }
 
-// filters
-
-struct FilterPipelineBuilder {
-    data: mustache::Data,
-    filters: Vec<String>,
-    content_type: String,
-}
-
-impl FilterPipelineBuilder {
-    fn new(data: mustache::Data) -> Self {
-        FilterPipelineBuilder {
-            data,
-            filters: Vec::new(),
-            content_type: "video/MP2T".to_string(),
-        }
-    }
-
-    fn build(self) -> (Vec<String>, String) {
-        (self.filters, self.content_type)
-    }
-
-    fn add_pre_filters(
-        &mut self,
-        pre_filters: &HashMap<String, FilterConfig>,
-        names: &Vec<String>
-    ) -> Result<(), Error> {
-        for name in names.iter() {
-            if pre_filters.contains_key(name) {
-                self.add_pre_filter(&pre_filters[name], name)?;
-            } else {
-                log::warn!("No such pre-filter: {}", name);
-            }
-        }
-        Ok(())
-    }
-
-    fn add_pre_filter(
-        &mut self,
-        config: &FilterConfig,
-        name: &str,
-    ) -> Result<(), Error> {
-        let filter = self.make_filter(&config.command)?;
-        if filter.is_empty() {
-            log::warn!("pre-filter({}) not valid", name);
-        } else {
-            self.filters.push(filter);
-        }
-        Ok(())
-    }
-
-    fn add_service_filter(
-        &mut self,
-        config: &FilterConfig,
-    ) -> Result<(), Error> {
-        let filter = self.make_filter(&config.command)?;
-        if filter.is_empty() {
-            log::warn!("service-filter not valid");
-        } else {
-            self.filters.push(filter);
-        }
-        Ok(())
-    }
-
-    fn add_decode_filter(
-        &mut self,
-        config: &FilterConfig
-    ) -> Result<(), Error> {
-        let filter = self.make_filter(&config.command)?;
-        if filter.is_empty() {
-            log::warn!("decode-filter not valid");
-        } else {
-            self.filters.push(filter);
-        }
-        Ok(())
-    }
-
-    fn add_program_filter(
-        &mut self,
-        config: &FilterConfig,
-    ) -> Result<(), Error> {
-        let filter = self.make_filter(&config.command)?;
-        if filter.is_empty() {
-            log::warn!("program-filter not valid");
-        } else {
-            self.filters.push(filter);
-        }
-        Ok(())
-    }
-
-    fn add_post_filters(
-        &mut self,
-        post_filters: &HashMap<String, PostFilterConfig>,
-        names: &Vec<String>
-    ) -> Result<(), Error> {
-        for name in names.iter() {
-            if post_filters.contains_key(name) {
-                self.add_post_filter(&post_filters[name], name)?;
-            } else {
-                log::warn!("No such post-filter: {}", name);
-            }
-        }
-        Ok(())
-    }
-
-    fn add_post_filter(
-        &mut self,
-        config: &PostFilterConfig,
-        name: &str,
-    ) -> Result<(), Error> {
-        let filter = self.make_filter(&config.command)?;
-        if filter.is_empty() {
-            log::warn!("post-filter({}) not valid", name);
-        } else {
-            self.filters.push(filter);
-            if let Some(content_type) = config.content_type.as_ref() {
-                self.content_type = content_type.clone();
-            }
-        }
-        Ok(())
-    }
-
-    fn make_filter(&self, command: &str) -> Result<String, Error> {
-        let template = mustache::compile_str(command)?;
-        Ok(template.render_data_to_string(&self.data)?.trim().to_string())
-    }
-}
-
 // Took from https://github.com/rust-lang/rust/blob/master/src/librustdoc/html/escape.rs
 
 #[inline(always)]
@@ -1062,6 +1176,78 @@ impl<'a> std::fmt::Display for Escape<'a> {
     }
 }
 
+// data models
+
+// timeshift record
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebTimeshiftRecorder {
+    name: String,
+    service: MirakurunService,
+    #[serde(with = "serde_jst")]
+    start_time: DateTime<Jst>,
+    #[serde(with = "serde_duration_in_millis")]
+    duration: Duration,
+    pipeline: Vec<WebProcessModel>,
+    recording: bool,
+}
+
+impl From<TimeshiftRecorderModel> for WebTimeshiftRecorder {
+    fn from(model: TimeshiftRecorderModel) -> Self {
+        Self {
+            name: model.name,
+            service: model.service.into(),
+            start_time: model.start_time.clone(),
+            duration: model.end_time - model.start_time,
+            pipeline: model.pipeline.into_iter().map(WebProcessModel::from).collect(),
+            recording: model.recording,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebProcessModel {
+    command: String,
+    pid: u32,
+}
+
+impl From<CommandPipelineProcessModel> for WebProcessModel {
+    fn from(model: CommandPipelineProcessModel) -> Self {
+        Self {
+            command: model.command,
+            pid: model.pid,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebTimeshiftRecord {
+    id: TimeshiftRecordId,
+    program: MirakurunProgram,
+    #[serde(with = "serde_jst")]
+    start_time: DateTime<Jst>,
+    #[serde(with = "serde_duration_in_millis")]
+    duration: Duration,
+    size: u64,
+    recording: bool,
+}
+
+impl From<TimeshiftRecordModel> for WebTimeshiftRecord {
+    fn from(model: TimeshiftRecordModel) -> Self {
+        Self {
+            id: model.id,
+            program: model.program.into(),
+            start_time: model.start_time.clone(),
+            duration: model.end_time - model.start_time,
+            size: model.size,
+            recording: model.recording,
+        }
+    }
+}
+
 // tests
 
 #[cfg(test)]
@@ -1078,6 +1264,7 @@ mod tests {
                 .data(config_for_test())
                 .data(tuner_manager_for_test())
                 .data(epg_for_test())
+                .data(timeshift_manager_for_test())
                 .wrap(AccessControl)
                 .service(create_api_service())).await;
         actix_web::test::call_service(&mut app, req).await.into()
@@ -1292,6 +1479,61 @@ mod tests {
     }
 
     #[actix_rt::test]
+    async fn test_get_timeshift_recorders() {
+        let res = get("/api/timeshift").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_timeshift_recorder() {
+        let res = get("/api/timeshift/test").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/timeshift/not_found").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_timeshift_records() {
+        let res = get("/api/timeshift/test/records").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_timeshift_record() {
+        let res = get("/api/timeshift/test/records/0").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/timeshift/test/records/1").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_timeshift_stream() {
+        let res = get("/api/timeshift/test/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
+
+        let res = get("/api/timeshift/not_found/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_timeshift_record_stream() {
+        let res = get("/api/timeshift/test/records/0/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
+
+        let res = get("/api/timeshift/not_found/records/0/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_timeshift_program_stream() {
+        // TODO
+    }
+
+    #[actix_rt::test]
     async fn test_get_iptv_playlist() {
         let res = get("/api/iptv/playlist").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1328,11 +1570,13 @@ mod tests {
         let user = user_for_test(0.into());
 
         let result = do_streaming(
-            user.clone(), futures::stream::empty(), "video/MP2T".to_string(), 1000).await;
+            user.clone(), futures::stream::empty(), "video/MP2T".to_string(), None, (),
+            1000).await;
         assert_matches!(result, Err(Error::ProgramNotFound));
 
         let result = do_streaming(
-            user.clone(),  futures::stream::pending(), "video/MP2T".to_string(), 1).await;
+            user.clone(),  futures::stream::pending(), "video/MP2T".to_string(), None, (),
+            1).await;
         assert_matches!(result, Err(Error::StreamingTimedOut));
     }
 
@@ -1471,7 +1715,7 @@ mod tests {
     }
 
     fn tuner_manager_for_test() -> Addr<TunerManagerActor> {
-        TunerManagerActor::mock(Box::new(|msg, ctx| {
+        TunerManagerActor::mock(Box::new(|msg, _ctx| {
             if let Some(_) = msg.downcast_ref::<QueryTunersMessage>() {
                 Box::<Option<Result<Vec<MirakurunTuner>, Error>>>::new(
                     Some(Ok(Vec::new())))
@@ -1479,17 +1723,15 @@ mod tests {
                 if msg.channel.channel == "ch" {
                     let (mut tx, stream) = BroadcasterStream::new_for_test();
                     let _ = tx.try_send(Bytes::from("hi"));
-                    let result = Ok(MpegTsStream::new(
-                        Default::default(), stream, ctx.address().recipient()));
-                    Box::<Option<Result<MpegTsStream, Error>>>::new(Some(result))
+                    let result = Ok(MpegTsStream::new(TunerSubscriptionId::default(), stream));
+                    Box::<Option<Result<_, Error>>>::new(Some(result))
                 } else {
                     let (_, stream) = BroadcasterStream::new_for_test();
-                    let result = Ok(MpegTsStream::new(
-                        Default::default(), stream, ctx.address().recipient()));
-                    Box::<Option<Result<MpegTsStream, Error>>>::new(Some(result))
+                    let result = Ok(MpegTsStream::new(TunerSubscriptionId::default(), stream));
+                    Box::<Option<Result<_, Error>>>::new(Some(result))
                 }
             } else if let Some(_) = msg.downcast_ref::<StopStreamingMessage>() {
-                Box::<Option<()>>::new(Some(()))
+                Box::new(Some(()))
             } else {
                 unimplemented!();
             }
@@ -1573,6 +1815,83 @@ mod tests {
                 Box::<Option<Result<EpgProgram, Error>>>::new(Some(result))
             } else if let Some(_) = msg.downcast_ref::<RemoveAirtimeMessage>() {
                 Box::<Option<()>>::new(Some(()))
+            } else {
+                unimplemented!();
+            }
+        })).start()
+    }
+
+    fn timeshift_manager_for_test() -> Addr<TimeshiftManagerActor> {
+        TimeshiftManagerActor::mock(Box::new(|msg, _ctx| {
+            if let Some(_) = msg.downcast_ref::<QueryTimeshiftRecordersMessage>() {
+                Box::<Option<Result<Vec<TimeshiftRecorderModel>, Error>>>::new(
+                    Some(Ok(Vec::new())))
+            } else if let Some(msg) = msg.downcast_ref::<QueryTimeshiftRecorderMessage>() {
+                let result = if msg.recorder_name == "test" {
+                    Ok(TimeshiftRecorderModel {
+                        name: "test".to_string(),
+                        service: EpgService {
+                            nid: 1.into(),
+                            tsid: 2.into(),
+                            sid: 3.into(),
+                            service_type: 1,
+                            logo_id: 0,
+                            remote_control_key_id: 0,
+                            name: "test".to_string(),
+                            channel: EpgChannel {
+                                name: "test".to_string(),
+                                channel_type: ChannelType::GR,
+                                channel: "test".to_string(),
+                                extra_args: "".to_string(),
+                                services: Vec::new(),
+                                excluded_services: Vec::new(),
+                            },
+                        },
+                        start_time: Jst::now(),
+                        end_time: Jst::now(),
+                        pipeline: vec![],
+                        recording: true,
+                    })
+                } else {
+                    Err(Error::RecordNotFound)
+                };
+                Box::<Option<Result<_, Error>>>::new(Some(result))
+            } else if let Some(_) = msg.downcast_ref::<QueryTimeshiftRecordsMessage>() {
+                Box::<Option<Result<Vec<TimeshiftRecordModel>, Error>>>::new(
+                    Some(Ok(Vec::new())))
+            } else if let Some(msg) = msg.downcast_ref::<QueryTimeshiftRecordMessage>() {
+                let result = if msg.record_id == 0.into() {
+                    Ok(TimeshiftRecordModel {
+                        id: 0.into(),
+                        program: EpgProgram::new((0, 0, 0, 0).into()),
+                        start_time: Jst::now(),
+                        end_time: Jst::now(),
+                        size: 0,
+                        recording: true,
+                    })
+                } else {
+                    Err(Error::RecordNotFound)
+                };
+                Box::<Option<Result<_, Error>>>::new(Some(result))
+            } else if let Some(msg) = msg.downcast_ref::<StartTimeshiftStreamingMessage>() {
+                let result = if msg.recorder_name == "test" {
+                    let (reader, stop_trigger) = TimeshiftFileReader::open_for_test();
+                    let stream = ChunkStream::new_for_test(reader);
+                    Ok((MpegTsStream::new("".to_string(), stream), stop_trigger))
+                } else {
+                    Err(Error::NoContent)
+                };
+                Box::<Option<Result<_, Error>>>::new(Some(result))
+            } else if let Some(msg) = msg.downcast_ref::<StartTimeshiftRecordStreamingMessage>() {
+                use tokio::io::AsyncReadExt;
+                let result = if msg.recorder_name == "test" {
+                    let (reader, stop_trigger) = TimeshiftFileReader::open_for_test();
+                    let stream = ChunkStream::new_for_test(reader.take(1));
+                    Ok((MpegTsStream::new("".to_string(), stream), stop_trigger))
+                } else {
+                    Err(Error::NoContent)
+                };
+                Box::<Option<Result<_, Error>>>::new(Some(result))
             } else {
                 unimplemented!();
             }

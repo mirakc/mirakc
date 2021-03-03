@@ -20,6 +20,12 @@ Web API endpoints listed below have been implemented at this moment:
 | [/api/docs]                                     | :heavy_check_mark:         |
 | [/api/iptv/playlist]                            |                            |
 | [/api/iptv/epg]                                 |                            |
+| [/api/timeshift]                                |                            |
+| [/api/timeshift/{recorder}]                     |                            |
+| [/api/timeshift/{recorder}/records]             |                            |
+| [/api/timeshift/{recorder}/records/{record}]    |                            |
+| [/api/timeshift/{recorder}/stream]              |                            |
+| [/api/timeshift/{recorder}/records/{record}/stream]|                         |
 
 The endpoints above are enough to run [EPGStation].
 
@@ -38,6 +44,12 @@ See [issues/4](https://github.com/mirakc/mirakc/issues/4) for details
 Web API endpoints listed below have been implemented as the mirakc extensions:
 
 * [/api/iptv/playlist]
+* [/api/timeshift]
+* [/api/timeshift/{recorder}]
+* [/api/timeshift/{recorder}/records]
+* [/api/timeshift/{recorder}/records/{record}]
+* [/api/timeshift/{recorder}/stream]
+* [/api/timeshift/{recorder}/records/{record}/stream]
 
 [/api/version]: #apiversion
 [/api/status]: #apistatus
@@ -54,6 +66,12 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [/api/docs]: #apidocs
 [/api/iptv/playlist]: #apiiptvplaylist
 [/api/iptv/epg]: #apiiptvepg
+[/api/timeshift]: #apitimeshift
+[/api/timeshift/{recorder}]: #apitimeshiftrecorder
+[/api/timeshift/{recorder}/records]: #apitimeshiftrecorderrecords
+[/api/timeshift/{recorder}/records/{record}]: #apitimeshiftrecorderrecordsrecord
+[/api/timeshift/{recorder}/stream]: #apitimeshiftrecorderstream
+[/api/timeshift/{recorder}/records/{record}/stream]: #apitimeshiftrecorderrecordsrecordstream
 
 ## Incompatibility of the `X-Mirakurun-Priority` header
 
@@ -187,3 +205,45 @@ The following query parameters can be specified:
 
 [EPGStation]: https://github.com/l3tnun/EPGStation
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
+
+## Web API endpoints for timeshift recording and playback
+
+### /api/timeshift
+
+Returns a list of timeshift recorders.
+
+### /api/timeshift/{recorder}
+
+Returns a timeshift recorder.
+
+### /api/timeshift/{recorder}/records
+
+Returns a list of records in a timeshift recorder.
+
+### /api/timeshift/{recorder}/records/{record}
+
+Returns a records in a timeshift recorder.
+
+### /api/timeshift/{recorder}/stream
+
+Starts live streaming for a timeshift recorder.
+
+The following command starts live streaming from a specific record:
+
+```
+curl -sG http://mirakc:40772/api/timeshift/etv/stream?record=1
+```
+
+You can specify pre-filters and post-filters like any other endpoint for streaming.
+
+### /api/timeshift/{recorder}/records/{record}/stream
+
+Starts on-demand streaming for a record in a timeshift recorder.
+
+The following command starts on-demand streaming from a specific record:
+
+```
+curl -sG http://mirakc:40772/api/timeshift/etv/records/1/stream
+```
+
+You can specify pre-filters and post-filters like any other endpoint for streaming.

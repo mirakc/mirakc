@@ -8,11 +8,9 @@ use num_cpus;
 use serde::Deserialize;
 use serde_yaml;
 
-use crate::models::{ChannelType, ServiceId};
+use crate::models::*;
 
 pub fn load(config_path: &str) -> Arc<Config> {
-    const SERVER_STREAM_TIME_LIMIT_MIN: u64 = 15_000;
-
     let reader = File::open(config_path)
         .unwrap_or_else(|err| {
             panic!("Failed to open {}: {}", config_path, err);
@@ -21,11 +19,8 @@ pub fn load(config_path: &str) -> Arc<Config> {
         .unwrap_or_else(|err| {
             panic!("Failed to parse {}: {}", config_path, err);
         });
-    if config.server.stream_time_limit < SERVER_STREAM_TIME_LIMIT_MIN {
-        log::warn!("server.stream_time_limit must be larger than {0}, \
-                    reset it to {0}", SERVER_STREAM_TIME_LIMIT_MIN);
-        config.server.stream_time_limit = SERVER_STREAM_TIME_LIMIT_MIN;
-    }
+
+    config.validate();
 
     config.last_modified = std::fs::metadata(config_path)
         .map(|metadata| metadata.modified().ok()).ok().flatten();
@@ -59,9 +54,18 @@ pub struct Config {
     #[serde(default)]
     pub recorder: RecorderConfig,
     #[serde(default)]
+    pub timeshift: HashMap<String, TimeshiftConfig>,
+    #[serde(default)]
     pub resource: ResourceConfig,
     #[serde(default)]
     pub mirakurun: MirakurunConfig,
+}
+
+impl Config {
+    fn validate(&mut self) {
+        self.server.validate();
+        self.timeshift.values().for_each(TimeshiftConfig::validate);
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -98,6 +102,14 @@ pub enum ServerAddr {
 }
 
 impl ServerConfig {
+    fn validate(&self) {
+        const SERVER_STREAM_TIME_LIMIT_MIN: u64 = 15_000;
+
+        assert!(self.stream_time_limit >= SERVER_STREAM_TIME_LIMIT_MIN,
+                "config.server.stream_time_limit must be larger than or equal to {0}",
+                SERVER_STREAM_TIME_LIMIT_MIN);
+    }
+
     fn default_addrs() -> Vec<ServerAddr> {
         vec![ServerAddr::Http("localhost:40772".to_string())]
     }
@@ -175,6 +187,8 @@ pub struct TunerConfig {
     pub time_limit: u64,
     #[serde(default)]
     pub disabled: bool,
+    #[serde(default)]
+    pub decoded: bool,
 }
 
 impl TunerConfig {
@@ -317,8 +331,65 @@ pub struct JobConfig {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
+pub struct TimeshiftConfig {
+    pub service_triple: (NetworkId, TransportStreamId, ServiceId),
+    pub file: String,
+    #[serde(default = "TimeshiftConfig::default_chunk_size")]
+    pub chunk_size: usize,
+    pub num_chunks: usize,
+    #[serde(default = "TimeshiftConfig::default_num_reserves")]
+    pub num_reserves: usize,
+    #[serde(default = "TimeshiftConfig::default_priority")]
+    pub priority: i32,
+}
+
+impl TimeshiftConfig {
+    const BUFSIZE: usize = 8192;
+
+    pub fn max_file_size(&self) -> u64 {
+        (self.chunk_size as u64) * (self.num_chunks as u64)
+    }
+
+    pub fn max_chunks(&self) -> usize {
+        assert!(self.num_chunks > self.num_reserves);
+        self.num_chunks - self.num_reserves
+    }
+
+    fn validate(&self) {
+        assert!(!self.file.is_empty(),
+                "config.timeshift[].file must be a non-empty path.");
+        assert!(self.chunk_size > 0,
+                "config.timeshift[].chunk-size must be larger than 0.");
+        assert!(self.chunk_size % Self::BUFSIZE == 0,
+                "config.timeshift[].chunk-size must be a multiple of {}.", Self::BUFSIZE);
+        assert!(self.num_chunks > 2,
+                "config.timeshift[].num-chunks must be larger than 2.");
+        assert!(self.num_reserves > 0,
+                "config.timeshift[].num-reserves must be larger than 0.");
+        assert!(self.num_chunks - self.num_reserves > 1,
+                "Maximum number of available chunks (num-chunks - num-reserves) \
+                 must be larger than 1.");
+    }
+
+    fn default_chunk_size() -> usize {
+        Self::BUFSIZE * 20000  // 40K Blocks
+    }
+
+    fn default_num_reserves() -> usize {
+        1
+    }
+
+    fn default_priority() -> i32 {
+        TunerUserPriority::MAX
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct RecorderConfig {
     pub track_airtime_command: String,
+    pub record_service_command: String,
 }
 
 impl Default for RecorderConfig {
@@ -326,6 +397,9 @@ impl Default for RecorderConfig {
         RecorderConfig {
             track_airtime_command: "mirakc-arib track-airtime \
                                     --sid={{{sid}}} --eid={{{eid}}}".to_string(),
+            record_service_command:
+            "mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} \
+             --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}}".to_string(),
         }
     }
 }
@@ -669,6 +743,7 @@ mod tests {
                 command: "open tuner".to_string(),
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: false,
+                decoded: false,
             });
 
         assert_eq!(
@@ -687,6 +762,7 @@ mod tests {
                 command: "open tuner".to_string(),
                 time_limit: 1,
                 disabled: false,
+                decoded: false,
             });
 
         assert_eq!(
@@ -705,6 +781,26 @@ mod tests {
                 command: "open tuner".to_string(),
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: true,
+                decoded: false,
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<TunerConfig>(r#"
+                name: x
+                types: [GR, BS, CS, SKY]
+                command: open tuner
+                decoded: true
+            "#).unwrap(),
+            TunerConfig {
+                name: "x".to_string(),
+                channel_types: vec![ChannelType::GR,
+                                    ChannelType::BS,
+                                    ChannelType::CS,
+                                    ChannelType::SKY],
+                command: "open tuner".to_string(),
+                time_limit: TunerConfig::default_time_limit(),
+                disabled: false,
+                decoded: true,
             });
 
         assert!(
@@ -906,6 +1002,51 @@ mod tests {
               property: value
         "#);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_timeshift_config() {
+        assert!(serde_yaml::from_str::<TimeshiftConfig>("{}").is_err());
+
+        assert!(serde_yaml::from_str::<TimeshiftConfig>(r#"
+            service-triple: [1, 2, 3]
+            file: /path/to/file
+            num-chunks: 100
+            unknown: property
+        "#).is_err());
+
+        assert_eq!(
+            serde_yaml::from_str::<TimeshiftConfig>(r#"
+                service-triple: [1, 2, 3]
+                file: /path/to/file
+                num-chunks: 100
+            "#).unwrap(),
+            TimeshiftConfig {
+                service_triple: (1.into(), 2.into(), 3.into()),
+                file: "/path/to/file".to_string(),
+                chunk_size: TimeshiftConfig::default_chunk_size(),
+                num_chunks: 100,
+                num_reserves: TimeshiftConfig::default_num_reserves(),
+                priority: TimeshiftConfig::default_priority(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<TimeshiftConfig>(r#"
+                service-triple: [1, 2, 3]
+                file: /path/to/file
+                chunk-size: 8192
+                num-chunks: 100
+                num-reserves: 2
+                priority: 2
+            "#).unwrap(),
+            TimeshiftConfig {
+                service_triple: (1.into(), 2.into(), 3.into()),
+                file: "/path/to/file".to_string(),
+                chunk_size: 8192,
+                num_chunks: 100,
+                num_reserves: 2,
+                priority: 2.into(),
+            });
     }
 
     #[test]

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
 use crate::eit_feeder::{AudioComponentDescriptor, ComponentDescriptor };
 use crate::epg::{EpgChannel, EpgService, EpgProgram};
-use crate::mpeg_ts_stream::MpegTsStreamId;
+use crate::tuner::TunerSubscriptionId;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[derive(Deserialize, Serialize)]
@@ -243,7 +243,8 @@ impl EpgGenre {
 #[derive(Clone)]
 pub enum TunerUserInfo {
     Job { name: String },
-    Tracker { stream_id: MpegTsStreamId },
+    Recorder { name: String },
+    Tracker { stream_id: TunerSubscriptionId },
     Web { id: String, agent: Option<String> },
 }
 
@@ -251,6 +252,7 @@ impl TunerUserInfo {
     fn get_mirakurun_model(&self) -> (String, Option<String>) {
         match self {
             Self::Job { name } => (format!("job:{}", name), None),
+            Self::Recorder { name } => (format!("recorder:{}", name), None),
             Self::Tracker { stream_id } => (format!("tracker:{}", stream_id), None),
             Self::Web { id, agent } => (id.clone(), agent.clone()),
         }
@@ -261,6 +263,7 @@ impl fmt::Display for TunerUserInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Job { name } => write!(f, "Job({})", name),
+            Self::Recorder { name } => write!(f, "Recorder({})", name),
             Self::Tracker { stream_id } =>
                 write!(f, "Tracker({})", stream_id),
             Self::Web { id, agent: None } =>
@@ -275,8 +278,8 @@ impl fmt::Display for TunerUserInfo {
 pub struct TunerUserPriority(i32);
 
 impl TunerUserPriority {
-    const MIN: i32 = -128;
-    const MAX: i32 = 128;
+    pub const MIN: i32 = -128;
+    pub const MAX: i32 = 128;
     pub const GRAB: TunerUserPriority = TunerUserPriority(Self::MAX);
 
     pub fn is_grab(&self) -> bool {
@@ -312,6 +315,22 @@ impl TunerUser {
 impl fmt::Display for TunerUser {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} (priority={})", self.info, self.priority)
+    }
+}
+
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Deserialize, Serialize)]
+pub struct TimeshiftRecordId(i64);
+
+impl fmt::Display for TimeshiftRecordId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<i64> for TimeshiftRecordId {
+    fn from(value: i64) -> Self {
+        TimeshiftRecordId(value)
     }
 }
 
@@ -462,6 +481,7 @@ pub struct MirakurunChannel {
 pub struct MirakurunChannelService {
     pub id: MirakurunServiceId,
     pub service_id: ServiceId,
+    pub transport_stream_id: TransportStreamId,  // incompatible with Mirakurun
     pub network_id: NetworkId,
     pub name: String,
 }
@@ -472,6 +492,7 @@ pub struct MirakurunChannelService {
 pub struct MirakurunService {
     pub id: MirakurunServiceId,
     pub service_id: ServiceId,
+    pub transport_stream_id: TransportStreamId,  // incompatible with Mirakurun
     pub network_id: NetworkId,
     #[serde(rename = "type")]
     pub service_type: u16,
@@ -489,6 +510,7 @@ impl From<EpgService> for MirakurunService {
         Self {
             id: (sv.nid, sv.sid).into(),
             service_id: sv.sid,
+            transport_stream_id: sv.tsid,
             network_id: sv.nid,
             service_type: sv.service_type,
             logo_id: sv.logo_id,
@@ -525,6 +547,7 @@ pub struct MirakurunProgram {
     pub id: MirakurunProgramId,
     pub event_id: EventId,
     pub service_id: ServiceId,
+    pub transport_stream_id: TransportStreamId,  // incompatible with Mirakurun
     pub network_id: NetworkId,
     #[serde(with = "serde_jst")]
     pub start_at: DateTime<Jst>,
@@ -551,6 +574,7 @@ impl From<EpgProgram> for MirakurunProgram {
             id: program.quad.into(),
             event_id: program.quad.eid(),
             service_id: program.quad.sid(),
+            transport_stream_id: program.quad.tsid(),
             network_id: program.quad.nid(),
             start_at: program.start_at,
             duration: program.duration,
