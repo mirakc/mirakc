@@ -49,7 +49,7 @@ jobs:
           file: docker/Dockerfile.${{ matrix.distro }}
           target: buildenv
           platforms: ${{ matrix.platforms }}
-          tags: mirakc/buildenv:${{ github.event.client_payload.version }}-${{ matrix-distro }}
+          tags: mirakc/buildenv:${{ github.event.client_payload.version }}-${{ matrix.distro }}
           push: true
       - name: Build and push mirakc/tools
         uses: docker/build-push-action@v2
@@ -58,9 +58,9 @@ jobs:
           file: docker/Dockerfile.${{ matrix.distro }}
           target: mirakc-tools
           platforms: ${{ matrix.platforms }}
-          tags: mirakc/tools:${{ github.event.client_payload.version }}-${{ matrix-distro }}
+          tags: mirakc/tools:${{ github.event.client_payload.version }}-${{ matrix.distro }}
           cache-from: |
-            mirakc/buildenv:${{ github.event.client_payload.version }}-${{ matrix-distro }}
+            mirakc/buildenv:${{ github.event.client_payload.version }}-${{ matrix.distro }}
           push: true
       - name: Test
         run: |
@@ -68,7 +68,7 @@ jobs:
           echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
           sudo service docker restart
 
-          IMG="mirakc/tools:${{ github.event.client_payload.version }}-${{ matrix-distro }}"
+          IMG="mirakc/tools:${{ github.event.client_payload.version }}-${{ matrix.distro }}"
           for platform in $(echo ${{ matrix.platforms }} | tr ',' ' ')
           do
             echo "Testing $IMG for $platform..."
