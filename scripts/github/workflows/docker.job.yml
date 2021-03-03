@@ -77,7 +77,7 @@ jobs:
       - name: Cache for mirakc
         uses: actions/cache@v2
         with:
-          path: /tmp/.buildx-cache
+          path: /tmp/.docker-cache
           key: ${{ runner.os }}-docker-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
           restore-keys: |
             ${{ runner.os }}-docker-${{ matrix.distro }}-
