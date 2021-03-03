@@ -5,6 +5,8 @@ on:
     branches:
       - master
       - trial-*
+    paths-ignore:
+      - '**.md'
 
 jobs:
   build:
