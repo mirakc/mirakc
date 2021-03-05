@@ -883,8 +883,7 @@ where
                 }
                 builder
                     .set_header("accept-ranges", "bytes")
-                    .set_header("content-range", range.make_content_range())
-                    .no_chunking(range.bytes());
+                    .set_header("content-range", range.make_content_range());
             }
             Ok(builder.streaming(peekable))
         }
