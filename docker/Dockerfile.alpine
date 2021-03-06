@@ -42,6 +42,8 @@ COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
 COPY ./resources/strings.yml /etc/mirakc/strings.yml
 COPY ./mirakurun.openapi.json /etc/mirakurun.openapi.json
 RUN apk add --no-cache ca-certificates curl libstdc++ socat tzdata
+# dirty hack for linux/arm/v6
+RUN if [ "$TARGETPLATFORM" = "linux/arm/v6" ]; then ln -s /lib/ld-musl-armhf.so.1 /lib/ld-musl-arm.so.1; fi
 ENV MIRAKC_CONFIG=/etc/mirakc/config.yml
 EXPOSE 40772
 ENTRYPOINT ["mirakc"]
