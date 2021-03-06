@@ -23,3 +23,7 @@ a image for a target:
 docker buildx build -t mirakc-sample -f Dockerfile.debian \
   --platform=linux/amd64,linux/arm/v7,linux/arm64/v8 ..
 ```
+
+You cannot use `--load` option when building multi-arch images.  See
+[this comment](https://github.com/docker/buildx/issues/59#issuecomment-659303756)
+in docker/buildx#59.

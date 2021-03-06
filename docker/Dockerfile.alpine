@@ -22,7 +22,7 @@ ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 RUN sh /build-scripts/mirakc-arib.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 
-FROM alpine:3.12 AS mirakc-tools
+FROM alpine:3.13 AS mirakc-tools
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
 COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/
 COPY --from=mirakc-arib-build /build/bin/mirakc-arib /usr/local/bin/
@@ -34,8 +34,9 @@ COPY ./Cargo.* ./
 COPY ./src ./src/
 RUN sh /build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 
-FROM alpine:3.12
+FROM alpine:3.13
 LABEL maintainer="Contributors of mirakc"
+ARG TARGETPLATFORM
 COPY --from=mirakc-tools /usr/local/bin/* /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
 COPY ./resources/strings.yml /etc/mirakc/strings.yml
