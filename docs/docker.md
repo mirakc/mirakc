@@ -20,7 +20,7 @@ Where:
   * LATEST_VERSION points to the latest version tag
 * DISTRIBUTION
   * alpine
-    * Based on alpine:3.12
+    * Based on alpine:3.13
   * debian (main platform)
     * Based on debian:buster-slim
 
@@ -63,7 +63,7 @@ pre-built image like below:
 ```Dockerfile
 FROM mirakc/mirakc:alpine AS mirakc-image
 
-FROM alpine:3.12
+FROM alpine:3.13
 
 COPY --from=mirakc-image /usr/local/bin/mirakc /usr/local/bin/
 COPY --from=mirakc-image /etc/mirakurun.openapi.json /etc/
