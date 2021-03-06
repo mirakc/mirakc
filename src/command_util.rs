@@ -329,7 +329,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_matches::*;
+    use assert_matches::assert_matches;
 
     #[test]
     fn test_spawn_process() {

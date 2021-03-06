@@ -642,7 +642,7 @@ impl Drop for TunerStreamStopTrigger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_matches::*;
+    use assert_matches::assert_matches;
     use crate::command_util::Error as CommandUtilError;
 
     #[actix_rt::test]

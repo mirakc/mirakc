@@ -1254,7 +1254,7 @@ mod tests {
     use super::*;
     use std::net::SocketAddr;
     use actix_http;
-    use assert_matches::*;
+    use assert_matches::assert_matches;
     use crate::broadcaster::BroadcasterStream;
 
     async fn request(req: actix_http::Request) -> actix_web::HttpResponse {

@@ -143,7 +143,7 @@ struct SyncClock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_matches::*;
+    use assert_matches::assert_matches;
     use crate::broadcaster::BroadcasterStream;
     use crate::error::Error;
     use crate::mpeg_ts_stream::MpegTsStream;
