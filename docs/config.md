@@ -41,7 +41,8 @@ suitable for your environment.
 | [jobs.update-schedules.command]  | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.update-schedules.schedule] | `'0 7,37 * * * * *'` (execute at 7 and 37 minutes every hour) |
 | [timeshift\[\].service-triple]   |                                           |
-| [timeshift\[\].file]             |                                           |
+| [timeshift\[\].ts-file]          |                                           |
+| [timeshift\[\].data-file]        |                                           |
 | [timeshift\[\].chunk-size]       | 163840000 (4KiB * 40000 ~ 160MB)          |
 | [timeshift\[\].num-chunks]       |                                           |
 | [timeshift\[\].num-reserves]     | 1                                         |
@@ -82,7 +83,8 @@ suitable for your environment.
 [jobs.update-schedules.command]: #jobsupdate-schedules
 [jobs.update-schedules.schedule]: #jobsupdate-schdules
 [timeshift\[\].service-triple]: #timeshift
-[timeshift\[\].file]: #timeshift
+[timeshift\[\].ts-file]: #timeshift
+[timeshift\[\].data-file]: #timeshift
 [timeshift\[\].chunk-size]: #timeshift
 [timeshift\[\].num-chunks]: #timeshift
 [timeshift\[\].num-reserves]: #timeshift
@@ -543,8 +545,10 @@ Definitions of timeshift recordings.
 
 * service-triple
   * A tuple of NID, TSID and SID of a service stream to record
-* file
-  * A path to a file used as a ring buffer to record the service stream
+* ts-file
+  * A path to a file used as a ring buffer to record TS packets
+* data-file
+  * A path to a file to save data like records encoded with [Bincode]
 * chunk-size
   * Size of a data chunk
   * Must be a multiple of 8192
@@ -564,7 +568,8 @@ Definitions of timeshift recordings.
 timeshift:
   bs1:
     service-triple: [4, 16625, 101]  # BS1
-    file: /path/to/bs1.timeshift.m2ts
+    ts-file: /path/to/bs1.timeshift.m2ts
+    data-file: /path/to/bs1.timeshift.data
     num-chunks: 4000  # about 640GB
 ```
 
@@ -601,3 +606,5 @@ communicate.
 mirakurun:
   openapi-json: /path/to/mirakurun.openapi.json
 ```
+
+[Bincode]: https://github.com/bincode-org/bincode

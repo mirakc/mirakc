@@ -6,9 +6,10 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use actix::prelude::*;
+use bincode;
 use chrono::DateTime;
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::prelude::*;
 use tokio::io::{AsyncSeek, BufReader, SeekFrom, Take};
 use tokio::fs::File;
@@ -295,6 +296,94 @@ impl TimeshiftRecorder {
         &self.config.timeshift[&self.name]
     }
 
+    fn load_data(&mut self) {
+        match self.do_load_data() {
+            Ok(n) => {
+                if n == 0 {
+                    log::debug!("{}: No records saved", self.name);
+                } else {
+                    log::info!("{}: Loaded {} records successfully", self.name, n);
+                }
+            }
+            Err(err) => {
+                log::warn!("{}: Failed to load saved data from {}: {}",
+                           self.name, self.config().data_file, err);
+            }
+        }
+    }
+
+    fn do_load_data(&mut self) -> Result<usize, Error> {
+        let reader = std::io::BufReader::new(std::fs::File::open(&self.config().data_file)?);
+        let data: TimeshiftRecorderData = if self.config().data_file.ends_with(".json") {
+            serde_json::from_reader(reader)?  // for debugging purposes
+        } else {
+            bincode::deserialize_from(reader)?
+        };
+        if self.service.triple() == data.service.triple() &&
+            self.config().chunk_size == data.chunk_size &&
+            self.config().max_chunks() == data.max_chunks {
+                self.records = data.records;
+                self.points = data.points;  // Don't remove the last item here.
+                Ok(self.records.len())
+            } else {
+                Ok(0)
+            }
+    }
+
+    fn save_data(&self, point: &TimeshiftPoint) {
+        match self.do_save_data(point) {
+            Ok(n) => {
+                if n == 0 {
+                    log::debug!("{}: No records to save", self.name);
+                } else {
+                    log::info!("{}: Saved {} records successfully", self.name, n);
+                }
+            }
+            Err(err) => {
+                log::error!("{}: Failed to save data into {}: {}",
+                            self.name, self.config().data_file, err);
+            }
+        }
+    }
+
+    fn do_save_data(&self, point: &TimeshiftPoint) -> Result<usize, Error> {
+        let service = self.service.clone();
+        let chunk_size = self.config().chunk_size;
+        let max_chunks = self.config().max_chunks();
+        let records: IndexMap<_, _> = self.records
+            .iter()
+            .filter_map(|(id, record)| {
+                assert!(record.start.timestamp <= point.timestamp);
+                assert!(record.end.timestamp <= point.timestamp);
+                if record.start.pos == record.end.pos {  // no data
+                    None
+                } else {
+                    let mut cloned = record.clone();
+                    if cloned.recording {
+                        cloned.end = point.clone();
+                        cloned.recording = false;
+                    }
+                    Some((id.clone(), cloned))
+                }
+            })
+            .collect();
+        if records.is_empty() {
+            return Ok(0);
+        }
+        // The last item will be used as a sentinel and removed before recording starts.
+        let points = self.points.clone();
+        let data = TimeshiftRecorderData {
+            service, chunk_size, max_chunks, records, points,
+        };
+        let writer = std::io::BufWriter::new(std::fs::File::create(&self.config().data_file)?);
+        if self.config().data_file.ends_with(".json") {
+            serde_json::to_writer(writer, &data)?;  // for debugging purposes
+        } else {
+            bincode::serialize_into(writer, &data)?;
+        }
+        Ok(data.records.len())
+    }
+
     fn deactivate(&mut self) {
         if self.session.is_some() {
             log::warn!("{}: Deactivated, but inactive", self.name);
@@ -312,7 +401,7 @@ impl TimeshiftRecorder {
             return Err(Error::RecordNotFound)
         }
         let name = self.name.clone();
-        let file = self.config().file.clone();
+        let file = self.config().ts_file.clone();
         let point = if let Some(id) = record_id {
             let record = self.records.get(&id).ok_or(Error::ProgramNotFound)?;
             record.start.clone()
@@ -333,18 +422,23 @@ impl TimeshiftRecorder {
 
     fn handle_start_recording(&mut self) {
         log::info!("{}: Started recording", self.name);
+        if let Some(point) = self.points.pop() {  // remove the sentinel item if it exists
+            log::debug!("{}: Removed the sentinel point {}", self.name, point);
+        }
     }
 
     fn handle_stop_recording(&mut self, reset: bool) {
         log::info!("{}: Stopped recording", self.name);
         if reset {
             log::warn!("{}: Reset data", self.name);
+            // TODO
         }
     }
 
     fn handle_chunk(&mut self, point: TimeshiftPoint) {
         self.maintain();
-        self.append_point(point);
+        self.append_point(&point);
+        self.save_data(&point);
     }
 
     fn maintain(&mut self) {
@@ -374,11 +468,11 @@ impl TimeshiftRecorder {
         }
     }
 
-    fn append_point(&mut self, point: TimeshiftPoint) {
+    fn append_point(&mut self, point: &TimeshiftPoint) {
         let index = point.pos / (self.config().chunk_size as u64);
         assert!(point.pos % (self.config().chunk_size as u64) == 0);
         log::debug!("{}: Chunk#{}: Timestamp: {}", self.name, index, point.timestamp);
-        self.points.push(point);
+        self.points.push(point.clone());
         assert!(self.points.len() <= self.config().max_chunks());
     }
 
@@ -509,9 +603,10 @@ impl TimeshiftRecorder {
 
         let data = mustache::MapBuilder::new()
             .insert("sid", &activation.service.sid)?
-            .insert_str("file", &config.file)
+            .insert_str("file", &config.ts_file)
             .insert("chunk_size", &config.chunk_size)?
             .insert("num_chunks", &config.num_chunks)?
+            .insert("start_pos", &activation.start_pos)?
             .build();
         let template = mustache::compile_str(
             &activation.config.recorder.record_service_command)?;
@@ -539,11 +634,21 @@ impl Actor for TimeshiftRecorder {
 
     fn started(&mut self, _ctx: &mut Self::Context) {
         log::debug!("{}: Started", self.name);
+        self.load_data();
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
         log::debug!("{}: Stopped", self.name);
     }
+}
+
+#[derive(Deserialize, Serialize)]
+struct TimeshiftRecorderData {
+    service: EpgService,
+    chunk_size: usize,
+    max_chunks: usize,
+    records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
+    points: Vec<TimeshiftPoint>,
 }
 
 #[derive(Message)]
@@ -586,6 +691,7 @@ impl Handler<ActivateTimeshiftRecorderMessage> for TimeshiftRecorder {
                 config: self.config.clone(),
                 name: self.name.clone(),
                 service: self.service.clone(),
+                start_pos: self.points.last().map_or(0, |point| point.pos),
                 tuner_manager: msg.tuner_manager.clone(),
             };
             Self::activate(activation)
@@ -819,8 +925,7 @@ struct TimeshiftRecorderEventMessage {
 }
 
 #[derive(Clone)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Deserialize, Serialize)]
 struct TimeshiftPoint {
     #[serde(with = "serde_jst")]
     timestamp: DateTime<Jst>,
@@ -842,6 +947,7 @@ struct TimeshiftActivation {
     config: Arc<Config>,
     name: String,
     service: EpgService,
+    start_pos: u64,
     tuner_manager: Addr<TunerManager>,
 }
 
@@ -851,6 +957,7 @@ struct TimeshiftActivationResult {
 }
 
 #[derive(Clone)]
+#[derive(Deserialize, Serialize)]
 struct TimeshiftRecord {
     id: TimeshiftRecordId,
     program: EpgProgram,
@@ -884,7 +991,7 @@ impl TimeshiftRecord {
         config: &TimeshiftConfig,
         start_pos: Option<u64>,
     ) -> Result<TimeshiftRecordStreamSource, Error> {
-        let file = config.file.clone();
+        let file = config.ts_file.clone();
         let file_size = config.max_file_size();
         let id = self.id;
         let size = self.get_size(file_size);

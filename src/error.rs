@@ -3,6 +3,7 @@ use std::fmt;
 use std::io;
 
 use actix;
+use bincode;
 use failure::Fail;
 use mustache;
 use serde_json;
@@ -54,6 +55,8 @@ pub enum Error {
     EnvVarError(env::VarError),
     #[fail(display = "tokio::sync::broadcast error: {:?}", 0)]
     TokioSyncBroadcastError(tokio::sync::broadcast::RecvError),
+    #[fail(display = "Bincode error: {}", 0)]
+    BincodeError(bincode::Error),
 }
 
 impl From<command_util::Error> for Error {
@@ -119,5 +122,11 @@ impl From<env::VarError> for Error {
 impl From<tokio::sync::broadcast::RecvError> for Error {
     fn from(err: tokio::sync::broadcast::RecvError) -> Self {
         Self::TokioSyncBroadcastError(err)
+    }
+}
+
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Self {
+        Self::BincodeError(err)
     }
 }

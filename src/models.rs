@@ -223,8 +223,7 @@ pub struct Clock {
 }
 
 #[derive(Clone, Debug)]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Deserialize, Serialize)]
 pub struct EpgGenre {
     pub lv1: u8,
     pub lv2: u8,

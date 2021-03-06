@@ -1140,9 +1140,12 @@ impl Into<MirakurunChannelService> for EpgService {
 }
 
 #[derive(Clone)]
+#[derive(Deserialize, Serialize)]
 pub struct EpgProgram {
     pub quad: EventQuad,
+    #[serde(with = "serde_jst")]
     pub start_at: DateTime<Jst>,
+    #[serde(with = "serde_duration_in_millis")]
     pub duration: Duration,
     pub scrambled: bool,
     pub name: Option<String>,

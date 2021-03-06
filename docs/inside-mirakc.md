@@ -106,9 +106,6 @@ The timeshift recording consists of the following pipeline.
   MpegTsStream
     |
 +---V--------- CommandPipeline -------+
-| service-filter (external process)   |
-|   |                                 |
-|   V                                 |
 | decode-filter (external process)    |
 |   |                                 |
 |   V                                 |
@@ -116,7 +113,7 @@ The timeshift recording consists of the following pipeline.
 |   | |                               |
 |   | |<TS Packets>                   |
 |   | |                               |
-|   | +--> config.timeshift[].file    |
+|   | +--> config.timeshift[].ts-file |
 |   |      (fixed-size ring buffer)   |
 +---|---------------------------------+
     |
@@ -124,14 +121,18 @@ The timeshift recording consists of the following pipeline.
     |
     V
   TimeshiftRecorder (Actor)
+      |
+      |<Timeshift data like records>
+      |
+      +--> config.timeshift[].data-file
 ```
 
 The `service-recorder` command writes filtered TS packets into the timeshift
 record file and outputs JSON messages to STDOUT.
 
-The `TimeshiftRecorder` actor receives the JSON messages from the
-`service-recorder` command, and update internal information about records of
-TV programs in the timeshift file.
+The `TimeshiftRecorder` actor receives the JSON messages from a recorder
+command specified with `config.recorder.record-service-command`, and update
+internal information about records of TV programs in the timeshift file.
 
 The timeshift file is divided into chunks whose size is specified with
 `config.timeshift[].chunk-size`.  The maximum number of chunks is specified with
@@ -156,14 +157,37 @@ A buffer used inside the system library is flushed when the file position
 reaches the boundary between the current chunk and the next chunk.
 
 The `TimeshiftRecorder` actor manages the chunks based on JSOM messages from the
-`service-recorder` command.  A chunk currently written and following
+recorder command.  A chunk currently written and following
 `config.timeshift[].num-reserves` chunks are never supplied for streaming.
 
 ```
 Timeshift File
 +------------------------------------------------------------------------------+
 | Chunk#0 | Chunk#1 | Chunk#2 | ... | Chunk#<2 + num-reserves> |   Chunks...   |
-|      (ready)      |   A     |         (reserve)              |    (ready)    |
+|         |         |   A     |     |                          |               |
 +-----------------------|------------------------------------------------------+
-                     <File Position>
+|                   | <File Position>                          |               |
+|                   |                                          |               |
++-- ready for ------+-- unavailable for streaming -------------+-- ready for --+
+    streaming                                                      streaming
 ```
+
+The `TimeshiftRecorder` actor saves data into a file specified with
+`config.timeshift[].data-file` every time it receives the `chunk` message sent
+from the recorder command when the file position reaches a chunk boundary.
+Records in a chunk currently written are not saved into the file.
+
+```
+                                 <File Position>
++----------------------------------V------------------
+|   Chunk#0   |   Chunk#1   |   Chunk#2   |   Chunk#3
++-----------------------------------------------------
+| Record#1 | Record#2 | Record#3 | Record#4
+|                           |      (recording)
++-- saved ------------------+
+```
+
+Record#1 and Record#2 are saved when the file position reaches the boundary
+between Chunk#1 and Chunk#2.  Record#3 is also saved but its end is truncated at
+the chunk boundary.  Record#4 is not saved until the file position reaches the
+next chunk boundary.
