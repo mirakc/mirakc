@@ -69,13 +69,18 @@ jobs:
         with:
           path: /tmp/.docker-buildenv-tools-cache
           key: ${{ runner.os }}-docker-buildenv-tools-${{ matrix.distro }}-${{ hashFiles('docker/build-scripts/*') }}
-      - name: Cache for mirakc
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.docker-cache
-          key: ${{ runner.os }}-docker-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
-          restore-keys: |
-            ${{ runner.os }}-docker-${{ matrix.distro }}-
+      # Disable cache for mirakc in order to avoid errors like below:
+      #
+      #  Unhandled exception. System.IO.IOException: No space left on device at System.IO.FileStream.WriteNative(ReadOnlySpan`1 source) at
+      #  ...
+      #
+      # - name: Cache for mirakc
+      #   uses: actions/cache@v2
+      #   with:
+      #     path: /tmp/.docker-cache
+      #     key: ${{ runner.os }}-docker-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-docker-${{ matrix.distro }}-
       - name: Login to Docker Hub
         uses: docker/login-action@v1
         with:
