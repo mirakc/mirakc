@@ -14,5 +14,8 @@ curl -fsSL http://www13.plala.or.jp/sat/recdvb/recdvb-$RECDVB.tgz | tar -xz --st
 ./configure --prefix=/usr/local --host=$GCC_HOST_TRIPLE
 sed -i -e 's/msgbuf/_msgbuf/' recpt1core.h
 sed -i '1i#include <sys/types.h>' recpt1.h
+if [ "$TARGET" = alpine ]; then
+  sed -i -e 's/^LDFLAGS  =$/LDFLAGS = -static -no-pie/' Makefile
+fi
 make -j $(nproc)
 make install

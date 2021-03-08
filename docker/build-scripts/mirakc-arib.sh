@@ -12,7 +12,15 @@ ARCHIVE="https://github.com/mirakc/mirakc-arib/archive/$MIRAKC_ARIB_VERSION.tar.
 
 curl -fsSL $ARCHIVE | tar -xz --strip-components=1
 
-MIRAKC_ARIB_TSDUCK_ARIB_CXXFLAGS=''
+cat <<EOF >toolchain.cmake
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR $GCC_ARCH)
+set(CMAKE_C_COMPILER $GCC)
+set(CMAKE_C_COMPILER_TARGET $GCC_HOST_TRIPLE)
+set(CMAKE_CXX_COMPILER $GXX)
+set(CMAKE_CXX_COMPILER_TARGET $GCC_HOST_TRIPLE)
+EOF
+
 if [ "$TARGET" = alpine ]; then
   # See https://gist.github.com/uru2/cb3f7b553c2c58570ca9bf18e47cebb3
   MIRAKC_ARIB_TSDUCK_ARIB_CXXFLAGS='-Wno-error=zero-as-null-pointer-constant'
@@ -21,17 +29,15 @@ if [ "$TARGET" = alpine ]; then
     # See https://bugs.gentoo.org/706210
     MIRAKC_ARIB_TSDUCK_ARIB_CXXFLAGS="$MIRAKC_ARIB_TSDUCK_ARIB_CXXFLAGS -fno-stack-protector"
   fi
-fi
-
-cat <<EOF >toolchain.cmake
-set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_SYSTEM_PROCESSOR $GCC_ARCH)
-set(CMAKE_C_COMPILER $GCC)
-set(CMAKE_C_COMPILER_TARGET $GCC_HOST_TRIPLE)
-set(CMAKE_CXX_COMPILER $GXX)
-set(CMAKE_CXX_COMPILER_TARGET $GCC_HOST_TRIPLE)
+  # The following setting doesn't work because tsp dynamically loads plug-ins.
+  #
+  #   set(CMAKE_CXX_FLAGS "-static -static-libgcc -static-libstdc++")
+  #
+  cat <<EOF >>toolchain.cmake
 set(MIRAKC_ARIB_TSDUCK_ARIB_CXXFLAGS "$MIRAKC_ARIB_TSDUCK_ARIB_CXXFLAGS" CACHE STRING "" FORCE)
+set(CMAKE_EXE_LINKER_FLAGS "-static -static-libgcc -static-libstdc++")
 EOF
+fi
 
 cmake -B. -S. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake
 make -j $(nproc) vendor

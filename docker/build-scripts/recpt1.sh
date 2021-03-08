@@ -14,5 +14,8 @@ cd /build/recpt1
 ./autogen.sh
 ./configure --prefix=/usr/local --host=$GCC_HOST_TRIPLE  # without `--enable-b25`
 curl -fsSL $PATCH | patch -p1  # remove CR in log messages
+if [ "$TARGET" = alpine ]; then
+  sed -i -e 's/^LDFLAGS  =$/LDFLAGS = -static -no-pie/' Makefile
+fi
 make -j $(nproc)
 make install
