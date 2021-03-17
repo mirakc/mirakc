@@ -65,7 +65,7 @@ MIRAKC_DEPS=$(cat <<EOF
 ca-certificates
 curl
 pkg-config:$DEBIAN_ARCH
-libfuse-dev:$DEBIAN_ARCH
+libfuse3-dev:$DEBIAN_ARCH
 EOF
 )
 
