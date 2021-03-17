@@ -4,13 +4,35 @@ if [ "$BUILDPLATFORM" != 'linux/amd64' ]; then
   exit 1
 fi
 
+case "$TARGETPLATFORM" in
+  'linux/386')
+    DEBIAN_ARCH='i386'
+    ;;
+  'linux/amd64')
+    DEBIAN_ARCH='amd64'
+    ;;
+  'linux/arm/v5')
+    DEBIAN_ARCH='armel'
+    ;;
+  'linux/arm/v7')
+    DEBIAN_ARCH='armhf'
+    ;;
+  'linux/arm64/v8' | 'linux/arm64')
+    DEBIAN_ARCH='arm64'
+    ;;
+  *)
+    echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" >&2
+    exit 1
+    ;;
+esac
+
 RECDVB_DEPS=$(cat <<EOF
 autoconf
 automake
 ca-certificates
 curl
 make
-pkg-config
+pkg-config:$DEBIAN_ARCH
 EOF
 )
 
@@ -20,7 +42,7 @@ automake
 ca-certificates
 curl
 make
-pkg-config
+pkg-config:$DEBIAN_ARCH
 EOF
 )
 
@@ -35,13 +57,15 @@ git
 libtool
 make
 patch
-pkg-config
+pkg-config:$DEBIAN_ARCH
 EOF
 )
 
 MIRAKC_DEPS=$(cat <<EOF
 ca-certificates
 curl
+pkg-config:$DEBIAN_ARCH
+libfuse-dev:$DEBIAN_ARCH
 EOF
 )
 

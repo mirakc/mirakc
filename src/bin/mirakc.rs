@@ -1,30 +1,7 @@
-mod airtime_tracker;
-mod broadcaster;
-mod chunk_stream;
-mod clock_synchronizer;
-mod command_util;
-mod config;
-mod datetime_ext;
-mod eit_feeder;
-mod epg;
-mod error;
-//mod fs_util;
-mod filter;
-mod job;
-mod models;
-mod mpeg_ts_stream;
-mod service_scanner;
-mod string_table;
-mod timeshift;
-mod tokio_snippet;
-mod tracing_ext;
-mod tuner;
-mod web;
-
 use clap;
-
-use crate::error::Error;
-use crate::tracing_ext::init_tracing;
+use mirakc::*;
+use mirakc::error::Error;
+use mirakc::tracing_ext::init_tracing;
 
 #[actix_rt::main]
 async fn main() -> Result<(), Error> {

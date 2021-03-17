@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::io;
 use std::pin::Pin;
@@ -6,16 +5,16 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use actix::prelude::*;
-use bincode;
 use chrono::DateTime;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde_json;
 use tokio::prelude::*;
 use tokio::io::{AsyncSeek, BufReader, SeekFrom, Take};
 use tokio::fs::File;
 use tokio::sync::oneshot;
 
-use crate::config::{Config, TimeshiftConfig};
+use crate::config::*;
 use crate::chunk_stream::*;
 use crate::datetime_ext::*;
 use crate::eit_feeder::*;
@@ -33,41 +32,45 @@ pub fn start(
     config: Arc<Config>,
     tuner_manager: Addr<TunerManager>,
 ) -> Addr<TimeshiftManager> {
-    TimeshiftManager::new(config, tuner_manager).start()
+    TimeshiftManager::new(config.clone(), tuner_manager).start()
 }
 
 // timeshift manager
 
-type TimeshiftStream = MpegTsStream<String, ChunkStream<TimeshiftFileReader>>;
+type TimeshiftLiveStream = MpegTsStream<String, ChunkStream<TimeshiftFileReader>>;
 type TimeshiftRecordStream = MpegTsStream<String, ChunkStream<Take<TimeshiftFileReader>>>;
 
 pub struct TimeshiftManager {
     config: Arc<Config>,
     tuner_manager: Addr<TunerManager>,
-    recorders: HashMap<String, Addr<TimeshiftRecorder>>,
+    recorders: IndexMap<String, Addr<TimeshiftRecorder>>,
 }
 
 impl TimeshiftManager {
     pub fn new(config: Arc<Config>, tuner_manager: Addr<TunerManager>) -> Self {
-        let recorders = HashMap::new();
-        TimeshiftManager { config, tuner_manager, recorders, }
+        TimeshiftManager {
+            config,
+            tuner_manager,
+            recorders: IndexMap::new(),
+        }
     }
 }
 
 impl Actor for TimeshiftManager {
     type Context = actix::Context<Self>;
 
-    fn started(&mut self, _: &mut Self::Context) {
+    fn started(&mut self, _ctx: &mut Self::Context) {
         log::debug!("Started");
-        let mut recorders = HashMap::new();
-        for name in self.config.timeshift.keys() {
-            let recorder = TimeshiftRecorder::new(name.clone(), self.config.clone());
+
+        let mut recorders = IndexMap::new();
+        for (index, name) in self.config.timeshift.recorders.keys().enumerate() {
+            let recorder = TimeshiftRecorder::new(index, name.clone(), self.config.clone());
             recorders.insert(name.clone(), recorder.start());
         }
         self.recorders = recorders;
     }
 
-    fn stopped(&mut self, _: &mut Self::Context) {
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
         log::debug!("Stopped");
     }
 }
@@ -91,22 +94,18 @@ impl Handler<QueryTimeshiftRecordersMessage> for TimeshiftManager {
         _: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("{}", msg);
-        let futures: Vec<Request<TimeshiftRecorder, QueryTimeshiftRecorderMessage>> =
-            self.recorders.iter()
-            .map(|(name, recorder)| {
-                recorder.send(QueryTimeshiftRecorderMessage {
-                    recorder_name: name.clone(),
-                })
-            })
-            .collect();
+        let mut futures = Vec::with_capacity(self.recorders.len());
+        for (index, recorder) in self.recorders.values().enumerate() {
+            futures.push(recorder.send(QueryTimeshiftRecorderMessage {
+                recorder: TimeshiftRecorderQuery::ByIndex(index),
+            }));
+        }
         Box::pin(async move {
-            let recorders: Result<Vec<TimeshiftRecorderModel>, Error> =
-                futures::future::join_all(futures)
+            futures::future::join_all(futures)
                 .await
                 .into_iter()
                 .flatten()
-                .collect();
-            recorders
+                .collect()
         })
     }
 }
@@ -122,10 +121,20 @@ macro_rules! impl_proxy_handler {
                 _ctx: &mut Self::Context,
             ) -> Self::Result {
                 log::debug!("{}", msg);
-                let maybe_recorder = self.recorders
-                    .get(&msg.recorder_name)
-                    .cloned()
-                    .ok_or(Error::RecordNotFound);
+                let maybe_recorder = match msg.recorder {
+                    TimeshiftRecorderQuery::ByIndex(index) => {
+                        self.recorders
+                            .get_index(index)
+                            .map(|(_, recorder)| recorder.clone())
+                            .ok_or(Error::RecordNotFound)
+                    }
+                    TimeshiftRecorderQuery::ByName(ref name) => {
+                        self.recorders
+                            .get(name)
+                            .cloned()
+                            .ok_or(Error::RecordNotFound)
+                    }
+                };
                 Box::pin(async move {
                     maybe_recorder?.send(msg).await?
                 })
@@ -134,15 +143,29 @@ macro_rules! impl_proxy_handler {
     }
 }
 
+pub enum TimeshiftRecorderQuery {
+    ByIndex(usize),
+    ByName(String),
+}
+
+impl fmt::Display for TimeshiftRecorderQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            TimeshiftRecorderQuery::ByIndex(index) => write!(f, "index({})", index),
+            TimeshiftRecorderQuery::ByName(ref name) => write!(f, "name({})", name),
+        }
+    }
+}
+
 #[derive(Message)]
 #[rtype(result = "Result<TimeshiftRecorderModel, Error>")]
 pub struct QueryTimeshiftRecorderMessage {
-    pub recorder_name: String,
+    pub recorder: TimeshiftRecorderQuery,
 }
 
 impl fmt::Display for QueryTimeshiftRecorderMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryTimeshiftRecorder for {}", self.recorder_name)
+        write!(f, "QueryTimeshiftRecorder: recorder={}", self.recorder)
     }
 }
 
@@ -151,12 +174,12 @@ impl_proxy_handler!(QueryTimeshiftRecorderMessage, Result<TimeshiftRecorderModel
 #[derive(Message)]
 #[rtype(result = "Result<Vec<TimeshiftRecordModel>, Error>")]
 pub struct QueryTimeshiftRecordsMessage {
-    pub recorder_name: String,
+    pub recorder: TimeshiftRecorderQuery,
 }
 
 impl fmt::Display for QueryTimeshiftRecordsMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryTimeshiftRecords in {}", self.recorder_name)
+        write!(f, "QueryTimeshiftRecords: recoder={}", self.recorder)
     }
 }
 
@@ -165,64 +188,70 @@ impl_proxy_handler!(QueryTimeshiftRecordsMessage, Result<Vec<TimeshiftRecordMode
 #[derive(Message)]
 #[rtype(result = "Result<TimeshiftRecordModel, Error>")]
 pub struct QueryTimeshiftRecordMessage {
-    pub recorder_name: String,
+    pub recorder: TimeshiftRecorderQuery,
     pub record_id: TimeshiftRecordId,
 }
 
 impl fmt::Display for QueryTimeshiftRecordMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryTimeshiftRecord for Record#{} in {}",
-               self.record_id, self.recorder_name)
+        write!(f, "QueryTimeshiftRecord: recoder={} record_id={}", self.recorder, self.record_id)
     }
 }
 
 impl_proxy_handler!(QueryTimeshiftRecordMessage, Result<TimeshiftRecordModel, Error>);
 
 #[derive(Message)]
-#[rtype(result = "Result<(TimeshiftStream, TimeshiftStreamStopTrigger), Error>")]
-pub struct StartTimeshiftStreamingMessage {
-    pub recorder_name: String,
+#[rtype(result = "Result<TimeshiftLiveStreamSource, Error>")]
+pub struct CreateTimeshiftLiveStreamSourceMessage {
+    pub recorder: TimeshiftRecorderQuery,
     pub record_id: Option<TimeshiftRecordId>,
 }
 
-impl fmt::Display for StartTimeshiftStreamingMessage {
+impl fmt::Display for CreateTimeshiftLiveStreamSourceMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(id) = self.record_id {
-            write!(f, "StartTimeshiftStreaming for Record#{} in {}",
-                   id, self.recorder_name)
-        } else {
-            write!(f, "StartTimeshiftStreaming for {}", self.recorder_name)
+        match self.record_id {
+            Some(id) => {
+                write!(f, "CreateTimeshiftLiveStreamSource: recoder={} record_id={}",
+                       self.recorder, id)
+            }
+            None => {
+                write!(f, "CreateTimeshiftLiveStreamSource: recorder={}", self.recorder)
+            }
         }
     }
 }
 
 impl_proxy_handler!(
-    StartTimeshiftStreamingMessage,
-    Result<(TimeshiftStream, TimeshiftStreamStopTrigger), Error>);
+    CreateTimeshiftLiveStreamSourceMessage,
+    Result<TimeshiftLiveStreamSource, Error>);
 
 #[derive(Message)]
-#[rtype(result = "Result<(TimeshiftRecordStream, TimeshiftStreamStopTrigger), Error>")]
-pub struct StartTimeshiftRecordStreamingMessage {
-    pub recorder_name: String,
+#[rtype(result = "Result<TimeshiftRecordStreamSource, Error>")]
+pub struct CreateTimeshiftRecordStreamSourceMessage {
+    pub recorder: TimeshiftRecorderQuery,
     pub record_id: TimeshiftRecordId,
     pub start_pos: Option<u64>,
 }
 
-impl fmt::Display for StartTimeshiftRecordStreamingMessage {
+impl fmt::Display for CreateTimeshiftRecordStreamSourceMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(pos) = self.start_pos {
-            write!(f, "StartTimeshiftRecordStreaming from {} of Record#{} in {}",
-                   pos, self.record_id, self.recorder_name)
-        } else {
-            write!(f, "StartTimeshiftRecordStreaming from the beginning of Record#{} in {}",
-                   self.record_id, self.recorder_name)
+        match self.start_pos {
+            Some(pos) => {
+                write!(f, "CreateTimeshiftRecordStreamSource: \
+                           recorder={} record_id={} start_pos={}",
+                       self.recorder, self.record_id, pos)
+            }
+            None => {
+                write!(f, "CreateTimeshiftRecordStreamSource: recorder={} record_id={}",
+                       self.recorder, self.record_id)
+            }
         }
     }
 }
 
 impl_proxy_handler!(
-    StartTimeshiftRecordStreamingMessage,
-    Result<(TimeshiftRecordStream, TimeshiftStreamStopTrigger), Error>);
+    CreateTimeshiftRecordStreamSourceMessage,
+    Result<TimeshiftRecordStreamSource, Error>);
 
 impl Handler<NotifyServicesUpdatedMessage> for TimeshiftManager {
     type Result = ();
@@ -233,7 +262,7 @@ impl Handler<NotifyServicesUpdatedMessage> for TimeshiftManager {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("{}", msg);
-        for (name, config) in self.config.clone().timeshift.iter() {
+        for (name, config) in self.config.clone().timeshift.recorders.iter() {
             let triple = ServiceTriple::from(config.service_triple.clone());
             if msg.services.contains_key(&triple) {
                 log::info!("{}: Service#{} is available, activate", name, triple);
@@ -253,6 +282,7 @@ impl Handler<NotifyServicesUpdatedMessage> for TimeshiftManager {
 // recorder
 
 struct TimeshiftRecorder {
+    index: usize,
     name: String,
     config: Arc<Config>,
     service: EpgService,
@@ -262,12 +292,16 @@ struct TimeshiftRecorder {
 }
 
 impl TimeshiftRecorder {
-    fn new(name: String, config: Arc<Config>) -> Self {
-        let timeshift_config = &config.timeshift[&name];
+    fn new(
+        index: usize,
+        name: String,
+        config: Arc<Config>,
+    ) -> Self {
+        let recorder_config = &config.timeshift.recorders[&name];
         let service = EpgService {  // dummy data
-            nid: timeshift_config.service_triple.0,
-            tsid: timeshift_config.service_triple.1,
-            sid: timeshift_config.service_triple.2,
+            nid: recorder_config.service_triple.0,
+            tsid: recorder_config.service_triple.1,
+            sid: recorder_config.service_triple.2,
             service_type: 0,
             logo_id: 0,
             remote_control_key_id: 0,
@@ -281,8 +315,9 @@ impl TimeshiftRecorder {
                 excluded_services: vec![],
             },
         };
-        let max_chunks = timeshift_config.max_chunks();
+        let max_chunks = recorder_config.max_chunks();
         TimeshiftRecorder {
+            index,
             name,
             config,
             service,
@@ -292,8 +327,8 @@ impl TimeshiftRecorder {
         }
     }
 
-    fn config(&self) -> &TimeshiftConfig {
-        &self.config.timeshift[&self.name]
+    fn config(&self) -> &TimeshiftRecorderConfig {
+        &self.config.timeshift.recorders[&self.name]
     }
 
     fn load_data(&mut self) {
@@ -314,11 +349,7 @@ impl TimeshiftRecorder {
 
     fn do_load_data(&mut self) -> Result<usize, Error> {
         let reader = std::io::BufReader::new(std::fs::File::open(&self.config().data_file)?);
-        let data: TimeshiftRecorderData = if self.config().data_file.ends_with(".json") {
-            serde_json::from_reader(reader)?  // for debugging purposes
-        } else {
-            bincode::deserialize_from(reader)?
-        };
+        let data: TimeshiftRecorderData = serde_json::from_reader(reader)?;
         if self.service.triple() == data.service.triple() &&
             self.config().chunk_size == data.chunk_size &&
             self.config().max_chunks() == data.max_chunks {
@@ -376,11 +407,7 @@ impl TimeshiftRecorder {
             service, chunk_size, max_chunks, records, points,
         };
         let writer = std::io::BufWriter::new(std::fs::File::create(&self.config().data_file)?);
-        if self.config().data_file.ends_with(".json") {
-            serde_json::to_writer(writer, &data)?;  // for debugging purposes
-        } else {
-            bincode::serialize_into(writer, &data)?;
-        }
+        serde_json::to_writer(writer, &data)?;
         Ok(data.records.len())
     }
 
@@ -396,7 +423,7 @@ impl TimeshiftRecorder {
     fn create_live_stream_source(
         &self,
         record_id: Option<TimeshiftRecordId>,
-    ) -> Result<TimeshiftStreamSource, Error> {
+    ) -> Result<TimeshiftLiveStreamSource, Error> {
         if self.points.len() < 2 {
             return Err(Error::RecordNotFound)
         }
@@ -408,7 +435,7 @@ impl TimeshiftRecorder {
         } else {
             self.points[0].clone()
         };
-        Ok(TimeshiftStreamSource { name, file, point })
+        Ok(TimeshiftLiveStreamSource { name, file, point })
     }
 
     fn create_record_stream_source(
@@ -551,6 +578,7 @@ impl TimeshiftRecorder {
             _ => (vec![], false),
         };
         TimeshiftRecorderModel {
+            index: self.index,
             name: self.name.clone(),
             service: self.service.clone(),
             start_time,
@@ -563,7 +591,7 @@ impl TimeshiftRecorder {
     async fn activate(
         activation: TimeshiftActivation,
     ) -> Result<TimeshiftActivationResult, Error> {
-        let config = activation.config.timeshift.get(&activation.name).unwrap();
+        let config = &activation.config.timeshift.recorders[&activation.name];
         let channel = &activation.service.channel;
 
         let user = TunerUser {
@@ -608,8 +636,7 @@ impl TimeshiftRecorder {
             .insert("num_chunks", &config.num_chunks)?
             .insert("start_pos", &activation.start_pos)?
             .build();
-        let template = mustache::compile_str(
-            &activation.config.recorder.record_service_command)?;
+        let template = mustache::compile_str(&activation.config.timeshift.command)?;
         cmds.push(template.render_data_to_string(&data)?);
 
         let mut pipeline = spawn_pipeline(cmds, stream.id())?;
@@ -643,12 +670,12 @@ impl Actor for TimeshiftRecorder {
 }
 
 #[derive(Deserialize, Serialize)]
-struct TimeshiftRecorderData {
-    service: EpgService,
-    chunk_size: usize,
-    max_chunks: usize,
-    records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
-    points: Vec<TimeshiftPoint>,
+pub struct TimeshiftRecorderData {
+    pub service: EpgService,
+    pub chunk_size: usize,
+    pub max_chunks: usize,
+    pub records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
+    pub points: Vec<TimeshiftPoint>,
 }
 
 #[derive(Message)]
@@ -776,34 +803,27 @@ impl Handler<QueryTimeshiftRecordMessage> for TimeshiftRecorder {
     }
 }
 
-impl Handler<StartTimeshiftStreamingMessage> for TimeshiftRecorder {
-    type Result = ResponseFuture<Result<(TimeshiftStream, TimeshiftStreamStopTrigger), Error>>;
+impl Handler<CreateTimeshiftLiveStreamSourceMessage> for TimeshiftRecorder {
+    type Result = MessageResult<CreateTimeshiftLiveStreamSourceMessage>;
 
     fn handle(
         &mut self,
-        msg: StartTimeshiftStreamingMessage,
+        msg: CreateTimeshiftLiveStreamSourceMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let src = self.create_live_stream_source(msg.record_id);
-        Box::pin(async move {
-            src?.create_stream().await
-        })
+        MessageResult(self.create_live_stream_source(msg.record_id))
     }
 }
 
-impl Handler<StartTimeshiftRecordStreamingMessage> for TimeshiftRecorder {
-    type Result =
-        ResponseFuture<Result<(TimeshiftRecordStream, TimeshiftStreamStopTrigger), Error>>;
+impl Handler<CreateTimeshiftRecordStreamSourceMessage> for TimeshiftRecorder {
+    type Result = MessageResult<CreateTimeshiftRecordStreamSourceMessage>;
 
     fn handle(
         &mut self,
-        msg: StartTimeshiftRecordStreamingMessage,
-        _: &mut Self::Context,
+        msg: CreateTimeshiftRecordStreamSourceMessage,
+        _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let src = self.create_record_stream_source(msg.record_id, msg.start_pos);
-        Box::pin(async move {
-            src?.create_stream().await
-        })
+        MessageResult(self.create_record_stream_source(msg.record_id, msg.start_pos))
     }
 }
 
@@ -926,10 +946,10 @@ struct TimeshiftRecorderEventMessage {
 
 #[derive(Clone)]
 #[derive(Deserialize, Serialize)]
-struct TimeshiftPoint {
+pub struct TimeshiftPoint {
     #[serde(with = "serde_jst")]
-    timestamp: DateTime<Jst>,
-    pos: u64,
+    pub timestamp: DateTime<Jst>,
+    pub pos: u64,
 }
 
 impl fmt::Display for TimeshiftPoint {
@@ -958,12 +978,12 @@ struct TimeshiftActivationResult {
 
 #[derive(Clone)]
 #[derive(Deserialize, Serialize)]
-struct TimeshiftRecord {
-    id: TimeshiftRecordId,
-    program: EpgProgram,
-    start: TimeshiftPoint,
-    end: TimeshiftPoint,
-    recording: bool,
+pub struct TimeshiftRecord {
+    pub id: TimeshiftRecordId,
+    pub program: EpgProgram,
+    pub start: TimeshiftPoint,
+    pub end: TimeshiftPoint,
+    pub recording: bool,
 }
 
 impl TimeshiftRecord {
@@ -985,10 +1005,10 @@ impl TimeshiftRecord {
         }
     }
 
-    fn create_record_stream_source(
+    pub fn create_record_stream_source(
         &self,
         recorder_name: String,
-        config: &TimeshiftConfig,
+        config: &TimeshiftRecorderConfig,
         start_pos: Option<u64>,
     ) -> Result<TimeshiftRecordStreamSource, Error> {
         let file = config.ts_file.clone();
@@ -1003,7 +1023,7 @@ impl TimeshiftRecord {
         Ok(TimeshiftRecordStreamSource { recorder_name, file, id, start, range })
     }
 
-    fn get_model(&self, config: &TimeshiftConfig) -> TimeshiftRecordModel {
+    fn get_model(&self, config: &TimeshiftRecorderConfig) -> TimeshiftRecordModel {
         TimeshiftRecordModel {
             id: self.id,
             program: self.program.clone(),
@@ -1014,7 +1034,7 @@ impl TimeshiftRecord {
         }
     }
 
-    fn get_size(&self, file_size: u64) -> u64 {
+    pub fn get_size(&self, file_size: u64) -> u64 {
         if self.end.pos < self.start.pos {
             file_size - self.start.pos + self.end.pos
         } else {
@@ -1034,26 +1054,40 @@ impl TimeshiftRecord {
 // 32 KiB, large enough for 10 ms buffering.
 const CHUNK_SIZE: usize = 4096 * 8;
 
-struct TimeshiftStreamSource {
+pub struct TimeshiftLiveStreamSource {
     name: String,
     file: String,
     point: TimeshiftPoint,
 }
 
-impl TimeshiftStreamSource {
-    async fn create_stream(
+impl TimeshiftLiveStreamSource {
+    pub async fn create_stream(
         self
-    ) -> Result<(TimeshiftStream, TimeshiftStreamStopTrigger), Error> {
+    ) -> Result<(TimeshiftLiveStream, TimeshiftStreamStopTrigger), Error> {
         log::debug!("{}: Start live streaming from {}", self.name, self.point);
-        let (mut reader, stop_trigger) = TimeshiftFileReader::open(&self.file).await?;
+        let (mut reader, stop_trigger) = TimeshiftFileReader::open(&self.file)
+            .await?
+            .with_stop_trigger();
         reader.set_position(self.point.pos).await?;
         let stream = ChunkStream::new(reader, CHUNK_SIZE);
         let id = format!("timeshift({})", self.name);
         Ok((MpegTsStream::new(id, stream).decoded(), stop_trigger))
     }
+
+    #[cfg(test)]
+    pub fn new_for_test(name: &str) -> Self {
+        TimeshiftLiveStreamSource {
+            name: name.to_string(),
+            file: "/dev/zero".to_string(),
+            point: TimeshiftPoint {
+                timestamp: Jst::now(),
+                pos: 0,
+            },
+        }
+    }
 }
 
-struct TimeshiftRecordStreamSource {
+pub struct TimeshiftRecordStreamSource {
     recorder_name: String,
     file: String,
     id: TimeshiftRecordId,
@@ -1062,16 +1096,42 @@ struct TimeshiftRecordStreamSource {
 }
 
 impl TimeshiftRecordStreamSource {
-    async fn create_stream(
+    pub async fn create_stream(
         self
     ) -> Result<(TimeshiftRecordStream, TimeshiftStreamStopTrigger), Error> {
         log::debug!("{}: Start streaming {} bytes of Record#{} from {}",
                     self.recorder_name, self.range.bytes(), self.id, self.start);
-        let (mut reader, stop_trigger) = TimeshiftFileReader::open(&self.file).await?;
+        let (mut reader, stop_trigger) = TimeshiftFileReader::open(&self.file)
+            .await?
+            .with_stop_trigger();
         reader.set_position(self.start).await?;
         let stream = ChunkStream::new(reader.take(self.range.bytes()), CHUNK_SIZE);
         let id = format!("timeshift({})/record#{}", self.recorder_name, self.id);
         Ok((MpegTsStream::with_range(id, stream, self.range).decoded(), stop_trigger))
+    }
+
+    #[cfg(test)]
+    pub fn new_for_test(recorder_name: &str) -> Self {
+        TimeshiftRecordStreamSource {
+            recorder_name: recorder_name.to_string(),
+            file: "/dev/zero".to_string(),
+            id: 1.into(),
+            start: 0,
+            range: MpegTsStreamRange::bound(0, 1).unwrap(),
+        }
+    }
+
+    pub async fn read(&self, size: u32) -> Result<Vec<u8>, Error> {
+        let mut reader = TimeshiftFileReader::open(&self.file).await?;
+        reader.set_position(self.start).await?;
+        let size = if (size as u64) < self.range.bytes() {
+            size as usize
+        } else {
+            self.range.bytes() as usize
+        };
+        let mut data = Vec::with_capacity(size);
+        let _ = reader.take(size as u64).read_to_end(&mut data).await?;
+        Ok(data)
     }
 }
 
@@ -1079,7 +1139,7 @@ pub struct TimeshiftFileReader {
     state: TimeshiftFileReaderState,
     path: String,
     file: File,
-    stop_signal: oneshot::Receiver<()>,
+    stop_signal: Option<oneshot::Receiver<()>>,
 }
 
 enum TimeshiftFileReaderState {
@@ -1089,34 +1149,28 @@ enum TimeshiftFileReaderState {
 }
 
 impl TimeshiftFileReader {
-    async fn open(path: &str) -> Result<(Self, TimeshiftStreamStopTrigger), Error> {
-        let (tx, rx) = oneshot::channel();
+    pub async fn open(path: &str) -> Result<Self, Error> {
         let reader = TimeshiftFileReader {
             state: TimeshiftFileReaderState::Read,
             path: path.to_string(),
             file: File::open(path).await?,
-            stop_signal: rx,
+            stop_signal: None,
         };
+        Ok(reader)
+    }
+
+    fn with_stop_trigger(
+        mut self
+    ) -> (Self, TimeshiftStreamStopTrigger) {
+        let (tx, rx) = oneshot::channel();
         let stop_trigger = TimeshiftStreamStopTrigger(Some(tx));
-        Ok((reader, stop_trigger))
+        self.stop_signal = Some(rx);
+        (self, stop_trigger)
     }
 
     async fn set_position(&mut self, pos: u64) -> Result<(), Error> {
         let _ = self.file.seek(SeekFrom::Start(pos)).await;
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub fn open_for_test() -> (Self, TimeshiftStreamStopTrigger) {
-        let (tx, rx) = oneshot::channel();
-        let reader = TimeshiftFileReader {
-            state: TimeshiftFileReaderState::Read,
-            path: "/dev/zero".to_string(),
-            file: std::fs::File::open("/dev/zero").unwrap().into(),
-            stop_signal: rx,
-        };
-        let stop_trigger = TimeshiftStreamStopTrigger(Some(tx));
-        (reader, stop_trigger)
     }
 }
 
@@ -1127,9 +1181,11 @@ impl AsyncRead for TimeshiftFileReader {
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         loop {
-            if Pin::new(&mut self.stop_signal).poll(cx).is_ready() {
-                log::debug!("{}: Stopped reading", self.path);
-                return Poll::Ready(Ok(0));
+            if let Some(ref mut stop_signal) = self.stop_signal {
+                if Pin::new(stop_signal).poll(cx).is_ready() {
+                    log::debug!("{}: Stopped reading", self.path);
+                    return Poll::Ready(Ok(0));
+                }
             }
             match self.state {
                 TimeshiftFileReaderState::Read => {
@@ -1186,6 +1242,7 @@ impl Drop for TimeshiftStreamStopTrigger {
 }
 
 pub struct TimeshiftRecorderModel {
+    pub index: usize,
     pub name: String,
     pub service: EpgService,
     pub start_time: DateTime<Jst>,
@@ -1212,12 +1269,13 @@ mod tests {
     #[test]
     fn test_timeshift_record_purge_expired_records() {
         let mut recorder = TimeshiftRecorder {
+            index: 0,
             name: "record".to_string(),
             config: create_config(),
             service: create_epg_service(),
             records: indexmap::indexmap!{
-                0.into() => TimeshiftRecord {
-                    id: 0.into(),
+                1.into() => TimeshiftRecord {
+                    id: 1.into(),
                     program: EpgProgram::new((0, 0, 0, 1).into()),
                     start: TimeshiftPoint {
                         timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
@@ -1242,12 +1300,13 @@ mod tests {
         assert!(recorder.records.is_empty());
 
         let mut recorder = TimeshiftRecorder {
+            index: 0,
             name: "recorder".to_string(),
             config: create_config(),
             service: create_epg_service(),
             records: indexmap::indexmap!{
-                0.into() => TimeshiftRecord {
-                    id: 0.into(),
+                1.into() => TimeshiftRecord {
+                    id: 1.into(),
                     program: EpgProgram::new((0, 0, 0, 1).into()),
                     start: TimeshiftPoint {
                         timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
@@ -1259,8 +1318,8 @@ mod tests {
                     },
                     recording: false,
                 },
-                1.into() => TimeshiftRecord {
-                    id: 1.into(),
+                2.into() => TimeshiftRecord {
+                    id: 2.into(),
                     program: EpgProgram::new((0, 0, 0, 2).into()),
                     start: TimeshiftPoint {
                         timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
@@ -1272,8 +1331,8 @@ mod tests {
                     },
                     recording: false,
                 },
-                2.into() => TimeshiftRecord {
-                    id: 2.into(),
+                3.into() => TimeshiftRecord {
+                    id: 3.into(),
                     program: EpgProgram::new((0, 0, 0, 3).into()),
                     start: TimeshiftPoint {
                         timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),

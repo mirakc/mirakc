@@ -7,6 +7,7 @@ TARGETPLATFORM=$3
 
 . $BASEDIR/vars.sh
 
+dpkg --add-architecture $DEBIAN_ARCH
 apt-get update
 apt-get install -y --no-install-recommends $BUILD_DEPS
 

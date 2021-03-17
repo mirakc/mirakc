@@ -6,49 +6,50 @@ Most of properties in the configuration are optional.  You can simply omit
 properties which have default values listed below if the default values are
 suitable for your environment.
 
-| PROPERTY                         | DEFAULT                                   |
-|----------------------------------|-------------------------------------------|
-| [epg.cache-dir]                  | `None`                                    |
-| [server.addrs]                   | `[{http: 'localhost:40772'}]`             |
-| [server.workers]                 | The number of CPUs                        |
-| [server.stream-chunk-size]       | `32768` (32KiB)                           |
-| [server.stream-max-chunks]       | `1000`                                    |
-| [server.stream-time-limit]       | `16000` (16s)                             |
-| [server.mounts]                  | `{}`                                      |
-| [channels\[\].name]              |                                           |
-| [channels\[\].type]              |                                           |
-| [channels\[\].channel]           |                                           |
-| [channels\[\].extra-args]        | `''`                                      |
-| [channels\[\].services]          | `[]`                                      |
-| [channels\[\].excluded-services] | `[]`                                      |
-| [channels\[\].disabled]          | `false`                                   |
-| [tuners\[\].name]                |                                           |
-| [tuners\[\].types]               |                                           |
-| [tuners\[\].command]             |                                           |
-| [tuners\[\].time-limit]          | `30000` (30s)                             |
-| [tuners\[\].disabled]            | `false`                                   |
-| [tuners\[\].decoded]             | `false`                                   |
-| [filters.tuner-filter.command]   | `''`                                      |
-| [filters.service-filter.command] | `mirakc-arib filter-service --sid={{{sid}}}`|
-| [filters.decode-filter.command]  | `''`                                      |
-| [filters.program-filter.command] | `mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} --clock-time={{{clock_time}}} --end-margin=2000{{#video_tags}} --video-tag={{{.}}}{{/video_tags}}{{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}` |
-| [pre-filters]                    | `{}`                                      |
-| [post-filters]                   | `{}`                                      |
-| [jobs.scan-services.command]     | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
-| [jobs.scan-services.schedule]    | `'0 31 5 * * * *'` (execute at 05:31 every day) |
-| [jobs.sync-clocks.command]       | `mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
-| [jobs.sync-clocks.schedule]      | `'0 3 12 * * * *'` (execute at 12:03 every day) |
-| [jobs.update-schedules.command]  | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
-| [jobs.update-schedules.schedule] | `'0 7,37 * * * * *'` (execute at 7 and 37 minutes every hour) |
-| [timeshift\[\].service-triple]   |                                           |
-| [timeshift\[\].ts-file]          |                                           |
-| [timeshift\[\].data-file]        |                                           |
-| [timeshift\[\].chunk-size]       | 163840000 (4KiB * 40000 ~ 160MB)          |
-| [timeshift\[\].num-chunks]       |                                           |
-| [timeshift\[\].num-reserves]     | 1                                         |
-| [timeshift\[\].priority]         | 128                                       |
-| [resource.strings-yaml]          | `/etc/mirakc/strings.yml`                 |
-| [mirakurun.openapi-json]         | `/etc/mirakurun.openapi.json`             |
+| PROPERTY                                 | DEFAULT                           |
+|------------------------------------------|-----------------------------------|
+| [epg.cache-dir]                          | `None`                            |
+| [server.addrs]                           | `[{http: 'localhost:40772'}]`     |
+| [server.workers]                         | The number of CPUs                |
+| [server.stream-chunk-size]               | `32768` (32KiB)                   |
+| [server.stream-max-chunks]               | `1000`                            |
+| [server.stream-time-limit]               | `16000` (16s)                     |
+| [server.mounts]                          | `{}`                              |
+| [channels\[\].name]                      |                                   |
+| [channels\[\].type]                      |                                   |
+| [channels\[\].channel]                   |                                   |
+| [channels\[\].extra-args]                | `''`                              |
+| [channels\[\].services]                  | `[]`                              |
+| [channels\[\].excluded-services]         | `[]`                              |
+| [channels\[\].disabled]                  | `false`                           |
+| [tuners\[\].name]                        |                                   |
+| [tuners\[\].types]                       |                                   |
+| [tuners\[\].command]                     |                                   |
+| [tuners\[\].time-limit]                  | `30000` (30s)                     |
+| [tuners\[\].disabled]                    | `false`                           |
+| [tuners\[\].decoded]                     | `false`                           |
+| [filters.tuner-filter.command]           | `''`                              |
+| [filters.service-filter.command]         | `mirakc-arib filter-service --sid={{{sid}}}` |
+| [filters.decode-filter.command]          | `''`                              |
+| [filters.program-filter.command]         | `mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} --clock-time={{{clock_time}}} --end-margin=2000{{#video_tags}} --video-tag={{{.}}}{{/video_tags}}{{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}` |
+| [pre-filters]                            | `{}`                              |
+| [post-filters]                           | `{}`                              |
+| [jobs.scan-services.command]             | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
+| [jobs.scan-services.schedule]            | `'0 31 5 * * * *'` (execute at 05:31 every day) |
+| [jobs.sync-clocks.command]               | `mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
+| [jobs.sync-clocks.schedule]              | `'0 3 12 * * * *'` (execute at 12:03 every day) |
+| [jobs.update-schedules.command]          | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
+| [jobs.update-schedules.schedule]         | `'0 7,37 * * * * *'` (execute at 7 and 37 minutes every hour) |
+| [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
+| [timeshift.recorders\[\].service-triple] |                                   |
+| [timeshift.recorders\[\].ts-file]        |                                   |
+| [timeshift.recorders\[\].data-file]      |                                   |
+| [timeshift.recorders\[\].chunk-size]     | `163840000` (~160MB)              |
+| [timeshift.recorders\[\].num-chunks]     |                                   |
+| [timeshift.recorders\[\].num-reserves]   | `1`                               |
+| [timeshift.recorders\[\].priority]       | `128`                             |
+| [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
+| [mirakurun.openapi-json]                 | `/etc/mirakurun.openapi.json`     |
 
 [epg.cache-dir]: #epgcache-dir
 [server.addrs]: #serveraddrs
@@ -82,13 +83,14 @@ suitable for your environment.
 [jobs.sync-clocks.schedule]: #jobssync-clocks
 [jobs.update-schedules.command]: #jobsupdate-schedules
 [jobs.update-schedules.schedule]: #jobsupdate-schdules
-[timeshift\[\].service-triple]: #timeshift
-[timeshift\[\].ts-file]: #timeshift
-[timeshift\[\].data-file]: #timeshift
-[timeshift\[\].chunk-size]: #timeshift
-[timeshift\[\].num-chunks]: #timeshift
-[timeshift\[\].num-reserves]: #timeshift
-[timeshift\[\].priority]: #timeshift
+[timeshift.command]: #timeshift
+[timeshift.recorders\[\].service-triple]: #timeshiftrecorders
+[timeshift.recorders\[\].ts-file]: #timeshiftrecorders
+[timeshift.recorders\[\].data-file]: #timeshiftrecorders
+[timeshift.recorders\[\].chunk-size]: #timeshiftrecorders
+[timeshift.recorders\[\].num-chunks]: #timeshiftrecorders
+[timeshift.recorders\[\].num-reserves]: #timeshiftrecorders
+[timeshift.recorders\[\].priority]: #timeshiftrecorders
 [resource.strings-yaml]: #resourcestrings-yaml
 [mirakurun.openapi-json]: #mirakurunopenapi-json
 
@@ -541,14 +543,37 @@ Command template variables:
 
 ## timeshift
 
-Definitions of timeshift recordings.
+The timeshift recording of mirakc is a similar function to the Timeshift Machine
+implemented on TVs and recorders produced by Toshiba.  The timeshift recording
+records TS packets in a service stream into a fixed-size file used as a 'ring'
+buffer.  User can playback TV programs recorded in the file until they are
+purged due to the file size limit.
+
+The timeshift recording has the following limitations:
+
+* Duration of a record currently being recorded is updated only when a chunk is
+  filled or the TV program ends
+
+```yaml
+timeshift:
+  recorders:
+    bs1:
+      service-triple: [4, 16625, 101]  # BS1
+      ts-file: /path/to/bs1.timeshift.m2ts
+      data-file: /path/to/bs1.timeshift.data
+      num-chunks: 4000  # about 640GB
+```
+
+### timeshift.recorders
+
+Definitions of timeshift recorders.
 
 * service-triple
   * A tuple of NID, TSID and SID of a service stream to record
 * ts-file
   * A path to a file used as a ring buffer to record TS packets
 * data-file
-  * A path to a file to save data like records encoded with [Bincode]
+  * A path to a file to save data like records encoded with JSON
 * chunk-size
   * Size of a data chunk
   * Must be a multiple of 8192
@@ -563,28 +588,6 @@ Definitions of timeshift recordings.
 * priority
   * The priority of streaming
   * Should be larger than 0
-
-```yaml
-timeshift:
-  bs1:
-    service-triple: [4, 16625, 101]  # BS1
-    ts-file: /path/to/bs1.timeshift.m2ts
-    data-file: /path/to/bs1.timeshift.data
-    num-chunks: 4000  # about 640GB
-```
-
-The timeshift recording of mirakc is a similar function to the Timeshift Machine
-implemented on TVs and recorders produced by Toshiba.  The timeshift recording
-records TS packets in a service stream into a fixed-size file used as a 'ring'
-buffer.  User can playback TV programs recorded in the file until they are
-purged due to the file size limit.
-
-The timeshift recording has the following limitations:
-
-* All of recorded data is volatile
-  * It will be empty when restarting
-* Duration of a record currently being recorded is updated only when a chunk is
-  filled or the TV program ends
 
 ## resource.strings-yaml
 
@@ -606,5 +609,3 @@ communicate.
 mirakurun:
   openapi-json: /path/to/mirakurun.openapi.json
 ```
-
-[Bincode]: https://github.com/bincode-org/bincode

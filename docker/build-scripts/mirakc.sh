@@ -29,5 +29,12 @@ if [ "$TARGETPLATFORM" = linux/arm64/v8 ] || [ "$TARGETPLATFORM" = linux/arm64 ]
   export CARGO_TARGET_${TRIPLE}_RUSTFLAGS='-C link-arg=-lgcc'
 fi
 
-cargo build -v --release --target $RUST_TARGET_TRIPLE
+export PKG_CONFIG_ALLOW_CROSS=1
+
+cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc
 cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc /usr/local/bin/
+
+if [ "$TARGET" = debian ]; then
+  cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs --features timeshift-fs
+  cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc-timeshift-fs /usr/local/bin/
+fi

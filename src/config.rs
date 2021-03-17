@@ -54,7 +54,7 @@ pub struct Config {
     #[serde(default)]
     pub recorder: RecorderConfig,
     #[serde(default)]
-    pub timeshift: HashMap<String, TimeshiftConfig>,
+    pub timeshift: TimeshiftConfig,
     #[serde(default)]
     pub resource: ResourceConfig,
     #[serde(default)]
@@ -64,7 +64,7 @@ pub struct Config {
 impl Config {
     fn validate(&mut self) {
         self.server.validate();
-        self.timeshift.values().for_each(TimeshiftConfig::validate);
+        self.timeshift.validate();
     }
 }
 
@@ -106,7 +106,7 @@ impl ServerConfig {
         const SERVER_STREAM_TIME_LIMIT_MIN: u64 = 15_000;
 
         assert!(self.stream_time_limit >= SERVER_STREAM_TIME_LIMIT_MIN,
-                "config.server.stream_time_limit must be larger than or equal to {0}",
+                "config.server: `stream_time_limit` must be larger than or equal to {}",
                 SERVER_STREAM_TIME_LIMIT_MIN);
     }
 
@@ -332,19 +332,54 @@ pub struct JobConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct TimeshiftConfig {
-    pub service_triple: (NetworkId, TransportStreamId, ServiceId),
-    pub ts_file: String,
-    pub data_file: String,
-    #[serde(default = "TimeshiftConfig::default_chunk_size")]
-    pub chunk_size: usize,
-    pub num_chunks: usize,
-    #[serde(default = "TimeshiftConfig::default_num_reserves")]
-    pub num_reserves: usize,
-    #[serde(default = "TimeshiftConfig::default_priority")]
-    pub priority: i32,
+    #[serde(default = "TimeshiftConfig::default_command")]
+    pub command: String,
+    #[serde(default)]
+    pub recorders: IndexMap<String, TimeshiftRecorderConfig>,
 }
 
 impl TimeshiftConfig {
+    fn default_command() -> String {
+        "mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} \
+         --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} \
+         --start-pos={{{start_pos}}}".to_string()
+    }
+
+    fn validate(&self) {
+        assert!(!self.command.is_empty(),
+                "config.timeshift: `command` must be a non-empty string");
+        self.recorders
+            .iter()
+            .for_each(|(name, config)| config.validate(name));
+    }
+}
+
+impl Default for TimeshiftConfig {
+    fn default() -> Self {
+        TimeshiftConfig {
+            command: TimeshiftConfig::default_command(),
+            recorders: IndexMap::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub struct TimeshiftRecorderConfig {
+    pub service_triple: (NetworkId, TransportStreamId, ServiceId),
+    pub ts_file: String,
+    pub data_file: String,
+    #[serde(default = "TimeshiftRecorderConfig::default_chunk_size")]
+    pub chunk_size: usize,
+    pub num_chunks: usize,
+    #[serde(default = "TimeshiftRecorderConfig::default_num_reserves")]
+    pub num_reserves: usize,
+    #[serde(default = "TimeshiftRecorderConfig::default_priority")]
+    pub priority: i32,
+}
+
+impl TimeshiftRecorderConfig {
     const BUFSIZE: usize = 8192;
 
     pub fn max_file_size(&self) -> u64 {
@@ -356,22 +391,35 @@ impl TimeshiftConfig {
         self.num_chunks - self.num_reserves
     }
 
-    fn validate(&self) {
+    fn validate(&self, name: &str) {
         assert!(!self.ts_file.is_empty(),
-                "config.timeshift[].ts-file must be a non-empty path.");
+                "config.timeshift.recorders[{}]: `ts-file` must be a non-empty path", name);
         assert!(!self.data_file.is_empty(),
-                "config.timeshift[].data-file must be a non-empty path.");
+                "config.timeshift.recorders[{}]: `data-file` must be a non-empty path", name);
+        // TODO
+        // ----
+        // We should save data in a binary format in a performance point of view.  However, the
+        // following crates don't work properly (maybe, due to bugs...).
+        //
+        //   * bincode
+        //   * rmp_serde
+        //
+        // We may support a binary format in the future if there is a crate that works well with
+        // our data formats.
+        assert!(self.data_file.ends_with(".json"),
+                "config.timeshift.recorders[{}]: `data-file` must be a JSON file", name);
         assert!(self.chunk_size > 0,
-                "config.timeshift[].chunk-size must be larger than 0.");
+                "config.timeshift.recorders[{}]: `chunk-size` must be larger than 0", name);
         assert!(self.chunk_size % Self::BUFSIZE == 0,
-                "config.timeshift[].chunk-size must be a multiple of {}.", Self::BUFSIZE);
+                "config.timeshift.recorders[{}]: `chunk-size` must be a multiple of {}",
+                name, Self::BUFSIZE);
         assert!(self.num_chunks > 2,
-                "config.timeshift[].num-chunks must be larger than 2.");
+                "config.timeshift.recorders[{}]: `num-chunks` must be larger than 2", name);
         assert!(self.num_reserves > 0,
-                "config.timeshift[].num-reserves must be larger than 0.");
+                "config.timeshift.recorders[{}]: `num-reserves` must be larger than 0", name);
         assert!(self.num_chunks - self.num_reserves > 1,
-                "Maximum number of available chunks (num-chunks - num-reserves) \
-                 must be larger than 1.");
+                "config.timeshift.recorders[{}]: Maximum number of available chunks \
+                 (`num-chunks` - `num-reserves`) must be larger than 1", name);
     }
 
     fn default_chunk_size() -> usize {
@@ -392,7 +440,6 @@ impl TimeshiftConfig {
 #[serde(deny_unknown_fields)]
 pub struct RecorderConfig {
     pub track_airtime_command: String,
-    pub record_service_command: String,
 }
 
 impl Default for RecorderConfig {
@@ -400,10 +447,6 @@ impl Default for RecorderConfig {
         RecorderConfig {
             track_airtime_command: "mirakc-arib track-airtime \
                                     --sid={{{sid}}} --eid={{{eid}}}".to_string(),
-            record_service_command:
-            "mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} \
-             --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} \
-             --start-pos={{{start_pos}}}".to_string(),
         }
     }
 }
@@ -996,23 +1039,65 @@ mod tests {
     #[test]
     fn test_job_config() {
         assert!(serde_yaml::from_str::<JobConfig>("{}").is_err());
-        assert!(
-            serde_yaml::from_str::<JobConfig>(r#"{"command":""}"#).is_err());
-        assert!(
-            serde_yaml::from_str::<JobConfig>(r#"{"schedule":""}"#).is_err());
 
-        let result = serde_yaml::from_str::<JobConfig>(r#"
+        assert!(serde_yaml::from_str::<JobConfig>(r#"{"command":""}"#).is_err());
+
+        assert!(serde_yaml::from_str::<JobConfig>(r#"{"schedule":""}"#).is_err());
+
+        assert!(serde_yaml::from_str::<JobConfig>(r#"
             unknown:
               property: value
-        "#);
-        assert!(result.is_err());
+        "#).is_err());
     }
 
     #[test]
     fn test_timeshift_config() {
-        assert!(serde_yaml::from_str::<TimeshiftConfig>("{}").is_err());
+        assert_eq!(
+            serde_yaml::from_str::<TimeshiftConfig>("{}").unwrap(),
+            Default::default());
+
+        assert_eq!(
+            serde_yaml::from_str::<TimeshiftConfig>(r#"
+                command: command
+                recorders:
+                  test:
+                    service-triple: [1, 2, 3]
+                    ts-file: /path/to/timeshift.m2ts
+                    data-file: /path/to/timeshift.data
+                    num-chunks: 100
+            "#).unwrap(),
+            TimeshiftConfig {
+                command: "command".to_string(),
+                recorders: indexmap!{
+                    "test".to_string() => TimeshiftRecorderConfig {
+                        service_triple: (1.into(), 2.into(), 3.into()),
+                        ts_file: "/path/to/timeshift.m2ts".to_string(),
+                        data_file: "/path/to/timeshift.data".to_string(),
+                        chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
+                        num_chunks: 100,
+                        num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
+                        priority: TimeshiftRecorderConfig::default_priority(),
+                    },
+                },
+            },
+        );
 
         assert!(serde_yaml::from_str::<TimeshiftConfig>(r#"
+            unknown: property
+        "#).is_err());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_timeshift_config_command_is_empty() {
+        serde_yaml::from_str::<TimeshiftConfig>(r#"{"command":""}"#).unwrap().validate();
+    }
+
+    #[test]
+    fn test_timeshift_recorder_config() {
+        assert!(serde_yaml::from_str::<TimeshiftRecorderConfig>("{}").is_err());
+
+        assert!(serde_yaml::from_str::<TimeshiftRecorderConfig>(r#"
             service-triple: [1, 2, 3]
             ts-file: /path/to/timeshift.m2ts
             data-file: /path/to/timeshift.data
@@ -1021,24 +1106,24 @@ mod tests {
         "#).is_err());
 
         assert_eq!(
-            serde_yaml::from_str::<TimeshiftConfig>(r#"
+            serde_yaml::from_str::<TimeshiftRecorderConfig>(r#"
                 service-triple: [1, 2, 3]
                 ts-file: /path/to/timeshift.m2ts
                 data-file: /path/to/timeshift.data
                 num-chunks: 100
             "#).unwrap(),
-            TimeshiftConfig {
+            TimeshiftRecorderConfig {
                 service_triple: (1.into(), 2.into(), 3.into()),
                 ts_file: "/path/to/timeshift.m2ts".to_string(),
                 data_file: "/path/to/timeshift.data".to_string(),
-                chunk_size: TimeshiftConfig::default_chunk_size(),
+                chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
                 num_chunks: 100,
-                num_reserves: TimeshiftConfig::default_num_reserves(),
-                priority: TimeshiftConfig::default_priority(),
+                num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
+                priority: TimeshiftRecorderConfig::default_priority(),
             });
 
         assert_eq!(
-            serde_yaml::from_str::<TimeshiftConfig>(r#"
+            serde_yaml::from_str::<TimeshiftRecorderConfig>(r#"
                 service-triple: [1, 2, 3]
                 ts-file: /path/to/timeshift.m2ts
                 data-file: /path/to/timeshift.data
@@ -1047,7 +1132,7 @@ mod tests {
                 num-reserves: 2
                 priority: 2
             "#).unwrap(),
-            TimeshiftConfig {
+            TimeshiftRecorderConfig {
                 service_triple: (1.into(), 2.into(), 3.into()),
                 ts_file: "/path/to/timeshift.m2ts".to_string(),
                 data_file: "/path/to/timeshift.data".to_string(),

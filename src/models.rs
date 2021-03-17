@@ -321,6 +321,12 @@ impl fmt::Display for TunerUser {
 #[derive(Deserialize, Serialize)]
 pub struct TimeshiftRecordId(i64);
 
+impl TimeshiftRecordId {
+    pub fn value(&self) -> i64 {
+        self.0
+    }
+}
+
 impl fmt::Display for TimeshiftRecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -329,6 +335,8 @@ impl fmt::Display for TimeshiftRecordId {
 
 impl From<i64> for TimeshiftRecordId {
     fn from(value: i64) -> Self {
+        assert!(value > 0);
+        assert!(value < 0x0100_0000_0000_0000);
         TimeshiftRecordId(value)
     }
 }

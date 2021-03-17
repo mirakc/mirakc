@@ -462,7 +462,7 @@ async fn get_timeshift_recorder(
     path: actix_web::web::Path<TimeshiftRecorderPath>,
 ) -> ApiResult {
     timeshift_manager.send(QueryTimeshiftRecorderMessage {
-        recorder_name: path.recorder.clone(),
+        recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
     }).await?
         .map(WebTimeshiftRecorder::from)
         .map(|recorder| actix_web::HttpResponse::Ok().json(recorder))
@@ -474,7 +474,7 @@ async fn get_timeshift_records(
     path: actix_web::web::Path<TimeshiftRecorderPath>,
 ) -> ApiResult {
     timeshift_manager.send(QueryTimeshiftRecordsMessage {
-        recorder_name: path.recorder.clone(),
+        recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
     }).await?
         .map(|records| records.into_iter()
              .map(WebTimeshiftRecord::from)
@@ -488,7 +488,7 @@ async fn get_timeshift_record(
     path: actix_web::web::Path<TimeshiftRecordPath>,
 ) -> ApiResult {
     timeshift_manager.send(QueryTimeshiftRecordMessage {
-        recorder_name: path.recorder.clone(),
+        recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
         record_id: path.record,
     }).await?
         .map(WebTimeshiftRecord::from)
@@ -505,13 +505,15 @@ async fn get_timeshift_stream(
     filter_setting: FilterSetting,
 ) -> ApiResult {
     let recorder = timeshift_manager.send(QueryTimeshiftRecorderMessage {
-        recorder_name: path.recorder.clone(),
+        recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
     }).await??;
 
-    let (stream, stop_trigger) = timeshift_manager.send(StartTimeshiftStreamingMessage {
-        recorder_name: path.recorder.clone(),
+    let src = timeshift_manager.send(CreateTimeshiftLiveStreamSourceMessage {
+        recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
         record_id: stream_query.record,
     }).await??;
+
+    let (stream, stop_trigger) = src.create_stream().await?;
 
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &recorder.service.channel.name)
@@ -541,11 +543,11 @@ async fn get_timeshift_record_stream(
     filter_setting: FilterSetting,
 ) -> ApiResult {
     let recorder = timeshift_manager.send(QueryTimeshiftRecorderMessage {
-        recorder_name: path.recorder.clone(),
+        recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
     }).await??;
 
-    let record = timeshift_manager.send(QueryTimeshiftRecordMessage{
-        recorder_name: path.recorder.clone(),
+    let record = timeshift_manager.send(QueryTimeshiftRecordMessage {
+        recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
         record_id: path.record,
     }).await??;
 
@@ -559,11 +561,13 @@ async fn get_timeshift_record_stream(
         .map(|range| range.start)
         .next();
 
-    let (stream, stop_trigger) = timeshift_manager.send(StartTimeshiftRecordStreamingMessage {
-        recorder_name: path.recorder.clone(),
+    let src = timeshift_manager.send(CreateTimeshiftRecordStreamSourceMessage {
+        recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
         record_id: path.record,
         start_pos,
     }).await??;
+
+    let (stream, stop_trigger) = src.create_stream().await?;
 
     let video_tags: Vec<u8> = record.program.video
         .iter()
@@ -1500,10 +1504,10 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_get_timeshift_record() {
-        let res = get("/api/timeshift/test/records/0").await;
+        let res = get("/api/timeshift/test/records/1").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
 
-        let res = get("/api/timeshift/test/records/1").await;
+        let res = get("/api/timeshift/test/records/2").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
@@ -1519,11 +1523,11 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_get_timeshift_record_stream() {
-        let res = get("/api/timeshift/test/records/0/stream").await;
+        let res = get("/api/timeshift/test/records/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
         assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
 
-        let res = get("/api/timeshift/not_found/records/0/stream").await;
+        let res = get("/api/timeshift/not_found/records/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
@@ -1826,42 +1830,44 @@ mod tests {
                 Box::<Option<Result<Vec<TimeshiftRecorderModel>, Error>>>::new(
                     Some(Ok(Vec::new())))
             } else if let Some(msg) = msg.downcast_ref::<QueryTimeshiftRecorderMessage>() {
-                let result = if msg.recorder_name == "test" {
-                    Ok(TimeshiftRecorderModel {
-                        name: "test".to_string(),
-                        service: EpgService {
-                            nid: 1.into(),
-                            tsid: 2.into(),
-                            sid: 3.into(),
-                            service_type: 1,
-                            logo_id: 0,
-                            remote_control_key_id: 0,
-                            name: "test".to_string(),
-                            channel: EpgChannel {
+                let result = match msg.recorder {
+                    TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
+                        Ok(TimeshiftRecorderModel {
+                            index: 0,
+                            name: name.clone(),
+                            service: EpgService {
+                                nid: 1.into(),
+                                tsid: 2.into(),
+                                sid: 3.into(),
+                                service_type: 1,
+                                logo_id: 0,
+                                remote_control_key_id: 0,
                                 name: "test".to_string(),
-                                channel_type: ChannelType::GR,
-                                channel: "test".to_string(),
-                                extra_args: "".to_string(),
-                                services: Vec::new(),
-                                excluded_services: Vec::new(),
+                                channel: EpgChannel {
+                                    name: "test".to_string(),
+                                    channel_type: ChannelType::GR,
+                                    channel: "test".to_string(),
+                                    extra_args: "".to_string(),
+                                    services: Vec::new(),
+                                    excluded_services: Vec::new(),
+                                },
                             },
-                        },
-                        start_time: Jst::now(),
-                        end_time: Jst::now(),
-                        pipeline: vec![],
-                        recording: true,
-                    })
-                } else {
-                    Err(Error::RecordNotFound)
+                            start_time: Jst::now(),
+                            end_time: Jst::now(),
+                            pipeline: vec![],
+                            recording: true,
+                        })
+                    }
+                    _ => Err(Error::RecordNotFound),
                 };
                 Box::<Option<Result<_, Error>>>::new(Some(result))
             } else if let Some(_) = msg.downcast_ref::<QueryTimeshiftRecordsMessage>() {
                 Box::<Option<Result<Vec<TimeshiftRecordModel>, Error>>>::new(
                     Some(Ok(Vec::new())))
             } else if let Some(msg) = msg.downcast_ref::<QueryTimeshiftRecordMessage>() {
-                let result = if msg.record_id == 0.into() {
+                let result = if msg.record_id == 1.into() {
                     Ok(TimeshiftRecordModel {
-                        id: 0.into(),
+                        id: msg.record_id,
                         program: EpgProgram::new((0, 0, 0, 0).into()),
                         start_time: Jst::now(),
                         end_time: Jst::now(),
@@ -1872,23 +1878,18 @@ mod tests {
                     Err(Error::RecordNotFound)
                 };
                 Box::<Option<Result<_, Error>>>::new(Some(result))
-            } else if let Some(msg) = msg.downcast_ref::<StartTimeshiftStreamingMessage>() {
-                let result = if msg.recorder_name == "test" {
-                    let (reader, stop_trigger) = TimeshiftFileReader::open_for_test();
-                    let stream = ChunkStream::new_for_test(reader);
-                    Ok((MpegTsStream::new("".to_string(), stream), stop_trigger))
-                } else {
-                    Err(Error::NoContent)
+            } else if let Some(msg) = msg.downcast_ref::<CreateTimeshiftLiveStreamSourceMessage>() {
+                let result = match msg.recorder {
+                    TimeshiftRecorderQuery::ByName(ref name) if name == "test" =>
+                        Ok(TimeshiftLiveStreamSource::new_for_test(name)),
+                    _ => Err(Error::NoContent),
                 };
                 Box::<Option<Result<_, Error>>>::new(Some(result))
-            } else if let Some(msg) = msg.downcast_ref::<StartTimeshiftRecordStreamingMessage>() {
-                use tokio::io::AsyncReadExt;
-                let result = if msg.recorder_name == "test" {
-                    let (reader, stop_trigger) = TimeshiftFileReader::open_for_test();
-                    let stream = ChunkStream::new_for_test(reader.take(1));
-                    Ok((MpegTsStream::new("".to_string(), stream), stop_trigger))
-                } else {
-                    Err(Error::NoContent)
+            } else if let Some(msg) = msg.downcast_ref::<CreateTimeshiftRecordStreamSourceMessage>() {
+                let result = match msg.recorder {
+                    TimeshiftRecorderQuery::ByName(ref name) if name == "test" =>
+                        Ok(TimeshiftRecordStreamSource::new_for_test(name)),
+                    _ => Err(Error::NoContent),
                 };
                 Box::<Option<Result<_, Error>>>::new(Some(result))
             } else {

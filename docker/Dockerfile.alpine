@@ -34,7 +34,7 @@ COPY ./Cargo.* ./
 COPY ./src ./src/
 RUN sh /build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 
-FROM alpine:3.13
+FROM alpine:3.13 AS mirakc
 LABEL maintainer="Contributors of mirakc"
 ARG TARGETPLATFORM
 COPY --from=mirakc-tools /usr/local/bin/* /usr/local/bin/

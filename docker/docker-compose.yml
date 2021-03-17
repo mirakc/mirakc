@@ -1,7 +1,7 @@
 version: '3.7'
 
 services:
-  mirakc-sample:
+  mirakc:
     # In this sample, we build a image from source.
     #
     # Replace `mirakc` with `mirakc/mirakc` if you like to use a
@@ -10,6 +10,7 @@ services:
     build:
       context: ../
       dockerfile: ./docker/Dockerfile.debian
+      target: mirakc
     container_name: mirakc-sample
     hostname: mirakc-sample
     init: true

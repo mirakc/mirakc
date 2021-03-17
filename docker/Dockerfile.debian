@@ -34,7 +34,7 @@ COPY ./Cargo.* ./
 COPY ./src ./src/
 RUN sh /build-scripts/mirakc.sh debian $BUILDPLATFORM $TARGETPLATFORM
 
-FROM debian:buster-slim
+FROM debian:buster-slim AS mirakc
 LABEL maintainer="Contributors of mirakc"
 COPY --from=mirakc-tools /usr/local/bin/* /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
@@ -53,3 +53,19 @@ ENV MIRAKC_CONFIG=/etc/mirakc/config.yml
 EXPOSE 40772
 ENTRYPOINT ["mirakc"]
 CMD []
+
+FROM debian:buster-slim AS mirakc-timeshift-fs
+LABEL maintainer="Contributors of mirakc"
+COPY --from=mirakc-build /usr/local/bin/mirakc-timeshift-fs /usr/local/bin/
+RUN set -eux \
+ && export DEBIAN_FRONTEND=noninteractive \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends fuse \
+ # cleanup
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /var/tmp/* \
+ && rm -rf /tmp/*
+ENV MIRAKC_CONFIG=/etc/mirakc/config.yml
+ENTRYPOINT ["mirakc-timeshift-fs"]
+CMD ["/mnt"]
