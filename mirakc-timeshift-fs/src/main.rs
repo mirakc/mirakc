@@ -10,16 +10,16 @@ use std::sync::Arc;
 
 use clap;
 use fuser;
-use serde_json;
 use indexmap::IndexMap;
 use sanitize_filename;
+use serde_json;
 
-use mirakc::*;
-use mirakc::config::*;
-use mirakc::error::Error;
-use mirakc::models::*;
-use mirakc::timeshift::*;
-use mirakc::tracing_ext::init_tracing;
+use mirakc_core::*;
+use mirakc_core::config::*;
+use mirakc_core::error::Error;
+use mirakc_core::models::*;
+use mirakc_core::timeshift::*;
+use mirakc_core::tracing_ext::init_tracing;
 
 fn main() -> Result<(), Error> {
     let args = clap::App::new(clap::crate_name!())

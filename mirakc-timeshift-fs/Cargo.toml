@@ -1,0 +1,19 @@
+[package]
+name = "mirakc-timeshift-fs"
+version = "0.16.1"
+authors = ["Contributors of mirakc"]
+description = "A userspace filesystem to expose timeshift records as files"
+edition = "2018"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+clap = "2.33.3"
+fuser = "0.7.0"
+indexmap = { version = "1.6.2", features = ["serde-1"] }
+libc = "0.2.87"
+log = "0.4.14"
+mirakc-core = { path = "../mirakc-core" }
+memmap = "0.7.0"
+serde_json = { version = "1.0.64", features = ["preserve_order"] }
+sanitize-filename = "0.3.0"

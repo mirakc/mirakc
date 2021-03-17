@@ -1,0 +1,15 @@
+[package]
+name = "mirakc"
+version = "0.16.1"
+authors = ["Contributors of mirakc"]
+description = "A Mirakurun-compatible PVR backend written in Rust"
+edition = "2018"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+actix-rt = "1.1.1"
+clap = "2.33.3"
+log = "0.4.14"
+mirakc-core = { path = "../mirakc-core" }
+serde_json = { version = "1.0.64", features = ["preserve_order"] }

@@ -35,6 +35,6 @@ cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc
 cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc /usr/local/bin/
 
 if [ "$TARGET" = debian ]; then
-  cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs --features timeshift-fs
+  cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs
   cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc-timeshift-fs /usr/local/bin/
 fi

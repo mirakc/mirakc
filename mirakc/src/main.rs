@@ -1,7 +1,8 @@
 use clap;
-use mirakc::*;
-use mirakc::error::Error;
-use mirakc::tracing_ext::init_tracing;
+
+use mirakc_core::*;
+use mirakc_core::error::Error;
+use mirakc_core::tracing_ext::init_tracing;
 
 #[actix_rt::main]
 async fn main() -> Result<(), Error> {
