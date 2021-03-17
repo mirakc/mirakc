@@ -381,7 +381,8 @@ impl TimeshiftFilesystem {
         match self.get_record(ino).zip(self.get_recorder_config(ino)) {
             Some((_, config)) => {
                 let file = File::open(&config.ts_file)?;
-                let octx = TimeshiftFilesystemOpenContext::Record(file);
+                let buf = TimeshiftFilesystemRecordBuffer::new(ino, file);
+                let octx = TimeshiftFilesystemOpenContext::Record(buf);
                 Ok(self.create_handle(octx))
             }
             _ => Err(Error::RecordNotFound),
@@ -421,39 +422,6 @@ impl TimeshiftFilesystem {
         debug_assert!(start < file_size);
         debug_assert!(end > file_size);
         return (Some(start..file_size), Some(0..(end % file_size)));
-    }
-
-    fn map_record_data(
-        file: &File,
-        range: &Range<u64>,
-    ) -> Result<memmap::Mmap, Error> {
-        debug_assert!(range.end - range.start <= usize::max_value() as u64);
-        unsafe {
-            Ok(memmap::MmapOptions::new()
-               .offset(range.start)
-               .len((range.end - range.start) as usize)
-               .map(file)?)
-        }
-    }
-
-    fn read_record_data(
-        file: &mut File,
-        first: &Range<u64>,
-        second: &Range<u64>,
-    ) -> Result<Vec<u8>, Error> {
-        debug_assert!(first.end - first.start <= usize::max_value() as u64);
-        let first_len = (first.end - first.start) as usize;
-        debug_assert!(second.end - second.start <= usize::max_value() as u64);
-        let second_len = (second.end - second.start) as usize;
-        debug_assert!((first_len as u64) + (second_len as u64) <= usize::max_value() as u64);
-        let mut data = Vec::with_capacity(first_len + second_len);
-        file.seek(SeekFrom::Start(first.start))?;
-        let _ = file.read_to_end(&mut data)?;
-        debug_assert!(data.len() == first_len);
-        file.seek(SeekFrom::Start(0))?;
-        let _ = file.take(second_len as u64).read_to_end(&mut data)?;
-        debug_assert!(data.len() == first_len + second_len);
-        Ok(data)
     }
 
     fn truncate_string_within(mut s: String, size: usize) -> String {
@@ -684,8 +652,8 @@ impl fuser::Filesystem for TimeshiftFilesystem {
 
             let ranges = Self::calc_read_ranges(record, config, offset, size);
 
-            let file = match self.open_contexts.get_mut(&fh) {
-                Some(TimeshiftFilesystemOpenContext::Record(file)) => file,
+            let buf = match self.open_contexts.get_mut(&fh) {
+                Some(TimeshiftFilesystemOpenContext::Record(buf)) => buf,
                 _ => {
                     log::error!("{}: Invalid handle {}", ino, fh);
                     reply.error(libc::EBADF);
@@ -693,40 +661,15 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 }
             };
 
-            match ranges {
-                (None, None) => {
-                    // No content to read.
-                    let data: &[u8] = &[];
-                    reply.data(data);
+            match buf.fill(ranges) {
+                Ok(_) => reply.data(buf.data()),
+                Err(err) => {
+                    log::error!("{}: Faild to read data: {}", ino, err);
+                    reply.error(libc::EIO);
                 }
-                (Some(range), None) => {
-                    match Self::map_record_data(file, &range) {
-                        Ok(mmap) => {
-                            log::trace!("{}: Mapped data in {:?} successfully",
-                                        ino, range);
-                            reply.data(&mmap[..]);
-                        }
-                        Err(_) => {
-                            log::error!("{}: Faild to map data", ino);
-                            reply.error(libc::EIO);
-                        }
-                    }
-                }
-                (Some(first), Some(second)) => {
-                    match Self::read_record_data(file, &first, &second) {
-                        Ok(data) => {
-                            log::trace!("{}: Read data in {:?} and {:?} successfully",
-                                        ino, first, second);
-                            reply.data(&data[..]);
-                        }
-                        Err(_) => {
-                            log::error!("{}: Faild to read data", ino);
-                            reply.error(libc::EIO);
-                        }
-                    }
-                }
-                _ => unreachable!(),
             }
+
+            buf.reset();
         } else {
             unreachable!();
         }
@@ -799,5 +742,86 @@ struct TimeshiftFilesystemCache {
 
 enum TimeshiftFilesystemOpenContext {
     Dir(Vec<(u64, fuser::FileType, String)>),
-    Record(File),
+    Record(TimeshiftFilesystemRecordBuffer),
+}
+
+struct TimeshiftFilesystemRecordBuffer {
+    ino: TimeshiftFilesystemIno,
+    file: File,
+    buf: Vec<u8>,
+}
+
+impl TimeshiftFilesystemRecordBuffer {
+    const INITIAL_BUFSIZE: usize = 4096 * 16;  // 16 pages = 64KiB
+
+    fn new(ino: TimeshiftFilesystemIno, file: File) -> Self {
+        TimeshiftFilesystemRecordBuffer {
+            ino,
+            file,
+            buf: Vec::with_capacity(Self::INITIAL_BUFSIZE),
+        }
+    }
+
+    fn data(&self) -> &[u8] {
+        &self.buf[..]
+    }
+
+    fn fill(&mut self, ranges: (Option<Range<u64>>, Option<Range<u64>>)) -> Result<(), Error> {
+        debug_assert!(self.data().is_empty());
+        match ranges {
+            (None, None) => {
+                log::trace!("{}: EOF reached", self.ino);
+                Ok(())
+            }
+            (Some(range), None) => {
+                log::trace!("{}: Read data in {:?}", self.ino,range);
+                self.fill1(&range)
+            }
+            (Some(first), Some(second)) => {
+                log::trace!("{}: Read data in {:?} and {:?} successfully",
+                            self.ino, first, second);
+                self.fill2(&first, &second)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn fill1(&mut self, range: &Range<u64>) -> Result<(), Error> {
+        debug_assert!(self.buf.is_empty());
+        debug_assert!(range.end - range.start <= usize::max_value() as u64);
+        let len = (range.end - range.start) as usize;
+        self.ensure_bufsize(len);
+        self.file.seek(SeekFrom::Start(range.start))?;
+        let _ = (&mut self.file).take(len as u64).read_to_end(&mut self.buf)?;
+        debug_assert!(self.buf.len() == len);
+        Ok(())
+    }
+
+    fn fill2(&mut self, first: &Range<u64>, second: &Range<u64>) -> Result<(), Error> {
+        debug_assert!(self.buf.is_empty());
+        debug_assert!(first.end - first.start <= usize::max_value() as u64);
+        let first_len = (first.end - first.start) as usize;
+        debug_assert!(second.end - second.start <= usize::max_value() as u64);
+        let second_len = (second.end - second.start) as usize;
+        debug_assert!((first_len as u64) + (second_len as u64) <= usize::max_value() as u64);
+        self.ensure_bufsize(first_len + second_len);
+        self.file.seek(SeekFrom::Start(first.start))?;
+        let _ = (&mut self.file).take(first_len as u64).read_to_end(&mut self.buf)?;
+        debug_assert!(self.buf.len() == first_len);
+        self.file.seek(SeekFrom::Start(0))?;
+        let _ = (&mut self.file).take(second_len as u64).read_to_end(&mut self.buf)?;
+        debug_assert!(self.buf.len() == first_len + second_len);
+        Ok(())
+    }
+
+    fn reset(&mut self) {
+        self.buf.truncate(0);
+    }
+
+    fn ensure_bufsize(&mut self, len: usize) {
+        let cap = self.buf.capacity();
+        if len > cap {
+            self.buf.reserve(len);
+        }
+    }
 }
