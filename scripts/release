@@ -4,6 +4,8 @@ PROGNAME="$(basename $0)"
 BASEDIR="$(cd $(dirname $0); pwd)"
 PROJDIR="$(cd $BASEDIR/..; pwd)"
 
+NO_COMMIT=NO
+
 help() {
     cat <<EOF >&2
 USAGE:
@@ -35,6 +37,10 @@ do
     '-h' | '--help')
       help
       ;;
+    '--no-commit')
+      NO_COMMIT=YES
+      shift
+      ;;
     *)
       break
       ;;
@@ -51,18 +57,24 @@ log "Pulling changes from origin..."
 git pull
 
 log "Bumping the version to $VERSION..."
-# Don't use the -i option of `sed`.
-# The incompatibility between macOS and GNU will cause troubles.
-sed -e "s/^version = .*/version = \"$VERSION\"/" $PROJDIR/Cargo.toml| \
-  sponge $PROJDIR/Cargo.toml
+for MANIFEST in $(find $PROJDIR -name Cargo.toml)
+do
+  # Don't use the -i option of `sed`.
+  # The incompatibility between macOS and GNU will cause troubles.
+  sed -e "s/^version = .*/version = \"$VERSION\"/" $MANIFEST | sponge $MANIFEST
+  git add $MANIFEST
+done
 cargo build
-git add $PROJDIR/Cargo.*
-git commit -m "misc: bump version to $VERSION"
+if [ "$NO_COMMIT" = NO ]; then
+  git commit -m "misc: bump version to $VERSION"
+fi
 
 # TODO: Genereate CHANGELOG.md
 
-log "Making an annotated tag for $VERSION..."
-git tag -a "$VERSION" -m "release: $VERSION"
+if [ "$NO_COMMIT" = NO ]; then
+  log "Making an annotated tag for $VERSION..."
+  git tag -a "$VERSION" -m "release: $VERSION"
+fi
 
 cat <<EOF >&2
 Done.
