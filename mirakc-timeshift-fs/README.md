@@ -1,7 +1,7 @@
 # mirakc-timesift-fs
 
-`mirakc-timeshift-fs` is a supplemental program which exports timeshift records
-as files on the local filesystem using [FUSE].
+`mirakc-timeshift-fs` is a supplemental program which exports timeshift records as files on the
+local filesystem using [FUSE].
 
 The following command mounts the timeshift filesystem onto `/path/to/dir`:
 
@@ -26,10 +26,11 @@ The directory structure is like below:
 ## Using Docker
 
 Mount /dev/fuse and folders which contain files specified in
-`config.timeshift.recorders[].ts-file` and `config.timeshift.recorders[].data-file`:
+`config.timeshift.recorders[].ts-file` and `config.timeshift.recorders[].data-file`.
 
-The following example launches a Samba container to share timeshift record files
-which are exported from another container running `mirakc-timeshift-fs`:
+The following example launches the `samba` container to share timeshift record files which are
+recorded in the `mirakc` container are exposed to the filesystem on the Docker host from the
+`mirakc-timeshift-fs` container:
 
 ```yaml
 version: '3.7'
@@ -53,7 +54,7 @@ services:
 
   mirakc-timeshift-fs:
     container_name: mirakc-timeshift-fs
-    image: mirakc/mirakc-timeshift-fs
+    image: mirakc/timeshift-fs
     init: true
     restart: unless-stopped
     cap_add:
@@ -96,6 +97,5 @@ services:
       - mirakc-timeshift-fs
 ```
 
-The `samba` container must start after the `mirakc-timeshift-fs` container
-mounts the timeshift filesystem onto `/path/to/mirakc/timeshift-fs` on the host
-filesystem.
+The `samba` container must start after the `mirakc-timeshift-fs` container mounts the timeshift
+filesystem onto `/path/to/mirakc/timeshift-fs` on the Docker host filesystem.
