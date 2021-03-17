@@ -63,7 +63,7 @@ COPY --from=mirakc-build /usr/local/bin/run-mirakc-timeshift-fs /usr/local/bin/
 RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update \
- && apt-get install -y --no-install-recommends fuse \
+ && apt-get install -y --no-install-recommends fuse3 \
  # cleanup
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
