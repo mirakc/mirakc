@@ -11,7 +11,7 @@ case "$TARGETPLATFORM" in
   'linux/amd64')
     DEBIAN_ARCH='amd64'
     ;;
-  'linux/arm/v5')
+  'linux/arm/v5' | 'linux/arm/v6')
     DEBIAN_ARCH='armel'
     ;;
   'linux/arm/v7')
