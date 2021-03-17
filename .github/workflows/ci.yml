@@ -22,6 +22,14 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v2
+      - name: Install macfuse (macos)
+        if: matrix.runner == 'macos-latest'
+        run: |
+          brew install macfuse
+      - name: Install libfuse3-dev (ubuntu)
+        if: matrix.runner == 'ubuntu-latest'
+        run: |
+          sudo apt-get install libfuse3-dev pkg-config
       # Took from rust-analyzer/rust-analyzer#6208
       - name: Install GNU tar (workaround for actions/cache#403)
         if: matrix.runner == 'macos-latest'
@@ -67,6 +75,8 @@ jobs:
           - aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:
+      # Unfortunately, there is no libfuse3-dev packages for ARM in the official APT repository.
+      # Therefore, we only build mirakc-core and run unit tests.
       - uses: actions/checkout@v2
       - name: Cache for Cargo
         uses: actions/cache@v2
@@ -88,13 +98,13 @@ jobs:
         with:
           use-cross: true
           command: build
-          args: -v --release --target=${{ matrix.target }}
+          args: -v --release --target=${{ matrix.target }} --lib
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: test
-          args: -v --release --target=${{ matrix.target }}
+          args: -v --release --target=${{ matrix.target }} --lib
   coverage:
     needs:
       - build
@@ -103,6 +113,9 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v2
+      - name: Install libfuse3-dev
+        run: |
+          sudo apt-get install libfuse3-dev pkg-config
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -115,7 +128,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --no-fail-fast
+          args: --all-features --no-fail-fast --lib
         env:
           CARGO_INCREMENTAL: '0'
           RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
@@ -127,7 +140,7 @@ jobs:
           args: grcov
       - name: Generate coverage data
         run: >-
-          grcov target/debug --branch --llvm --ignore-not-existing -s . --ignore '*/src/main.rs' --ignore '*/src/error.rs' --ignore '*/src/tracing_ext.rs' --excl-line '<coverage:exclude/>|unimplemented!|unreachable!' --excl-start '<coverage:exclude>' --excl-stop '</coverage:exclude>' -t lcov -o lcov.info
+          grcov target/debug --branch --llvm --ignore-not-existing -s . --ignore '*/src/main.rs' --ignore 'mirakc-core/src/error.rs' --ignore 'mirakc-core/src/tracing_ext.rs' --excl-line '<coverage:exclude/>|unimplemented!|unreachable!' --excl-start '<coverage:exclude>' --excl-stop '</coverage:exclude>' -t lcov -o lcov.info
       - name: Update to codecov.io
         uses: codecov/codecov-action@v1
         with:

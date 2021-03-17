@@ -11,6 +11,14 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v2
+      - name: Install macfuse (macos)
+        if: matrix.runner == 'macos-latest'
+        run: |
+          brew install macfuse
+      - name: Install libfuse3-dev (ubuntu)
+        if: matrix.runner == 'ubuntu-latest'
+        run: |
+          sudo apt-get install libfuse3-dev pkg-config
       # Took from rust-analyzer/rust-analyzer#6208
       - name: Install GNU tar (workaround for actions/cache#403)
         if: matrix.runner == 'macos-latest'

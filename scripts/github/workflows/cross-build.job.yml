@@ -14,6 +14,8 @@ jobs:
           - aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:
+      # Unfortunately, there is no libfuse3-dev packages for ARM in the official APT repository.
+      # Therefore, we only build mirakc-core and run unit tests.
       - uses: actions/checkout@v2
       - name: Cache for Cargo
         uses: actions/cache@v2
@@ -35,10 +37,10 @@ jobs:
         with:
           use-cross: true
           command: build
-          args: -v --release --target=${{ matrix.target }}
+          args: -v --release --target=${{ matrix.target }} --lib
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: test
-          args: -v --release --target=${{ matrix.target }}
+          args: -v --release --target=${{ matrix.target }} --lib

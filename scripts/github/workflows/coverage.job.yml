@@ -4,6 +4,9 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v2
+      - name: Install libfuse3-dev
+        run: |
+          sudo apt-get install libfuse3-dev pkg-config
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -16,7 +19,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --no-fail-fast
+          args: --all-features --no-fail-fast --lib
         env:
           CARGO_INCREMENTAL: '0'
           RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
@@ -30,7 +33,8 @@ jobs:
         # actions-rs/grcov has not supported options like --excl-line
         run: >-
           grcov target/debug --branch --llvm --ignore-not-existing -s .
-          --ignore '*/src/main.rs' --ignore '*/src/error.rs' --ignore '*/src/tracing_ext.rs'
+          --ignore '*/src/main.rs' --ignore 'mirakc-core/src/error.rs'
+          --ignore 'mirakc-core/src/tracing_ext.rs'
           --excl-line '<coverage:exclude/>|unimplemented!|unreachable!'
           --excl-start '<coverage:exclude>'
           --excl-stop '</coverage:exclude>'
