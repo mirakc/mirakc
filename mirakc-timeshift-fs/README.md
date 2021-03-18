@@ -81,7 +81,13 @@ services:
   samba:
     container_name: samba
     image: dperson/samba
-    command: ['-s', 'timeshift;/mnt']
+    command:
+      # Allow access only from LAN (192.168.0.0/16)
+      - '-g'
+      - 'hosts allow = 192.168.'
+      # Expose as the timeshift folder
+      - '-s'
+      -'timeshift;/mnt'
     init: true
     restart: unless-stopped
     ports:
