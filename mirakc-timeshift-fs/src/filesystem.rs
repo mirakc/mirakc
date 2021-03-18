@@ -194,7 +194,7 @@ impl TimeshiftFilesystem {
             let ino = TimeshiftFilesystemIno::create_record_ino(
                 ino.recorder_index(), record.id);
             let title = record.program.name.clone()
-                .map(|s| Self::truncate_string_within(s, Self::MAX_TITLE_SIZE))
+                .map(|s| truncate_string_within(s, Self::MAX_TITLE_SIZE))
                 .unwrap_or("".to_string());
             let filename = sanitize_filename::sanitize(
                 format!("{:016X}_{}.m2ts", record.id.value(), title));
@@ -316,59 +316,6 @@ impl TimeshiftFilesystem {
             }
             _ => Err(Error::RecordNotFound),
         }
-    }
-
-    fn calc_read_ranges(
-        record: &TimeshiftRecord,
-        config: &TimeshiftRecorderConfig,
-        offset: i64,
-        size: u32,
-    ) -> (Option<Range<u64>>, Option<Range<u64>>) {
-        assert!(offset >= 0);
-
-        let file_size = config.max_file_size();
-        let record_size = record.get_size(file_size);
-
-        if record_size == 0 {
-            return (None, None);
-        }
-
-        if (offset as u64) >= record_size {
-            // out of range
-            return (None, None);
-        }
-
-        let remaining = record_size - (offset as u64);
-        let read_size = remaining.min(size as u64);
-
-        let start = record.start.pos + (offset as u64);
-        let end = start + read_size;
-
-        if start >= file_size || end <= file_size {
-            return (Some((start % file_size)..(end % file_size)), None);
-        }
-
-        debug_assert!(start < file_size);
-        debug_assert!(end > file_size);
-        return (Some(start..file_size), Some(0..(end % file_size)));
-    }
-
-    fn truncate_string_within(mut s: String, size: usize) -> String {
-        if s.is_empty() || s.len() <= size {
-            return s;
-        }
-
-        debug_assert!(size > 0);
-        let mut i = size - 1;
-        while i > 0 {
-            if s.is_char_boundary(i) {
-                break;
-            }
-            i -= 1;
-        }
-
-        s.truncate(i);
-        s
     }
 }
 
@@ -579,7 +526,9 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 }
             };
 
-            let ranges = Self::calc_read_ranges(record, config, offset, size);
+            let file_size = config.max_file_size();
+            let record_size = record.get_size(file_size);
+            let ranges = calc_read_ranges(file_size, record_size, record.start.pos, offset, size);
 
             let buf = match self.open_contexts.get_mut(&fh) {
                 Some(TimeshiftFilesystemOpenContext::Record(buf)) => buf,
@@ -752,5 +701,90 @@ impl TimeshiftFilesystemRecordBuffer {
         if len > cap {
             self.buf.reserve(len);
         }
+    }
+}
+
+fn truncate_string_within(mut s: String, size: usize) -> String {
+    if size == 0 {
+        return String::new();
+    }
+
+    if s.is_empty() || s.len() <= size {
+        return s;
+    }
+
+    debug_assert!(size > 0);
+    let mut i = size;
+    while i > 0 {
+        if s.is_char_boundary(i) {
+            break;
+        }
+        i -= 1;
+    }
+
+    s.truncate(i);
+    s
+}
+
+fn calc_read_ranges(
+    file_size: u64,
+    record_pos: u64,
+    record_size: u64,
+    offset: i64,
+    size: u32,
+) -> (Option<Range<u64>>, Option<Range<u64>>) {
+    assert!(offset >= 0);
+
+    if record_size == 0 {
+        return (None, None);
+    }
+
+    if (offset as u64) >= record_size {
+        // out of range
+        return (None, None);
+    }
+
+    let remaining = record_size - (offset as u64);
+    let read_size = remaining.min(size as u64);
+
+    let start = record_pos + (offset as u64);
+    let end = start + read_size;
+
+    if start >= file_size || end <= file_size {
+        return (Some((start % file_size)..(end % file_size)), None);
+    }
+
+    debug_assert!(start < file_size);
+    debug_assert!(end > file_size);
+    return (Some(start..file_size), Some(0..(end % file_size)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_string_within() {
+        assert_eq!(truncate_string_within("".to_string(), 10), "");
+        assert_eq!(truncate_string_within("ab".to_string(), 0), "");
+        assert_eq!(truncate_string_within("ab".to_string(), 1), "a");
+        assert_eq!(truncate_string_within("ab".to_string(), 10), "ab");
+        assert_eq!(truncate_string_within("あい".to_string(), 0), "");
+        assert_eq!(truncate_string_within("あい".to_string(), 1), "");
+        assert_eq!(truncate_string_within("あい".to_string(), 2), "");
+        assert_eq!(truncate_string_within("あい".to_string(), 3), "あ");
+        assert_eq!(truncate_string_within("あい".to_string(), 4), "あ");
+        assert_eq!(truncate_string_within("あい".to_string(), 5), "あ");
+        assert_eq!(truncate_string_within("あい".to_string(), 6), "あい");
+        assert_eq!(truncate_string_within("あい".to_string(), 10), "あい");
+    }
+
+    #[test]
+    fn test_calc_read_ranges() {
+        assert_eq!(calc_read_ranges(100, 10, 0, 10, 10), (None, None));
+        assert_eq!(calc_read_ranges(100, 10, 1, 10, 10), (None, None));
+        assert_eq!(calc_read_ranges(100, 110, 30, 10, 10), (Some(20..30), None));
+        assert_eq!(calc_read_ranges(100, 50, 30, 10, 10), (Some(60..70), None));
+        assert_eq!(calc_read_ranges(100, 80, 30, 10, 20), (Some(90..100), Some(0..10)));
     }
 }
