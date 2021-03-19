@@ -1,25 +1,25 @@
 FROM rust:slim-buster AS buildenv
-ARG BUILDPLATFORM=linux/amd64
-ARG TARGETPLATFORM=linux/amd64
-ENV TARGET=debian
+ENV DISTRO=debian
+ENV BUILDPLATFORM=linux/amd64
+ENV TARGETPLATFORM=linux/amd64
 ENV DEBIAN_FRONTEND=noninteractive
 COPY ./docker/build-scripts/vars.* /build-scripts/
 COPY ./docker/build-scripts/buildenv.sh /build-scripts/
-RUN sh /build-scripts/buildenv.sh
+RUN sh /build-scripts/buildenv.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 RUN mkdir -p /build
 WORKDIR /build
 
 FROM buildenv AS recdvb-build
 COPY ./docker/build-scripts/recdvb.sh /build-scripts/
-RUN sh /build-scripts/recdvb.sh
+RUN sh /build-scripts/recdvb.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 
 FROM buildenv AS recpt1-build
 COPY ./docker/build-scripts/recpt1.sh /build-scripts/
-RUN sh /build-scripts/recpt1.sh
+RUN sh /build-scripts/recpt1.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 
 FROM buildenv AS mirakc-arib-build
 COPY ./docker/build-scripts/mirakc-arib.sh /build-scripts/
-RUN sh /build-scripts/mirakc-arib.sh
+RUN sh /build-scripts/mirakc-arib.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 
 FROM mcr.microsoft.com/vscode/devcontainers/rust:1
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
@@ -30,7 +30,7 @@ COPY ./mirakurun.openapi.json /etc/mirakurun.openapi.json
 RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update \
- && apt-get install -y --no-install-recommends binutils ca-certificates curl socat \
+ && apt-get install -y --no-install-recommends binutils ca-certificates curl libfuse3-dev socat \
  # cleanup
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
@@ -65,5 +65,5 @@ RUN set -eux \
 #
 # The only way to solve this issue is providing the values for the environment
 # variables from somewhere outside the system.
-ENV MIRAKC_DEV_RUSTC_COMMIT_HASH="e1884a8e3c3e813aada8254edfa120e85bf5ffca"
-ENV MIRAKC_DEV_RUST_TOOLCHAIN_PATH="/usr/local/rustup/toolchains/1.49.0-x86_64-unknown-linux-gnu"
+ENV MIRAKC_DEV_RUSTC_COMMIT_HASH="cb75ad5db02783e8b0222fee363c5f63f7e2cf5b"
+ENV MIRAKC_DEV_RUST_TOOLCHAIN_PATH="/usr/local/rustup/toolchains/1.50.0-x86_64-unknown-linux-gnu"

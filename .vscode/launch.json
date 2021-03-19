@@ -45,12 +45,12 @@
         "args": [
           "test",
           "--no-run",
-          "--bin=mirakc",
-          "--package=mirakc"
+          "--lib",
+          "--package=mirakc-core"
         ],
         "filter": {
-          "name": "mirakc",
-          "kind": "bin"
+          "name": "mirakc-core",
+          "kind": "lib"
         }
       }
     }
