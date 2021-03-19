@@ -2,7 +2,8 @@ FROM --platform=$BUILDPLATFORM rust:slim-buster AS buildenv
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 ENV DEBIAN_FRONTEND=noninteractive
-COPY ./docker/build-scripts /build-scripts/
+COPY ./docker/build-scripts/vars.* /build-scripts/
+COPY ./docker/build-scripts/buildenv.sh /build-scripts/
 RUN sh /build-scripts/buildenv.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 RUN mkdir -p /build
 WORKDIR /build
@@ -10,16 +11,19 @@ WORKDIR /build
 FROM buildenv AS recdvb-build
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
+COPY ./docker/build-scripts/recdvb.sh /build-scripts/
 RUN sh /build-scripts/recdvb.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 
 FROM buildenv AS recpt1-build
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
+COPY ./docker/build-scripts/recpt1.sh /build-scripts/
 RUN sh /build-scripts/recpt1.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 
 FROM buildenv AS mirakc-arib-build
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
+COPY ./docker/build-scripts/mirakc-arib.sh /build-scripts/
 RUN sh /build-scripts/mirakc-arib.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 
 FROM alpine:3.13 AS mirakc-tools
@@ -34,6 +38,7 @@ COPY ./Cargo.* ./
 COPY ./mirakc ./mirakc/
 COPY ./mirakc-core ./mirakc-core/
 COPY ./mirakc-timeshift-fs ./mirakc-timeshift-fs/
+COPY ./docker/build-scripts/mirakc.sh /build-scripts/
 RUN sh /build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 
 FROM alpine:3.13 AS mirakc
@@ -50,3 +55,6 @@ ENV MIRAKC_CONFIG=/etc/mirakc/config.yml
 EXPOSE 40772
 ENTRYPOINT ["mirakc"]
 CMD []
+
+# We do NOT create Alpine Linux images for mirakc-timeshift-fs at this point.
+# You need to cross-build libfuse/libfuse3 for Alpine Linux on the buildenv if you like to do that.
