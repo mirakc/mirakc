@@ -200,23 +200,13 @@ jobs:
         uses: docker/setup-qemu-action@v1
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Cache for buildenv and tools
+      - name: Restore cache
         uses: actions/cache@v2
         with:
-          path: /tmp/.docker-buildenv-tools-cache
-          key: ${{ runner.os }}-docker-buildenv-tools-${{ matrix.distro }}-${{ hashFiles('docker/build-scripts/*') }}
-      # Disable cache for mirakc in order to avoid errors like below:
-      #
-      #  Unhandled exception. System.IO.IOException: No space left on device at System.IO.FileStream.WriteNative(ReadOnlySpan`1 source) at
-      #  ...
-      #
-      # - name: Cache for mirakc
-      #   uses: actions/cache@v2
-      #   with:
-      #     path: /tmp/.docker-cache
-      #     key: ${{ runner.os }}-docker-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
-      #     restore-keys: |
-      #       ${{ runner.os }}-docker-${{ matrix.distro }}-
+          path: /tmp/.docker-cache
+          key: ${{ runner.os }}-docker-cache-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
+          restore-keys: |
+            ${{ runner.os }}-docker-cache-${{ matrix.distro }}-
       - name: Login to Docker Hub
         uses: docker/login-action@v1
         with:
@@ -225,28 +215,6 @@ jobs:
       - name: Make mirakurun.openapi.json
         run: |
           ./scripts/mirakurun-openapi-json $MIRAKURUN_VERSION | ./scripts/fixup-openapi-json >mirakurun.openapi.json
-      - name: Build buildenv
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: docker/Dockerfile.${{ matrix.distro }}
-          target: buildenv
-          platforms: ${{ matrix.platforms }}
-          cache-from: |
-            type=local,src=/tmp/.docker-buildenv-tools-cache
-          cache-to: |
-            type=local,dest=/tmp/.docker-buildenv-tools-cache
-      - name: Build tools
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: docker/Dockerfile.${{ matrix.distro }}
-          target: mirakc-tools
-          platforms: ${{ matrix.platforms }}
-          cache-from: |
-            type=local,src=/tmp/.docker-buildenv-tools-cache
-          cache-to: |
-            type=local,dest=/tmp/.docker-buildenv-tools-cache
       - name: Build and push (mirakc/mirakc)
         uses: docker/build-push-action@v2
         with:
@@ -256,10 +224,9 @@ jobs:
           platforms: ${{ matrix.platforms }}
           tags: ${{ format(steps.docker-tags.outputs.tags, 'mirakc/mirakc') }}
           cache-from: |
-            type=local,src=/tmp/.docker-buildenv-tools-cache
             type=local,src=/tmp/.docker-cache
           cache-to: |
-            type=local,dest=/tmp/.docker-cache
+            type=local,dest=/tmp/.docker-cache-new
           push: true
       - name: Test
         run: |
@@ -278,6 +245,7 @@ jobs:
             docker run --rm --platform=$platform --entrypoint=mirakc $TAG --version
           done
       - name: Build and push (mirakc/timeshift-fs)
+        if: matrix.distro == 'debian'
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -286,12 +254,14 @@ jobs:
           platforms: ${{ matrix.platforms }}
           tags: ${{ format(steps.docker-tags.outputs.tags, 'mirakc/timeshift-fs') }}
           cache-from: |
-            type=local,src=/tmp/.docker-buildenv-tools-cache
-            type=local,src=/tmp/.docker-cache
+            type=local,src=/tmp/.docker-cache-new
           cache-to: |
-            type=local,dest=/tmp/.docker-cache
+            type=local,dest=/tmp/.docker-cache-new
           push: true
-        if: matrix.distro == 'debian'
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.docker-cache
+          mv /tmp/.docker-cache-new /tmp/.docker-cache
 env:
   MAIN_DISTRO: debian
   MIRAKURUN_VERSION: '3.5.0'
