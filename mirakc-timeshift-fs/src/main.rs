@@ -67,7 +67,7 @@ fn main() -> Result<(), Error> {
     //
     // ```shell
     // # Register a signal handler before mounting the mirakc-timeshift filesystem
-    // trap "umount /path/to/mount_point" SIGINT SIGQUIT SIGTERM
+    // trap "umount /path/to/mount_point" EXIT SIGINT SIGQUIT SIGTERM
     //
     // # Then mount it
     // mirakc-timeshift-fs /path/to/mount_point

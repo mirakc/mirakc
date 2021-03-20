@@ -39,7 +39,7 @@ if [ "$TARGET" = debian ]; then
   cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc-timeshift-fs /usr/local/bin/
   cat <<EOF >/usr/local/bin/run-mirakc-timeshift-fs
 #!/bin/sh
-trap 'umount /mnt' SIGINT SIGQUIT SIGTERM
+trap 'umount /mnt' EXIT SIGINT SIGQUIT SIGTERM
 /usr/local/bin/mirakc-timeshift-fs /mnt
 EOF
   chmod +x /usr/local/bin/run-mirakc-timeshift-fs
