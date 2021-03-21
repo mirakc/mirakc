@@ -20,8 +20,8 @@ use mirakc_core::timeshift::*;
 
 pub struct TimeshiftFilesystem {
     config: Arc<Config>,
-    caches: HashMap<usize, TimeshiftFilesystemCache>,
-    open_contexts: HashMap<u64, TimeshiftFilesystemOpenContext>,
+    caches: HashMap<usize, Cache>,
+    open_contexts: HashMap<u64, OpenContext>,
     next_handle: u64,
 }
 
@@ -38,7 +38,7 @@ impl TimeshiftFilesystem {
         }
     }
 
-    fn create_handle(&mut self, octx: TimeshiftFilesystemOpenContext) -> u64 {
+    fn create_handle(&mut self, octx: OpenContext) -> u64 {
         loop {
             let handle = self.next_handle;
             self.next_handle = if handle == u64::max_value() {
@@ -53,22 +53,18 @@ impl TimeshiftFilesystem {
         }
     }
 
-    fn system_time_from_unix_time(unix_time: i64) -> std::time::SystemTime {
-        std::time::UNIX_EPOCH + std::time::Duration::from_secs(unix_time as u64)
-    }
-
-    fn lookup_recorder(&self, name: &OsStr) -> Option<TimeshiftFilesystemIno> {
+    fn lookup_recorder(&self, name: &OsStr) -> Option<Ino> {
         name.to_str()
             .and_then(|name| {
                 self.config.timeshift.recorders.keys()
                     .position(|key| key == &name)
             })
-            .map(TimeshiftFilesystemIno::create_recorder_ino)
+            .map(Ino::create_recorder_ino)
     }
 
     fn make_recorder_attr(
         &self,
-        ino: TimeshiftFilesystemIno,
+        ino: Ino,
     ) -> Option<fuser::FileAttr> {
         self.config
             .timeshift
@@ -80,7 +76,7 @@ impl TimeshiftFilesystem {
                     .map(|cache| cache.records.values().next())
                     .flatten()
                     .map(|record| record.start.timestamp.timestamp())
-                    .map(Self::system_time_from_unix_time)
+                    .map(system_time_from_unix_time)
                     .unwrap_or(std::time::UNIX_EPOCH);
 
                 let end_time = self.caches
@@ -88,7 +84,7 @@ impl TimeshiftFilesystem {
                     .map(|cache| cache.records.values().last())
                     .flatten()
                     .map(|record| record.end.timestamp.timestamp())
-                    .map(Self::system_time_from_unix_time)
+                    .map(system_time_from_unix_time)
                     .unwrap_or(std::time::UNIX_EPOCH);
 
                 fuser::FileAttr {
@@ -114,9 +110,9 @@ impl TimeshiftFilesystem {
 
     fn lookup_record(
         &self,
-        ino: TimeshiftFilesystemIno,
+        ino: Ino,
         name: &OsStr,
-    ) -> Option<TimeshiftFilesystemIno> {
+    ) -> Option<Ino> {
         // DIRTY HACK
         // ----------
         // We don't compare `name` with a filename created from a record.
@@ -151,14 +147,14 @@ impl TimeshiftFilesystem {
             .next()  // <id>
             .and_then(|s| i64::from_str_radix(s, 16).ok())
             .map(TimeshiftRecordId::from)
-            .map(|record_id| TimeshiftFilesystemIno::create_record_ino(
+            .map(|record_id| Ino::create_record_ino(
                 ino.recorder_index(), record_id))
             .filter(|&ino| self.get_record(ino).is_some())
     }
 
     fn get_recorder_config(
         &self,
-        ino: TimeshiftFilesystemIno,
+        ino: Ino,
     ) -> Option<&TimeshiftRecorderConfig> {
         self.config
             .timeshift
@@ -173,15 +169,15 @@ impl TimeshiftFilesystem {
             (1, fuser::FileType::Directory, "..".to_string()),
         ];
         for (index, name) in self.config.timeshift.recorders.keys().enumerate() {
-            let ino = TimeshiftFilesystemIno::create_recorder_ino(index);
+            let ino = Ino::create_recorder_ino(index);
             let dirname = sanitize_filename::sanitize(name);  // truncates within 255 bytes
             entries.push((ino.0, fuser::FileType::Directory, dirname));
         }
-        let octx = TimeshiftFilesystemOpenContext::Dir(entries);
+        let octx = OpenContext::Dir(entries);
         self.create_handle(octx)
     }
 
-    fn open_recorder_dir(&mut self, ino: TimeshiftFilesystemIno) -> u64 {
+    fn open_recorder_dir(&mut self, ino: Ino) -> u64 {
         let records = self.caches
             .get(&ino.recorder_index())
             .map(|cache| cache.records.clone())
@@ -191,7 +187,7 @@ impl TimeshiftFilesystem {
             (1, fuser::FileType::Directory, "..".to_string()),
         ];
         for record in records.values() {
-            let ino = TimeshiftFilesystemIno::create_record_ino(
+            let ino = Ino::create_record_ino(
                 ino.recorder_index(), record.id);
             let title = record.program.name.clone()
                 .map(|s| truncate_string_within(s, Self::MAX_TITLE_SIZE))
@@ -201,11 +197,11 @@ impl TimeshiftFilesystem {
             debug_assert!(filename.ends_with(".m2ts"));
             entries.push((ino.0, fuser::FileType::RegularFile, filename));
         }
-        let octx = TimeshiftFilesystemOpenContext::Dir(entries);
+        let octx = OpenContext::Dir(entries);
         self.create_handle(octx)
     }
 
-    fn get_record(&self, ino: TimeshiftFilesystemIno) -> Option<&TimeshiftRecord> {
+    fn get_record(&self, ino: Ino) -> Option<&TimeshiftRecord> {
         self.caches
             .get(&ino.recorder_index())
             .and_then(|cache| cache.records.get(&ino.record_id()))
@@ -213,14 +209,12 @@ impl TimeshiftFilesystem {
 
     fn make_record_attr(
         &self,
-        ino: TimeshiftFilesystemIno,
+        ino: Ino,
     ) -> Option<fuser::FileAttr> {
         self.get_record(ino)
             .map(|record| {
-                let start_time = Self::system_time_from_unix_time(
-                    record.start.timestamp.timestamp());
-                let end_time = Self::system_time_from_unix_time(
-                    record.end.timestamp.timestamp());
+                let start_time = system_time_from_unix_time(record.start.timestamp.timestamp());
+                let end_time = system_time_from_unix_time(record.end.timestamp.timestamp());
                 let file_size = self.config.timeshift.recorders
                     .get_index(ino.recorder_index())
                     .unwrap()
@@ -249,7 +243,7 @@ impl TimeshiftFilesystem {
             })
     }
 
-    fn update_cache(&mut self, ino: TimeshiftFilesystemIno) {
+    fn update_cache(&mut self, ino: Ino) {
         let config = self.config
             .timeshift
             .recorders
@@ -278,7 +272,7 @@ impl TimeshiftFilesystem {
         };
 
         let cache = Self::load_data(config)
-            .map(|data| TimeshiftFilesystemCache {
+            .map(|data| Cache {
                 mtime,
                 records: data.records,
             });
@@ -305,13 +299,13 @@ impl TimeshiftFilesystem {
             }
     }
 
-    fn open_record(&mut self, ino: TimeshiftFilesystemIno) -> Result<u64, Error> {
+    fn open_record(&mut self, ino: Ino) -> Result<u64, Error> {
         debug_assert!(ino.is_record());
         match self.get_record(ino).zip(self.get_recorder_config(ino)) {
             Some((_, config)) => {
                 let file = File::open(&config.ts_file)?;
-                let buf = TimeshiftFilesystemRecordBuffer::new(ino, file);
-                let octx = TimeshiftFilesystemOpenContext::Record(buf);
+                let buf = RecordBuffer::new(ino, file);
+                let octx = OpenContext::Record(buf);
                 Ok(self.create_handle(octx))
             }
             _ => Err(Error::RecordNotFound),
@@ -327,7 +321,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         name: &OsStr,
         reply: fuser::ReplyEntry,
     ) {
-        let ino = TimeshiftFilesystemIno::from(parent);
+        let ino = Ino::from(parent);
         let found = if ino.is_root() {
             self.lookup_recorder(name)
                 .and_then(|ino| {
@@ -355,7 +349,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         ino: u64,
         reply: fuser::ReplyAttr,
     ) {
-        let ino = TimeshiftFilesystemIno::from(ino);
+        let ino = Ino::from(ino);
         let found = if ino.is_root() {
             Some(fuser::FileAttr {
                 ino: 1,
@@ -397,7 +391,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         _flags: i32,
         reply: fuser::ReplyOpen
     ) {
-        let ino = TimeshiftFilesystemIno::from(ino);
+        let ino = Ino::from(ino);
         if ino.is_root() {
             let handle = self.open_root_dir();
             reply.opened(handle, 0);
@@ -418,7 +412,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         _flags: i32,
         reply: fuser::ReplyEmpty
     ) {
-        let ino = TimeshiftFilesystemIno::from(ino);
+        let ino = Ino::from(ino);
         if ino.is_root() || ino.is_recorder() {
             match self.open_contexts.remove(&fh) {
                 Some(_) => reply.ok(),
@@ -437,9 +431,9 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         offset: i64,
         mut reply: fuser::ReplyDirectory,
     ) {
-        let ino = TimeshiftFilesystemIno::from(ino);
+        let ino = Ino::from(ino);
         match self.open_contexts.get(&fh) {
-            Some(TimeshiftFilesystemOpenContext::Dir(entries)) => {
+            Some(OpenContext::Dir(entries)) => {
                 debug_assert!(ino.is_root() || ino.is_recorder());
                 for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
                     // `i + 1` means the index of the next entry.
@@ -463,7 +457,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         _flags: i32,
         reply: fuser::ReplyOpen,
     ) {
-        let ino = TimeshiftFilesystemIno::from(ino);
+        let ino = Ino::from(ino);
         if ino.is_record() {
             self.update_cache(ino);
             match self.open_record(ino) {
@@ -488,7 +482,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         _flush: bool,
         reply: fuser::ReplyEmpty,
     ) {
-        let ino = TimeshiftFilesystemIno::from(ino);
+        let ino = Ino::from(ino);
         if ino.is_record() {
             match self.open_contexts.remove(&fh) {
                 Some(_) => reply.ok(),
@@ -513,7 +507,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
-        let ino = TimeshiftFilesystemIno::from(ino);
+        let ino = Ino::from(ino);
         if ino.is_record() {
             self.update_cache(ino);
 
@@ -531,7 +525,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             let ranges = calc_read_ranges(file_size, record_size, record.start.pos, offset, size);
 
             let buf = match self.open_contexts.get_mut(&fh) {
-                Some(TimeshiftFilesystemOpenContext::Record(buf)) => buf,
+                Some(OpenContext::Record(buf)) => buf,
                 _ => {
                     log::error!("{}: Invalid handle {}", ino, fh);
                     reply.error(libc::EBADF);
@@ -568,9 +562,9 @@ impl fuser::Filesystem for TimeshiftFilesystem {
 // `recorder_index` and `record_id` never changes even if its content changes.
 
 #[derive(Clone, Copy)]
-struct TimeshiftFilesystemIno(u64);
+struct Ino(u64);
 
-impl TimeshiftFilesystemIno {
+impl Ino {
     fn create_recorder_ino(index: usize) -> Self {
         (0x8000_0000_0000_0000 | (index as u64) << 56).into()
     }
@@ -601,39 +595,39 @@ impl TimeshiftFilesystemIno {
     }
 }
 
-impl fmt::Display for TimeshiftFilesystemIno {
+impl fmt::Display for Ino {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ino#{:016X}", self.0)
     }
 }
 
-impl From<u64> for TimeshiftFilesystemIno {
+impl From<u64> for Ino {
     fn from(ino: u64) -> Self {
-        TimeshiftFilesystemIno(ino)
+        Ino(ino)
     }
 }
 
-struct TimeshiftFilesystemCache {
+struct Cache {
     mtime: std::time::SystemTime,
     records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
 }
 
-enum TimeshiftFilesystemOpenContext {
+enum OpenContext {
     Dir(Vec<(u64, fuser::FileType, String)>),
-    Record(TimeshiftFilesystemRecordBuffer),
+    Record(RecordBuffer),
 }
 
-struct TimeshiftFilesystemRecordBuffer {
-    ino: TimeshiftFilesystemIno,
+struct RecordBuffer {
+    ino: Ino,
     file: File,
     buf: Vec<u8>,
 }
 
-impl TimeshiftFilesystemRecordBuffer {
+impl RecordBuffer {
     const INITIAL_BUFSIZE: usize = 4096 * 16;  // 16 pages = 64KiB
 
-    fn new(ino: TimeshiftFilesystemIno, file: File) -> Self {
-        TimeshiftFilesystemRecordBuffer {
+    fn new(ino: Ino, file: File) -> Self {
+        RecordBuffer {
             ino,
             file,
             buf: Vec::with_capacity(Self::INITIAL_BUFSIZE),
@@ -759,9 +753,31 @@ fn calc_read_ranges(
     return (Some(start..file_size), Some(0..(end % file_size)));
 }
 
+fn system_time_from_unix_time(unix_time: i64) -> std::time::SystemTime {
+    std::time::UNIX_EPOCH + std::time::Duration::from_secs(unix_time as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
+
+    #[test]
+    fn test_record_buffer_fill() {
+        let mut buf = RecordBuffer::new(Ino::from(0), File::open("/dev/zero").unwrap());
+        assert_matches!(buf.fill((None, None)), Ok(_) => {
+            assert!(buf.data().is_empty());
+        });
+        buf.reset();
+        assert_matches!(buf.fill((Some(10..50), None)), Ok(_) => {
+            assert_eq!(buf.data().len(), 40);
+        });
+        buf.reset();
+        assert_matches!(buf.fill((Some(100..200), Some(0..10))), Ok(_) => {
+            assert_eq!(buf.data().len(), 110);
+        });
+        buf.reset();
+    }
 
     #[test]
     fn test_truncate_string_within() {
@@ -786,5 +802,10 @@ mod tests {
         assert_eq!(calc_read_ranges(100, 30, 110, 10, 10), (Some(20..30), None));
         assert_eq!(calc_read_ranges(100, 30, 50, 10, 10), (Some(60..70), None));
         assert_eq!(calc_read_ranges(100, 30, 80, 10, 20), (Some(90..100), Some(0..10)));
+    }
+
+    #[test]
+    fn test_system_time_from_unix_time() {
+        assert_eq!(system_time_from_unix_time(0), std::time::UNIX_EPOCH);
     }
 }
