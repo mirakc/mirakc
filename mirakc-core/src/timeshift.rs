@@ -413,9 +413,9 @@ impl TimeshiftRecorder {
 
     fn deactivate(&mut self) {
         if self.session.is_some() {
-            log::warn!("{}: Deactivated, but inactive", self.name);
-        } else {
             log::info!("{}: Deactivated", self.name);
+        } else {
+            log::warn!("{}: Deactivated, but inactive", self.name);
         }
         self.session = None;
     }
@@ -665,6 +665,7 @@ impl Actor for TimeshiftRecorder {
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
+        self.deactivate();
         log::debug!("{}: Stopped", self.name);
     }
 }
