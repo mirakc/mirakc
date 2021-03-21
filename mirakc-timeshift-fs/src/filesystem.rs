@@ -728,8 +728,8 @@ fn truncate_string_within(mut s: String, size: usize) -> String {
 
 fn calc_read_ranges(
     file_size: u64,
-    record_pos: u64,
     record_size: u64,
+    record_pos: u64,
     offset: i64,
     size: u32,
 ) -> (Option<Range<u64>>, Option<Range<u64>>) {
@@ -781,10 +781,10 @@ mod tests {
 
     #[test]
     fn test_calc_read_ranges() {
-        assert_eq!(calc_read_ranges(100, 10, 0, 10, 10), (None, None));
-        assert_eq!(calc_read_ranges(100, 10, 1, 10, 10), (None, None));
-        assert_eq!(calc_read_ranges(100, 110, 30, 10, 10), (Some(20..30), None));
-        assert_eq!(calc_read_ranges(100, 50, 30, 10, 10), (Some(60..70), None));
-        assert_eq!(calc_read_ranges(100, 80, 30, 10, 20), (Some(90..100), Some(0..10)));
+        assert_eq!(calc_read_ranges(100, 0, 10, 10, 10), (None, None));
+        assert_eq!(calc_read_ranges(100, 1, 10, 10, 10), (None, None));
+        assert_eq!(calc_read_ranges(100, 30, 110, 10, 10), (Some(20..30), None));
+        assert_eq!(calc_read_ranges(100, 30, 50, 10, 10), (Some(60..70), None));
+        assert_eq!(calc_read_ranges(100, 30, 80, 10, 20), (Some(90..100), Some(0..10)));
     }
 }
