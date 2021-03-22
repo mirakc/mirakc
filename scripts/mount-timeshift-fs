@@ -1,0 +1,11 @@
+#!/bin/sh -eu
+
+MOUNT_POINT="$1"
+
+unmount() {
+  echo "Unmount $MOUNT_POINT"
+  umount $MOUNT_POINT
+}
+
+trap 'unmount' EXIT
+RUST_LOG=trace cargo run --bin=mirakc-timeshift-fs -- $MOUNT_POINT

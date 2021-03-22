@@ -66,11 +66,19 @@ fn main() -> Result<(), Error> {
     // However, we adopt a simpler solution like below:
     //
     // ```shell
-    // # Register a signal handler before mounting the mirakc-timeshift filesystem
-    // trap "umount /path/to/mount_point" EXIT SIGINT SIGQUIT SIGTERM
+    // MOUNT_POINT="$1"
     //
-    // # Then mount it
-    // mirakc-timeshift-fs /path/to/mount_point
+    // unmount() {
+    //   echo "Unmount $MOUNT_POINT"
+    //   umount $MOUNT_POINT
+    // }
+    //
+    // # Register a signal handler to unmount the mirakc-timeshift filesystem automatically
+    // # before the process terminates.
+    // trap 'unmount' EXIT
+    //
+    // # Then mount it.
+    // mirakc-timeshift-fs $MOUNT_POINT
     // ```
     Ok(fuser::mount2(fs, mount_point, &options)?)
 }
