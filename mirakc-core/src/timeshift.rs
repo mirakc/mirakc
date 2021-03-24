@@ -490,8 +490,7 @@ impl TimeshiftRecorder {
             .position(|record| record.end.timestamp > timestamp)
             .unwrap_or(self.records.len());
         for (_, record) in self.records.drain(0..n) {  // remove first n records
-            log::info!("{}: Record#{}: Purged: {}",
-                       self.name, record.id, record.program.name());
+            log::info!("{}: {}: Purged: {}", self.name, record.id, record.program.name());
         }
     }
 
@@ -509,10 +508,13 @@ impl TimeshiftRecorder {
         event: EitEvent,
         point: TimeshiftPoint,
     ) {
+        // Multiple records for the same TV program may be created when the timeshift recording
+        // restarts.  Therefore, we use the recording start time instead of the start time in
+        // the EPG data.
         let id = TimeshiftRecordId::from(point.timestamp.timestamp());
         let mut program = EpgProgram::new(quad);
         program.update(&event);
-        log::info!("{}: Record#{}: Started: {}: {}", self.name, id, point, program.name());
+        log::info!("{}: {}: Started: {}: {}", self.name, id, point, program.name());
         self.records.insert(id, TimeshiftRecord::new(id, program, point));
     }
 
@@ -548,10 +550,10 @@ impl TimeshiftRecorder {
             Some(record) => {
                 record.update(program, point, end);
                 if end {
-                    log::debug!("{}: Record#{}: Ended: {}: {}",
+                    log::debug!("{}: {}: Ended: {}: {}",
                                 self.name, record.id, record.end, record.program.name());
                 } else {
-                    log::debug!("{}: Record#{}: Updated: {}: {}",
+                    log::debug!("{}: {}: Updated: {}: {}",
                                 self.name, record.id, record.end, record.program.name());
                 }
             }
@@ -1100,14 +1102,14 @@ impl TimeshiftRecordStreamSource {
     pub async fn create_stream(
         self
     ) -> Result<(TimeshiftRecordStream, TimeshiftStreamStopTrigger), Error> {
-        log::debug!("{}: Start streaming {} bytes of Record#{} from {}",
+        log::debug!("{}: Start streaming {} bytes of {} from {}",
                     self.recorder_name, self.range.bytes(), self.id, self.start);
         let (mut reader, stop_trigger) = TimeshiftFileReader::open(&self.file)
             .await?
             .with_stop_trigger();
         reader.set_position(self.start).await?;
         let stream = ChunkStream::new(reader.take(self.range.bytes()), CHUNK_SIZE);
-        let id = format!("timeshift({})/record#{}", self.recorder_name, self.id);
+        let id = format!("timeshift({})/{}", self.recorder_name, self.id);
         Ok((MpegTsStream::with_range(id, stream, self.range).decoded(), stop_trigger))
     }
 
@@ -1116,7 +1118,7 @@ impl TimeshiftRecordStreamSource {
         TimeshiftRecordStreamSource {
             recorder_name: recorder_name.to_string(),
             file: "/dev/zero".to_string(),
-            id: 1.into(),
+            id: 1u32.into(),
             start: 0,
             range: MpegTsStreamRange::bound(0, 1).unwrap(),
         }
@@ -1275,8 +1277,8 @@ mod tests {
             config: create_config(),
             service: create_epg_service(),
             records: indexmap::indexmap!{
-                1.into() => TimeshiftRecord {
-                    id: 1.into(),
+                1u32.into() => TimeshiftRecord {
+                    id: 1u32.into(),
                     program: EpgProgram::new((0, 0, 0, 1).into()),
                     start: TimeshiftPoint {
                         timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
@@ -1306,8 +1308,8 @@ mod tests {
             config: create_config(),
             service: create_epg_service(),
             records: indexmap::indexmap!{
-                1.into() => TimeshiftRecord {
-                    id: 1.into(),
+                1u32.into() => TimeshiftRecord {
+                    id: 1u32.into(),
                     program: EpgProgram::new((0, 0, 0, 1).into()),
                     start: TimeshiftPoint {
                         timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
@@ -1319,8 +1321,8 @@ mod tests {
                     },
                     recording: false,
                 },
-                2.into() => TimeshiftRecord {
-                    id: 2.into(),
+                2u32.into() => TimeshiftRecord {
+                    id: 2u32.into(),
                     program: EpgProgram::new((0, 0, 0, 2).into()),
                     start: TimeshiftPoint {
                         timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
@@ -1332,8 +1334,8 @@ mod tests {
                     },
                     recording: false,
                 },
-                3.into() => TimeshiftRecord {
-                    id: 3.into(),
+                3u32.into() => TimeshiftRecord {
+                    id: 3u32.into(),
                     program: EpgProgram::new((0, 0, 0, 3).into()),
                     start: TimeshiftPoint {
                         timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),

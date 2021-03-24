@@ -123,10 +123,10 @@ impl TimeshiftFilesystem {
         // following filename may be specified in `name`:
         //
         //   filename made in open_recorder_dir():
-        //     000000006049B5AB_ごごナマ..[字].m2ts
+        //     6049B5AB_ごごナマ..[字].m2ts
         //
         //   LOOKUP name:
-        //     000000006049B5AB_こ\u{3099}こ\u{3099}ナマ..[字].m2ts
+        //     6049B5AB_こ\u{3099}こ\u{3099}ナマ..[字].m2ts
         //
         // The normalization form applied to the filename depends on the implementation of
         // each application.  For example, VLC applies NFD before opening a file.  On the other
@@ -135,7 +135,7 @@ impl TimeshiftFilesystem {
         // exactly:
         //
         //   # `cat` seems not to change the filename
-        //   cat 000000006049B5AB_ごごナマ..[字].m2ts | ffplay -
+        //   cat 6049B5AB_ごごナマ..[字].m2ts | ffplay -
         //
         // Conversion between String and OsString may not be idempotent.  Therefore, normalizing
         // before comparison may not work in general.
@@ -145,7 +145,7 @@ impl TimeshiftFilesystem {
         name.to_string_lossy()  // may change <title>, but keeps <id> and the separator.
             .split('_')  // <id>_<title>.m2ts
             .next()  // <id>
-            .and_then(|s| i64::from_str_radix(s, 16).ok())
+            .and_then(|s| u32::from_str_radix(s, 16).ok())
             .map(TimeshiftRecordId::from)
             .map(|record_id| Ino::create_record_ino(
                 ino.recorder_index(), record_id))
@@ -193,7 +193,7 @@ impl TimeshiftFilesystem {
                 .map(|s| truncate_string_within(s, Self::MAX_TITLE_SIZE))
                 .unwrap_or("".to_string());
             let filename = sanitize_filename::sanitize(
-                format!("{:016X}_{}.m2ts", record.id.value(), title));
+                format!("{:08X}_{}.m2ts", record.id.value(), title));
             debug_assert!(filename.ends_with(".m2ts"));
             entries.push((ino.0, fuser::FileType::RegularFile, filename));
         }
@@ -551,27 +551,33 @@ impl fuser::Filesystem for TimeshiftFilesystem {
 // Mapping of ino:
 //
 //   Root      1
-//   Recorder  0x8000_0000_0000_0000 | recorder_index << 56
-//   Record    0x8000_0000_0000_0000 | recorder_index << 56 | record_id
+//   Recorder  0x0100_0000_0000_0000 | recorder_index << 32
+//   Record    0x0200_0000_0000_0000 | recorder_index << 32 | record_id
 //
 // Where:
 //
-//   recorder_index in 0..128
-//   record_id in 0..0x0100_0000_0000_0000
+//   recorder_index in 0..256 (8-bit)
+//   record_id in 0..0xFFFF_FFFF (32-bit)
 //
 // `recorder_index` and `record_id` never changes even if its content changes.
+//
+// The most significant octet is used as the type of Ino:
+//
+//   0x01: record directory
+//   0x02: record file
+//
+// 40..56 bits are filled with 0 at this point.  They are reserved for future use.
 
 #[derive(Clone, Copy)]
 struct Ino(u64);
 
 impl Ino {
     fn create_recorder_ino(index: usize) -> Self {
-        (0x8000_0000_0000_0000 | (index as u64) << 56).into()
+        (0x0100_0000_0000_0000 | (index as u64) << 32).into()
     }
 
     fn create_record_ino(index: usize, record_id: TimeshiftRecordId) -> Self {
-        let id_value = record_id.value() & 0x00FF_FFFF_FFFF_FFFF;
-        (0x8000_0000_0000_0000 | ((index as u64) << 56) | (id_value as u64)).into()
+        (0x0200_0000_0000_0000 | ((index as u64) << 32) | (record_id.value() as u64)).into()
     }
 
     fn is_root(&self) -> bool {
@@ -579,19 +585,19 @@ impl Ino {
     }
 
     fn is_recorder(&self) -> bool {
-        (self.0 & 0x8000_0000_0000_0000) != 0 && (self.0 & 0x00FF_FFFF_FFFF_FFFF) == 0
+        (self.0 & 0xFF00_0000_0000_0000) == 0x0100_0000_0000_0000
     }
 
     fn is_record(&self) -> bool {
-        (self.0 & 0x8000_0000_0000_0000) != 0 && (self.0 & 0x00FF_FFFF_FFFF_FFFF) != 0
+        (self.0 & 0xFF00_0000_0000_0000) == 0x0200_0000_0000_0000
     }
 
     fn recorder_index(&self) -> usize {
-        ((self.0 & 0x7F00_0000_0000_0000) >> 56) as usize
+        ((self.0 & 0x0000_00FF_0000_0000) >> 32) as usize
     }
 
     fn record_id(&self) -> TimeshiftRecordId {
-        ((self.0 as i64) & 0x00FF_FFFF_FFFF_FFFF).into()
+        ((self.0 & 0x0000_0000_FFFF_FFFF) as u32).into()
     }
 }
 

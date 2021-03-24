@@ -319,24 +319,31 @@ impl fmt::Display for TunerUser {
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 #[derive(Deserialize, Serialize)]
-pub struct TimeshiftRecordId(i64);
+pub struct TimeshiftRecordId(u32);
 
 impl TimeshiftRecordId {
-    pub fn value(&self) -> i64 {
+    pub fn value(&self) -> u32 {
         self.0
     }
 }
 
 impl fmt::Display for TimeshiftRecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "Record#{:08X}", self.0)
     }
 }
 
+// TimeshiftRecordId is created from a 64-bit UNIX timestamp.  Lower 32-bit is used as an
+// identifier of a timeshift record.  It's ensured that a record ID is unique for timeshift
+// recording within 136 years.
 impl From<i64> for TimeshiftRecordId {
-    fn from(value: i64) -> Self {
-        assert!(value > 0);
-        assert!(value < 0x0100_0000_0000_0000);
+    fn from(timestamp: i64) -> Self {
+        TimeshiftRecordId(timestamp as u32)
+    }
+}
+
+impl From<u32> for TimeshiftRecordId {
+    fn from(value: u32) -> Self {
         TimeshiftRecordId(value)
     }
 }
