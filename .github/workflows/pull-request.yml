@@ -151,9 +151,9 @@ jobs:
       - cross-build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-script@v2
+      - uses: actions/github-script@v3
         with:
-          github-token: ${{secrets.GH_TOKEN}}
+          github-token: ${{ secrets.GH_TOKEN }}
           script: |
             await github.pulls.createReview({
               owner: context.payload.repository.owner.login,
