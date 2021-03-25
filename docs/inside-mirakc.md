@@ -105,17 +105,17 @@ The timeshift recording consists of the following pipeline.
     V
   MpegTsStream
     |
-+---V--------- CommandPipeline -------+
-| decode-filter (external process)    |
-|   |                                 |
-|   V                                 |
-| service-recorder (external process) |
-|   | |                               |
-|   | |<TS Packets>                   |
-|   | |                               |
-|   | +--> config.timeshift[].ts-file |
-|   |      (fixed-size ring buffer)   |
-+---|---------------------------------+
++---V--------- CommandPipeline -----------------+
+| decode-filter (external process)              |
+|   |                                           |
+|   V                                           |
+| service-recorder (external process)           |
+|   | |                                         |
+|   | |<TS Packets>                             |
+|   | |                                         |
+|   | +--> config.timeshift.recorders[].ts-file |
+|   |      (fixed-size ring buffer)             |
++---|-------------------------------------------+
     |
     |<JSON Messages>
     |
@@ -124,29 +124,29 @@ The timeshift recording consists of the following pipeline.
       |
       |<Timeshift data like records>
       |
-      +--> config.timeshift[].data-file
+      +--> config.timeshift.recorders[].data-file
 ```
 
 The `service-recorder` command writes filtered TS packets into the timeshift
 record file and outputs JSON messages to STDOUT.
 
 The `TimeshiftRecorder` actor receives the JSON messages from a recorder
-command specified with `config.recorder.record-service-command`, and update
-internal information about records of TV programs in the timeshift file.
+command specified with `config.timeshift.command`, and updates internal
+information about records of TV programs in the timeshift TS file.
 
-The timeshift file is divided into chunks whose size is specified with
-`config.timeshift[].chunk-size`.  The maximum number of chunks is specified with
-`config.timeshift[].num-chunks`.  Therefore, the maximum size of the timeshift
-file is fixed.
+The timeshift TS file is divided into chunks whose size is specified with
+`config.timeshift.recorders[].chunk-size`.  The maximum number of chunks is
+specified with `config.timeshift.recorders[].num-chunks`.  Therefore, the
+maximum size of the timeshift TS file is fixed.
 
 ```
-Timeshift File (Max Size = chunk-size * num-chunks)
+Timeshift TS File (Max Size = chunk-size * num-chunks)
 +------------------------------------------------------------------------------+
 | Chunk#0 | Chunk#1 | ...                             | Chunk#<num-chunks - 1> |
 +------------------------------------------------------------------------------+
 ```
 
-It's recommended to create the timeshift file with the maximum size before
+It's recommended to create the timeshift TS file with the maximum size before
 starting mirakc if you like to avoid write errors due to insufficient disk space:
 
 ```shell
@@ -156,12 +156,13 @@ fallocate -l $(expr <chunk-size> \* <num-chunks>) /path/to/timeshift.m2ts
 A buffer used inside the system library is flushed when the file position
 reaches the boundary between the current chunk and the next chunk.
 
-The `TimeshiftRecorder` actor manages the chunks based on JSOM messages from the
+The `TimeshiftRecorder` actor manages the chunks based on JSON messages from the
 recorder command.  A chunk currently written and following
-`config.timeshift[].num-reserves` chunks are never supplied for streaming.
+`config.timeshift.recorders[].num-reserves` chunks are never supplied for
+streaming.
 
 ```
-Timeshift File
+Timeshift TS File
 +------------------------------------------------------------------------------+
 | Chunk#0 | Chunk#1 | Chunk#2 | ... | Chunk#<2 + num-reserves> |   Chunks...   |
 |         |         |   A     |     |                          |               |
@@ -173,9 +174,9 @@ Timeshift File
 ```
 
 The `TimeshiftRecorder` actor saves data into a file specified with
-`config.timeshift[].data-file` every time it receives the `chunk` message sent
-from the recorder command when the file position reaches a chunk boundary.
-Records in a chunk currently written are not saved into the file.
+`config.timeshift.recorders[].data-file` every time it receives the `chunk`
+message sent from the recorder command when the file position reaches a chunk
+boundary.  Records in a chunk currently written are not saved into the file.
 
 ```
                                  <File Position>

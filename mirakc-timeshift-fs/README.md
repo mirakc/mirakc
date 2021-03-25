@@ -68,7 +68,7 @@ services:
       - /path/to/timeshift:/var/lib/mirakc/timeshift
       # Mount point
       - type: bind
-        source: /path/to/mirakc/timeshift-fs
+        source: /path/to/timeshift-fs
         target: /mnt
         bind:
           propagation: rshared
@@ -79,6 +79,8 @@ services:
       <<: *default-logging
 
   samba:
+    depends_on:
+      - mirakc-timeshift-fs
     container_name: samba
     image: dperson/samba
     command:
@@ -94,13 +96,11 @@ services:
       - '139:139'
       - '445:445'
     volumes:
-      - /path/to/mirakc/timeshift-fs:/mnt:ro
+      - /path/to/timeshift-fs:/mnt:ro
     environment:
       <<: *default-environment
     logging:
       <<: *default-logging
-    depends_on:
-      - mirakc-timeshift-fs
 ```
 
 The `samba` container must start after the `mirakc-timeshift-fs` container mounts the timeshift
