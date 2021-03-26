@@ -7,13 +7,11 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-actix = "0.10.0"
-actix-files = "0.5.0"
-actix-rt = "1.1.1"
-actix-service = "1.0.6"
-actix-web = "3.3.2"
+actix = "0.11.1"
+actix-files = "0.6.0-beta.3"
+actix-web = "4.0.0-beta.4"
 chrono = { version = "0.4.19", features = ["serde"] }
-cron = "0.8.0"
+cron = "0.9.0"
 failure = "0.1.8"
 futures = "0.3.13"
 http-range = "0.1.4"
@@ -21,7 +19,6 @@ humantime = "2.1.0"
 indexmap = { version = "1.6.2", features = ["serde-1"] }
 libc = "0.2.87"
 log = "0.4.14"
-mio = "0.6.22"
 mustache = "0.9.0"
 num_cpus = "1.13.0"
 serde = { version = "1.0.124", features = ["derive", "rc"] }
@@ -29,10 +26,12 @@ serde_json = { version = "1.0.64", features = ["preserve_order"] }
 serde_yaml = "0.8.17"
 serde_qs = "0.8.2"
 shell-words = "1.0.0"
-tokio = { version = "0.2.23", features = ["full"] }
+tokio = { version = "1.4.0", features = ["full"] }
+tokio-stream = { version = "0.1.5", features = ["io-util"] }
+tokio-util = { version = "0.6.5", features = ["io"] }
 tracing = "0.1.25"
 tracing-subscriber = "0.2.16"
 
 [dev-dependencies]
-actix-http = "2.2.0"
+actix-http = "3.0.0-beta.4"
 assert_matches = "1.5.0"
