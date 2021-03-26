@@ -53,7 +53,7 @@ pub enum Error {
     #[fail(display = "std::env error: {}", 0)]
     EnvVarError(env::VarError),
     #[fail(display = "tokio::sync::broadcast error: {:?}", 0)]
-    TokioSyncBroadcastError(tokio::sync::broadcast::RecvError),
+    TokioSyncBroadcastError(tokio::sync::broadcast::error::RecvError),
 }
 
 impl From<command_util::Error> for Error {
@@ -116,8 +116,8 @@ impl From<env::VarError> for Error {
     }
 }
 
-impl From<tokio::sync::broadcast::RecvError> for Error {
-    fn from(err: tokio::sync::broadcast::RecvError) -> Self {
+impl From<tokio::sync::broadcast::error::RecvError> for Error {
+    fn from(err: tokio::sync::broadcast::error::RecvError) -> Self {
         Self::TokioSyncBroadcastError(err)
     }
 }

@@ -7,8 +7,7 @@ use chrono::{DateTime, Duration};
 use log;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use tokio::prelude::*;
-use tokio::io::BufReader;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::config::Config;
 use crate::datetime_ext::*;
@@ -82,6 +81,8 @@ impl Actor for EitFeeder {
 
 // feed eit sections
 
+#[derive(Message)]
+#[rtype(result = "Result<(), Error>")]
 pub struct FeedEitSectionsMessage;
 
 impl fmt::Display for FeedEitSectionsMessage {
@@ -90,12 +91,8 @@ impl fmt::Display for FeedEitSectionsMessage {
     }
 }
 
-impl Message for FeedEitSectionsMessage {
-    type Result = Result<(), Error>;
-}
-
 impl Handler<FeedEitSectionsMessage> for EitFeeder {
-    type Result = Response<(), Error>;
+    type Result = ResponseFuture<Result<(), Error>>;
 
     fn handle(
         &mut self,
@@ -103,10 +100,9 @@ impl Handler<FeedEitSectionsMessage> for EitFeeder {
         _: &mut Self::Context,
     ) -> Self::Result {
         log::debug!("{}", msg);
-        let fut = Box::pin(Self::feed_eit_sections(
+        Box::pin(Self::feed_eit_sections(
             self.config.jobs.update_schedules.command.clone(),
-            self.tuner_manager.clone(), self.epg.clone()));
-        Response::fut(fut)
+            self.tuner_manager.clone(), self.epg.clone()))
     }
 }
 

@@ -1,17 +1,15 @@
+use std::convert::TryInto;
 use std::env;
 use std::fmt;
 use std::io;
-use std::os::unix::io::AsRawFd;
 use std::pin::Pin;
-use std::process::{Command, Child, ChildStdin, ChildStdout, Stdio};
+use std::process::Stdio;
 use std::task::{Poll, Context};
 
 use failure::Fail;
-use tokio::prelude::*;
-use tokio::io::BufReader;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader, ReadBuf};
+use tokio::process::{Command, Child, ChildStdin, ChildStdout};
 use tokio::sync::broadcast;
-
-use crate::tokio_snippet;
 
 pub fn spawn_process(
     command: &str,
@@ -38,13 +36,11 @@ pub fn spawn_process(
         .spawn()
         .map_err(|err| Error::UnableToSpawn(command.to_string(), err))?;
     if cfg!(not(test)) {
-        if debug_child_process {
+        if let Some(stderr) = child.stderr.take() {
             let prog = prog.to_string();
-            let child_id = child.id();
-            let child_stderr = tokio_snippet::stdio(child.stderr.take())
-                .map_err(|err| Error::AsyncIoRegistrationFailure(err))?.unwrap();
+            let child_id = child.id().unwrap();
             tokio::spawn(async move {
-                let mut reader = BufReader::new(child_stderr);
+                let mut reader = BufReader::new(stderr);
                 let mut data = Vec::with_capacity(4096);
                 // BufReader::read_line() gets stuck if an invalid character
                 // sequence is found.  Therefore, we use BufReader::read_until()
@@ -89,8 +85,14 @@ pub enum Error {
     UnableToParse(String),
     #[fail(display = "Unable to spawn: {}: {}", 0, 1)]
     UnableToSpawn(String, io::Error),
-    #[fail(display = "Async I/O registration failure: {}", 0)]
-    AsyncIoRegistrationFailure(io::Error),
+    #[fail(display = "I/O error: {}", 0)]
+    IoError(io::Error),
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Self::IoError(err)
+    }
 }
 
 // pipeline builder
@@ -130,12 +132,11 @@ where
         let input = if self.stdout.is_none() {
             Stdio::piped()
         } else {
-            Stdio::from(self.stdout.take().unwrap())
+            self.stdout.take().unwrap().try_into()?
         };
 
         let mut process = spawn_process(&command, input)?;
-        log::debug!("{}: Spawned {}: `{}`",
-                    self.id, process.id(), command);
+        log::debug!("{}: Spawned {}: `{}`", self.id, process.id().unwrap(), command);
 
         if self.stdin.is_none() {
             self.stdin = process.stdin.take();
@@ -156,7 +157,7 @@ where
             .collect()
     }
 
-    pub fn pids(&self) -> Vec<u32> {
+    pub fn pids(&self) -> Vec<Option<u32>> {
         self.commands
             .iter()
             .map(|data| data.process.id())
@@ -166,24 +167,13 @@ where
     pub fn take_endpoints(
         &mut self
     ) -> Result<(CommandPipelineInput<T>, CommandPipelineOutput<T>), Error> {
-        assert!(self.stdin.is_some());
-        assert!(self.stdout.is_some());
         let input = CommandPipelineInput::new(
-            Self::make_childio_async(self.stdin.take())?, self.id.clone(),
+            self.stdin.take().unwrap().try_into().unwrap(), self.id.clone(),
             self.sender.subscribe());
         let output = CommandPipelineOutput::new(
-            Self::make_childio_async(self.stdout.take())?, self.id.clone(),
+            self.stdout.take().unwrap().try_into().unwrap(), self.id.clone(),
             self.sender.subscribe());
         Ok((input, output))
-    }
-
-    fn make_childio_async<F: AsRawFd>(
-        childio: Option<F>
-    ) -> Result<tokio_snippet::ChildIo<F>, Error> {
-        match tokio_snippet::stdio(childio) {
-            Ok(childio) => Ok(childio.expect("Should not be None")),
-            Err(err) => Err(Error::AsyncIoRegistrationFailure(err)),
-        }
     }
 }
 
@@ -192,20 +182,22 @@ where
     T: fmt::Display + Clone + Unpin,
 {
     fn drop(&mut self) {
-        // Always kill the processes and ignore the error.  Because there is no
-        // method to check whether the process is alive or dead.
+        for data in self.commands.iter() {
+            match data.process.id() {
+                Some(pid) => log::debug!("{}: Kill {}: `{}`", self.id, pid, data.command),
+                None => log::debug!("{}: Already terminated: {}", self.id, data.command),
+            }
+        }
         for data in self.commands.iter_mut() {
-            let _ = data.process.kill();
-            let _ = data.process.wait();
-            log::debug!("{}: Killed {}: `{}`",
-                        self.id, data.process.id(), data.command);
+            // Send a SIGKILL to the process regardless of life or dead.
+            let _ = data.process.start_kill();
         }
     }
 }
 
 pub struct CommandPipelineProcessModel {
     pub command: String,
-    pub pid: u32,
+    pub pid: Option<u32>,
 }
 
 // input-side endpoint
@@ -214,7 +206,7 @@ pub struct CommandPipelineInput<T>
 where
     T: fmt::Display + Clone + Unpin,
 {
-    inner: tokio_snippet::ChildIo<ChildStdin>,
+    inner: ChildStdin,
     _pipeline_id: T,
     receiver: broadcast::Receiver<()>,
 }
@@ -224,7 +216,7 @@ where
     T: fmt::Display + Clone + Unpin,
 {
     fn new(
-        inner: tokio_snippet::ChildIo<ChildStdin>,
+        inner: ChildStdin,
         pipeline_id: T,
         receiver: broadcast::Receiver<()>,
     ) -> Self {
@@ -233,7 +225,7 @@ where
 
     fn has_pipeline_broken(&mut self) -> bool {
         match self.receiver.try_recv() {
-            Err(err) if err == broadcast::TryRecvError::Empty => false,
+            Err(err) if err == broadcast::error::TryRecvError::Empty => false,
             _ => true,
         }
     }
@@ -284,7 +276,7 @@ pub struct CommandPipelineOutput<T>
 where
     T: fmt::Display + Clone + Unpin,
 {
-    inner: tokio_snippet::ChildIo<ChildStdout>,
+    inner: ChildStdout,
     _pipeline_id: T,
     receiver: broadcast::Receiver<()>,
 }
@@ -294,7 +286,7 @@ where
     T: fmt::Display + Clone + Unpin,
 {
     fn new(
-        inner: tokio_snippet::ChildIo<ChildStdout>,
+        inner: ChildStdout,
         pipeline_id: T,
         receiver: broadcast::Receiver<()>,
     ) -> Self {
@@ -303,7 +295,7 @@ where
 
     fn has_pipeline_broken(&mut self) -> bool {
         match self.receiver.try_recv() {
-            Err(err) if err == broadcast::TryRecvError::Empty => false,
+            Err(err) if err == broadcast::error::TryRecvError::Empty => false,
             _ => true,
         }
     }
@@ -316,10 +308,10 @@ where
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context,
-        buf: &mut [u8]
-    ) -> Poll<io::Result<usize>> {
+        buf: &mut ReadBuf,
+    ) -> Poll<io::Result<()>> {
         if self.has_pipeline_broken() {
-            Poll::Ready(Ok(0))  // EOF
+            Poll::Ready(Ok(()))  // EOF
         } else {
             Pin::new(&mut self.inner).poll_read(cx, buf)
         }
@@ -330,9 +322,10 @@ where
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    #[test]
-    fn test_spawn_process() {
+    #[tokio::test]
+    async fn test_spawn_process() {
         let result = spawn_process("sh -c 'exit 0;'", Stdio::null());
         assert!(result.is_ok());
         let _ = result.unwrap().wait();
@@ -348,10 +341,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pipeline() {
+    async fn test_pipeline_io() {
         use futures::task::noop_waker;
 
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0).unwrap();
+        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8).unwrap();
         let (mut input, mut output) = pipeline.take_endpoints().unwrap();
 
         let result = input.write_all(b"hello").await;
@@ -363,7 +356,7 @@ mod tests {
         let result = input.shutdown().await;
         assert!(result.is_ok());
 
-        let mut buf = [0; 6];
+        let mut buf = [0u8; 6];
 
         let result = output.read(&mut buf).await;
         assert!(result.is_ok());
@@ -373,7 +366,8 @@ mod tests {
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
 
-        let poll =  Pin::new(&mut output).poll_read(&mut cx, &mut buf);
+        let mut rbuf = ReadBuf::new(&mut buf);
+        let poll = Pin::new(&mut output).poll_read(&mut cx, &mut rbuf);
         assert!(poll.is_pending());
 
         drop(input);
@@ -384,15 +378,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_pipeline_mulpile_commands() {
+        let mut pipeline = spawn_pipeline(vec![
+            "cat".to_string(),
+            "cat".to_string(),
+            "cat".to_string(),
+        ], 0u8).unwrap();
+        let (mut input, mut output) = pipeline.take_endpoints().unwrap();
+
+        let result = input.write_all(b"hello").await;
+        assert!(result.is_ok());
+
+        let result = input.flush().await;
+        assert!(result.is_ok());
+
+        let result = input.shutdown().await;
+        assert!(result.is_ok());
+
+        let mut buf = [0u8; 6];
+
+        let result = output.read(&mut buf).await;
+        assert!(result.is_ok());
+        assert_eq!(5, result.unwrap());
+        assert_eq!(b"hello\0", &buf);
+    }
+
+    #[tokio::test]
+    async fn test_pipeline_write_1mb() {
+        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8).unwrap();
+        let (mut input, mut output) = pipeline.take_endpoints().unwrap();
+
+        let handle = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            let result = output.read_to_end(&mut buf).await;
+            assert!(result.is_ok());
+            assert_eq!(1_000_000, result.unwrap());
+        });
+
+        let data = vec![0u8; 1_000_000];
+        let result = input.write_all(&data).await;
+        assert!(result.is_ok());
+
+        let result = input.flush().await;
+        assert!(result.is_ok());
+
+        let result = input.shutdown().await;
+        assert!(result.is_ok());
+
+        drop(input);
+
+        let _ = handle.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn test_pipeline_input_dropped() {
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0).unwrap();
+        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8).unwrap();
         let (mut input, mut output) = pipeline.take_endpoints().unwrap();
 
         let _ = input.write_all(b"hello").await;
 
         drop(input);
 
-        let mut buf = [0; 5];
+        let mut buf = [0u8; 5];
 
         let result = output.read(&mut buf).await;
         assert!(result.is_ok());
@@ -402,7 +449,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pipeline_output_dropped() {
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0).unwrap();
+        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8).unwrap();
         let (mut input, output) = pipeline.take_endpoints().unwrap();
 
         drop(output);
@@ -458,14 +505,14 @@ mod tests {
 
         let mut pipeline = spawn_pipeline(vec![
             "sh -c 'exec 0<&-;'".to_string(),
-        ], 0).unwrap();
+        ], 0u8).unwrap();
         let (input, _) = pipeline.take_endpoints().unwrap();
 
         let (tx, rx) = oneshot::channel();
         let mut wrapper = Wrapper::new(input, Some(tx));
 
         let handle = tokio::spawn(async move {
-            let data = [0; 8192];
+            let data = [0u8; 8192];
             loop {
                 if wrapper.write_all(&data).await.is_err() {
                     return;

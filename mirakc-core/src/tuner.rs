@@ -214,16 +214,14 @@ impl Actor for TunerManager {
 
 // query tuners
 
+#[derive(Message)]
+#[rtype(result = "Result<Vec<MirakurunTuner>, Error>")]
 pub struct QueryTunersMessage;
 
 impl fmt::Display for QueryTunersMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "QueryTuners")
     }
-}
-
-impl Message for QueryTunersMessage {
-    type Result = Result<Vec<MirakurunTuner>, Error>;
 }
 
 impl Handler<QueryTunersMessage> for TunerManager {
@@ -245,6 +243,8 @@ impl Handler<QueryTunersMessage> for TunerManager {
 
 // start streaming
 
+#[derive(Message)]
+#[rtype(result = "Result<TunerStream, Error>")]
 pub struct StartStreamingMessage {
     pub channel: EpgChannel,
     pub user: TunerUser,
@@ -256,12 +256,8 @@ impl fmt::Display for StartStreamingMessage {
     }
 }
 
-impl Message for StartStreamingMessage {
-    type Result = Result<TunerStream, Error>;
-}
-
 impl Handler<StartStreamingMessage> for TunerManager {
-    type Result = ActorResponse<Self, TunerStream, Error>;
+    type Result = ActorResponse<Self, Result<TunerStream, Error>>;
 
     fn handle(
         &mut self,
@@ -299,6 +295,8 @@ impl Handler<StartStreamingMessage> for TunerManager {
 
 // stop streaming
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct StopStreamingMessage {
     pub id: TunerSubscriptionId,
 }
@@ -307,10 +305,6 @@ impl fmt::Display for StopStreamingMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StopStreaming {}", self.id)
     }
-}
-
-impl Message for StopStreamingMessage {
-    type Result = ();
 }
 
 impl Handler<StopStreamingMessage> for TunerManager {
@@ -604,7 +598,7 @@ impl TunerSession {
     ) -> (Option<String>, Option<u32>, Vec<MirakurunTunerUser>) {
         (
             Some(self.command.clone()),
-            Some(self.pipeline.pids().as_slice().first().cloned().unwrap()),
+            self.pipeline.pids().iter().cloned().next().flatten(),
             self.subscribers.values().map(|user| user.get_mirakurun_model()).collect(),
         )
     }
@@ -645,7 +639,7 @@ mod tests {
     use assert_matches::assert_matches;
     use crate::command_util::Error as CommandUtilError;
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_activate_tuner() {
         let config: Arc<Config> = Arc::new(serde_yaml::from_str(r#"
             tuners:
@@ -688,7 +682,7 @@ mod tests {
         assert_ne!(subscription.id.session_id.session_number, prev.id.session_id.session_number);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_tuner_is_active() {
         let config = create_config("true".to_string());
         let mut tuner = Tuner::new(0, &config);
@@ -706,7 +700,7 @@ mod tests {
         tokio::task::yield_now().await;
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_tuner_activate() {
         {
             let config = create_config("true".to_string());
@@ -735,7 +729,7 @@ mod tests {
         }
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_tuner_stop_streaming() {
         let config = create_config("true".to_string());
         let mut tuner = Tuner::new(1, &config);
@@ -758,7 +752,7 @@ mod tests {
         tokio::task::yield_now().await;
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_tuner_can_grab() {
         let config = create_config("true".to_string());
         let mut tuner = Tuner::new(0, &config);
@@ -789,7 +783,7 @@ mod tests {
         tokio::task::yield_now().await;
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_tuner_reactivate() {
         let config = create_config("true".to_string());
         let mut tuner = Tuner::new(0, &config);

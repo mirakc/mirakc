@@ -4,7 +4,8 @@ use std::task::{Context, Poll};
 
 use actix_web::web::{Bytes, BytesMut};
 use tokio::io::AsyncRead;
-use tokio::stream::Stream;
+use tokio_stream::Stream;
+use tokio_util::io::poll_read_buf;
 
 // ChunkStream provides a stream of data chunks with a specific maximum size.
 //
@@ -34,7 +35,7 @@ where
     ) -> Poll<Option<Self::Item>> {
         let mut chunk = BytesMut::with_capacity(self.chunk_size);
         loop {
-            match Pin::new(&mut self.reader).poll_read_buf(cx, &mut chunk) {
+            match poll_read_buf(Pin::new(&mut self.reader), cx, &mut chunk) {
                 Poll::Ready(Ok(0)) => {
                     if chunk.is_empty() {
                         return Poll::Ready(None);
@@ -54,6 +55,7 @@ where
                     if chunk.is_empty() {
                         return Poll::Pending;
                     } else {
+                        cx.waker().wake_by_ref();
                         return Poll::Ready(Some(Ok(chunk.freeze())));
                     }
                 }

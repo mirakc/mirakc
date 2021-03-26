@@ -1,5 +1,7 @@
 use std::fmt;
+use std::future::Future;
 use std::io;
+use std::io::SeekFrom;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -9,10 +11,10 @@ use chrono::DateTime;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use tokio::prelude::*;
-use tokio::io::{AsyncSeek, BufReader, SeekFrom, Take};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader, ReadBuf, Take};
 use tokio::fs::File;
 use tokio::sync::oneshot;
+use tokio_stream::wrappers::LinesStream;
 
 use crate::config::*;
 use crate::chunk_stream::*;
@@ -732,7 +734,7 @@ impl Handler<ActivateTimeshiftRecorderMessage> for TimeshiftRecorder {
                             log::debug!("{}: Activation finished successfully", this.name);
                             this.session = Some(result.session);
                             let reader = BufReader::new(result.output);
-                            Self::add_stream(reader.lines(), ctx);
+                            Self::add_stream(LinesStream::new(reader.lines()), ctx);
                         }
                         Err(err) => {
                             log::error!("{}: Activation failed: {}", this.name, err);
@@ -1181,19 +1183,20 @@ impl AsyncRead for TimeshiftFileReader {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
+        buf: &mut ReadBuf,
+    ) -> Poll<io::Result<()>> {
         loop {
             if let Some(ref mut stop_signal) = self.stop_signal {
                 if Pin::new(stop_signal).poll(cx).is_ready() {
                     log::debug!("{}: Stopped reading", self.path);
-                    return Poll::Ready(Ok(0));
+                    return Poll::Ready(Ok(()));
                 }
             }
             match self.state {
                 TimeshiftFileReaderState::Read => {
+                    let len = buf.filled().len();
                     match Pin::new(&mut self.file).poll_read(cx, buf) {
-                        Poll::Ready(Ok(0)) => {
+                        Poll::Ready(Ok(_)) if buf.filled().len() == len => {
                             self.state = TimeshiftFileReaderState::Seek;
                             log::debug!("{}: EOF reached", self.path);
                         }
@@ -1203,16 +1206,13 @@ impl AsyncRead for TimeshiftFileReader {
                     }
                 }
                 TimeshiftFileReaderState::Seek => {
-                    match Pin::new(&mut self.file).start_seek(cx, SeekFrom::Start(0)) {
-                        Poll::Ready(Ok(_)) => {
+                    match Pin::new(&mut self.file).start_seek(SeekFrom::Start(0)) {
+                        Ok(_) => {
                             self.state = TimeshiftFileReaderState::Wait;
                             log::debug!("{}: Seek to the beginning", self.path);
                         }
-                        Poll::Ready(Err(err)) => {
+                        Err(err) => {
                             return Poll::Ready(Err(err));
-                        }
-                        Poll::Pending => {
-                            return Poll::Pending;
                         }
                     }
                 }

@@ -29,7 +29,7 @@ pub fn start(
     //   * Serialization and deserialization using serde
     //   * Conversions into Mirakurun-compatible models
     //
-    Epg::start_in_arbiter(&Arbiter::new(), |_| Epg::new(config, service_recipients))
+    Epg::start_in_arbiter(&Arbiter::new().handle(), |_| Epg::new(config, service_recipients))
 }
 
 pub struct Epg {
@@ -374,16 +374,14 @@ impl Actor for Epg {
 
 // query channels
 
+#[derive(Message)]
+#[rtype(result = "Result<Vec<MirakurunChannel>, Error>")]
 pub struct QueryChannelsMessage;
 
 impl fmt::Display for QueryChannelsMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "QueryChannels")
     }
-}
-
-impl Message for QueryChannelsMessage {
-    type Result = Result<Vec<MirakurunChannel>, Error>;
 }
 
 impl Handler<QueryChannelsMessage> for Epg {
@@ -419,6 +417,8 @@ impl Handler<QueryChannelsMessage> for Epg {
 
 // query channel
 
+#[derive(Message)]
+#[rtype(result = "Result<EpgChannel, Error>")]
 pub struct QueryChannelMessage {
     pub channel_type: ChannelType,
     pub channel: String,
@@ -428,10 +428,6 @@ impl fmt::Display for QueryChannelMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "QueryChannel by {}/{}", self.channel_type, self.channel)
     }
-}
-
-impl Message for QueryChannelMessage {
-    type Result = Result<EpgChannel, Error>;
 }
 
 impl Handler<QueryChannelMessage> for Epg {
@@ -457,16 +453,14 @@ impl Handler<QueryChannelMessage> for Epg {
 
 // query services
 
+#[derive(Message)]
+#[rtype(result = "Result<Vec<EpgService>, Error>")]
 pub struct QueryServicesMessage;
 
 impl fmt::Display for QueryServicesMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "QueryServices")
     }
-}
-
-impl Message for QueryServicesMessage {
-    type Result = Result<Vec<EpgService>, Error>;
 }
 
 impl Handler<QueryServicesMessage> for Epg {
@@ -488,6 +482,8 @@ impl Handler<QueryServicesMessage> for Epg {
 
 // query service
 
+#[derive(Message)]
+#[rtype(result = "Result<EpgService, Error>")]
 pub enum QueryServiceMessage {
     // For Mirakurun-compatible Web API
     ByNidSid { nid: NetworkId, sid: ServiceId },
@@ -500,10 +496,6 @@ impl fmt::Display for QueryServiceMessage {
                 write!(f, "QueryService By ({}, {})", nid, sid),
         }
     }
-}
-
-impl Message for QueryServiceMessage {
-    type Result = Result<EpgService, Error>;
 }
 
 impl Handler<QueryServiceMessage> for Epg {
@@ -529,6 +521,8 @@ impl Handler<QueryServiceMessage> for Epg {
 
 // query clock
 
+#[derive(Message)]
+#[rtype(result = "Result<Clock, Error>")]
 pub struct QueryClockMessage {
     pub triple: ServiceTriple,
 }
@@ -537,10 +531,6 @@ impl fmt::Display for QueryClockMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "QueryClock by {}", self.triple)
     }
-}
-
-impl Message for QueryClockMessage {
-    type Result = Result<Clock, Error>;
 }
 
 impl Handler<QueryClockMessage> for Epg {
@@ -558,16 +548,14 @@ impl Handler<QueryClockMessage> for Epg {
 
 // query programs
 
+#[derive(Message)]
+#[rtype(result = "Result<Vec<EpgProgram>, Error>")]
 pub struct QueryProgramsMessage;
 
 impl fmt::Display for QueryProgramsMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "QueryPrograms")
     }
-}
-
-impl Message for QueryProgramsMessage {
-    type Result = Result<Vec<EpgProgram>, Error>;
 }
 
 impl Handler<QueryProgramsMessage> for Epg {
@@ -589,6 +577,8 @@ impl Handler<QueryProgramsMessage> for Epg {
 
 // query program
 
+#[derive(Message)]
+#[rtype(result = "Result<EpgProgram, Error>")]
 pub enum QueryProgramMessage {
     // For Mirakurun-compatible Web API
     ByNidSidEid { nid: NetworkId, sid: ServiceId, eid: EventId },
@@ -601,10 +591,6 @@ impl fmt::Display for QueryProgramMessage {
                 write!(f, "QueryProgram By ({}, {}, {})", nid, sid, eid),
         }
     }
-}
-
-impl Message for QueryProgramMessage {
-    type Result = Result<EpgProgram, Error>;
 }
 
 impl Handler<QueryProgramMessage> for Epg {
@@ -641,6 +627,8 @@ impl Handler<QueryProgramMessage> for Epg {
 
 // update services
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct UpdateServicesMessage {
     pub results: Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)>,
 }
@@ -649,10 +637,6 @@ impl fmt::Display for UpdateServicesMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "UpdateServices")
     }
-}
-
-impl Message for UpdateServicesMessage {
-    type Result = ();
 }
 
 impl Handler<UpdateServicesMessage> for Epg {
@@ -670,6 +654,8 @@ impl Handler<UpdateServicesMessage> for Epg {
 
 // update clocks
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct UpdateClocksMessage {
     pub results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>,
 }
@@ -678,10 +664,6 @@ impl fmt::Display for UpdateClocksMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "UpdateClocks")
     }
-}
-
-impl Message for UpdateClocksMessage {
-    type Result = ();
 }
 
 impl Handler<UpdateClocksMessage> for Epg {
@@ -699,6 +681,8 @@ impl Handler<UpdateClocksMessage> for Epg {
 
 // update schedules
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct UpdateSchedulesMessage {
     pub sections: Vec<EitSection>,
 }
@@ -707,10 +691,6 @@ impl fmt::Display for UpdateSchedulesMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "UpdateSchedules with {} EIT sections", self.sections.len())
     }
-}
-
-impl Message for UpdateSchedulesMessage {
-    type Result = ();
 }
 
 impl Handler<UpdateSchedulesMessage> for Epg {
@@ -728,6 +708,8 @@ impl Handler<UpdateSchedulesMessage> for Epg {
 
 // flush schedules
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct FlushSchedulesMessage {
     pub triples: Vec<ServiceTriple>,
 }
@@ -740,10 +722,6 @@ impl fmt::Display for FlushSchedulesMessage {
             .collect();
         write!(f, "FlushSchedules for [{}]", triples.as_slice().join(", "))
     }
-}
-
-impl Message for FlushSchedulesMessage {
-    type Result = ();
 }
 
 impl Handler<FlushSchedulesMessage> for Epg {
@@ -761,16 +739,14 @@ impl Handler<FlushSchedulesMessage> for Epg {
 
 // save schedules
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct SaveSchedulesMessage;
 
 impl fmt::Display for SaveSchedulesMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "SaveSchedules")
     }
-}
-
-impl Message for SaveSchedulesMessage {
-    type Result = ();
 }
 
 impl Handler<SaveSchedulesMessage> for Epg {
@@ -791,6 +767,8 @@ impl Handler<SaveSchedulesMessage> for Epg {
 
 // update airtime
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct UpdateAirtimeMessage {
     pub quad: EventQuad,
     pub airtime: Airtime,
@@ -800,10 +778,6 @@ impl fmt::Display for UpdateAirtimeMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "UpdateAirtime of {}", self.quad)
     }
-}
-
-impl Message for UpdateAirtimeMessage {
-    type Result = ();
 }
 
 impl Handler<UpdateAirtimeMessage> for Epg {
@@ -821,6 +795,8 @@ impl Handler<UpdateAirtimeMessage> for Epg {
 
 // remove airtime
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct RemoveAirtimeMessage {
     pub quad: EventQuad,
 }
@@ -829,10 +805,6 @@ impl fmt::Display for RemoveAirtimeMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "RemoveAirtime of {}", self.quad)
     }
-}
-
-impl Message for RemoveAirtimeMessage {
-    type Result = ();
 }
 
 impl Handler<RemoveAirtimeMessage> for Epg {

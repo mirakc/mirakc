@@ -170,7 +170,7 @@ mod tests {
 
     type Mock = actix::actors::mocker::Mocker<TunerManager>;
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_scan_services_in_channel() {
         let mock = Mock::mock(Box::new(|msg, _ctx| {
             if let Some(_) = msg.downcast_ref::<StartStreamingMessage>() {

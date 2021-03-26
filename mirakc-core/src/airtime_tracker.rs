@@ -3,8 +3,7 @@ use chrono::{DateTime, Duration};
 use log;
 use serde::Deserialize;
 use serde_json;
-use tokio::prelude::*;
-use tokio::io::BufReader;
+use tokio::io::{AsyncRead, AsyncBufReadExt, BufReader};
 
 use crate::command_util;
 use crate::datetime_ext::*;

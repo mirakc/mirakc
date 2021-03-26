@@ -1,5 +1,6 @@
 use std::fmt;
 use std::fmt::Write as _;
+use std::future::Future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
@@ -7,8 +8,8 @@ use std::sync::Arc;
 
 use actix::prelude::*;
 use actix_files;
-use actix_service;
 use actix_web::{self, FromRequest};
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::web::{Bytes, BytesMut};
 use chrono::{DateTime, Duration};
 use futures;
@@ -16,6 +17,7 @@ use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_qs;
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::airtime_tracker;
 use crate::chunk_stream::ChunkStream;
@@ -643,7 +645,7 @@ async fn get_iptv_playlist(
     }
 
     Ok(actix_web::HttpResponse::Ok()
-       .set_header("content-type", "application/x-mpegurl; charset=UTF-8")
+       .insert_header(("content-type", "application/x-mpegurl; charset=UTF-8"))
        .body(buf))
 }
 
@@ -717,7 +719,7 @@ async fn get_iptv_epg(
     write!(buf, r#"</tv>"#)?;
 
     Ok(actix_web::HttpResponse::Ok()
-       .set_header("content-type", "application/xml; charset=UTF-8")
+       .insert_header(("content-type", "application/xml; charset=UTF-8"))
        .body(buf))
 }
 
@@ -805,8 +807,7 @@ where
         // seconds.
         let mut stream = ChunkStream::new(
             output, config.server.stream_chunk_size);
-        let (mut sender, receiver) =
-            mpsc::channel(config.server.stream_max_chunks);
+        let (sender, receiver) = mpsc::channel(config.server.stream_max_chunks);
         actix::spawn(async move {
             while let Some(result) = stream.next().await {
                 if let Ok(chunk) = result {
@@ -839,7 +840,7 @@ where
         });
 
         do_streaming(
-            user, receiver, content_type, range, stop_triggers,
+            user, ReceiverStream::new(receiver), content_type, range, stop_triggers,
             config.server.stream_time_limit).await
     }
 }
@@ -877,17 +878,17 @@ where
             let mut builder = actix_web::HttpResponse::Ok();
             builder
                 .force_close()
-               .set_header("cache-control", "no-store")
-               .set_header("content-type", content_type)
-               .set_header("x-mirakurun-tuner-user-id", user.get_mirakurun_model().id);
+               .insert_header(("cache-control", "no-store"))
+               .insert_header(("content-type", content_type))
+               .insert_header(("x-mirakurun-tuner-user-id", user.get_mirakurun_model().id));
             if let Some(range) = range {
                 if range.is_partial() {
                     builder
                         .status(actix_web::http::StatusCode::PARTIAL_CONTENT);
                 }
                 builder
-                    .set_header("accept-ranges", "bytes")
-                    .set_header("content-range", range.make_content_range());
+                    .insert_header(("accept-ranges", "bytes"))
+                    .insert_header(("content-range", range.make_content_range()));
             }
             Ok(builder.streaming(peekable))
         }
@@ -1054,21 +1055,17 @@ impl IptvEpgQuery {
 
 struct AccessControl;
 
-impl<S, B> actix_service::Transform<S> for AccessControl
+impl<S, B> Transform<S, ServiceRequest> for AccessControl
 where
-    S: actix_service::Service<Request = actix_web::dev::ServiceRequest,
-                              Response = actix_web::dev::ServiceResponse<B>,
-                              Error = actix_web::Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error>,
     S::Future: 'static,
     B: 'static,
 {
-    type Request = actix_web::dev::ServiceRequest;
-    type Response = actix_web::dev::ServiceResponse<B>;
-    type Error = actix_web::Error;
+    type Response = S::Response;
+    type Error = S::Error;
     type InitError = ();
     type Transform = AccessControlMiddleware<S>;
-    type Future =
-        futures::future::Ready<Result<Self::Transform, Self::InitError>>;
+    type Future = futures::future::Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
         futures::future::ok(AccessControlMiddleware(service))
@@ -1077,28 +1074,24 @@ where
 
 struct AccessControlMiddleware<S>(S);
 
-impl<S, B> actix_service::Service for AccessControlMiddleware<S>
+impl<S, B> Service<ServiceRequest> for AccessControlMiddleware<S>
 where
-    S: actix_service::Service<Request = actix_web::dev::ServiceRequest,
-                              Response = actix_web::dev::ServiceResponse<B>,
-                              Error = actix_web::Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error>,
     S::Future: 'static,
     B: 'static,
 {
-    type Request = actix_web::dev::ServiceRequest;
-    type Response = actix_web::dev::ServiceResponse<B>;
-    type Error = actix_web::Error;
-    type Future = Pin<Box<dyn futures::future::Future<
-            Output = Result<Self::Response, Self::Error>>>>;
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
     fn poll_ready(
-        &mut self,
+        &self,
         cx: &mut std::task::Context<'_>
     ) -> std::task::Poll<Result<(), Self::Error>> {
         self.0.poll_ready(cx)
     }
 
-    fn call(&mut self, req: actix_web::dev::ServiceRequest) -> Self::Future {
+    fn call(&self, req: ServiceRequest) -> Self::Future {
         // Take no account of HTTP Forwarded and X-Forwarded-For headers.
         let ip = req.peer_addr().map(|socket| socket.ip());
 
@@ -1213,7 +1206,7 @@ impl From<TimeshiftRecorderModel> for WebTimeshiftRecorder {
 #[serde(rename_all = "camelCase")]
 pub struct WebProcessModel {
     command: String,
-    pid: u32,
+    pid: Option<u32>,
 }
 
 impl From<CommandPipelineProcessModel> for WebProcessModel {
@@ -1257,7 +1250,6 @@ impl From<TimeshiftRecordModel> for WebTimeshiftRecord {
 mod tests {
     use super::*;
     use std::net::SocketAddr;
-    use actix_http;
     use assert_matches::assert_matches;
     use crate::broadcaster::BroadcasterStream;
 
@@ -1291,37 +1283,37 @@ mod tests {
         request(req).await
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_unknown() {
         let res = get("/api/unknown").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_version() {
         let res = get("/api/version").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_status() {
         let res = get("/api/status").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_channels() {
         let res = get("/api/channels").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_services() {
         let res = get("/api/services").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_service() {
         let res = get("/api/services/1").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1330,13 +1322,13 @@ mod tests {
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_programs() {
         let res = get("/api/programs").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_program() {
         let res = get("/api/programs/1").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1345,13 +1337,13 @@ mod tests {
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_tuners() {
         let res = get("/api/tuners").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_channel_stream() {
         let res = get("/api/channels/GR/ch/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1383,7 +1375,7 @@ mod tests {
         }
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_channel_service_stream() {
         let res = get("/api/channels/GR/ch/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1421,7 +1413,7 @@ mod tests {
         }
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_service_stream() {
         let res = get("/api/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1451,7 +1443,7 @@ mod tests {
         }
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_program_stream() {
         let res = get("/api/programs/100001/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1481,13 +1473,13 @@ mod tests {
         }
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_timeshift_recorders() {
         let res = get("/api/timeshift").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_timeshift_recorder() {
         let res = get("/api/timeshift/test").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1496,13 +1488,13 @@ mod tests {
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_timeshift_records() {
         let res = get("/api/timeshift/test/records").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_timeshift_record() {
         let res = get("/api/timeshift/test/records/1").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1511,7 +1503,7 @@ mod tests {
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_timeshift_stream() {
         let res = get("/api/timeshift/test/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1521,7 +1513,7 @@ mod tests {
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_timeshift_record_stream() {
         let res = get("/api/timeshift/test/records/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1531,24 +1523,24 @@ mod tests {
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_timeshift_program_stream() {
         // TODO
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_iptv_playlist() {
         let res = get("/api/iptv/playlist").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_get_docs() {
         let res = get("/api/docs").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_access_control() {
         let res = get_with_peer_addr(
             "/api/version", "127.0.0.1:10000".parse().unwrap()).await;
@@ -1568,7 +1560,7 @@ mod tests {
         assert!(!is_private_ip_addr("8.8.8.8".parse().unwrap()));
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_do_streaming() {
         let user = user_for_test(0.into());
 
@@ -1583,7 +1575,7 @@ mod tests {
         assert_matches!(result, Err(Error::StreamingTimedOut));
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_filter_setting() {
         async fn do_test(
             query: &str
@@ -1724,7 +1716,7 @@ mod tests {
                     Some(Ok(Vec::new())))
             } else if let Some(msg) = msg.downcast_ref::<StartStreamingMessage>() {
                 if msg.channel.channel == "ch" {
-                    let (mut tx, stream) = BroadcasterStream::new_for_test();
+                    let (tx, stream) = BroadcasterStream::new_for_test();
                     let _ = tx.try_send(Bytes::from("hi"));
                     let result = Ok(MpegTsStream::new(TunerSubscriptionId::default(), stream));
                     Box::<Option<Result<_, Error>>>::new(Some(result))

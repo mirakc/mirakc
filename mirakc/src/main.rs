@@ -4,7 +4,7 @@ use mirakc_core::*;
 use mirakc_core::error::Error;
 use mirakc_core::tracing_ext::init_tracing;
 
-#[actix_rt::main]
+#[actix::main]
 async fn main() -> Result<(), Error> {
     let args = clap::App::new(clap::crate_name!())
         .version(clap::crate_version!())

@@ -4,7 +4,7 @@ use std::pin::Pin;
 
 use actix_web::web::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tokio::stream::{Stream, StreamExt};
+use tokio_stream::{Stream, StreamExt};
 
 use crate::error::Error;
 
@@ -219,12 +219,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio_stream::wrappers::ReceiverStream;
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_pipe() {
-        let (mut tx, rx) = tokio::sync::mpsc::channel(1);
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
 
-        let stream = MpegTsStream::new(0, rx);
+        let stream = MpegTsStream::new(0, ReceiverStream::new(rx));
         let writer = TestWriter::new(b"hello");
         let handle = tokio::spawn(stream.pipe(writer));
 

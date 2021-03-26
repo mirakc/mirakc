@@ -4,12 +4,13 @@ use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use actix::prelude::*;
-use actix::dev::{MessageResponse, ResponseChannel};
 use actix_web::web::Bytes;
 use humantime;
 use log;
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
+use tokio_stream::Stream;
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::chunk_stream::ChunkStream;
 use crate::tuner::TunerSessionId as BroadcasterId;
@@ -65,8 +66,8 @@ impl Broadcaster {
     }
 
     fn broadcast(&mut self, chunk: Bytes) {
+        let chunk_size = chunk.len();
         for subscriber in self.subscribers.iter_mut() {
-            let chunk_size = chunk.len();
             match subscriber.sender.try_send(chunk.clone()) {
                 Ok(_) => {
                     log::trace!("{}: Sent a chunk of {} bytes to {}",
@@ -111,6 +112,8 @@ impl Actor for Broadcaster {
 
 // subscribe
 
+#[derive(Message)]
+#[rtype(result = "BroadcasterStream")]
 pub struct SubscribeMessage {
     pub id: SubscriberId
 }
@@ -118,22 +121,6 @@ pub struct SubscribeMessage {
 impl fmt::Display for SubscribeMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Subscribe with {}", self.id)
-    }
-}
-
-impl Message for SubscribeMessage {
-    type Result = BroadcasterStream;
-}
-
-impl<A, M> MessageResponse<A, M> for BroadcasterStream
-where
-    A: Actor,
-    M: Message<Result = BroadcasterStream>,
-{
-    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-        if let Some(tx) = tx {
-            tx.send(self);
-        }
     }
 }
 
@@ -152,6 +139,8 @@ impl Handler<SubscribeMessage> for Broadcaster {
 
 // unsubscribe
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct UnsubscribeMessage {
     pub id: SubscriberId
 }
@@ -160,10 +149,6 @@ impl fmt::Display for UnsubscribeMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Unsubscribe with {}", self.id)
     }
-}
-
-impl Message for UnsubscribeMessage {
-    type Result = ();
 }
 
 impl Handler<UnsubscribeMessage> for Broadcaster {
@@ -202,11 +187,12 @@ impl StreamHandler<io::Result<Bytes>> for Broadcaster {
 
 // stream
 
-pub struct BroadcasterStream(mpsc::Receiver<Bytes>);
+#[derive(MessageResponse)]
+pub struct BroadcasterStream(ReceiverStream<Bytes>);
 
 impl BroadcasterStream {
     fn new(rx: mpsc::Receiver<Bytes>) -> Self {
-        Self(rx)
+        Self(ReceiverStream::new(rx))
     }
 
     #[cfg(test)]
@@ -232,18 +218,19 @@ impl Stream for BroadcasterStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cmp;
     use std::pin::Pin;
     use std::task::{Poll, Context};
-    use tokio::stream::StreamExt;
+    use tokio::io::ReadBuf;
     use tokio::sync::mpsc;
+    use tokio_stream::StreamExt;
+    use tokio_stream::wrappers::ReceiverStream;
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_broadcast() {
-        let (mut tx, rx) = mpsc::channel(1);
+        let (tx, rx) = mpsc::channel(1);
 
         let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(Default::default(), DataSource(rx), 1000, ctx)
+            Broadcaster::new(Default::default(), DataSource::new(rx), 1000, ctx)
         });
 
         let mut stream1 = broadcaster.send(SubscribeMessage {
@@ -263,12 +250,12 @@ mod tests {
         assert!(chunk.is_some());
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_unsubscribe() {
-        let (mut tx, rx) = mpsc::channel(1);
+        let (tx, rx) = mpsc::channel(1);
 
         let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(Default::default(), DataSource(rx), 1000, ctx)
+            Broadcaster::new(Default::default(), DataSource::new(rx), 1000, ctx)
         });
 
         let mut stream1 = broadcaster.send(SubscribeMessage {
@@ -292,12 +279,12 @@ mod tests {
         assert!(chunk.is_some());
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn test_timeout() {
-        let (mut tx, rx) = mpsc::channel(1);
+        let (tx, rx) = mpsc::channel(1);
 
         let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(Default::default(), DataSource(rx), 50, ctx)
+            Broadcaster::new(Default::default(), DataSource::new(rx), 50, ctx)
         });
 
         let mut stream1 = broadcaster.send(SubscribeMessage {
@@ -322,21 +309,27 @@ mod tests {
 
     // we can use `futures::stream::repeat(1)` as data source in tests once
     // actix/actix/pull/363 is release.
-    struct DataSource(mpsc::Receiver<Bytes>);
+    struct DataSource(ReceiverStream<Bytes>);
+
+    impl DataSource {
+        fn new(rx: mpsc::Receiver<Bytes>) -> Self {
+            DataSource(ReceiverStream::new(rx))
+        }
+    }
 
     impl AsyncRead for DataSource {
         fn poll_read(
             mut self: Pin<&mut Self>,
             cx: &mut Context,
-            buf: &mut [u8]
-        ) -> Poll<io::Result<usize>> {
+            buf: &mut ReadBuf,
+        ) -> Poll<io::Result<()>> {
             match Pin::new(&mut self.0).poll_next(cx) {
                 Poll::Ready(Some(chunk)) => {
-                    let len = cmp::min(chunk.len(), buf.len());
-                    buf[..len].copy_from_slice(&chunk[..len]);
-                    Poll::Ready(Ok(len))
+                    let len = chunk.len().min(buf.remaining());
+                    buf.put_slice(&chunk[..len]);
+                    Poll::Ready(Ok(()))
                 }
-                Poll::Ready(None) => Poll::Ready(Ok(0)),
+                Poll::Ready(None) => Poll::Ready(Ok(())),
                 Poll::Pending => Poll::Pending,
             }
         }
