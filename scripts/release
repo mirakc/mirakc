@@ -3,21 +3,28 @@
 PROGNAME="$(basename $0)"
 BASEDIR="$(cd $(dirname $0); pwd)"
 PROJDIR="$(cd $BASEDIR/..; pwd)"
+CURRENT=$(git describe --abbrev=0)
 
 NO_COMMIT=NO
 
 help() {
     cat <<EOF >&2
 USAGE:
-  $PROGNAME <version>
+  $PROGNAME [--no-commit] (major|minor|patch)
   $PROGNAME -h | --help
 
 OPTIONS:
   -h, --help
 
 ARGUMENTS:
-  version
-    Version string in the semver format.
+  major
+    Update the major version.
+
+  minor
+    Update the minor version.
+
+  patch
+    Update the patch version.
 EOF
     exit 0
 }
@@ -41,17 +48,16 @@ do
       NO_COMMIT=YES
       shift
       ;;
-    *)
+    'major' | 'minor' | 'patch')
       break
+      ;;
+    *)
+      help
       ;;
   esac
 done
 
-if [ $# -eq 0 ]; then
-  error "VERSION is required"
-fi
-
-VERSION="$1"
+VERSION=$(npx semver $CURRENT -i $1)
 
 log "Pulling changes from origin..."
 git pull
