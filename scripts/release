@@ -68,9 +68,9 @@ do
   # Don't use the -i option of `sed`.
   # The incompatibility between macOS and GNU will cause troubles.
   sed -e "s/^version = .*/version = \"$VERSION\"/" $MANIFEST | sponge $MANIFEST
-  git add $MANIFEST
 done
 cargo build
+git add .
 if [ "$NO_COMMIT" = NO ]; then
   git commit -m "misc: bump version to $VERSION"
 fi
