@@ -7,7 +7,7 @@ TARGETPLATFORM=$3
 
 . $BASEDIR/vars.sh
 
-MIRAKC_ARIB_VERSION='0.14.2'
+MIRAKC_ARIB_VERSION='0.14.3'
 ARCHIVE="https://github.com/mirakc/mirakc-arib/archive/$MIRAKC_ARIB_VERSION.tar.gz"
 
 curl -fsSL $ARCHIVE | tar -xz --strip-components=1
