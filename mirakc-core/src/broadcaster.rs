@@ -188,6 +188,7 @@ impl StreamHandler<io::Result<Bytes>> for Broadcaster {
 // stream
 
 #[derive(MessageResponse)]
+#[cfg_attr(test, derive(Debug))]
 pub struct BroadcasterStream(ReceiverStream<Bytes>);
 
 impl BroadcasterStream {

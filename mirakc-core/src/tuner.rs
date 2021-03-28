@@ -45,7 +45,7 @@ impl fmt::Display for TunerSessionId {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-#[cfg_attr(test, derive(Default))]
+#[cfg_attr(test, derive(Debug, Default))]
 pub struct TunerSubscriptionId {
     session_id: TunerSessionId,
     serial_number: u32,
@@ -640,7 +640,7 @@ mod tests {
     use crate::command_util::Error as CommandUtilError;
 
     #[actix::test]
-    async fn test_activate_tuner() {
+    async fn test_start_streaming() {
         let config: Arc<Config> = Arc::new(serde_yaml::from_str(r#"
             tuners:
               - name: bs
@@ -653,33 +653,43 @@ mod tests {
                   true
         "#).unwrap());
 
-        let mut manager = TunerManager::new(config);
-        manager.load_tuners();
+        let manager = start(config);
 
-        let result = manager.activate_tuner(create_channel("0"), create_user(0.into()));
-        assert!(result.is_ok());
-        // `assert_matches!(result, Ok(subscription) => ...)` doesn't work because
-        // TunerSubscription has not implemented std::fmt::Debug.
-        let prev = result.unwrap();
-        assert_eq!(prev.id.session_id.tuner_index, 1);
+        let result = manager.send(StartStreamingMessage {
+            channel: create_channel("0"),
+            user: create_user(0.into()),
+        }).await;
+        let stream1 = assert_matches!(result, Ok(Ok(stream)) => {
+            assert_eq!(stream.id().session_id.tuner_index, 1);
+            stream
+        });
 
         // Reuse the tuner
-        let result = manager.activate_tuner(create_channel("0"), create_user(1.into()));
-        assert!(result.is_ok());
-        let subscription = result.unwrap();
-        assert_eq!(subscription.id.session_id, prev.id.session_id);
-        assert_ne!(subscription.id.serial_number, prev.id.serial_number);
+        let result = manager.send(StartStreamingMessage {
+            channel: create_channel("0"),
+            user: create_user(1.into()),
+        }).await;
+        assert_matches!(result, Ok(Ok(stream)) => {
+            assert_eq!(stream.id().session_id, stream1.id().session_id);
+            assert_ne!(stream.id(), stream1.id());
+        });
 
-        // Lower priority user cannot grab the tuner
-        let result = manager.activate_tuner(create_channel("1"), create_user(0.into()));
-        assert!(result.is_err());
+        // Lower and same priority user cannot grab the tuner
+        let result = manager.send(StartStreamingMessage {
+            channel: create_channel("1"),
+            user: create_user(1.into()),
+        }).await;
+        assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
 
         // Higher priority user can grab the tuner
-        let result = manager.activate_tuner(create_channel("1"), create_user(2.into()));
-        assert!(result.is_ok());
-        let subscription = result.unwrap();
-        assert_eq!(subscription.id.session_id.tuner_index, prev.id.session_id.tuner_index);
-        assert_ne!(subscription.id.session_id.session_number, prev.id.session_id.session_number);
+        let result = manager.send(StartStreamingMessage {
+            channel: create_channel("1"),
+            user: create_user(2.into()),
+        }).await;
+        assert_matches!(result, Ok(Ok(stream)) => {
+            assert_eq!(stream.id().session_id.tuner_index, 1);
+            assert_ne!(stream.id().session_id, stream1.id().session_id);
+        });
     }
 
     #[actix::test]

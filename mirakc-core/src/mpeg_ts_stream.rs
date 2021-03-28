@@ -8,6 +8,7 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::error::Error;
 
+#[cfg_attr(test, derive(Debug))]
 pub struct MpegTsStream<T, S> {
     id: T,
     stream: S,
@@ -76,6 +77,7 @@ where
 }
 
 #[derive(Clone)]
+#[cfg_attr(test, derive(Debug))]
 pub struct MpegTsStreamRange {
     pub first: u64,
     pub last: u64,
