@@ -1046,6 +1046,7 @@ dependencies = [
  "log 0.4.14",
  "mustache",
  "num_cpus",
+ "once_cell",
  "serde",
  "serde_json",
  "serde_qs",
