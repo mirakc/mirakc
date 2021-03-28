@@ -358,12 +358,6 @@ mod tests {
     use assert_matches::assert_matches;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    #[test]
-    fn test_command_pipeline_termination_wait_nanos() {
-        let _ = env::set_var("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS", "1");
-        assert_eq!(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS, Duration::from_nanos(1));
-    }
-
     #[tokio::test]
     async fn test_spawn_process() {
         let result = spawn_process("sh -c 'exit 0;'", Stdio::null());
