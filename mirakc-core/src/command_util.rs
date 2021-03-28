@@ -5,11 +5,30 @@ use std::io;
 use std::pin::Pin;
 use std::process::Stdio;
 use std::task::{Poll, Context};
+use std::time::Duration;
+use std::thread::sleep;
 
 use failure::Fail;
+use humantime;
+use once_cell::sync::Lazy;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader, ReadBuf};
 use tokio::process::{Command, Child, ChildStdin, ChildStdout};
 use tokio::sync::broadcast;
+
+const COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT: Duration =
+    Duration::from_nanos(100_000);  // 100us
+
+static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
+    let nanos = env::var("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS")
+        .ok()
+        .map(|s| s.parse::<u64>()
+             .expect("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS must be a u64 value"))
+        .map(|nanos| Duration::from_nanos(nanos))
+        .unwrap_or(COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT);
+    log::debug!("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: {}",
+                humantime::format_duration(nanos));
+    nanos
+});
 
 pub fn spawn_process(
     command: &str,
@@ -188,10 +207,25 @@ where
                 None => log::debug!("{}: Already terminated: {}", self.id, data.command),
             }
         }
+        log::debug!("{}: Wait for the command pipeline termination...", self.id);
         for data in self.commands.iter_mut() {
             // Send a SIGKILL to the process regardless of life or dead.
             let _ = data.process.start_kill();
+
+            // It's necessary to wait for the process termination because the process may
+            // exclusively use resources like a tuner device.
+            //
+            // However, we cannot wait for any async task here, so we wait for the process
+            // termination in a busy loop.
+            loop {
+                match data.process.try_wait() {
+                    Ok(None) => (),
+                    _ => break,
+                }
+                sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
+            }
         }
+        log::debug!("{}: The command pipeline has terminated", self.id);
     }
 }
 
@@ -323,6 +357,12 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn test_command_pipeline_termination_wait_nanos() {
+        let _ = env::set_var("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS", "1");
+        assert_eq!(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS, Duration::from_nanos(1));
+    }
 
     #[tokio::test]
     async fn test_spawn_process() {
