@@ -43,6 +43,5 @@ $($DOCKER run --rm -v $BASEDIR/github/workflows:/workdir mikefarah/yq:3 yq m \
     build.job.yml \
     cross-build.job.yml \
     coverage.job.yml \
-    auto-merge.job.yml \
 )
 EOF

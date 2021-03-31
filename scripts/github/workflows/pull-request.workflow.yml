@@ -14,8 +14,16 @@ jobs:
     needs:
       - build
       - cross-build
-  auto-merge:
-    if: github.actor == 'dependabot[bot]'
-    needs:
-      - build
-      - cross-build
+  # FIXME
+  # -----
+  # auto-merge doesn't work due to the change described in the following blog:
+  # https://github.blog/changelog/2021-02-19-github-actions-workflows-triggered-by-dependabot-prs-will-run-with-read-only-permissions/
+  #
+  # See also:
+  # https://github.com/actions/checkout/issues/298
+  #
+  # auto-merge:
+  #   if: github.actor == 'dependabot[bot]'
+  #   needs:
+  #     - build
+  #     - cross-build
