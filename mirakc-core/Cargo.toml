@@ -34,5 +34,5 @@ tracing = "0.1.25"
 tracing-subscriber = "0.2.16"
 
 [dev-dependencies]
-actix-http = "3.0.0-beta.4"
+actix-http = "3.0.0-beta.5"
 assert_matches = "1.5.0"
