@@ -247,3 +247,4 @@ curl -sG http://mirakc:40772/api/timeshift/etv/records/1/stream
 ```
 
 You can specify pre-filters and post-filters like any other endpoint for streaming.
+You cannot seek the stream when you specify post-filters.

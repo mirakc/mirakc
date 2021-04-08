@@ -1102,7 +1102,8 @@ pub struct TimeshiftRecordStreamSource {
 
 impl TimeshiftRecordStreamSource {
     pub async fn create_stream(
-        self
+        self,
+        accept_range: bool,
     ) -> Result<(TimeshiftRecordStream, TimeshiftStreamStopTrigger), Error> {
         log::debug!("{}: Start streaming {} bytes of {} from {}",
                     self.recorder_name, self.range.bytes(), self.id, self.start);
@@ -1112,7 +1113,11 @@ impl TimeshiftRecordStreamSource {
         reader.set_position(self.start).await?;
         let stream = ChunkStream::new(reader.take(self.range.bytes()), CHUNK_SIZE);
         let id = format!("timeshift({})/{}", self.recorder_name, self.id);
-        Ok((MpegTsStream::with_range(id, stream, self.range).decoded(), stop_trigger))
+        if accept_range {
+            Ok((MpegTsStream::with_range(id, stream, self.range).decoded(), stop_trigger))
+        } else {
+            Ok((MpegTsStream::new(id, stream).decoded(), stop_trigger))
+        }
     }
 
     #[cfg(test)]

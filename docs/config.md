@@ -463,6 +463,8 @@ will build the following filter pipeline:
 pre-filters.record | service-filter | decode-filter | program-filter
 ```
 
+Pre-filters may change TS packets in the stream, but must not add and remove ones in the stream.
+
 ### post-filters
 
 A map of named filters which can be inserted at the output-side endpoint of the
@@ -482,6 +484,9 @@ will build the following filter pipeline:
 ```
 service-filter | decode-filter | program-filter | post-filters.transcode
 ```
+
+Post-filters may change, add and remove TS packets in the stream, and also may change the
+content-type of the stream.
 
 ## jobs
 

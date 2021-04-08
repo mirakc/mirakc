@@ -569,7 +569,10 @@ async fn get_timeshift_record_stream(
         start_pos,
     }).await??;
 
-    let (stream, stop_trigger) = src.create_stream().await?;
+    // We assume that pre-filters don't change TS packets.
+    let accept_range = filter_setting.post_filters.is_empty();
+
+    let (stream, stop_trigger) = src.create_stream(accept_range).await?;
 
     let video_tags: Vec<u8> = record.program.video
         .iter()
@@ -888,7 +891,8 @@ where
                 }
                 builder
                     .insert_header(("accept-ranges", "bytes"))
-                    .insert_header(("content-range", range.make_content_range()));
+                    .insert_header(("content-range", range.make_content_range()))
+                    .no_chunking(range.bytes());
             }
             Ok(builder.streaming(peekable))
         }
@@ -1252,6 +1256,7 @@ mod tests {
     use std::net::SocketAddr;
     use assert_matches::assert_matches;
     use crate::broadcaster::BroadcasterStream;
+    use crate::config::{FilterConfig, PostFilterConfig};
 
     async fn request(req: actix_http::Request) -> actix_web::HttpResponse {
         let mut app = actix_web::test::init_service(
@@ -1518,6 +1523,23 @@ mod tests {
         let res = get("/api/timeshift/test/records/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
         assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
+        assert!(res.headers().contains_key("accept-ranges"));
+        assert!(res.headers().contains_key("content-range"));
+        assert!(res.headers().contains_key("content-length"));
+
+        let res = get("/api/timeshift/test/records/1/stream?pre-filters[]=cat").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
+        assert!(res.headers().contains_key("accept-ranges"));
+        assert!(res.headers().contains_key("content-range"));
+        assert!(res.headers().contains_key("content-length"));
+
+        let res = get("/api/timeshift/test/records/1/stream?post-filters[]=cat").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
+        assert!(!res.headers().contains_key("accept-ranges"));
+        assert!(!res.headers().contains_key("content-range"));
+        assert!(!res.headers().contains_key("content-length"));
 
         let res = get("/api/timeshift/not_found/records/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -1698,9 +1720,17 @@ mod tests {
 
     fn config_for_test() -> Arc<Config> {
         let mut config = Config::default();
-        // Disable all filters
+        // Disable service and program filters
         config.filters.service_filter = Default::default();
         config.filters.program_filter = Default::default();
+        // filters for testing
+        config.pre_filters.insert("cat".to_string(), FilterConfig {
+            command: "cat".to_string(),
+        });
+        config.post_filters.insert("cat".to_string(), PostFilterConfig {
+            command: "cat".to_string(),
+            content_type: None,
+        });
         // Disable tracking airtime
         config.recorder.track_airtime_command = "true".to_string();
         // "/dev/null" is enough to test
