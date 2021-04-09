@@ -16,7 +16,7 @@ There are two types of pre-built images in [DockerHub]:
 Where:
 
 * VERSION
-  * master or version tags
+  * main or version tags
   * LATEST_VERSION points to the latest version tag
 * DISTRIBUTION
   * alpine

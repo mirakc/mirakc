@@ -87,6 +87,6 @@ Done.
 
 Run the following commands after confirmation:
 
-  git push -u origin master
+  git push -u origin main
   git push origin $VERSION
 EOF
