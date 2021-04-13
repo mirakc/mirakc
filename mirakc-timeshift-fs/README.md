@@ -16,7 +16,7 @@ The directory structure is like below:
   |
   +-- <sanitized recorder.name>/
   |     |
-  .     +-- <sanitized record.program.name>.<record.id>.m2ts
+  .     +-- <record.id>_<sanitized record.program.name>.m2ts
   .     |
   .     .
 ```

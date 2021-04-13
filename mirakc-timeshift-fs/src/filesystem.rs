@@ -123,10 +123,10 @@ impl TimeshiftFilesystem {
         // following filename may be specified in `name`:
         //
         //   filename made in open_recorder_dir():
-        //     ごごナマ..[字].6049B5AB.m2ts
+        //     6049B5AB_ごごナマ..[字].m2ts
         //
         //   LOOKUP name:
-        //     こ\u{3099}こ\u{3099}ナマ..[字].6049B5AB.m2ts
+        //     6049B5AB_こ\u{3099}こ\u{3099}ナマ..[字].m2ts
         //
         // The normalization form applied to the filename depends on the implementation of
         // each application.  For example, VLC applies NFD before opening a file.  On the other
@@ -135,20 +135,16 @@ impl TimeshiftFilesystem {
         // exactly:
         //
         //   # `cat` seems not to change the filename
-        //   cat ごごナマ..[字].6049B5AB.m2ts | ffplay -
+        //   cat 6049B5AB_ごごナマ..[字].m2ts | ffplay -
         //
         // Conversion between String and OsString may not be idempotent.  Therefore, normalizing
         // before comparison may not work in general.
         //
         // We first extract the record ID encoded in `name`, and then look for a record identified
         // with it.
-        let name = name.to_string_lossy();  // may change <title>, but keeps <id> and the separator.
-        if !name.ends_with(".m2ts") {
-            return None;
-        }
-        name.split('.')  // <title>.<id>.m2ts
-            .rev()  // ["m2ts", <id>, ...]
-            .nth(1)  // <id>
+        name.to_string_lossy()  // may change <title>, but keeps <id> and the separator.
+            .split('_')  // <id>_<title>.m2ts
+            .next()  // <id>
             .and_then(|s| u32::from_str_radix(s, 16).ok())
             .map(TimeshiftRecordId::from)
             .map(|record_id| Ino::create_record_ino(
@@ -197,7 +193,7 @@ impl TimeshiftFilesystem {
                 .map(|s| truncate_string_within(s, Self::MAX_TITLE_SIZE))
                 .unwrap_or("".to_string());
             let filename = sanitize_filename::sanitize(
-                format!("{}.{:08X}.m2ts", title, record.id.value()));
+                format!("{:08X}_{}.m2ts", record.id.value(), title));
             debug_assert!(filename.ends_with(".m2ts"));
             entries.push((ino.0, fuser::FileType::RegularFile, filename));
         }
