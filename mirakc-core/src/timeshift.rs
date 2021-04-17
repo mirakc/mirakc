@@ -460,7 +460,7 @@ impl TimeshiftRecorder {
         }
         self.invalidate_first_chunk();
         self.purge_expired_records();
-        self.chop_record_to_be_overwritten();
+        self.crop_record_to_be_overwritten();
     }
 
     fn invalidate_first_chunk(&mut self) {
@@ -470,9 +470,14 @@ impl TimeshiftRecorder {
         log::debug!("{}: Chunk#{}: Invalidated", self.name, index);
     }
 
+    // Purge records which ended recording before the first timestamp.
+    //
+    // A record which started recording before the timestamp and ended recording after the
+    // timestamp it NOT purged.  Because it has data in available chunks and can be provided
+    // via Web endpoints for streaming.
     fn purge_expired_records(&mut self) {
         assert!(!self.points.is_empty());
-        let timestamp = self.points[0].timestamp;  // timestamp of the first chunk
+        let timestamp = self.points[0].timestamp;
         let n = self.records.values()
             .position(|record| record.end.timestamp > timestamp)
             .unwrap_or(self.records.len());
@@ -481,15 +486,21 @@ impl TimeshiftRecorder {
         }
     }
 
-    fn chop_record_to_be_overwritten(&mut self) {
+    // Crop the beginning of a record to be overwritten.
+    //
+    // REMARKS
+    // -------
+    // The mtime and ctime of a file that corresponds to the cropped record exposed onto a
+    // timeshift-fs are not changed.  That may cause issues in other applications.
+    fn crop_record_to_be_overwritten(&mut self) {
         assert!(!self.points.is_empty());
-        let first = self.points[0].clone();
-        for record in self.records.values_mut() {
-            if record.start.timestamp < first.timestamp {
-                log::info!("{}: {}: Chopped: {}", self.name, record.id, record.program.name());
-                record.start = first.clone();
-            } else {
-                break;
+        let start = self.points[0].clone();
+        // Checking the first record is enough because old records have already been purged in
+        // purge_expired_records().
+        if let Some((_, record)) = self.records.first_mut() {
+            if record.start.timestamp < start.timestamp {
+                record.start = start;
+                log::info!("{}: {}: Cropped: {}", self.name, record.id, record.program.name());
             }
         }
     }
