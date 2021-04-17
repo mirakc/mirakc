@@ -476,6 +476,7 @@ impl TimeshiftRecorder {
         }
         self.invalidate_first_chunk();
         self.purge_expired_records();
+        self.chop_record_to_be_overwritten();
     }
 
     fn invalidate_first_chunk(&mut self) {
@@ -493,6 +494,19 @@ impl TimeshiftRecorder {
             .unwrap_or(self.records.len());
         for (_, record) in self.records.drain(0..n) {  // remove first n records
             log::info!("{}: {}: Purged: {}", self.name, record.id, record.program.name());
+        }
+    }
+
+    fn chop_record_to_be_overwritten(&mut self) {
+        assert!(!self.points.is_empty());
+        let first = self.points[0].clone();
+        for record in self.records.values_mut() {
+            if record.start.timestamp < first.timestamp {
+                log::info!("{}: {}: Chopped: {}", self.name, record.id, record.program.name());
+                record.start = first.clone();
+            } else {
+                break;
+            }
         }
     }
 

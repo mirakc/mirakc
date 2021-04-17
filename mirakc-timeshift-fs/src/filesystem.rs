@@ -668,7 +668,7 @@ impl RecordBuffer {
         debug_assert!(self.buf.is_empty());
         debug_assert!(range.end - range.start <= usize::max_value() as u64);
         let len = (range.end - range.start) as usize;
-        self.ensure_bufsize(len);
+        self.buf.reserve(len);
         self.file.seek(SeekFrom::Start(range.start))?;
         let _ = (&mut self.file).take(len as u64).read_to_end(&mut self.buf)?;
         debug_assert!(self.buf.len() == len);
@@ -682,7 +682,7 @@ impl RecordBuffer {
         debug_assert!(second.end - second.start <= usize::max_value() as u64);
         let second_len = (second.end - second.start) as usize;
         debug_assert!((first_len as u64) + (second_len as u64) <= usize::max_value() as u64);
-        self.ensure_bufsize(first_len + second_len);
+        self.buf.reserve(first_len + second_len);
         self.file.seek(SeekFrom::Start(first.start))?;
         let _ = (&mut self.file).take(first_len as u64).read_to_end(&mut self.buf)?;
         debug_assert!(self.buf.len() == first_len);
@@ -694,13 +694,6 @@ impl RecordBuffer {
 
     fn reset(&mut self) {
         self.buf.truncate(0);
-    }
-
-    fn ensure_bufsize(&mut self, len: usize) {
-        let cap = self.buf.capacity();
-        if len > cap {
-            self.buf.reserve(len);
-        }
     }
 }
 
@@ -734,6 +727,7 @@ fn calc_read_ranges(
     size: u32,
 ) -> (Option<Range<u64>>, Option<Range<u64>>) {
     assert!(offset >= 0);
+    assert!(record_pos < file_size);
 
     if record_size == 0 {
         return (None, None);
@@ -747,16 +741,16 @@ fn calc_read_ranges(
     let remaining = record_size - (offset as u64);
     let read_size = remaining.min(size as u64);
 
-    let start = record_pos + (offset as u64);
-    let end = start + read_size;
+    let start = (record_pos + (offset as u64)) % file_size;
+    let end = (start + read_size) % file_size;
 
-    if start >= file_size || end <= file_size {
-        return (Some((start % file_size)..(end % file_size)), None);
+    if end == 0 {
+        (Some(start..file_size), None)
+    } else if start < end {
+        (Some(start..end), None)
+    } else {
+        (Some(start..file_size), Some(0..end))
     }
-
-    debug_assert!(start < file_size);
-    debug_assert!(end > file_size);
-    return (Some(start..file_size), Some(0..(end % file_size)));
 }
 
 fn system_time_from_unix_time(unix_time: i64) -> std::time::SystemTime {
@@ -805,9 +799,15 @@ mod tests {
     fn test_calc_read_ranges() {
         assert_eq!(calc_read_ranges(100, 0, 10, 10, 10), (None, None));
         assert_eq!(calc_read_ranges(100, 1, 10, 10, 10), (None, None));
-        assert_eq!(calc_read_ranges(100, 30, 110, 10, 10), (Some(20..30), None));
-        assert_eq!(calc_read_ranges(100, 30, 50, 10, 10), (Some(60..70), None));
+        assert_eq!(calc_read_ranges(100, 30, 10, 10, 10), (Some(20..30), None));
+        assert_eq!(calc_read_ranges(100, 30, 10, 20, 20), (Some(30..40), None));
+        assert_eq!(calc_read_ranges(100, 30, 10, 30, 10), (None, None));
+        assert_eq!(calc_read_ranges(100, 30, 70, 20, 10), (Some(90..100), None));
+        assert_eq!(calc_read_ranges(100, 30, 70, 20, 20), (Some(90..100), None));
+        assert_eq!(calc_read_ranges(100, 30, 70, 30, 10), (None, None));
         assert_eq!(calc_read_ranges(100, 30, 80, 10, 20), (Some(90..100), Some(0..10)));
+        assert_eq!(calc_read_ranges(100, 30, 80, 20, 20), (Some(0..10), None));
+        assert_eq!(calc_read_ranges(100, 30, 80, 30, 10), (None, None));
     }
 
     #[test]
