@@ -363,8 +363,8 @@ impl TimeshiftRecorder {
             }
     }
 
-    fn save_data(&self, point: &TimeshiftPoint) {
-        match self.do_save_data(point) {
+    fn save_data(&self) {
+        match self.do_save_data() {
             Ok(n) => {
                 if n == 0 {
                     log::debug!("{}: No records to save", self.name);
@@ -379,33 +379,17 @@ impl TimeshiftRecorder {
         }
     }
 
-    fn do_save_data(&self, point: &TimeshiftPoint) -> Result<usize, Error> {
-        let service = self.service.clone();
-        let chunk_size = self.config().chunk_size;
-        let max_chunks = self.config().max_chunks();
-        let records: IndexMap<_, _> = self.records
-            .iter()
-            .filter_map(|(id, record)| {
-                assert!(record.start.timestamp <= point.timestamp);
-                assert!(record.end.timestamp <= point.timestamp);
-                if record.start.pos == record.end.pos {  // no data
-                    None
-                } else {
-                    let mut cloned = record.clone();
-                    if cloned.recording {
-                        cloned.end = point.clone();
-                        cloned.recording = false;
-                    }
-                    Some((id.clone(), cloned))
-                }
-            })
-            .collect();
-        if records.is_empty() {
+    fn do_save_data(&self) -> Result<usize, Error> {
+        if self.records.is_empty() {
             return Ok(0);
         }
+        let service = &self.service;
+        let chunk_size = self.config().chunk_size;
+        let max_chunks = self.config().max_chunks();
+        let records = &self.records;
         // The last item will be used as a sentinel and removed before recording starts.
-        let points = self.points.clone();
-        let data = TimeshiftRecorderData {
+        let points = &self.points;
+        let data = TimeshiftRecorderDataForSave {
             service, chunk_size, max_chunks, records, points,
         };
         let writer = std::io::BufWriter::new(std::fs::File::create(&self.config().data_file)?);
@@ -467,7 +451,7 @@ impl TimeshiftRecorder {
     fn handle_chunk(&mut self, point: TimeshiftPoint) {
         self.maintain();
         self.append_point(&point);
-        self.save_data(&point);
+        self.save_data();
     }
 
     fn maintain(&mut self) {
@@ -688,13 +672,22 @@ impl Actor for TimeshiftRecorder {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize)]
 pub struct TimeshiftRecorderData {
     pub service: EpgService,
     pub chunk_size: usize,
     pub max_chunks: usize,
     pub records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
     pub points: Vec<TimeshiftPoint>,
+}
+
+#[derive(Serialize)]
+struct TimeshiftRecorderDataForSave<'a> {
+    service: &'a EpgService,
+    chunk_size: usize,
+    max_chunks: usize,
+    records: &'a IndexMap<TimeshiftRecordId, TimeshiftRecord>,
+    points: &'a Vec<TimeshiftPoint>,
 }
 
 #[derive(Message)]
@@ -1002,6 +995,7 @@ pub struct TimeshiftRecord {
     pub program: EpgProgram,
     pub start: TimeshiftPoint,
     pub end: TimeshiftPoint,
+    #[serde(skip)]
     pub recording: bool,
 }
 
