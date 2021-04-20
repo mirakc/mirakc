@@ -267,9 +267,21 @@ impl Actor for JobManager {
     fn started(&mut self, ctx: &mut Self::Context) {
         // It's guaranteed that no response is sent before initial jobs are invoked.
         log::debug!("Started");
-        self.scan_services(ctx);
-        self.sync_clocks(ctx);
-        self.update_schedules(ctx);
+        if self.config.jobs.scan_services.disabled {
+            log::warn!("The scan-services job is disabled");
+        } else {
+            self.scan_services(ctx);
+        }
+        if self.config.jobs.sync_clocks.disabled {
+            log::warn!("The sync-clocks job is disabled");
+        } else {
+            self.sync_clocks(ctx);
+        }
+        if self.config.jobs.update_schedules.disabled {
+            log::warn!("The update-schedules job is disabled");
+        } else {
+            self.update_schedules(ctx);
+        }
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {

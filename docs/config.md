@@ -36,10 +36,13 @@ suitable for your environment.
 | [post-filters]                           | `{}`                              |
 | [jobs.scan-services.command]             | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.scan-services.schedule]            | `'0 31 5 * * * *'` (execute at 05:31 every day) |
+| [jobs.scan-services.disabled]            | `false`                           |
 | [jobs.sync-clocks.command]               | `mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.sync-clocks.schedule]              | `'0 3 12 * * * *'` (execute at 12:03 every day) |
+| [jobs.sync-clocks.disabled]              | `false`                           |
 | [jobs.update-schedules.command]          | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.update-schedules.schedule]         | `'0 7,37 * * * * *'` (execute at 7 and 37 minutes every hour) |
+| [jobs.update-schedules.disabled]         | `false`                           |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
 | [timeshift.recorders\[\].service-triple] |                                   |
 | [timeshift.recorders\[\].ts-file]        |                                   |
@@ -79,10 +82,13 @@ suitable for your environment.
 [post-filters]: #post-filters
 [jobs.scan-services.command]: #jobsscan-services
 [jobs.scan-services.schedule]: #jobsscan-services
+[jobs.scan-services.disabled]: #jobsscan-services
 [jobs.sync-clocks.command]: #jobssync-clocks
 [jobs.sync-clocks.schedule]: #jobssync-clocks
+[jobs.sync-clocks.disabled]: #jobssync-clocks
 [jobs.update-schedules.command]: #jobsupdate-schedules
 [jobs.update-schedules.schedule]: #jobsupdate-schdules
+[jobs.update-schedules.disabled]: #jobsupdate-schdules
 [timeshift.command]: #timeshift
 [timeshift.recorders\[\].service-triple]: #timeshiftrecorders
 [timeshift.recorders\[\].ts-file]: #timeshiftrecorders

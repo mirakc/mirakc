@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fs::File;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use cron;
 use indexmap::IndexMap;
 use num_cpus;
 use serde::Deserialize;
@@ -64,6 +66,7 @@ pub struct Config {
 impl Config {
     fn validate(&mut self) {
         self.server.validate();
+        self.jobs.validate();
         self.timeshift.validate();
     }
 }
@@ -288,6 +291,7 @@ impl JobsConfig {
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
             schedule: "0 31 5 * * * *".to_string(),
+            disabled: false,
         }
     }
 
@@ -297,6 +301,7 @@ impl JobsConfig {
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
             schedule: "0 3 12 * * * *".to_string(),
+            disabled: false,
         }
     }
 
@@ -306,7 +311,14 @@ impl JobsConfig {
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
             schedule: "0 7,37 * * * * *".to_string(),
+            disabled: false,
         }
+    }
+
+    fn validate(&self) {
+        self.scan_services.validate("scan_services");
+        self.sync_clocks.validate("sync_clocks");
+        self.update_schedules.validate("update_schedules");
     }
 }
 
@@ -324,8 +336,23 @@ impl Default for JobsConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct JobConfig {
+    #[serde(default)]
     pub command: String,
+    #[serde(default)]
     pub schedule: String,
+    #[serde(default)]
+    pub disabled: bool,
+}
+
+impl JobConfig {
+    fn validate(&self, name: &str) {
+        if !self.disabled {
+            assert!(!self.command.is_empty(),
+                    "config.jobs.{}: `command` must be a non-empty string", name);
+            assert!(cron::Schedule::from_str(&self.schedule).is_ok(),
+                    "config.jobs.{}: `schedule` is not valid", name);
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -994,6 +1021,7 @@ mod tests {
                 scan_services: JobConfig {
                     command: "job".to_string(),
                     schedule: "*".to_string(),
+                    disabled: false,
                 },
                 sync_clocks: JobsConfig::default_sync_clocks(),
                 update_schedules: JobsConfig::default_update_schedules(),
@@ -1010,6 +1038,7 @@ mod tests {
                 sync_clocks: JobConfig {
                     command: "job".to_string(),
                     schedule: "*".to_string(),
+                    disabled: false,
                 },
                 update_schedules: JobsConfig::default_update_schedules(),
             });
@@ -1026,6 +1055,7 @@ mod tests {
                 update_schedules: JobConfig {
                     command: "job".to_string(),
                     schedule: "*".to_string(),
+                    disabled: false,
                 },
             });
 
@@ -1038,16 +1068,80 @@ mod tests {
 
     #[test]
     fn test_job_config() {
-        assert!(serde_yaml::from_str::<JobConfig>("{}").is_err());
+        assert_eq!(
+            serde_yaml::from_str::<JobConfig>("{}").unwrap(),
+            JobConfig {
+                command: "".to_string(),
+                schedule: "".to_string(),
+                disabled: false,
+            });
 
-        assert!(serde_yaml::from_str::<JobConfig>(r#"{"command":""}"#).is_err());
+        assert_eq!(
+            serde_yaml::from_str::<JobConfig>(r#"
+                command: test
+            "#).unwrap(),
+            JobConfig {
+                command: "test".to_string(),
+                schedule: "".to_string(),
+                disabled: false,
+            });
 
-        assert!(serde_yaml::from_str::<JobConfig>(r#"{"schedule":""}"#).is_err());
+        assert_eq!(
+            serde_yaml::from_str::<JobConfig>(r#"
+                schedule: '*'
+            "#).unwrap(),
+            JobConfig {
+                command: "".to_string(),
+                schedule: "*".to_string(),
+                disabled: false,
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<JobConfig>(r#"
+                disabled: true
+            "#).unwrap(),
+            JobConfig {
+                command: "".to_string(),
+                schedule: "".to_string(),
+                disabled: true,
+            });
 
         assert!(serde_yaml::from_str::<JobConfig>(r#"
             unknown:
               property: value
         "#).is_err());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_job_config_validate_command() {
+        let config = JobConfig {
+            command: "".to_string(),
+            schedule: "0 30 9,12,15 1,15 May-Aug Mon,Wed,Fri 2018/2".to_string(),
+            disabled: false,
+        };
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_job_config_validate_schedule() {
+        let config = JobConfig {
+            command: "test".to_string(),
+            schedule: "".to_string(),
+            disabled: false,
+        };
+        config.validate("test");
+    }
+
+    #[test]
+    fn test_job_config_validate_disabled() {
+        let config = JobConfig {
+            command: "".to_string(),
+            schedule: "".to_string(),
+            disabled: true,
+        };
+        config.validate("test");
     }
 
     #[test]
