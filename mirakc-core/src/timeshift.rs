@@ -1,18 +1,19 @@
 use std::fmt;
 use std::future::Future;
 use std::io;
-use std::io::SeekFrom;
+use std::io::{Read, SeekFrom, Write};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use actix::prelude::*;
 use chrono::DateTime;
+use fs2::FileExt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader, ReadBuf, Take};
 use tokio::fs::File;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader, ReadBuf, Take};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::LinesStream;
 
@@ -350,8 +351,17 @@ impl TimeshiftRecorder {
     }
 
     fn do_load_data(&mut self) -> Result<usize, Error> {
-        let reader = std::io::BufReader::new(std::fs::File::open(&self.config().data_file)?);
-        let data: TimeshiftRecorderData = serde_json::from_reader(reader)?;
+        // Read all bytes, then deserialize records, in order to reduce the lock time.
+        let mut buf = Vec::with_capacity(4096 * 1_000);
+        {
+            let mut file = std::fs::File::open(&self.config().data_file)?;
+            log::debug!("{}: Locking {} for read...", self.name, self.config().data_file);
+            file.lock_shared()?;
+            file.read_to_end(&mut buf)?;
+            file.unlock()?;
+            log::debug!("{}: Unlocked {}", self.name, self.config().data_file);
+        }
+        let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
         if self.service.triple() == data.service.triple() &&
             self.config().chunk_size == data.chunk_size &&
             self.config().max_chunks() == data.max_chunks {
@@ -392,8 +402,16 @@ impl TimeshiftRecorder {
         let data = TimeshiftRecorderDataForSave {
             service, chunk_size, max_chunks, records, points,
         };
-        let writer = std::io::BufWriter::new(std::fs::File::create(&self.config().data_file)?);
-        serde_json::to_writer(writer, &data)?;
+        // Serialize records, then write all bytes, in order to reduce the lock time.
+        let buf = serde_json::to_vec(&data)?;
+        {
+            let mut file = std::fs::File::create(&self.config().data_file)?;
+            log::debug!("{}: Locking {} for write...", self.name, self.config().data_file);
+            file.lock_exclusive()?;
+            file.write_all(&buf)?;
+            file.unlock()?;
+            log::debug!("{}: Unlocked {}", self.name, self.config().data_file);
+        }
         Ok(data.records.len())
     }
 

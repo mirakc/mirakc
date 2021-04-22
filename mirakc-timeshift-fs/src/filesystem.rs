@@ -8,6 +8,7 @@ use std::io::SeekFrom;
 use std::ops::Range;
 use std::sync::Arc;
 
+use fs2::FileExt;
 use fuser;
 use indexmap::IndexMap;
 use sanitize_filename;
@@ -274,10 +275,12 @@ impl TimeshiftFilesystem {
                 data_mtime
             }
             _ => {
+                log::debug!("{}: Reuse cached timeshift data", ino);
                 return;
             }
         };
 
+        log::debug!("{}: Load timeshift data", ino);
         let cache = Self::load_data(config)
             .map(|data| Cache {
                 mtime,
@@ -289,14 +292,23 @@ impl TimeshiftFilesystem {
                 self.caches.insert(ino.recorder_index(), cache);
             }
             Err(err) => {
-                log::error!("Failed to read timeshift data: {}", err);
+                log::error!("{}: Failed to read timeshift data: {}", ino, err);
             }
         }
     }
 
     fn load_data(config: &TimeshiftRecorderConfig) -> Result<TimeshiftRecorderData, Error> {
-        let reader = std::io::BufReader::new(std::fs::File::open(&config.data_file)?);
-        let data: TimeshiftRecorderData = serde_json::from_reader(reader)?;
+        // Read all bytes, then deserialize records, in order to reduce the lock time.
+        let mut buf = Vec::with_capacity(4096 * 1_000);
+        {
+            let mut file = std::fs::File::open(&config.data_file)?;
+            log::debug!("Locking {} for read...", config.data_file);
+            file.lock_shared()?;
+            file.read_to_end(&mut buf)?;
+            file.unlock()?;
+            log::debug!("Unlocked {}", config.data_file);
+        }
+        let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
         if data.service.triple() == config.service_triple.into() &&
             data.chunk_size == config.chunk_size &&
             data.max_chunks == config.max_chunks() {
@@ -659,7 +671,7 @@ impl RecordBuffer {
                 Ok(())
             }
             (Some(range), None) => {
-                log::trace!("{}: Read data in {:?}", self.ino,range);
+                log::trace!("{}: Read data in {:?}", self.ino, range);
                 self.fill1(&range)
             }
             (Some(first), Some(second)) => {
