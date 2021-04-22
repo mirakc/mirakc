@@ -72,12 +72,17 @@ impl Config {
         self.channels.iter()
             .enumerate()
             .for_each(|(i, config)| config.validate(i));
-        assert_eq!(self.channels.len(),
-                   self.channels.iter()
-                   .map(|config| &config.name)
-                   .unique()
-                   .count(),
-                   "config.channels: `name` must be a unique");
+        // The channels[].name property should be a unique, but some scripts generating a
+        // channels.yml use the same name in multiple channels.
+        //
+        // Allow duplicate names in a practical point of view.
+        //
+        // assert_eq!(self.channels.len(),
+        //            self.channels.iter()
+        //            .map(|config| &config.name)
+        //            .unique()
+        //            .count(),
+        //            "config.channels: `name` must be a unique");
         self.tuners.iter()
             .enumerate()
             .for_each(|(i, config)| config.validate(i));
@@ -683,7 +688,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn test_config_validate_channel_names() {
         let config = serde_yaml::from_str::<Config>(r#"
             channels:
