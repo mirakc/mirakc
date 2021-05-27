@@ -12,7 +12,7 @@ clap = "2.33.3"
 fs2 = "0.4.3"
 fuser = "0.7.0"
 indexmap = { version = "1.6.2", features = ["serde-1"] }
-libc = "0.2.94"
+libc = "0.2.95"
 log = "0.4.14"
 mirakc-core = { path = "../mirakc-core" }
 serde_json = { version = "1.0.64", features = ["preserve_order"] }
