@@ -18,9 +18,5 @@ jobs:
           days-before-stale: 30
           days-before-close: 7
           stale-issue-label: 'stale'
-          exempt-issue-labels:
-            - bug
-            - enhancement
-            - good first issue
-            - help wanted
+          exempt-issue-labels: 'bug,enhancement,good first issue,help wanted'
           days-before-pr-stale: -1  # no PR will be marked as 'stale'
