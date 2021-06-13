@@ -646,15 +646,18 @@ dependencies = [
 
 [[package]]
 name = "fuser"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74928cf021619b0612e45c3a5332e9a5302c6739b7b5eaecd835ba620c346e0d"
+checksum = "166e3212e0cc562dd17eefa4d80cf443720eec051e7171fe2b94e4ba8d272786"
 dependencies = [
  "libc",
  "log 0.4.14",
+ "memchr",
  "page_size",
  "pkg-config",
+ "smallvec",
  "users",
+ "zerocopy",
 ]
 
 [[package]]
@@ -2025,4 +2028,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
 dependencies = [
  "linked-hash-map",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6580539ad917b7c026220c4b3f2c08d52ce54d6ce0dc491e66002e35388fab46"
+dependencies = [
+ "byteorder",
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d498dbd1fd7beb83c86709ae1c33ca50942889473473d287d56ce4770a18edfb"
+dependencies = [
+ "proc-macro2",
+ "syn",
+ "synstructure",
 ]
