@@ -103,7 +103,6 @@ impl TimeshiftFilesystem {
                     gid: 0,
                     rdev: 0,
                     blksize: 512,
-                    padding: 0,
                     flags: 0,
                 }
             })
@@ -245,7 +244,6 @@ impl TimeshiftFilesystem {
                     gid: 0,
                     rdev: 0,
                     blksize: 512,
-                    padding: 0,
                     flags: 0,
                 }
             })
@@ -386,7 +384,6 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 rdev: 0,
                 flags: 0,
                 blksize: 512,
-                padding: 0,
             })
         } else if ino.is_recorder() {
             self.update_cache(ino);
