@@ -166,7 +166,6 @@ how to collect the performance metrics.
 * Use multiple tuners in the EGP task in order to reduce the time
   * Currently, it takes about 16 minutes for collecting EIT sections of 8 GR
     channels and 10 BS channels
-* Support to collect logo data
 
 ## Acknowledgments
 

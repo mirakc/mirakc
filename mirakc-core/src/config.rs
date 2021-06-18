@@ -33,9 +33,10 @@ pub fn load(config_path: &str) -> Arc<Config> {
 
 // result
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
 pub struct Config {
     #[serde(skip)]
     pub last_modified: Option<SystemTime>,
@@ -607,12 +608,24 @@ impl Default for RecorderConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
 pub struct ResourceConfig {
     #[serde(default = "ResourceConfig::default_strings_yaml")]
     pub strings_yaml: String,
+    #[serde(default)]
+    #[serde(deserialize_with = "ResourceConfig::deserialize_logos")]
+    pub logos: HashMap<ServiceTriple, String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub struct LogoConfig {
+    pub service_triple: (NetworkId, TransportStreamId, ServiceId),
+    pub image: String,
 }
 
 impl ResourceConfig {
@@ -623,6 +636,25 @@ impl ResourceConfig {
     fn validate(&self) {
         assert!(Path::new(&self.strings_yaml).is_file(),
                 "config.resources: `strings-yaml` must be a path to a existing YAML file");
+        for (triple, image) in self.logos.iter() {
+            assert!(Path::new(image).is_file(),
+                    "config.resources: `logos[({}, {}, {})]` must be a path to an existing \
+                     file", triple.nid(), triple.tsid(), triple.sid());
+        }
+    }
+
+    fn deserialize_logos<'de, D>(
+        deserializer: D
+    ) -> Result<HashMap<ServiceTriple, String>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let values: Vec<LogoConfig> = Vec::deserialize(deserializer)?;
+        let mut logos = HashMap::new();
+        for logo in values.into_iter() {
+            logos.insert(logo.service_triple.into(), logo.image);
+        }
+        Ok(logos)
     }
 }
 
@@ -630,6 +662,7 @@ impl Default for ResourceConfig {
     fn default() -> Self {
         ResourceConfig {
             strings_yaml: Self::default_strings_yaml(),
+            logos: Default::default(),
         }
     }
 }
@@ -664,6 +697,7 @@ impl Default for MirakurunConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use maplit::hashmap;
     use indexmap::indexmap;
 
     #[test]
@@ -1882,6 +1916,21 @@ mod tests {
             "#).unwrap(),
             ResourceConfig {
                 strings_yaml: "/path/to/strings.yml".to_string(),
+                logos: Default::default(),
+            });
+
+        assert_eq!(
+            serde_yaml::from_str::<ResourceConfig>(r#"
+                logos:
+                  - service-triple: [1, 2, 3]
+                    image: /path/to/logo.png
+            "#).unwrap(),
+            ResourceConfig {
+                strings_yaml: ResourceConfig::default_strings_yaml(),
+                logos: hashmap!{
+                    ServiceTriple::new(1.into(), 2.into(), 3.into())
+                        => "/path/to/logo.png".to_string(),
+                },
             });
 
         let result = serde_yaml::from_str::<ResourceConfig>(r#"
@@ -1893,17 +1942,40 @@ mod tests {
 
     #[test]
     fn test_resource_config_validate_existing_strings_yaml() {
-        let config = ResourceConfig {
-            strings_yaml: "/bin/sh".to_string(),
-        };
+        let mut config = ResourceConfig::default();
+        config.strings_yaml = "/bin/sh".to_string();
         config.validate();
     }
 
     #[test]
     #[should_panic]
     fn test_resource_config_validate_non_existing_strings_yaml() {
+        let mut config = ResourceConfig::default();
+        config.strings_yaml = "/path/to/non-existing".to_string();
+        config.validate();
+    }
+
+    #[test]
+    fn test_resource_config_validate_existing_logos() {
         let config = ResourceConfig {
-            strings_yaml: "/path/to/non-existing".to_string(),
+            strings_yaml: "/bin/sh".to_string(),
+            logos: hashmap!{
+                ServiceTriple::new(1.into(), 2.into(), 3.into())
+                    => "/bin/sh".to_string(),
+            },
+        };
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_epg_config_validate_non_existing_logos() {
+        let config = ResourceConfig {
+            strings_yaml: "/bin/sh".to_string(),
+            logos: hashmap!{
+                ServiceTriple::new(1.into(), 2.into(), 3.into())
+                    => "/path/to/non-existing".to_string(),
+            },
         };
         config.validate();
     }

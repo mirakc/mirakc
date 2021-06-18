@@ -22,7 +22,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::airtime_tracker;
 use crate::chunk_stream::ChunkStream;
 use crate::command_util::*;
-use crate::config::{Config, ServerAddr};
+use crate::config::{Config, ServerAddr, ResourceConfig};
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
 use crate::error::Error;
 use crate::epg::*;
@@ -165,6 +165,12 @@ impl actix_web::ResponseError for Error {
                     reason: None,
                     errors: Vec::new(),
                 }),
+            Error::NoLogoData =>
+                actix_web::HttpResponse::ServiceUnavailable().json(ErrorBody {
+                    code: actix_web::http::StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+                    reason: Some("Logo Data Unavailable"),
+                    errors: Vec::new(),
+                }),
             Error::AccessDenied =>
                 actix_web::HttpResponse::Forbidden().json(ErrorBody {
                     code: actix_web::http::StatusCode::FORBIDDEN.as_u16(),
@@ -195,6 +201,8 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_channel_stream)
         .service(get_channel_service_stream)
         .service(get_service_stream)
+        .service(get_service_logo)
+        .service(head_service_logo)
         .service(get_program_stream)
         .service(get_timeshift_recorders)
         .service(get_timeshift_recorder)
@@ -228,17 +236,23 @@ async fn get_channels(
 
 #[actix_web::get("/services")]
 async fn get_services(
+    config: actix_web::web::Data<Arc<Config>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
 ) -> ApiResult {
     epg.send(QueryServicesMessage).await?
         .map(|services| services.into_iter()
              .map(MirakurunService::from)
+             .map(|mut service| {
+                 service.check_logo_existence(&config.resource);
+                 service
+             })
              .collect::<Vec<MirakurunService>>())
         .map(|services| actix_web::HttpResponse::Ok().json(services))
 }
 
 #[actix_web::get("/services/{id}")]
 async fn get_service(
+    config: actix_web::web::Data<Arc<Config>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
     path: actix_web::web::Path<ServicePath>,
 ) -> ApiResult {
@@ -247,7 +261,46 @@ async fn get_service(
         sid: path.id.sid(),
     }).await?
         .map(MirakurunService::from)
+        .map(|mut service| {
+            service.check_logo_existence(&config.resource);
+            service
+        })
         .map(|service| actix_web::HttpResponse::Ok().json(service))
+}
+
+#[actix_web::get("/services/{id}/logo")]
+async fn get_service_logo(
+    config: actix_web::web::Data<Arc<Config>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    path: actix_web::web::Path<ServicePath>,
+) -> Result<actix_files::NamedFile, Error> {
+    fetch_service_logo(config, epg, path).await
+}
+
+// IPTV Simple Client in Kodi does not work properly without HEAD support.
+#[actix_web::head("/services/{id}/logo")]
+async fn head_service_logo(
+    config: actix_web::web::Data<Arc<Config>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    path: actix_web::web::Path<ServicePath>,
+) -> Result<actix_files::NamedFile, Error> {
+    fetch_service_logo(config, epg, path).await
+}
+
+async fn fetch_service_logo(
+    config: actix_web::web::Data<Arc<Config>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    path: actix_web::web::Path<ServicePath>,
+) -> Result<actix_files::NamedFile, Error> {
+    let service = epg.send(QueryServiceMessage::ByNidSid {
+        nid: path.id.nid(),
+        sid: path.id.sid(),
+    }).await??;
+
+    match config.resource.logos.get(&service.triple()) {
+        Some(path) => Ok(actix_files::NamedFile::open(path)?),
+        None => Err(Error::NoLogoData),
+    }
 }
 
 #[actix_web::get("/programs")]
@@ -613,6 +666,7 @@ async fn get_timeshift_record_stream(
 #[actix_web::get("/iptv/playlist")]
 async fn get_iptv_playlist(
     req: actix_web::HttpRequest,
+    config: actix_web::web::Data<Arc<Config>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
     mut filter_setting: FilterSetting,
 ) -> ApiResult {
@@ -628,6 +682,8 @@ async fn get_iptv_playlist(
     write!(buf, "#EXTM3U\n")?;
     for sv in services.iter() {
         let id = MirakurunServiceId::from(sv.triple());
+        let logo_url = format!("{}://{}/api/services/{}/logo",
+                               conn.scheme(), conn.host(), id.value());
         // The following format is compatible with EPGStation.
         // See API docs for the `/api/channel.m3u8` endpoint.
         //
@@ -635,15 +691,24 @@ async fn get_iptv_playlist(
         // avoiding garbled characters in `ＮＨＫＢＳプレミアム`.  Kodi or PVR
         // IPTV Simple Client seems to treat it as Latin-1 when removing U+3000.
         match sv.service_type {
-            0x01 | 0xA1 | 0xA5 =>  // video
-                write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}\", {}　\n",
-                       id.value(), sv.channel.channel_type, sv.name)?,
-            0x02 | 0xA2 | 0xA6 =>  // audio
-                write!(buf, "#EXTINF:-1 tvg-id=\"{}\" group-title=\"{}-Radio\" radio=true, {}　\n",
-                       id.value(), sv.channel.channel_type, sv.name)?,
+            0x01 | 0xA1 | 0xA5 => {  // video
+                write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
+                if config.resource.logos.contains_key(&sv.triple()) {
+                    write!(buf, r#" tvg-logo="{}""#, logo_url)?;
+                }
+                write!(buf, r#" group-title="{}", {}　"#, sv.channel.channel_type, sv.name)?;
+            }
+            0x02 | 0xA2 | 0xA6 => {  // audio
+                write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
+                if config.resource.logos.contains_key(&sv.triple()) {
+                    write!(buf, r#" tvg-logo="{}""#, logo_url)?;
+                }
+                write!(buf, r#" group-title="{}-Radio" radio=true, {}　"#,
+                       sv.channel.channel_type, sv.name)?;
+            }
             _ => unreachable!(),
         }
-        write!(buf, "{}://{}/api/services/{}/stream?{}\n",
+        write!(buf, "\n{}://{}/api/services/{}/stream?{}\n",
                conn.scheme(), conn.host(), id.value(), query)?;
     }
 
@@ -654,12 +719,16 @@ async fn get_iptv_playlist(
 
 #[actix_web::get("/iptv/epg")]
 async fn get_iptv_epg(
+    req: actix_web::HttpRequest,
+    config: actix_web::web::Data<Arc<Config>>,
     string_table: actix_web::web::Data<Arc<StringTable>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
     query: actix_web::web::Query<IptvEpgQuery>,
 ) -> ApiResult {
     const INITIAL_BUFSIZE: usize = 8 * 1024 * 1024;  // 8MB
     const DATETIME_FORMAT: &'static str = "%Y%m%d%H%M%S %z";
+
+    let conn = req.connection_info();
 
     let end_after = Jst::midnight();
     let start_before = end_after + chrono::Duration::days(query.days as i64);
@@ -673,8 +742,14 @@ async fn get_iptv_epg(
     write!(buf, r#"<tv generator-info-name="{}">"#, escape(&server_name()))?;
     for sv in services.iter() {
         let id = MirakurunServiceId::from(sv.triple());
-        write!(buf, r#"<channel id="{}"><display-name lang="ja">{}</display-name></channel>"#,
-               id.value(), escape(&sv.name))?;
+        let logo_url = format!("{}://{}/api/services/{}/logo",
+                               conn.scheme(), conn.host(), id.value());
+        write!(buf, r#"<channel id="{}">"#, id.value())?;
+        write!(buf, r#"<display-name lang="ja">{}</display-name>"#, escape(&sv.name))?;
+        if config.resource.logos.contains_key(&sv.triple()) {
+            write!(buf, r#"<icon src="{}" />"#, logo_url)?;
+        }
+        write!(buf, r#"</channel>"#)?;
     }
     for pg in programs
         .iter()
@@ -1248,6 +1323,14 @@ impl From<TimeshiftRecordModel> for WebTimeshiftRecord {
     }
 }
 
+impl MirakurunService {
+    fn check_logo_existence(&mut self, config: &ResourceConfig) {
+        let triple = ServiceTriple::new(
+            self.network_id, self.transport_stream_id, self.service_id);
+        self.has_logo_data = config.logos.contains_key(&triple)
+    }
+}
+
 // tests
 
 #[cfg(test)]
@@ -1255,6 +1338,7 @@ mod tests {
     use super::*;
     use std::net::SocketAddr;
     use assert_matches::assert_matches;
+    use maplit::hashmap;
     use crate::broadcaster::BroadcasterStream;
     use crate::config::{FilterConfig, PostFilterConfig};
 
@@ -1273,6 +1357,13 @@ mod tests {
     async fn get(uri: &str) -> actix_web::HttpResponse {
         let req = actix_web::test::TestRequest::with_uri(uri)
             .method(actix_web::http::Method::GET)
+            .to_request();
+        request(req).await
+    }
+
+    async fn head(uri: &str) -> actix_web::HttpResponse {
+        let req = actix_web::test::TestRequest::with_uri(uri)
+            .method(actix_web::http::Method::HEAD)
             .to_request();
         request(req).await
     }
@@ -1325,6 +1416,30 @@ mod tests {
 
         let res = get("/api/services/0").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+    }
+
+    #[actix::test]
+    async fn test_get_service_logo() {
+        let res = get("/api/services/1/logo").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = get("/api/services/0/logo").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+
+        let res = get("/api/services/2/logo").await;
+        assert!(res.status() == actix_web::http::StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[actix::test]
+    async fn test_head_service_logo() {
+        let res = head("/api/services/1/logo").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = head("/api/services/0/logo").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+
+        let res = head("/api/services/2/logo").await;
+        assert!(res.status() == actix_web::http::StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[actix::test]
@@ -1733,6 +1848,10 @@ mod tests {
         });
         // Disable tracking airtime
         config.recorder.track_airtime_command = "true".to_string();
+        // logo for SID#1
+        config.resource.logos = hashmap!{
+            ServiceTriple::new(0.into(), 0.into(), 1.into()) => "/dev/null".to_string(),
+        };
         // "/dev/null" is enough to test
         config.mirakurun.openapi_json = "/dev/null".to_string();
 

@@ -32,6 +32,8 @@ pub enum Error {
     OutOfRange,
     #[fail(display = "No content")]
     NoContent,
+    #[fail(display = "No logo data")]
+    NoLogoData,
     #[fail(display = "Access denied")]
     AccessDenied,
     #[fail(display = "Command failed: {}", 0)]

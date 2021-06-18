@@ -12,6 +12,7 @@ Web API endpoints listed below have been implemented at this moment:
 | [/api/channels]                                 | :heavy_check_mark:         |
 | [/api/services]                                 | :heavy_check_mark:         |
 | [/api/services/{id}]                            | :heavy_check_mark:         |
+| [/api/services/{id}/logo]                       | :heavy_check_mark:         |
 | [/api/services/{id}/stream]                     | :heavy_check_mark:         |
 | [/api/programs]                                 | :heavy_check_mark:         |
 | [/api/programs/{id}]                            | :heavy_check_mark:         |
@@ -58,6 +59,7 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [/api/channels/{channel_type}/{channel}/services/{sid}/stream]: #apichannelschannel_typechannelservicessidstream
 [/api/services]: #apiservices
 [/api/services/{id}]: #apiservicesid
+[/api/services/{id}/logo]: #apiservicesidlogo
 [/api/services/{id}/stream]: #apiservicesidstream
 [/api/programs]: #apiprograms
 [/api/programs/{id}]: #apiprogramsid
@@ -119,6 +121,12 @@ Query parameters have **NOT** been supported.
 ## /api/services/{id}
 
 Returns a service.
+
+## /api/services/{id}/logo
+
+Returns a logo image if available.
+
+Support GET and HEAD methods so that IPTV Simple Client in Kodi works properly.
 
 ## /api/services/{id}/stream
 

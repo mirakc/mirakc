@@ -52,6 +52,7 @@ suitable for your environment.
 | [timeshift.recorders\[\].num-reserves]   | `1`                               |
 | [timeshift.recorders\[\].priority]       | `128`                             |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
+| [resource.logos]                         | `[]`                              |
 | [mirakurun.openapi-json]                 | `/etc/mirakurun.openapi.json`     |
 
 [epg.cache-dir]: #epgcache-dir
@@ -98,6 +99,7 @@ suitable for your environment.
 [timeshift.recorders\[\].num-reserves]: #timeshiftrecorders
 [timeshift.recorders\[\].priority]: #timeshiftrecorders
 [resource.strings-yaml]: #resourcestrings-yaml
+[resource.logos]: #resourcelogos
 [mirakurun.openapi-json]: #mirakurunopenapi-json
 
 ## epg.cache-dir
@@ -606,6 +608,25 @@ Definitions of timeshift recorders.
 used in mirakc at runtime.
 
 > TODO: This might be obsoleted by other tools like GNU gettext in the future.
+
+## resource.logos
+
+`resource.logos` specifies a logo image for each service.
+
+```yaml
+resource:
+  logos:
+    - service-triple: [4, 16625, 101]
+    - image: /path/to/bs1.png  # you can use any format of image
+```
+
+mirakc does not collect logo images from TS streams at runtime.  However, you
+can find tools for that.  Or you can download logo images from somewhere.
+
+Specified logo images are provided from the `/api/services/{id}/logo` endpoint.
+Endpoint URLs are specified in a M3U8 playlist provided from the
+`/api/iptv/playlist` endpoint and a XMLTV document provided from the
+`/api/iptv/epg` endpoint.
 
 ## mirakurun.openapi-json
 
