@@ -64,9 +64,9 @@ environment variables enables it:
 
 ```shell
 export RUST_LOG=info,mirakc=debug
-export MIRAKC_DEBUG_CHILD_PROCESS=
+export MIRAKC_DEBUG_CHILD_PROCESS=1
 export MIRAKC_ARIB_LOG=warn,filter-program=info
-export MIRAKC_ARIB_LOG_NO_TIMESTAMP=
+export MIRAKC_ARIB_LOG_NO_TIMESTAMP=1
 ```
 
 See [mirakc/mirakc-arib](https://github.com/mirakc/mirakc-arib#logging)

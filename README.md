@@ -12,7 +12,7 @@
 If you have already built a TV recording system with [Mirakurun] and
 [EPGStation], you can simply replace Mirakurun with mirakc.
 
-It's recommended to use a Docker image which can be downloaded from [DockerHub].
+It's recommended to use a Docker image which can be downloaded from [Docker Hub].
 See [docs/docker.md](./docs/docker.md) about how to make a custom Docker image
 for your environment.
 
@@ -55,7 +55,7 @@ filter:
 Create `docker-compose.yml`:
 
 ```yaml
-version: '3.7'
+version: '3'
 
 services:
   mirakc:
@@ -191,7 +191,7 @@ shall be dual licensed as above, without any additional terms or conditions.
 
 [Mirakurun]: https://github.com/Chinachu/Mirakurun
 [EPGStation]: https://github.com/l3tnun/EPGStation
-[DockerHub]: https://hub.docker.com/r/mirakc/mirakc
+[Docker Hub]: https://hub.docker.com/r/mirakc/mirakc
 [BonDriver_Mirakurun]: https://github.com/Chinachu/BonDriver_Mirakurun
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
 [LICENSE-APACHE]: ./LICENSE-APACHE

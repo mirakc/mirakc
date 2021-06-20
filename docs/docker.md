@@ -1,24 +1,24 @@
 # Using Docker
 
-## Pre-built images in DockerHub
+## Pre-built images in Docker Hub
 
-There are two types of pre-built images in [DockerHub]:
+There are two types of pre-built images in [Docker Hub]:
 
 * Multi-Arch images
   * mirakc/mirakc:latest
     * Alias of mirakc/mirakc:$LATEST_VERSION
-  * mirakc/mirakc:$DISTRIBUTION
-    * Alias of mirakc/mirakc:$LATEST_VERSION-$DISTRIBUTION
+  * mirakc/mirakc:$DISTRO
+    * Alias of mirakc/mirakc:$LATEST_VERSION-$DISTRO
   * mirakc/mirakc:$VERSION
     * Alias of mirakc/mirakc:$VERSION-debian
-  * mirakc/mirakc:$VERSION-$DISTRIBUTION
+  * mirakc/mirakc:$VERSION-$DISTRO
 
 Where:
 
 * VERSION
   * main or version tags
   * LATEST_VERSION points to the latest version tag
-* DISTRIBUTION
+* DISTRO
   * alpine
     * Based on alpine:3.13
   * debian (main platform)
@@ -26,6 +26,7 @@ Where:
 
 Platforms listed below are supported:
 
+* linux/386 (SSP disabled)
 * linux/amd64
 * linux/arm/v6 (only for alpine)
 * linux/arm/v7
@@ -125,4 +126,4 @@ See the following page for details about `BUILDPLATFORM` and `TARGETPLATFORM`:
 [mirakc-arib]: https://github.com/mirakc/mirakc-arib
 [curl]: https://curl.haxx.se/docs/manpage.html
 [socat]: http://www.dest-unreach.org/socat/doc/socat.html
-[DockerHub]: https://hub.docker.com/r/mirakc/mirakc
+[Docker Hub]: https://hub.docker.com/r/mirakc/mirakc
