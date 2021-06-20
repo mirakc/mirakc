@@ -1,4 +1,4 @@
-name: Close stale issues
+name: Daily
 
 on:
   schedule:
@@ -20,3 +20,18 @@ jobs:
           stale-issue-label: 'stale'
           exempt-issue-labels: 'bug,enhancement,good first issue,help wanted'
           days-before-pr-stale: -1  # no PR will be marked as 'stale'
+  update-devcontainer-dockerfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+          ./scripts/update-devcontainer-dockerfile
+          if ! git diff --quiet -- .devcontainer/Dockerfile
+          then
+            # https://github.com/actions/checkout#push-a-commit-using-the-built-in-token
+            git config user.name github-actions
+            git config user.email github-actions@github.com
+            git add .devcontainer/Dockerfile
+            git commit -m 'build: update .devcontainer/Dockerfile'
+            git push
+          fi

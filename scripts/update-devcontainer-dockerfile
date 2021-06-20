@@ -1,5 +1,6 @@
 #!/bin/sh -eu
 
+PROGNAME=$(basename $0)
 BASEDIR=$(cd $(dirname $0); pwd)
 PROJDIR=$(cd $BASEDIR/..; pwd)
 
