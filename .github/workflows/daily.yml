@@ -25,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - run: |
+          sudo apt-get install -y moreutils  # sponge
           ./scripts/update-devcontainer-dockerfile
           if ! git diff --quiet -- .devcontainer/Dockerfile
           then

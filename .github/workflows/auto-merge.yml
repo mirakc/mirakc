@@ -29,7 +29,7 @@ jobs:
               console.log(`User '${pr.data.user.login}' does not equal 'dependabot[bot]'`);
               return;
             }
-            if (!pr.data.title.startsWith('build(deps):') {
+            if (!pr.data.title.startsWith('build(deps):')) {
               console.log('Not Merged');
               console.log(`Title '${pr.data.title}' does not start with 'build(deps):'`);
               return;
