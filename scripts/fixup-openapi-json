@@ -6,6 +6,7 @@ const SUPPORTED = [
   '/channels',
   '/services',
   '/services/{id}',
+  '/services/{id}/logo',
   '/programs',
   '/programs/{id}',
   '/tuners',
