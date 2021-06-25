@@ -1,0 +1,7 @@
+#!/bin/sh -eu
+
+PROJDIR=$(cd $(dirname $0)/..; pwd)
+
+# Format with jq so that we can see changes easily.
+$PROJDIR/scripts/mirakurun-openapi-json -c | $PROJDIR/scripts/fixup-openapi-json | \
+  jq >$PROJDIR/resources/mirakurun.openapi.json

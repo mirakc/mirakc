@@ -47,7 +47,7 @@ DESCRIPTION:
   container.
 
 TYPICAL USAGE:
-  mirakurun-openapi-json -c >/path/to/mirakurun.openapi.json
+  mirakurun-openapi-json -c | fixup-openapi-json >mirakurun.openapi.json
 EOF
   exit 0
 }
@@ -107,7 +107,7 @@ log "Launching $IMAGE:$VERSION..."
 CONTAINER=$($DOCKER run --rm --init -d --cap-add SYS_ADMIN --cap-add SYS_NICE \
                     -p $PORT:40772 $IMAGE:$VERSION)
 
-log "Waiting $WAIT seconds..."
+log "Waiting $WAIT seconds for Mirakurun to be available..."
 sleep $WAIT
 
 log "Getting OpenAPI/Swagger JSON..."
