@@ -1181,10 +1181,14 @@ where
         };
 
         if allowed {
-            Box::pin(self.0.call(req))
+            let fut = self.0.call(req);
+            Box::pin(async move {
+                Ok(fut.await?)
+            })
         } else {
-            Box::pin(futures::future::ok(req.error_response(
-                actix_web::error::ErrorForbidden(Error::AccessDenied))))
+            Box::pin(async {
+                Err(actix_web::error::ErrorForbidden(Error::AccessDenied))
+            })
         }
     }
 }
@@ -1683,10 +1687,13 @@ mod tests {
         let res = get_with_peer_addr(
             "/api/version", "127.0.0.1:10000".parse().unwrap()).await;
         assert_eq!(res.status(), actix_web::http::StatusCode::OK);
+    }
 
-        let res = get_with_peer_addr(
+    #[actix::test]
+    #[should_panic(expected = "AccessDenied")]
+    async fn test_access_control_denied() {
+        let _ = get_with_peer_addr(
             "/api/version", "8.8.8.8:10000".parse().unwrap()).await;
-        assert_eq!(res.status(), actix_web::http::StatusCode::FORBIDDEN);
     }
 
     #[test]
