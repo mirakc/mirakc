@@ -71,9 +71,9 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Make mirakurun.openapi.json
+      - name: Compress mirakurun.openapi.json
         run: |
-          ./scripts/mirakurun-openapi-json $MIRAKURUN_VERSION | ./scripts/fixup-openapi-json >mirakurun.openapi.json
+          cat ./resources/mirakurun.openapi.json | jq -Mc >mirakurun.openapi.json
       - name: Build and push (mirakc/mirakc)
         uses: docker/build-push-action@v2
         with:
@@ -123,4 +123,3 @@ jobs:
           mv /tmp/.docker-cache-new /tmp/.docker-cache
 env:
   MAIN_DISTRO: debian
-  MIRAKURUN_VERSION: '3.5.0'
