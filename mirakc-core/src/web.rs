@@ -188,6 +188,7 @@ impl actix_web::ResponseError for Error {
     }
 }
 
+// Update //scripts/fixup-openapi-json when you change Mirakurun-compatible endpoints.
 fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
     actix_web::web::scope("/api")
         .service(get_version)
