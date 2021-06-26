@@ -88,8 +88,8 @@ suitable for your environment.
 [jobs.sync-clocks.schedule]: #jobssync-clocks
 [jobs.sync-clocks.disabled]: #jobssync-clocks
 [jobs.update-schedules.command]: #jobsupdate-schedules
-[jobs.update-schedules.schedule]: #jobsupdate-schdules
-[jobs.update-schedules.disabled]: #jobsupdate-schdules
+[jobs.update-schedules.schedule]: #jobsupdate-schedules
+[jobs.update-schedules.disabled]: #jobsupdate-schedules
 [timeshift.command]: #timeshift
 [timeshift.recorders\[\].service-triple]: #timeshiftrecorders
 [timeshift.recorders\[\].ts-file]: #timeshiftrecorders
