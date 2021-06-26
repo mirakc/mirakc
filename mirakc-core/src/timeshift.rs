@@ -409,6 +409,7 @@ impl TimeshiftRecorder {
             log::debug!("{}: Locking {} for write...", self.name, self.config().data_file);
             file.lock_exclusive()?;
             file.write_all(&buf)?;
+            file.flush()?;
             file.unlock()?;
             log::debug!("{}: Unlocked {}", self.name, self.config().data_file);
         }
