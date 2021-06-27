@@ -1,5 +1,6 @@
 use std::fmt;
 
+use atty;
 use chrono;
 use tracing_subscriber;
 use tracing_subscriber::filter::EnvFilter;
@@ -17,6 +18,7 @@ fn init_json_tracing() {
         .json()
         .with_timer(HrTime)
         .with_env_filter(EnvFilter::from_default_env())
+        .with_ansi(atty::is(atty::Stream::Stdout))
         .init();
 }
 
@@ -24,6 +26,7 @@ fn init_text_tracing() {
     tracing_subscriber::fmt()
         .with_timer(ChronoLocal::rfc3339())
         .with_env_filter(EnvFilter::from_default_env())
+        .with_ansi(atty::is(atty::Stream::Stdout))
         .init();
 }
 

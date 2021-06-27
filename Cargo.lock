@@ -1069,6 +1069,7 @@ dependencies = [
  "actix-http",
  "actix-web",
  "assert_matches",
+ "atty",
  "chrono",
  "cron",
  "failure",
