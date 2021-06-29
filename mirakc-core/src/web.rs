@@ -59,11 +59,11 @@ pub async fn serve(
     let mut server = actix_web::HttpServer::new(
         move || {
             let app = actix_web::App::new()
-                .data(config.clone())
-                .data(string_table.clone())
-                .data(tuner_manager.clone())
-                .data(epg.clone())
-                .data(timeshift_manager.clone())
+                .app_data(actix_web::web::Data::new(config.clone()))
+                .app_data(actix_web::web::Data::new(string_table.clone()))
+                .app_data(actix_web::web::Data::new(tuner_manager.clone()))
+                .app_data(actix_web::web::Data::new(epg.clone()))
+                .app_data(actix_web::web::Data::new(timeshift_manager.clone()))
                 .wrap(actix_web::middleware::Logger::default())
                 .wrap(actix_web::middleware::DefaultHeaders::new()
                       .header("Server", server_name()))
@@ -1350,10 +1350,10 @@ mod tests {
     async fn request(req: actix_http::Request) -> actix_web::HttpResponse {
         let mut app = actix_web::test::init_service(
             actix_web::App::new()
-                .data(config_for_test())
-                .data(tuner_manager_for_test())
-                .data(epg_for_test())
-                .data(timeshift_manager_for_test())
+                .app_data(actix_web::web::Data::new(config_for_test()))
+                .app_data(actix_web::web::Data::new(tuner_manager_for_test()))
+                .app_data(actix_web::web::Data::new(epg_for_test()))
+                .app_data(actix_web::web::Data::new(timeshift_manager_for_test()))
                 .wrap(AccessControl)
                 .service(create_api_service())).await;
         actix_web::test::call_service(&mut app, req).await.into()
