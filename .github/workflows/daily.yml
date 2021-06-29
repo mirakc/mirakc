@@ -33,22 +33,28 @@ jobs:
         run: |
           sudo apt-get install -y moreutils  # sponge
           ./scripts/update-devcontainer-dockerfile
-          if ! git diff --quiet -- .devcontainer/Dockerfile
+          if git diff --quiet -- .devcontainer/Dockerfile
           then
+            echo "Not changed"
+          else
             git add .devcontainer/Dockerfile
             git commit -m 'build: update .devcontainer/Dockerfile'
           fi
       - name: Update resources/mirakurun.openapi.json
         run: |
           ./scripts/update-mirakurun-openapi-json
-          if ! git diff --quiet -- resources/mirakurun.openapi.json
+          if git diff --quiet -- resources/mirakurun.openapi.json
+            echo "Not changed"
           then
+          else
             git add resources/mirakurun.openapi.json
             git commit -m 'build: update resources/mirakurun.openapi.json'
           fi
       - name: Push if changed
         run: |
-          if ! git diff --quiet origin/main..HEAD
+          if git diff --quiet origin/main..HEAD
           then
+            echo "No commit to push"
+          else
             git push
           fi
