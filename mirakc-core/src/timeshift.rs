@@ -354,12 +354,12 @@ impl TimeshiftRecorder {
         // Read all bytes, then deserialize records, in order to reduce the lock time.
         let mut buf = Vec::with_capacity(4096 * 1_000);
         {
+            let _lockfile = TimeshiftLockfile::lock_shared(&self.config().data_file)?;
+            log::debug!("{}: Locked {} for read...", self.name, self.config().data_file);
             let mut file = std::fs::File::open(&self.config().data_file)?;
-            log::debug!("{}: Locking {} for read...", self.name, self.config().data_file);
-            file.lock_shared()?;
             file.read_to_end(&mut buf)?;
-            file.unlock()?;
             log::debug!("{}: Unlocked {}", self.name, self.config().data_file);
+            // It's guaranteed that the lockfile will be unlocked after the file is closed.
         }
         let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
         if self.service.triple() == data.service.triple() &&
@@ -405,13 +405,14 @@ impl TimeshiftRecorder {
         // Serialize records, then write all bytes, in order to reduce the lock time.
         let buf = serde_json::to_vec(&data)?;
         {
+            // Lock before opening the data file in order to prevent TimeshiftFilesystem from
+            // reading the truncated file.
+            let _lockfile = TimeshiftLockfile::lock_exclusive(&self.config().data_file)?;
+            log::debug!("{}: Locked {} for write...", self.name, self.config().data_file);
             let mut file = std::fs::File::create(&self.config().data_file)?;
-            log::debug!("{}: Locking {} for write...", self.name, self.config().data_file);
-            file.lock_exclusive()?;
             file.write_all(&buf)?;
-            file.flush()?;
-            file.unlock()?;
             log::debug!("{}: Unlocked {}", self.name, self.config().data_file);
+            // It's guaranteed that the lockfile will be unlocked after the file is closed.
         }
         Ok(data.records.len())
     }
@@ -1304,6 +1305,24 @@ pub struct TimeshiftRecordModel {
     pub end_time: DateTime<Jst>,
     pub size: u64,
     pub recording: bool,
+}
+
+pub struct TimeshiftLockfile(std::fs::File);
+
+impl TimeshiftLockfile {
+    pub fn lock_exclusive(filepath: &str) -> io::Result<Self> {
+        let lockfile = format!("{}.lock", filepath);
+        let file = std::fs::File::create(lockfile)?;
+        file.lock_exclusive()?;
+        Ok(TimeshiftLockfile(file))
+    }
+
+    pub fn lock_shared(filepath: &str) -> io::Result<Self> {
+        let lockfile = format!("{}.lock", filepath);
+        let file = std::fs::File::create(lockfile)?;
+        file.lock_shared()?;
+        Ok(TimeshiftLockfile(file))
+    }
 }
 
 #[cfg(test)]

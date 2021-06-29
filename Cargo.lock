@@ -1104,7 +1104,6 @@ version = "0.18.1"
 dependencies = [
  "assert_matches",
  "clap",
- "fs2",
  "fuser",
  "indexmap",
  "libc",

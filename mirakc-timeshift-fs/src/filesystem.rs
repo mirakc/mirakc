@@ -8,7 +8,6 @@ use std::io::SeekFrom;
 use std::ops::Range;
 use std::sync::Arc;
 
-use fs2::FileExt;
 use fuser;
 use indexmap::IndexMap;
 use sanitize_filename;
@@ -299,12 +298,12 @@ impl TimeshiftFilesystem {
         // Read all bytes, then deserialize records, in order to reduce the lock time.
         let mut buf = Vec::with_capacity(4096 * 1_000);
         {
+            let _lockfile = TimeshiftLockfile::lock_shared(&config.data_file)?;
+            log::debug!("Locked {} for read...", config.data_file);
             let mut file = std::fs::File::open(&config.data_file)?;
-            log::debug!("Locking {} for read...", config.data_file);
-            file.lock_shared()?;
             file.read_to_end(&mut buf)?;
-            file.unlock()?;
             log::debug!("Unlocked {}", config.data_file);
+            // It's guaranteed that the lockfile will be unlocked after the file is closed.
         }
         let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
         if data.service.triple() == config.service_triple.into() &&
