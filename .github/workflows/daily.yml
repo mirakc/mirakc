@@ -42,7 +42,7 @@ jobs:
           fi
       - name: Update resources/mirakurun.openapi.json
         run: |
-          ./scripts/update-mirakurun-openapi-json
+          timeout 120 ./scripts/update-mirakurun-openapi-json
           if git diff --quiet -- resources/mirakurun.openapi.json
           then
             echo "Not changed"

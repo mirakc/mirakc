@@ -3,6 +3,7 @@
 PROGNAME=$(basename $0)
 BASEDIR=$(cd $(dirname $0); pwd)
 IMAGE='chinachu/mirakurun'
+WAIT=5
 
 if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
   DOCKER='docker'
@@ -12,7 +13,6 @@ fi
 
 CLEAN=no
 PORT=40772
-WAIT=10
 VERSION=latest
 CONTAINER=
 
@@ -33,9 +33,6 @@ OPTIONS:
 
   -p, --port  [default: $PORT]
     TCP port to be exposed for Mirakurun.
-
-  -w, --wait <wait>  [default: $WAIT]
-    Time to wait for Mirakurun to start (seconds).
 
 ARGUMENTS:
   version  [default: $VERSION]
@@ -87,10 +84,6 @@ do
       PORT="$2"
       shift 2
       ;;
-    '-w' | '--wait')
-      WAIT="$2"
-      shift 2
-      ;;
     *)
       break
       ;;
@@ -101,14 +94,15 @@ if [ $# -gt 0 ]; then
   VERSION="$1"
 fi
 
-trap "clean" EXIT INT TERM
+trap "clean" EXIT
 
 log "Launching $IMAGE:$VERSION..."
 CONTAINER=$($DOCKER run --rm --init -d --cap-add SYS_ADMIN --cap-add SYS_NICE \
                     -p $PORT:40772 $IMAGE:$VERSION)
 
-log "Waiting $WAIT seconds for Mirakurun to be available..."
-sleep $WAIT
-
 log "Getting OpenAPI/Swagger JSON..."
-curl -fsSL http://localhost:$PORT/api/docs
+while ! curl -fsSL http://localhost:$PORT/api/docs
+do
+  log "Waiting $WAIT seconds for Mirakurun to be available..."
+  sleep $WAIT
+done
