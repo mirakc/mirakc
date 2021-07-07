@@ -1,0 +1,27 @@
+name: Weekly
+
+on:
+  schedule:
+    - cron: '23 23 * * 5'  # 23:23 (UTC), Friday
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+      - name: git config
+        run: |
+          # https://github.com/actions/checkout#push-a-commit-using-the-built-in-token
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+      - run: |
+          TAG="$(git describe --tags --abbrev=0)"
+          if git diff --quiet "$TAG"
+          then
+            echo "Not changed, skip to create new release"
+          else
+            ./script/release patch
+            git push
+            git push --tags
+          fi
