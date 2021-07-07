@@ -2,7 +2,7 @@ name: Weekly
 
 on:
   schedule:
-    - cron: '23 23 * * 5'  # 23:23 (UTC), Friday
+    - cron: '19 19 * * 5'  # 19:19 (UTC), Friday
 
 jobs:
   release:

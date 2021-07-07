@@ -4,11 +4,9 @@ updates:
     directory: /
     schedule:
       interval: daily
-      time: '03:03'
-      timezone: "Asia/Tokyo"
+      time: '01:01'  # UTC
   - package-ecosystem: npm
     directory: /scripts/perf-metrics
     schedule:
       interval: daily
-      time: '05:05'
-      timezone: "Asia/Tokyo"
+      time: '13:13'  # UTC
