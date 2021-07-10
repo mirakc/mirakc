@@ -69,7 +69,12 @@ do
   # The incompatibility between macOS and GNU will cause troubles.
   sed -e "s/^version = .*/version = \"$VERSION\"/" $MANIFEST | sponge $MANIFEST
 done
-cargo build
+
+# We assume that build never fails.
+
+# Update only packages defined in the workspace.
+cargo update -w
+
 git add .
 if [ "$NO_COMMIT" = NO ]; then
   git commit -m "misc: bump version to $VERSION"
