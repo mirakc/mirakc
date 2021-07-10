@@ -30,6 +30,8 @@ jobs:
           else
             sudo apt-get install -y moreutils  # sponge
             ./scripts/release patch
-            git push
-            git push --tags
+            hub push
+            hub push --tags
           fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_FOR_AUTOMERGE }}
