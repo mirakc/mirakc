@@ -8,6 +8,10 @@ on:
     types:
       - completed
 
+env:
+  ALLOWED_USER: 'dependabot[bot]'
+  ALLOWED_TITLE_PREFIX: 'build(deps):'
+
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
@@ -17,6 +21,7 @@ jobs:
     steps:
       - uses: actions/github-script@v4
         with:
+          # Use PAT in order to invoke other workflows.
           github-token: ${{ secrets.MY_GITHUB_TOKEN }}
           script: |
             const pr = await github.pulls.get({
@@ -24,14 +29,12 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.payload.workflow_run.pull_requests[0].number,
             });
-            if (pr.data.user.login !== 'dependabot[bot]') {
-              console.log('Not Merged');
-              console.log(`User '${pr.data.user.login}' does not equal 'dependabot[bot]'`);
+            if (pr.data.user.login !== process.env.ALLOWED_USER) {
+              console.log(`Not Merged: User must be "${process.env.ALLOWED_USER}"`);
               return;
             }
-            if (!pr.data.title.startsWith('build(deps):')) {
-              console.log('Not Merged');
-              console.log(`Title '${pr.data.title}' does not start with 'build(deps):'`);
+            if (!pr.data.title.startsWith(process.env.ALLOWED_TITLE_PREFIX)) {
+              console.log(`Not Merged: Title must start with "${process.env.ALLOWED_TITLE_PREFIX}"`);
               return;
             }
             await github.pulls.merge({
@@ -39,4 +42,4 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.payload.workflow_run.pull_requests[0].number,
             });
-            console.log('Merged');
+            console.log('Merged successfully');

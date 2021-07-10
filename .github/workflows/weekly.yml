@@ -2,8 +2,7 @@ name: Weekly
 
 on:
   schedule:
-    #- cron: '19 19 * * 5'  # 19:19 (UTC), Friday
-    - cron: '* * * * *'  # for testing
+    - cron: '19 19 * * 5'  # 19:19 (UTC), Friday
 
 jobs:
   release:
@@ -11,6 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
+          # Use PAT in order to invoke other workflows.
           token: ${{ secrets.MY_GITHUB_TOKEN }}
           # Fetch all history for all tags and branches so that `git describe` works properly
           fetch-depth: 0
