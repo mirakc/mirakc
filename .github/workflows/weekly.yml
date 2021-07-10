@@ -11,6 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
+          token: ${{ secrets.MY_GITHUB_TOKEN }}
           # https://github.community/t/push-from-action-even-with-pat-does-not-trigger-action/17622
           persist-credentials: false
           # Fetch all history for all tags and branches so that `git describe` works properly
@@ -24,8 +25,6 @@ jobs:
           # https://github.com/actions/checkout#push-a-commit-using-the-built-in-token
           git config user.name github-actions
           git config user.email github-actions@github.com
-          # https://github.com/github/hub/issues/1644
-          git config --global hub.protocol https
       - run: |
           TAG="$(git describe --tags --abbrev=0)"
           if git diff --quiet "$TAG"
