@@ -28,6 +28,7 @@ jobs:
           then
             echo "Not changed, skip to create new release"
           else
+            sudo apt-get install -y moreutils  # sponge
             ./scripts/release patch
             git push
             git push --tags
