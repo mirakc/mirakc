@@ -11,7 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-          # Fetch all history for all tags and branches
+          # https://github.community/t/push-from-action-even-with-pat-does-not-trigger-action/17622
+          persist-credentials: false
+          # Fetch all history for all tags and branches so that `git describe` works properly
           fetch-depth: 0
       - uses: actions-rs/toolchain@v1
         with:
@@ -34,4 +36,4 @@ jobs:
             hub push --tags
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_FOR_AUTOMERGE }}
+          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}

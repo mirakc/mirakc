@@ -24,6 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+        with:
+          # https://github.community/t/push-from-action-even-with-pat-does-not-trigger-action/17622
+          persist-credentials: false
       - name: git config
         run: |
           # https://github.com/actions/checkout#push-a-commit-using-the-built-in-token
@@ -59,4 +62,4 @@ jobs:
             hub push
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_FOR_AUTOMERGE }}
+          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
