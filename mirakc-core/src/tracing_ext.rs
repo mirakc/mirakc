@@ -4,7 +4,7 @@ use atty;
 use chrono;
 use tracing_subscriber;
 use tracing_subscriber::filter::EnvFilter;
-use tracing_subscriber::fmt::time::{ChronoLocal, FormatTime};
+use tracing_subscriber::fmt::time::FormatTime;
 
 pub fn init_tracing(format: &str) {
     match format {
@@ -24,7 +24,7 @@ fn init_json_tracing() {
 
 fn init_text_tracing() {
     tracing_subscriber::fmt()
-        .with_timer(ChronoLocal::rfc3339())
+        .with_timer(Rfc3339Micros)
         .with_env_filter(EnvFilter::from_default_env())
         .with_ansi(atty::is(atty::Stream::Stdout))
         .init();
@@ -39,5 +39,14 @@ impl FormatTime for HrTime {
         let secs = ts / NANOS_IN_SEC;
         let nanos = ts & NANOS_IN_SEC;
         write!(w, "{}.{:09}", secs, nanos)
+    }
+}
+
+struct Rfc3339Micros;
+
+impl FormatTime for Rfc3339Micros {
+    fn format_time(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        let time = chrono::Local::now();
+        write!(w, "{}", time.to_rfc3339_opts(chrono::SecondsFormat::Micros, false))
     }
 }
