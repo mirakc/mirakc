@@ -5,5 +5,4 @@
 *.pyc
 **/*.rs.bk
 .DS_Store
-.env
 cobertura.xml

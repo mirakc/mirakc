@@ -5,8 +5,3 @@ updates:
     schedule:
       interval: daily
       time: '01:01'  # UTC
-  - package-ecosystem: npm
-    directory: /scripts/perf-metrics
-    schedule:
-      interval: daily
-      time: '13:13'  # UTC

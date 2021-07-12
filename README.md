@@ -149,8 +149,7 @@ Mirakurun:
 | TX       | +111..121Mbps         | +100..140Mbps    |
 | RX       | +1.0..1.1Mbps         | +0.8..1.0Mbps    |
 
-See [docs/performance-measurement.md](./docs/performance-measurement.md) about
-how to collect the performance metrics.
+See [mirakc/performance-measurements] about how to collect the performance metrics.
 
 ## Limitations
 
@@ -192,6 +191,7 @@ shall be dual licensed as above, without any additional terms or conditions.
 [Mirakurun]: https://github.com/Chinachu/Mirakurun
 [EPGStation]: https://github.com/l3tnun/EPGStation
 [Docker Hub]: https://hub.docker.com/r/mirakc/mirakc
+[mirakc/performance-measurements]: https://github.com/mirakc/performance-measurements
 [BonDriver_Mirakurun]: https://github.com/Chinachu/BonDriver_Mirakurun
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
 [LICENSE-APACHE]: ./LICENSE-APACHE
