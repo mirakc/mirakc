@@ -124,30 +124,32 @@ at the same time even on ROCK64 (DRAM: 1GB).
 ### After running for 1 day
 
 The following table is a snippet of the result of `docker stats` at idle after
-running for 1 day on ROCK64 (DRAM: 1GB):
+running for 1 day on ROCK64 (DRAM: 4GB):
 
 ```
-NAME           MEM USAGE / LIMIT    MEM %   NET I/O          BLOCK I/O
-mirakurun      121.3MiB / 985.8MiB  12.31%  1.11MB / 936MB   19.6MB / 14.4GB
-mirakc-debian  107.2MiB / 985.8MiB  10.87%  1.3MB / 940MB    10.9MB / 527MB
-mirakc-alpine  25.82MiB / 985.8MiB   2.62%  1.28MB / 966MB   24.6kB / 994MB
+NAME           MEM USAGE / LIMIT    MEM %  NET I/O         BLOCK I/O
+mirakc-alpine  4.723MiB / 3.882GiB  0.12%  198MB / 508kB   803kB / 8.19kB
+mirakc-debian  6.031MiB / 3.882GiB  0.15%  182MB / 454kB   1.43MB / 8.19kB
+mirakurun      115.1MiB / 3.882GiB  2.89%  92.3GB / 219MB  0B / 996MB
 ```
 
-The environment variable `MALLOC_ARENA_MAX=2` is specified in `mirakurun` and
-`mirakc-debian` containers.
+The environment variable `MALLOC_ARENA_MAX=2` is specified in containers.
+
+The `mirakurun` container installed a few packages at the start time.  That increased the amount
+of I/O data but it seems to be less than several GB.
 
 ### 8 TS streams at the same time
 
-mirakc is 2/3 lower CPU usage and 1/60 smaller memory consumption than
-Mirakurun:
+mirakc is lower CPU usage and 1/40 smaller memory consumption than Mirakurun:
 
-|          | mirakc/0.4.0 (Alpine) | Mirakurun/2.11.0 |
-|----------|-----------------------|------------------|
-| CPU      | +32..37%              | +37..60%         |
-| Memory   | +11..12MB             | +470MB..800MB    |
-| Load1    | +1.4..2.8             | +1.5..2.7        |
-| TX       | +111..121Mbps         | +100..140Mbps    |
-| RX       | +1.0..1.1Mbps         | +0.8..1.0Mbps    |
+|          | mirakc/1.0.0 (Alpine) | mirakc/1.0.0 (Debian) | Mirakurun/3.6.0  |
+|----------|-----------------------|-----------------------|------------------|
+| CPU      | +46..47%              | +46..53%              | +52..59%         |
+| Memory   | +12..14MB             | +20..21MB             | +865MB..3345MB   |
+| Load1    | +1.71..2.55           | +1.67..2.75           | +1.52..2.90      |
+| TX       | +131..137Mbps         | +118..134Mbps         | +74..119Mbps     |
+
+where `+` means that the value is an amount of increase from its stationary value.
 
 See [mirakc/performance-measurements] about how to collect the performance metrics.
 
