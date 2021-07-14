@@ -1,0 +1,27 @@
+#!/bin/sh -eu
+
+BASEDIR=$(cd $(dirname $0); pwd)
+PROJDIR=$(cd $BASEDIR/..; pwd)
+TARGET_FILE=$PROJDIR/docker/build-scripts/mirakc-arib.sh
+
+CURRENT=$(grep 'MIRAKC_ARIB_VERSION=' docker/build-scripts/mirakc-arib.sh | \
+            cut -d '=' -f 2 | tr -d '"')
+
+URL='https://api.github.com/repos/mirakc/mirakc-arib/tags'
+VERSION="$(curl -fsSL $URL | jq -r '.[0].name')"
+
+TEMP_FILE=$(mktemp)
+trap "rm -f $TEMP_FILE" EXIT
+
+# Don't use the -i option of `sed`.
+# The incompatibility between macOS and GNU will cause troubles.
+sed -r -e "s|^MIRAKC_ARIB_VERSION=.*|MIRAKC_ARIB_VERSION=\"$VERSION\"|" >$TEMP_FILE $TARGET_FILE
+mv -f $TEMP_FILE $TARGET_FILE
+
+if git diff --quiet -- $TARGET_FILE
+then
+  echo "Not changed"
+else
+  git add $TARGET_FILE
+  git commit -m "build(deps): bump mirakc-arib from $CURRENT to $VERSION"
+fi

@@ -20,7 +20,7 @@ jobs:
           stale-issue-label: 'stale'
           exempt-issue-labels: 'bug,enhancement,good first issue,help wanted'
           days-before-pr-stale: -1  # no PR will be marked as 'stale'
-  update-generated-files:
+  update:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -55,6 +55,9 @@ jobs:
             git add resources/mirakurun.openapi.json
             git commit -m 'build: update resources/mirakurun.openapi.json'
           fi
+      - name: Update mirakc-arib
+        run: |
+          ./scripts/update-mirakc-arib
       - name: Push if changed
         run: |
           if git diff --quiet origin/main..HEAD
