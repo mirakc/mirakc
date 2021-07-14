@@ -1,21 +1,25 @@
 #!/bin/sh -eu
 
-BASEDIR=$(cd $(dirname $0); pwd)
-PROJDIR=$(cd $BASEDIR/..; pwd)
-TARGET_FILE=$PROJDIR/docker/build-scripts/mirakc-arib.sh
+PROJDIR=$(cd $(dirname $0)/..; pwd)
+TARGET_FILE=docker/build-scripts/mirakc-arib.sh
 
-CURRENT=$(grep 'MIRAKC_ARIB_VERSION=' docker/build-scripts/mirakc-arib.sh | \
-            cut -d '=' -f 2 | tr -d '"')
+if [ "$(pwd)" != "$PROJDIR" ]
+then
+  echo "ERROR: must run in the project root"
+  exit 1
+fi
+
+CURRENT=$(grep 'MIRAKC_ARIB_VERSION=' $TARGET_FILE | cut -d '=' -f 2 | tr -d '"')
 
 URL='https://api.github.com/repos/mirakc/mirakc-arib/tags'
 VERSION="$(curl -fsSL $URL | jq -r '.[0].name')"
 
 TEMP_FILE=$(mktemp)
-trap "rm -f $TEMP_FILE" EXIT
+trap "rm -f $TEMP_FILE" EXIT INT TERM
 
 # Don't use the -i option of `sed`.
 # The incompatibility between macOS and GNU will cause troubles.
-sed -r -e "s|^MIRAKC_ARIB_VERSION=.*|MIRAKC_ARIB_VERSION=\"$VERSION\"|" >$TEMP_FILE $TARGET_FILE
+sed -r -e "s|^MIRAKC_ARIB_VERSION=.*|MIRAKC_ARIB_VERSION=\"$VERSION\"|" $TARGET_FILE >$TEMP_FILE
 mv -f $TEMP_FILE $TARGET_FILE
 
 if git diff --quiet -- $TARGET_FILE

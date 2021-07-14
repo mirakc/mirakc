@@ -36,25 +36,10 @@ jobs:
           git config user.email github-actions@github.com
       - name: Update .devcontainer/Dockerfile
         run: |
-          sudo apt-get install -y moreutils  # sponge
           ./scripts/update-devcontainer-dockerfile
-          if git diff --quiet -- .devcontainer/Dockerfile
-          then
-            echo "Not changed"
-          else
-            git add .devcontainer/Dockerfile
-            git commit -m 'build: update .devcontainer/Dockerfile'
-          fi
       - name: Update resources/mirakurun.openapi.json
         run: |
           timeout 120 ./scripts/update-mirakurun-openapi-json
-          if git diff --quiet -- resources/mirakurun.openapi.json
-          then
-            echo "Not changed"
-          else
-            git add resources/mirakurun.openapi.json
-            git commit -m 'build: update resources/mirakurun.openapi.json'
-          fi
       - name: Update mirakc-arib
         run: |
           ./scripts/update-mirakc-arib
