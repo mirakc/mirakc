@@ -217,7 +217,7 @@ number of days.
 
 The following query parameters can be specified:
 
-* days (1-8)
+* days (1-8, default: 3)
 
 [EPGStation]: https://github.com/l3tnun/EPGStation
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
