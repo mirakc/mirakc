@@ -226,6 +226,9 @@ The following query parameters can be specified:
 
 Alias of [/api/iptv/epg].  Added for compatibility with Mirakurun.
 
+Unlike `/api/iptv/epg`, this endpoint does not support the `days` query
+parameter for compatibility with Mirakurun and returns all programs.
+
 ## Web API endpoints for timeshift recording and playback
 
 ### /api/timeshift

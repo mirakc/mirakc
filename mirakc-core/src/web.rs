@@ -748,7 +748,7 @@ async fn get_iptv_epg(
     epg: actix_web::web::Data<Addr<EpgActor>>,
     query: actix_web::web::Query<IptvEpgQuery>,
 ) -> ApiResult {
-    do_get_iptv_epg(req, config, string_table, epg, query).await
+    do_get_iptv_epg(req, config, string_table, epg, query.into_inner()).await
 }
 
 // For compatibility with Mirakurun
@@ -758,9 +758,9 @@ async fn get_iptv_xmltv(
     config: actix_web::web::Data<Arc<Config>>,
     string_table: actix_web::web::Data<Arc<StringTable>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
-    query: actix_web::web::Query<IptvEpgQuery>,
 ) -> ApiResult {
-    do_get_iptv_epg(req, config, string_table, epg, query).await
+    // Mirakurun doesn't support the days query parameter and returns all programs.
+    do_get_iptv_epg(req, config, string_table, epg, IptvEpgQuery { days: 10 }).await
 }
 
 async fn do_get_iptv_epg(
@@ -768,7 +768,7 @@ async fn do_get_iptv_epg(
     config: actix_web::web::Data<Arc<Config>>,
     string_table: actix_web::web::Data<Arc<StringTable>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
-    query: actix_web::web::Query<IptvEpgQuery>,
+    query: IptvEpgQuery,
 ) -> ApiResult {
     const INITIAL_BUFSIZE: usize = 8 * 1024 * 1024;  // 8MB
     const DATETIME_FORMAT: &'static str = "%Y%m%d%H%M%S %z";
