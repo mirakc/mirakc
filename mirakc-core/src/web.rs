@@ -212,7 +212,9 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_timeshift_stream)
         .service(get_timeshift_record_stream)
         .service(get_iptv_playlist)
+        .service(get_iptv_channel_m3u8)
         .service(get_iptv_epg)
+        .service(get_iptv_xmltv)
         .service(get_docs)
 }
 
@@ -669,6 +671,26 @@ async fn get_iptv_playlist(
     req: actix_web::HttpRequest,
     config: actix_web::web::Data<Arc<Config>>,
     epg: actix_web::web::Data<Addr<EpgActor>>,
+    filter_setting: FilterSetting,
+) -> ApiResult {
+    do_get_iptv_playlist(req, config, epg, filter_setting).await
+}
+
+// For compatibility with EPGStation
+#[actix_web::get("/iptv/channel.m3u8")]
+async fn get_iptv_channel_m3u8(
+    req: actix_web::HttpRequest,
+    config: actix_web::web::Data<Arc<Config>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    filter_setting: FilterSetting,
+) -> ApiResult {
+    do_get_iptv_playlist(req, config, epg, filter_setting).await
+}
+
+async fn do_get_iptv_playlist(
+    req: actix_web::HttpRequest,
+    config: actix_web::web::Data<Arc<Config>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
     mut filter_setting: FilterSetting,
 ) -> ApiResult {
     const INITIAL_BUFSIZE: usize = 8 * 1024;  // 8KB
@@ -720,6 +742,28 @@ async fn get_iptv_playlist(
 
 #[actix_web::get("/iptv/epg")]
 async fn get_iptv_epg(
+    req: actix_web::HttpRequest,
+    config: actix_web::web::Data<Arc<Config>>,
+    string_table: actix_web::web::Data<Arc<StringTable>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    query: actix_web::web::Query<IptvEpgQuery>,
+) -> ApiResult {
+    do_get_iptv_epg(req, config, string_table, epg, query).await
+}
+
+// For compatibility with Mirakurun
+#[actix_web::get("/iptv/xmltv")]
+async fn get_iptv_xmltv(
+    req: actix_web::HttpRequest,
+    config: actix_web::web::Data<Arc<Config>>,
+    string_table: actix_web::web::Data<Arc<StringTable>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    query: actix_web::web::Query<IptvEpgQuery>,
+) -> ApiResult {
+    do_get_iptv_epg(req, config, string_table, epg, query).await
+}
+
+async fn do_get_iptv_epg(
     req: actix_web::HttpRequest,
     config: actix_web::web::Data<Arc<Config>>,
     string_table: actix_web::web::Data<Arc<StringTable>>,
@@ -1351,6 +1395,7 @@ mod tests {
         let mut app = actix_web::test::init_service(
             actix_web::App::new()
                 .app_data(actix_web::web::Data::new(config_for_test()))
+                .app_data(actix_web::web::Data::new(string_table_for_test()))
                 .app_data(actix_web::web::Data::new(tuner_manager_for_test()))
                 .app_data(actix_web::web::Data::new(epg_for_test()))
                 .app_data(actix_web::web::Data::new(timeshift_manager_for_test()))
@@ -1677,6 +1722,24 @@ mod tests {
     }
 
     #[actix::test]
+    async fn test_get_iptv_channel_m3u8() {
+        let res = get("/api/iptv/channel.m3u8").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[actix::test]
+    async fn test_get_iptv_epg() {
+        let res = get("/api/iptv/epg").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[actix::test]
+    async fn test_get_iptv_xmltv() {
+        let res = get("/api/iptv/xmltv").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+    }
+
+    #[actix::test]
     async fn test_get_docs() {
         let res = get("/api/docs").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
@@ -1864,6 +1927,11 @@ mod tests {
         config.mirakurun.openapi_json = "/dev/null".to_string();
 
         Arc::new(config)
+    }
+
+    fn string_table_for_test() -> Arc<StringTable> {
+        crate::string_table::load(
+            format!("{}/../resources/strings.yml", env!("CARGO_MANIFEST_DIR")).as_str())
     }
 
     fn tuner_manager_for_test() -> Addr<TunerManagerActor> {

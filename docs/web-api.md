@@ -19,8 +19,10 @@ Web API endpoints listed below have been implemented at this moment:
 | [/api/programs/{id}/stream]                     | :heavy_check_mark:         |
 | [/api/tuners]                                   | :heavy_check_mark:         |
 | [/api/docs]                                     | :heavy_check_mark:         |
-| [/api/iptv/playlist]                            |                            |
+| [/api/iptv/playlist]                            | :heavy_check_mark:         |
+| [/api/iptv/channel.m3u8]                        |                            |
 | [/api/iptv/epg]                                 |                            |
+| [/api/iptv/xmltv]                               | :heavy_check_mark:         |
 | [/api/timeshift]                                |                            |
 | [/api/timeshift/{recorder}]                     |                            |
 | [/api/timeshift/{recorder}/records]             |                            |
@@ -67,7 +69,9 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [/api/tuners]: #apituners
 [/api/docs]: #apidocs
 [/api/iptv/playlist]: #apiiptvplaylist
+[/api/iptv/channel.m3u8]: #apiiptvchannelm3u8
 [/api/iptv/epg]: #apiiptvepg
+[/api/iptv/xmltv]: #apiiptvxmltv
 [/api/timeshift]: #apitimeshift
 [/api/timeshift/{recorder}]: #apitimeshiftrecorder
 [/api/timeshift/{recorder}/records]: #apitimeshiftrecorderrecords
@@ -202,6 +206,10 @@ The following query parameters can be specified:
 
 The specified query parameters are added to URLs in the playlist.
 
+### /api/iptv/channel.m3u8
+
+Alias of [/api/iptv/playlist].  Added for compatibility with EPGStation.
+
 ### /api/iptv/epg
 
 Returns a XMLTV document which contains TV program information for a specified
@@ -213,6 +221,10 @@ The following query parameters can be specified:
 
 [EPGStation]: https://github.com/l3tnun/EPGStation
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
+
+### /api/iptv/xmltv
+
+Alias of [/api/iptv/epg].  Added for compatibility with Mirakurun.
 
 ## Web API endpoints for timeshift recording and playback
 
