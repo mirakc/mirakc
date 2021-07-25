@@ -138,6 +138,52 @@
         }
       }
     },
+    "/iptv/xmltv": {
+      "parameters": [],
+      "get": {
+        "tags": [
+          "iptv"
+        ],
+        "summary": "IPTV - XMLTV EPG Data",
+        "produces": [
+          "text/xml"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Unexpected Error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/iptv/playlist": {
+      "parameters": [],
+      "get": {
+        "tags": [
+          "iptv"
+        ],
+        "summary": "IPTV - M3U Playlist",
+        "produces": [
+          "application/x-mpegURL"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Unexpected Error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
     "/channels": {
       "parameters": [],
       "get": {
