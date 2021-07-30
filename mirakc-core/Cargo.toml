@@ -1,6 +1,6 @@
 [package]
 name = "mirakc-core"
-version = "1.0.1"
+version = "1.0.2"
 authors = ["Contributors of mirakc"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
