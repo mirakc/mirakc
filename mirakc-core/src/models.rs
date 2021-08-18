@@ -576,8 +576,8 @@ pub struct MirakurunProgram {
     pub extended: Option<IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<MirakurunProgramVideo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<MirakurunProgramAudio>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audios: Vec<MirakurunProgramAudio>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub genres: Option<Vec<EpgGenre>>,
 }
@@ -597,14 +597,11 @@ impl From<EpgProgram> for MirakurunProgram {
             description: program.description,
             extended: program.extended,
             video: program.video.map(MirakurunProgramVideo::from),
-            // Unkike Mirakurun, return properties of the main audio.
-            // Mirakurun returns the last audio info in descriptors.
-            // See src/Mirakurun/epg.ts#L373 in Chinachu/Mirakurun.
-            audio: program.audios
+            audios: program.audios
                 .values()
-                .find(|audio| audio.main_component_flag)
                 .cloned()
-                .map(MirakurunProgramAudio::from),
+                .map(MirakurunProgramAudio::from)
+                .collect(),
             genres: program.genres,
         }
     }
@@ -666,19 +663,28 @@ impl From<ComponentDescriptor> for MirakurunProgramVideo {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramAudio {
-    sampling_rate: i32,
     component_type: u8,
+    is_main: bool,
+    sampling_rate: i32,
+    langs: Vec<MirakurunLangCode>,
 }
 
 impl MirakurunProgramAudio {
-    fn new(sampling_rate: u8, component_type: u8) -> Self {
+    fn new(
+        component_type: u8,
+        is_main: bool,
+        sampling_rate: i32,
+        langs: Vec<MirakurunLangCode>,
+    ) -> Self {
         Self {
-            sampling_rate: Self::get_sampling_rate(sampling_rate),
             component_type,
+            is_main,
+            sampling_rate,
+            langs,
         }
     }
 
-    fn get_sampling_rate(sampling_rate: u8) -> i32 {
+    fn convert_sampling_rate(sampling_rate: u8) -> i32 {
         match sampling_rate {
             1 => 16_000,
             2 => 22_050,
@@ -693,7 +699,38 @@ impl MirakurunProgramAudio {
 
 impl From<AudioComponentDescriptor> for MirakurunProgramAudio {
     fn from(audio: AudioComponentDescriptor) -> Self {
-        Self::new(audio.sampling_rate, audio.component_type)
+        let mut langs = vec![MirakurunLangCode(audio.language_code)];
+        if let Some(lang) = audio.language_code2 {
+            langs.push(MirakurunLangCode(lang));
+        }
+        Self::new(
+            audio.component_type,
+            audio.main_component_flag,
+            Self::convert_sampling_rate(audio.sampling_rate),
+            langs,
+        )
+    }
+}
+
+#[derive(Clone, Debug)]
+struct MirakurunLangCode(u32);
+
+// See LanguageCodeToText() in LibISDB.
+impl Serialize for MirakurunLangCode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        match self.0 {
+            0 => serializer.serialize_str(""),
+            _ => {
+                let char0 = (((self.0 >> 16) & 0xFF) as u8) as char;
+                let char1 = (((self.0 >>  8) & 0xFF) as u8) as char;
+                let char2 = (((self.0 >>  0) & 0xFF) as u8) as char;
+                let lang: String = [char0, char1, char2].iter().collect();
+                serializer.serialize_str(&lang)
+            }
+        }
     }
 }
 
