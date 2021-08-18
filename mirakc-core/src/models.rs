@@ -576,6 +576,8 @@ pub struct MirakurunProgram {
     pub extended: Option<IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<MirakurunProgramVideo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<MirakurunProgramAudio>,  // for backward compatibility
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub audios: Vec<MirakurunProgramAudio>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -597,6 +599,14 @@ impl From<EpgProgram> for MirakurunProgram {
             description: program.description,
             extended: program.extended,
             video: program.video.map(MirakurunProgramVideo::from),
+            // Unkike Mirakurun, return properties of the main audio.
+            // Mirakurun returns the last audio info in descriptors.
+            // See src/Mirakurun/epg.ts#L373 in Chinachu/Mirakurun.
+            audio: program.audios
+                .values()
+                .find(|audio| audio.main_component_flag)
+                .cloned()
+                .map(MirakurunProgramAudio::from),
             audios: program.audios
                 .values()
                 .cloned()
