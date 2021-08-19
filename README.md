@@ -164,7 +164,7 @@ See [mirakc/performance-measurements] about how to collect the performance metri
 
 ## TODO
 
-* Use multiple tuners in the EGP task in order to reduce the time
+* Use multiple tuners in the EPG task in order to reduce the time
   * Currently, it takes about 16 minutes for collecting EIT sections of 8 GR
     channels and 10 BS channels
 
