@@ -31,7 +31,7 @@ serde_json = { version = "1.0.66", features = ["preserve_order"] }
 serde_yaml = "0.8.19"
 serde_qs = "0.8.4"
 shell-words = "1.0.0"
-tokio = { version = "1.10.0", features = ["full"] }
+tokio = { version = "1.10.1", features = ["full"] }
 tokio-stream = { version = "0.1.7", features = ["io-util"] }
 tokio-util = { version = "0.6.7", features = ["io"] }
 tracing = "0.1.26"
