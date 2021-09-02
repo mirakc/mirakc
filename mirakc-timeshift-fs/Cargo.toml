@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 clap = "2.33.3"
-fuser = "0.8.0"
+fuser = "0.9.0"
 indexmap = { version = "1.7.0", features = ["serde-1"] }
 libc = "0.2.101"
 log = "0.4.14"
