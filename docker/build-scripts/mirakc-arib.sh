@@ -42,3 +42,4 @@ fi
 cmake -B. -S. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake
 make -j $(nproc) vendor
 make -j $(nproc)
+strip bin/mirakc-arib

@@ -33,10 +33,12 @@ export PKG_CONFIG_ALLOW_CROSS=1
 
 cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc
 cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc /usr/local/bin/
+strip /usr/local/bin/mirakc
 
 if [ "$TARGET" = debian ]; then
   cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs
   cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc-timeshift-fs /usr/local/bin/
+  strip /usr/local/bin/mirakc-timeshift-fs
   cat <<EOF >/usr/local/bin/run-mirakc-timeshift-fs
 #!/bin/sh
 trap 'umount /mnt' EXIT
