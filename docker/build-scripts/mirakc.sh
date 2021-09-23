@@ -46,3 +46,8 @@ trap 'umount /mnt' EXIT
 EOF
   chmod +x /usr/local/bin/run-mirakc-timeshift-fs
 fi
+
+# Compress mirakurun.openapi.json.
+TEMP_FILE=$(mktemp)
+cat /build/resources/mirakurun.openapi.json | jq -Mc '.' >$TEMP_FILE
+mv -f $TEMP_FILE /build/resources/mirakurun.openapi.json

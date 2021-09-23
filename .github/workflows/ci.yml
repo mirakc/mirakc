@@ -212,9 +212,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Compress mirakurun.openapi.json
-        run: |
-          cat ./resources/mirakurun.openapi.json | jq -Mc >mirakurun.openapi.json
       - name: Build and push (mirakc/mirakc)
         uses: docker/build-push-action@v2
         with:

@@ -38,6 +38,7 @@ COPY ./Cargo.* ./
 COPY ./mirakc ./mirakc/
 COPY ./mirakc-core ./mirakc-core/
 COPY ./mirakc-timeshift-fs ./mirakc-timeshift-fs/
+COPY ./resources ./resources/
 COPY ./docker/build-scripts/mirakc.sh /build-scripts/
 RUN sh /build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 
@@ -46,8 +47,8 @@ LABEL maintainer="Contributors of mirakc"
 ARG TARGETPLATFORM
 COPY --from=mirakc-tools /usr/local/bin/* /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
-COPY ./resources/strings.yml /etc/mirakc/strings.yml
-COPY ./mirakurun.openapi.json /etc/mirakurun.openapi.json
+COPY --from=mirakc-build /build/resources/strings.yml /etc/mirakc/strings.yml
+COPY --from=mirakc-build /build/resources/mirakurun.openapi.json /etc/mirakurun.openapi.json
 RUN apk add --no-cache ca-certificates curl libstdc++ socat tzdata
 # dirty hack for linux/arm/v6
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v6" ]; then ln -s /lib/ld-musl-armhf.so.1 /lib/ld-musl-arm.so.1; fi
