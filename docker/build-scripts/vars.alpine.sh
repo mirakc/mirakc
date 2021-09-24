@@ -32,3 +32,4 @@ esac
 
 GCC="${GCC_HOST_TRIPLE}-gcc"
 GXX="${GCC_HOST_TRIPLE}-g++"
+STRIP="${GCC_HOST_TRIPLE}-strip"

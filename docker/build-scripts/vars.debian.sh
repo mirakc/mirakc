@@ -4,6 +4,7 @@ case "$TARGETPLATFORM" in
     GCC_ARCH='x86'
     GCC="${GCC_HOST_TRIPLE}-gcc"
     GXX="${GCC_HOST_TRIPLE}-g++"
+    STRIP="${GCC_HOST_TRIPLE}-strip"
     RUST_TARGET_TRIPLE='i686-unknown-linux-gnu'
     BUILD_DEPS="$BUILD_DEPS g++-${GCC_HOST_TRIPLE}"
     ;;
@@ -12,6 +13,7 @@ case "$TARGETPLATFORM" in
     GCC_ARCH='x86_64'
     GCC='gcc'
     GXX='g++'
+    STRIP='strip'
     RUST_TARGET_TRIPLE='x86_64-unknown-linux-gnu'
     BUILD_DEPS="$BUILD_DEPS g++"
     ;;
@@ -20,6 +22,7 @@ case "$TARGETPLATFORM" in
     GCC_ARCH='arm'
     GCC="${GCC_HOST_TRIPLE}-gcc"
     GXX="${GCC_HOST_TRIPLE}-g++"
+    STRIP="${GCC_HOST_TRIPLE}-strip"
     RUST_TARGET_TRIPLE='arm-unknown-linux-gnueabi'
     BUILD_DEPS="$BUILD_DEPS g++-${GCC_HOST_TRIPLE}"
     ;;
@@ -28,6 +31,7 @@ case "$TARGETPLATFORM" in
     GCC_ARCH='arm'
     GCC="${GCC_HOST_TRIPLE}-gcc"
     GXX="${GCC_HOST_TRIPLE}-g++"
+    STRIP="${GCC_HOST_TRIPLE}-strip"
     RUST_TARGET_TRIPLE='arm-unknown-linux-gnueabihf'
     BUILD_DEPS="$BUILD_DEPS g++-${GCC_HOST_TRIPLE}"
     ;;
@@ -36,6 +40,7 @@ case "$TARGETPLATFORM" in
     GCC_ARCH='aarch64'
     GCC="${GCC_HOST_TRIPLE}-gcc"
     GXX="${GCC_HOST_TRIPLE}-g++"
+    STRIP="${GCC_HOST_TRIPLE}-strip"
     RUST_TARGET_TRIPLE='aarch64-unknown-linux-gnu'
     BUILD_DEPS="$BUILD_DEPS g++-${GCC_HOST_TRIPLE}"
     ;;

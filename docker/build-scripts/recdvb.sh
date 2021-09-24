@@ -19,4 +19,4 @@ if [ "$TARGET" = alpine ]; then
 fi
 make -j $(nproc)
 make install
-strip /usr/local/bin/recdvb
+$STRIP /usr/local/bin/recdvb
