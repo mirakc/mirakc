@@ -7,10 +7,10 @@ TARGETPLATFORM=$3
 
 . $BASEDIR/vars.sh
 
-MIRAKC_ARIB_VERSION="0.16.3"
-ARCHIVE="https://github.com/mirakc/mirakc-arib/archive/$MIRAKC_ARIB_VERSION.tar.gz"
+MIRAKC_ARIB_VERSION="0.16.4"
+MIRAKC_ARIB_GIT_URL='https://github.com/mirakc/mirakc-arib.git'
 
-curl -fsSL $ARCHIVE | tar -xz --strip-components=1
+git clone --recursive --depth=1 --branch=$MIRAKC_ARIB_VERSION $MIRAKC_ARIB_GIT_URL .
 
 cat <<EOF >toolchain.cmake
 set(CMAKE_SYSTEM_NAME Linux)
@@ -39,7 +39,17 @@ set(CMAKE_EXE_LINKER_FLAGS "-static -static-libgcc -static-libstdc++")
 EOF
 fi
 
-cmake -B. -S. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake
-make -j $(nproc) vendor
-make -j $(nproc)
-$STRIP bin/mirakc-arib
+# Generating Makefiles for in-source build fails due to the following error:
+#
+#   CMake Error at vendor/docopt/docopt-config.cmake:1 (include):
+#     include could not find requested file:
+#
+#       /home/masnagam/workspace/mirakc/mirakc-arib/vendor/docopt/docopt-targets.cmake
+#   Call Stack (most recent call first):
+#     CMakeLists.txt:294 (find_package)
+#
+# I don't know the exact reason, but generating Makefiles for out-of-source build works fine.
+cmake -S . -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE=toolchain.cmake
+make -C build -j $(nproc) vendor
+make -C build -j $(nproc)
+$STRIP build/bin/mirakc-arib

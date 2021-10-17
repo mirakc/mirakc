@@ -29,7 +29,7 @@ RUN sh /build-scripts/mirakc-arib.sh debian $BUILDPLATFORM $TARGETPLATFORM
 FROM scratch AS mirakc-tools
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
 COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/
-COPY --from=mirakc-arib-build /build/bin/mirakc-arib /usr/local/bin/
+COPY --from=mirakc-arib-build /build/build/bin/mirakc-arib /usr/local/bin/
 
 FROM buildenv AS mirakc-build
 ARG BUILDPLATFORM
