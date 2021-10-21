@@ -9,7 +9,6 @@ Web API endpoints listed below have been implemented at this moment:
 | [/api/channels]                                 | :heavy_check_mark:         |
 | [/api/channels/{channel_type}/{channel}/stream] | :heavy_check_mark:         |
 | [/api/channels/{channel_type}/{channel}/services/{sid}/stream] |             |
-| [/api/channels]                                 | :heavy_check_mark:         |
 | [/api/services]                                 | :heavy_check_mark:         |
 | [/api/services/{id}]                            | :heavy_check_mark:         |
 | [/api/services/{id}/logo]                       | :heavy_check_mark:         |
