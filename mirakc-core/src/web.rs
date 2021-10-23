@@ -1093,7 +1093,6 @@ struct FilterSetting {
 impl FromRequest for FilterSetting {
     type Error = actix_web::Error;
     type Future = futures::future::Ready<Result<Self, Self::Error>>;
-    type Config = ();
 
     fn from_request(
         req: &actix_web::HttpRequest,
@@ -1124,7 +1123,6 @@ where
 impl FromRequest for TunerUser {
     type Error = actix_web::Error;
     type Future = futures::future::Ready<Result<Self, Self::Error>>;
-    type Config = ();
 
     fn from_request(
         req: &actix_web::HttpRequest,
