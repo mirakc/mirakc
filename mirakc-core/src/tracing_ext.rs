@@ -5,6 +5,7 @@ use chrono;
 use tracing_subscriber;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::time::FormatTime;
+use tracing_subscriber::fmt::format::Writer;
 
 pub fn init_tracing(format: &str) {
     match format {
@@ -33,7 +34,7 @@ fn init_text_tracing() {
 struct HrTime;
 
 impl FormatTime for HrTime {
-    fn format_time(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+    fn format_time(&self, w: &mut Writer) -> fmt::Result {
         const NANOS_IN_SEC: i64 = 1_000_000_000;
         let ts = chrono::Utc::now().timestamp_nanos();
         let secs = ts / NANOS_IN_SEC;
@@ -45,7 +46,7 @@ impl FormatTime for HrTime {
 struct Rfc3339Micros;
 
 impl FormatTime for Rfc3339Micros {
-    fn format_time(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+    fn format_time(&self, w: &mut Writer) -> fmt::Result {
         let time = chrono::Local::now();
         write!(w, "{}", time.to_rfc3339_opts(chrono::SecondsFormat::Micros, false))
     }
