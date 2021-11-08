@@ -142,9 +142,9 @@ jobs:
         run: >-
           grcov target/debug --branch --llvm --ignore-not-existing -s . --ignore '*/src/main.rs' --ignore 'mirakc-core/src/error.rs' --ignore 'mirakc-core/src/tracing_ext.rs' --excl-line '<coverage:exclude/>|unimplemented!|unreachable!' --excl-start '<coverage:exclude>' --excl-stop '</coverage:exclude>' -t lcov -o lcov.info
       - name: Update to codecov.io
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v2
         with:
-          file: lcov.info
+          files: lcov.info
   docker:
     needs:
       - build
