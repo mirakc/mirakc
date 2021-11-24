@@ -15,7 +15,7 @@ chrono = { version = "0.4.19", features = ["serde"] }
 cron = "0.9.0"
 failure = "0.1.8"
 fs2 = "0.4.3"
-futures = "0.3.17"
+futures = "0.3.18"
 http-range = "0.1.4"
 humantime = "2.1.0"
 indexmap = { version = "1.7.0", features = ["serde-1"] }
