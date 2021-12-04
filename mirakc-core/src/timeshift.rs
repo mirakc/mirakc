@@ -1603,8 +1603,7 @@ mod tests {
         TimeshiftManagerActor::mock(Box::new(move |msg, _ctx| {
             if let Some(_) = msg.downcast_ref::<ReactivateTimeshiftRecorderMessage>() {
                 send.send(true).unwrap();
-                Box::<Option<Result<(), Error>>>::new(
-                    Some(Ok(())))
+                Box::new(Some(()))
             } else {
                 unimplemented!();
             }
