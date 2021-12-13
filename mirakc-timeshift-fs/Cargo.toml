@@ -11,7 +11,7 @@ publish = false
 clap = "2.34.0"
 fuser = "0.9.1"
 indexmap = { version = "1.7.0", features = ["serde-1"] }
-libc = "0.2.110"
+libc = "0.2.111"
 log = "0.4.14"
 mirakc-core = { path = "../mirakc-core" }
 serde_json = { version = "1.0.72", features = ["preserve_order"] }
