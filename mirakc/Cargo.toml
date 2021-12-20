@@ -3,7 +3,7 @@ name = "mirakc"
 version = "1.0.22"
 authors = ["Contributors of mirakc"]
 description = "A Mirakurun-compatible PVR backend written in Rust"
-edition = "2018"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
 
