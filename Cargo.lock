@@ -68,9 +68,9 @@ dependencies = [
 
 [[package]]
 name = "actix-http"
-version = "3.0.0-beta.15"
+version = "3.0.0-beta.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1ff7b149cc1b99967c22cb81c2c31f128ac88ed12bbf80c29c55a7511d46edb"
+checksum = "6294c508c1413346857838356f53f45dbfd257ea31dca19470d9ce78750a7d37"
 dependencies = [
  "actix-codec",
  "actix-rt",
@@ -86,7 +86,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "futures-core",
- "futures-util",
+ "futures-task",
  "h2",
  "http",
  "httparse",
@@ -97,7 +97,6 @@ dependencies = [
  "log 0.4.14",
  "mime",
  "percent-encoding",
- "pin-project",
  "pin-project-lite",
  "rand",
  "sha-1",
@@ -1244,26 +1243,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10f4872ae94d7b90ae48754df22fd42ad52ce740b8f370b03da4835417403e53"
 dependencies = [
  "ucd-trie",
-]
-
-[[package]]
-name = "pin-project"
-version = "1.0.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "576bc800220cc65dac09e99e97b08b358cfab6e17078de8dc5fee223bd2d0c08"
-dependencies = [
- "pin-project-internal",
-]
-
-[[package]]
-name = "pin-project-internal"
-version = "1.0.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e8fe8163d14ce7f0cdac2e040116f22eac817edabff0be91e8aff7e9accf389"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
