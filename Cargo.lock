@@ -68,9 +68,9 @@ dependencies = [
 
 [[package]]
 name = "actix-http"
-version = "3.0.0-beta.15"
+version = "3.0.0-beta.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1ff7b149cc1b99967c22cb81c2c31f128ac88ed12bbf80c29c55a7511d46edb"
+checksum = "6294c508c1413346857838356f53f45dbfd257ea31dca19470d9ce78750a7d37"
 dependencies = [
  "actix-codec",
  "actix-rt",
@@ -86,7 +86,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "futures-core",
- "futures-util",
+ "futures-task",
  "h2",
  "http",
  "httparse",
@@ -97,7 +97,6 @@ dependencies = [
  "log 0.4.14",
  "mime",
  "percent-encoding",
- "pin-project",
  "pin-project-lite",
  "rand",
  "sha-1",
@@ -117,9 +116,9 @@ dependencies = [
 
 [[package]]
 name = "actix-router"
-version = "0.5.0-beta.2"
+version = "0.5.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36b95ce0d76d1aa2f98b681702807475ade0f99bd4552546a6843a966d42ea3d"
+checksum = "ddd9f117b910fbcce6e9f45092ffd4ff017785a346d09e2d4fd049f4e20384f4"
 dependencies = [
  "bytestring",
  "firestorm",
@@ -181,9 +180,9 @@ dependencies = [
 
 [[package]]
 name = "actix-web"
-version = "4.0.0-beta.14"
+version = "4.0.0-beta.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9387ea044357f12b606b8fad0652d3804ba498954f66ae5c677236cb0bd47db4"
+checksum = "4609cf57246040316642d4dc4c03d7f3d4a083a892122829dbd9e6ec8db7cd67"
 dependencies = [
  "actix-codec",
  "actix-http",
@@ -199,7 +198,6 @@ dependencies = [
  "cfg-if",
  "cookie",
  "derive_more",
- "either",
  "encoding_rs",
  "futures-core",
  "futures-util",
@@ -1244,26 +1242,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10f4872ae94d7b90ae48754df22fd42ad52ce740b8f370b03da4835417403e53"
 dependencies = [
  "ucd-trie",
-]
-
-[[package]]
-name = "pin-project"
-version = "1.0.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "576bc800220cc65dac09e99e97b08b358cfab6e17078de8dc5fee223bd2d0c08"
-dependencies = [
- "pin-project-internal",
-]
-
-[[package]]
-name = "pin-project-internal"
-version = "1.0.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e8fe8163d14ce7f0cdac2e040116f22eac817edabff0be91e8aff7e9accf389"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
