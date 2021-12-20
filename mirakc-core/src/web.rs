@@ -1389,7 +1389,7 @@ mod tests {
     use crate::broadcaster::BroadcasterStream;
     use crate::config::{FilterConfig, PostFilterConfig};
 
-    async fn request(req: actix_http::Request) -> actix_web::HttpResponse {
+    async fn request(req: actix_web::test::TestRequest) -> actix_web::HttpResponse {
         let mut app = actix_web::test::init_service(
             actix_web::App::new()
                 .app_data(actix_web::web::Data::new(config_for_test()))
@@ -1399,20 +1399,18 @@ mod tests {
                 .app_data(actix_web::web::Data::new(timeshift_manager_for_test()))
                 .wrap(AccessControl)
                 .service(create_api_service())).await;
-        actix_web::test::call_service(&mut app, req).await.into()
+        actix_web::test::call_service(&mut app, req.to_request()).await.into()
     }
 
     async fn get(uri: &str) -> actix_web::HttpResponse {
         let req = actix_web::test::TestRequest::with_uri(uri)
-            .method(actix_web::http::Method::GET)
-            .to_request();
+            .method(actix_web::http::Method::GET);
         request(req).await
     }
 
     async fn head(uri: &str) -> actix_web::HttpResponse {
         let req = actix_web::test::TestRequest::with_uri(uri)
-            .method(actix_web::http::Method::HEAD)
-            .to_request();
+            .method(actix_web::http::Method::HEAD);
         request(req).await
     }
 
@@ -1422,8 +1420,7 @@ mod tests {
     ) -> actix_web::HttpResponse {
         let req = actix_web::test::TestRequest::with_uri(uri)
             .method(actix_web::http::Method::GET)
-            .peer_addr(addr)
-            .to_request();
+            .peer_addr(addr);
         request(req).await
     }
 

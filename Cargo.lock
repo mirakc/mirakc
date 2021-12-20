@@ -1064,7 +1064,6 @@ version = "1.0.22"
 dependencies = [
  "actix",
  "actix-files",
- "actix-http",
  "actix-web",
  "assert_matches",
  "atty",
