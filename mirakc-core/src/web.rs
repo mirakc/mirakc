@@ -66,7 +66,7 @@ pub async fn serve(
                 .app_data(actix_web::web::Data::new(timeshift_manager.clone()))
                 .wrap(actix_web::middleware::Logger::default())
                 .wrap(actix_web::middleware::DefaultHeaders::new()
-                      .header("Server", server_name()))
+                      .add(("Server", server_name())))
                 .wrap(AccessControl)
                 .service(create_api_service());
             config.server.mounts.iter().fold(app, |app, (mount_point, mount)| {
