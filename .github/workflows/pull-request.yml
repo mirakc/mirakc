@@ -19,6 +19,7 @@ jobs:
           - stable
           #- nightly
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.runner == 'macos-latest' }} # macOS is unsupported officially
     steps:
       - uses: actions/checkout@v2
       - name: Install macfuse (macos)
