@@ -68,9 +68,9 @@ dependencies = [
 
 [[package]]
 name = "actix-http"
-version = "3.0.0-beta.17"
+version = "3.0.0-beta.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dac76407e2be239b5e544c9d83bdac4a0d68ae188031ac0424aa3e4868a669be"
+checksum = "05b95871724d27ac9a23d6db3246b23e4e42cd44a23145e1c6b04b78fb5271da"
 dependencies = [
  "actix-codec",
  "actix-rt",
@@ -115,9 +115,9 @@ dependencies = [
 
 [[package]]
 name = "actix-router"
-version = "0.5.0-beta.3"
+version = "0.5.0-beta.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddd9f117b910fbcce6e9f45092ffd4ff017785a346d09e2d4fd049f4e20384f4"
+checksum = "b53c1deabdbf3a8a8b9a949123edd3cafb873abd75da96b5933a8b590f9d6dc2"
 dependencies = [
  "bytestring",
  "firestorm",
@@ -179,9 +179,9 @@ dependencies = [
 
 [[package]]
 name = "actix-web"
-version = "4.0.0-beta.18"
+version = "4.0.0-beta.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a542a92e385844d988b34f1af289dbb0ca927c23740076a56fdf770b1af69fbc"
+checksum = "229d0d2c11d6c734327cf1fbc15dd644b351b440bcb4608349258f5e00605bdc"
 dependencies = [
  "actix-codec",
  "actix-http",
@@ -218,9 +218,9 @@ dependencies = [
 
 [[package]]
 name = "actix-web-codegen"
-version = "0.5.0-beta.6"
+version = "0.5.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30a90b7f6c2fde9a1fe3df4da758c2c3c9d620dfa3eae4da0b6925dc0a13444a"
+checksum = "98a793e4a7bd059e06e1bc1bd9943b57a47f806de3599d2437441682292c333e"
 dependencies = [
  "actix-router",
  "proc-macro2",
@@ -571,9 +571,9 @@ dependencies = [
 
 [[package]]
 name = "firestorm"
-version = "0.4.6"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31586bda1b136406162e381a3185a506cdfc1631708dd40cba2f6628d8634499"
+checksum = "4d3d6188b8804df28032815ea256b6955c9625c24da7525f387a7af02fbb8f01"
 
 [[package]]
 name = "flate2"
