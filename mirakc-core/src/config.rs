@@ -14,14 +14,16 @@ use serde_yaml;
 
 use crate::models::*;
 
-pub fn load(config_path: &str) -> Arc<Config> {
+pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
+    let config_path = config_path.as_ref();
+
     let reader = File::open(config_path)
         .unwrap_or_else(|err| {
-            panic!("Failed to open {}: {}", config_path, err);
+            panic!("Failed to open {:?}: {}", config_path, err);
         });
     let mut config: Config = serde_yaml::from_reader(reader)
         .unwrap_or_else(|err| {
-            panic!("Failed to parse {}: {}", config_path, err);
+            panic!("Failed to parse {:?}: {}", config_path, err);
         });
 
     config.validate();

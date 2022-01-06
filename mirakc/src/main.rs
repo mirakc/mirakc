@@ -1,45 +1,44 @@
-use clap;
+use std::path::PathBuf;
+
+use structopt::StructOpt;
 
 use mirakc_core::*;
 use mirakc_core::error::Error;
 use mirakc_core::tracing_ext::init_tracing;
 
+#[derive(StructOpt)]
+#[structopt(about)]
+struct Opt {
+    /// Path to a configuration file in a YAML format.
+    ///
+    /// The MIRAKC_CONFIG environment variable is used if this option is not
+    /// specified.  Its value has to be an absolute path.
+    ///
+    /// See README.md for details of the YAML format.
+    #[structopt(
+        short,
+        long,
+        env = "MIRAKC_CONFIG",
+    )]
+    config: PathBuf,
+
+    /// Logging format.
+    #[structopt(
+        long,
+        env = "MIRAKC_LOG_FORMAT",
+        possible_values = &["text", "json"],
+        default_value = "text",
+    )]
+    log_format: String,
+}
+
 #[actix::main]
 async fn main() -> Result<(), Error> {
-    let args = clap::App::new(clap::crate_name!())
-        .version(clap::crate_version!())
-        .about(clap::crate_description!())
-        .arg(clap::Arg::with_name("config")
-             .short("c")
-             .long("config")
-             .takes_value(true)
-             .value_name("FILE")
-             .env("MIRAKC_CONFIG")
-             .help("Path to a configuration file in a YAML format")
-             .long_help(
-                 "Path to a configuration file in a YAML format.\n\
-                  \n\
-                  The MIRAKC_CONFIG environment variable is used if this \
-                  option is not specified.  Its value has to be an absolute \
-                  path.\n\
-                  \n\
-                  See README.md for details of the YAML format."))
-        .arg(clap::Arg::with_name("log-format")
-             .long("log-format")
-             .value_name("FORMAT")
-             .env("MIRAKC_LOG_FORMAT")
-             .takes_value(true)
-             .possible_values(&["text", "json"])
-             .default_value("text")
-             .help("Logging format"))
-        .get_matches();
+    let opt = Opt::from_args();
 
-    init_tracing(args.value_of("log-format").unwrap());
+    init_tracing(&opt.log_format);
 
-    let config_path = args.value_of("config").expect(
-        "--config option or MIRAKC_CONFIG environment must be specified");
-
-    let config = config::load(config_path);
+    let config = config::load(&opt.config);
     let string_table = string_table::load(&config.resource.strings_yaml);
 
     let tuner_manager = tuner::start(config.clone());
