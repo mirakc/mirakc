@@ -14,7 +14,7 @@ struct Opt {
     /// The MIRAKC_CONFIG environment variable is used if this option is not
     /// specified.  Its value has to be an absolute path.
     ///
-    /// See README.md for details of the YAML format.
+    /// See docs/config.md for details of the YAML format.
     #[structopt(
         short,
         long,

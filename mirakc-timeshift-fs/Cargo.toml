@@ -8,14 +8,14 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-clap = "2.34.0"
 fuser = "0.10.0"
 indexmap = { version = "1.8.0", features = ["serde-1"] }
 libc = "0.2.112"
 log = "0.4.14"
 mirakc-core = { path = "../mirakc-core" }
-serde_json = { version = "1.0.74", features = ["preserve_order"] }
 sanitize-filename = "0.3.0"
+serde_json = { version = "1.0.74", features = ["preserve_order"] }
+structopt = "0.3.25"
 
 [dev-dependencies]
 assert_matches = "1.5.0"

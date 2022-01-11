@@ -1093,7 +1093,6 @@ name = "mirakc-timeshift-fs"
 version = "1.0.25"
 dependencies = [
  "assert_matches",
- "clap",
  "fuser",
  "indexmap",
  "libc",
@@ -1101,6 +1100,7 @@ dependencies = [
  "mirakc-core",
  "sanitize-filename",
  "serde_json",
+ "structopt",
 ]
 
 [[package]]
