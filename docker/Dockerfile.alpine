@@ -42,7 +42,7 @@ COPY ./resources ./resources/
 COPY ./docker/build-scripts/mirakc.sh /build-scripts/
 RUN sh /build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 
-FROM alpine:3.13 AS mirakc
+FROM alpine AS mirakc
 LABEL maintainer="Contributors of mirakc"
 ARG TARGETPLATFORM
 COPY --from=mirakc-tools /usr/local/bin/* /usr/local/bin/
