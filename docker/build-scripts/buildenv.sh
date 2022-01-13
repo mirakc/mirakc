@@ -14,15 +14,7 @@ apt-get install -y --no-install-recommends $BUILD_DEPS
 rustup target add $RUST_TARGET_TRIPLE
 
 if [ "$TARGET" = alpine ]; then
-  # Use a cross-compiler working with musl@1.2.2 used in alpine:3.13.
-  #
-  # * https://musl.cc/
-  # * https://pkgs.alpinelinux.org/packages?name=musl&branch=v3.13
-  # * http://git.musl-libc.org/cgit/musl/commit/?h=v1.2.2
-  #
-  # The newest one is 10.2.1.
-  MUSLCC='10.2.1'
-  ARCHIVE="https://more.musl.cc/$MUSLCC/x86_64-linux-musl/${GCC_HOST_TRIPLE}-cross.tgz"
+  ARCHIVE="https://more.musl.cc/x86_64-linux-musl/${GCC_HOST_TRIPLE}-cross.tgz"
 
   apt-get install -y --no-install-recommends ca-certificates curl rsync
   curl -fsSL $ARCHIVE | tar -xz -C /tmp
