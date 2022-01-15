@@ -434,12 +434,12 @@ async fn head_service_stream(
         sid: path.id.sid(),
     }).await??;
 
-    let content_type = determine_stream_content_type(&config, filter_setting);
+    let content_type = determine_stream_content_type(&config, &filter_setting);
 
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether get_service_stream()
     // will success or not until they try it actually.
-    Ok(create_response_for_streaming(content_type, &user)
+    Ok(create_response_for_streaming(&content_type, &user)
        .streaming(tokio_stream::empty::<Result<Bytes, io::Error>>()))
 }
 
@@ -740,6 +740,20 @@ async fn do_get_iptv_playlist(
         // IPTV Simple Client seems to treat it as Latin-1 when removing U+3000.
         match sv.service_type {
             0x01 | 0xA1 | 0xA5 => {  // video
+                // Special optimization for IPTV Simple Client.
+                //
+                // Explicitly specifying the mime type of each channel avoids redundant requests.
+                match determine_stream_content_type(&config, &filter_setting).as_str() {
+                    "video/MP2T" => {
+                        // The mime type MUST be `video/mp2t`.
+                        // See StreamUtils::GetStreamType() in
+                        // src/iptvsimple/utilities/StreamUtils.cpp in kodi-pvr/pvr.iptvsimple.
+                        write!(buf, "#KODIPROP:mimetype=video/mp2t\n")?;
+                    }
+                    mimetype => {
+                        write!(buf, "#KODIPROP:mimetype={}\n", mimetype)?;
+                    }
+                }
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
                 if config.resource.logos.contains_key(&sv.triple()) {
                     write!(buf, r#" tvg-logo="{}""#, logo_url)?;
@@ -1042,8 +1056,8 @@ where
 
 fn determine_stream_content_type(
     config: &Config,
-    filter_setting: FilterSetting,
-) -> &str {
+    filter_setting: &FilterSetting,
+) -> String {
     let mut result = "video/MP2T";
     for name in filter_setting.post_filters.iter() {
         if let Some(config) = config.post_filters.get(name) {
@@ -1052,7 +1066,7 @@ fn determine_stream_content_type(
             }
         }
     }
-    result
+    result.to_string()
 }
 
 fn create_response_for_streaming(
