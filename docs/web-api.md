@@ -135,6 +135,8 @@ Support GET and HEAD methods so that IPTV Simple Client in Kodi works properly.
 
 Starts streaming for a service.
 
+Support GET and HEAD methods so that IPTV Simple Client in Kodi works well.
+
 ## /api/programs
 
 Returns a list of programs.

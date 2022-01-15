@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use actix::prelude::*;
 use actix_files;
-use actix_web::{self, FromRequest};
+use actix_web::{self, FromRequest, HttpResponseBuilder};
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::web::{Bytes, BytesMut};
 use chrono::{DateTime, Duration};
@@ -202,6 +202,7 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_channel_stream)
         .service(get_channel_service_stream)
         .service(get_service_stream)
+        .service(head_service_stream)
         .service(get_service_logo)
         .service(head_service_logo)
         .service(get_program_stream)
@@ -416,6 +417,30 @@ async fn get_service_stream(
     do_get_service_stream(
         config, tuner_manager, service.channel, service.sid, user,
         filter_setting).await
+}
+
+// IPTV Simple Client in Kodi sends a HEAD request before streaming.
+#[actix_web::head("/services/{id}/stream")]
+async fn head_service_stream(
+    config: actix_web::web::Data<Arc<Config>>,
+    _tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    path: actix_web::web::Path<ServicePath>,
+    user: TunerUser,
+    filter_setting: FilterSetting,
+) -> ApiResult {
+    let _service = epg.send(QueryServiceMessage::ByNidSid {
+        nid: path.id.nid(),
+        sid: path.id.sid(),
+    }).await??;
+
+    let content_type = determine_stream_content_type(&config, filter_setting);
+
+    // This endpoint returns a positive response even when no tuner is available
+    // for streaming at this point.  No one knows whether get_service_stream()
+    // will success or not until they try it actually.
+    Ok(create_response_for_streaming(content_type, &user)
+       .streaming(tokio_stream::empty::<Result<Bytes, io::Error>>()))
 }
 
 #[actix_web::get("/programs/{id}/stream")]
@@ -998,12 +1023,8 @@ where
         }
         Ok(_) =>  {
             // Send the response headers and start streaming.
-            let mut builder = actix_web::HttpResponse::Ok();
-            builder
-                .force_close()
-               .insert_header(("cache-control", "no-store"))
-               .insert_header(("content-type", content_type))
-               .insert_header(("x-mirakurun-tuner-user-id", user.get_mirakurun_model().id));
+            let mut builder = create_response_for_streaming(&content_type, &user);
+            builder.force_close();
             if let Some(range) = range {
                 if range.is_partial() {
                     builder
@@ -1017,6 +1038,33 @@ where
             Ok(builder.streaming(peekable))
         }
     }
+}
+
+fn determine_stream_content_type(
+    config: &Config,
+    filter_setting: FilterSetting,
+) -> &str {
+    let mut result = "video/MP2T";
+    for name in filter_setting.post_filters.iter() {
+        if let Some(config) = config.post_filters.get(name) {
+            if let Some(ref content_type) = config.content_type {
+                result = content_type;
+            }
+        }
+    }
+    result
+}
+
+fn create_response_for_streaming(
+    content_type: &str,
+    user: &TunerUser,
+) -> HttpResponseBuilder {
+    let mut builder = actix_web::HttpResponse::Ok();
+    builder
+        .insert_header(("cache-control", "no-store"))
+        .insert_header(("content-type", content_type))
+        .insert_header(("x-mirakurun-tuner-user-id", user.get_mirakurun_model().id));
+    builder
 }
 
 // extractors
@@ -1606,6 +1654,19 @@ mod tests {
                                   decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+    }
+
+    #[actix::test]
+    async fn test_head_service_stream() {
+        let res = head("/api/services/1/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = head("/api/services/0/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+
+        // See comments in head_service_stream().
+        let res = head("/api/services/2/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
     }
 
     #[actix::test]
