@@ -2,7 +2,7 @@ port: 8889
 uid: root
 gid: root
 
-mirakurunPath: http://host.docker.internal:40772/
+mirakurunPath: http+unix://%2Ftmp%2Fmirakc.sock
 
 dbtype: sqlite
 

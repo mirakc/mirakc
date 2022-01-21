@@ -21,7 +21,8 @@ The docker-testbed is constructed with two containers listed below:
 Both container use sqlite3.
 
 No mirakc container is included in the docker-testbed.  A mirakc server has to
-be execuded outside the docker-testbed.
+be execuded outside the docker-testbed.  Start a mirakc server listening on
+`/tmp/mirakc.sock` before launching the containers.
 
 ## How to use
 

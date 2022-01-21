@@ -20,6 +20,7 @@ services:
     ports:
       - 8888:8888
     volumes:
+      - /tmp/mirakc.sock:/tmp/mirakc.sock
       - ./epgstation/config-v1:/app/config:ro
     <<: *common-properties
 
@@ -33,6 +34,7 @@ services:
     ports:
       - 8889:8889
     volumes:
+      - /tmp/mirakc.sock:/tmp/mirakc.sock
       - ./epgstation/config-v2:/app/config:ro
     <<: *common-properties
 
