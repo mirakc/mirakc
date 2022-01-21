@@ -40,10 +40,6 @@ Each image contains the following executables other than mirakc:
 * [curl]
 * [socat]
 
-At this point, Alpine-based images don't work properly on some 32-bit platforms
-like Raspberry Pi OS due to [this issue](https://wiki.alpinelinux.org/wiki/Release_Notes_for_Alpine_3.13.0#musl_1.2).
-Use Debian-based images instead.
-
 ## Build a custom image
 
 ### Install additional software
