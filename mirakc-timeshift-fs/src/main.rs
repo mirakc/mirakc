@@ -52,8 +52,6 @@ fn main() -> Result<(), Error> {
         fuser::MountOption::FSName("mirakc-timeshift".to_string()),
         fuser::MountOption::RO,
         fuser::MountOption::NoAtime,
-        fuser::MountOption::AllowOther,
-        fuser::MountOption::AutoUnmount,  // not work properly, see comments below.
     ];
 
     // The auto-unmount option does NOT work properly when the process terminates by signals like
