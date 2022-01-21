@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 fuser = "0.10.0"
 indexmap = { version = "1.8.0", features = ["serde-1"] }
-libc = "0.2.112"
+libc = "0.2.113"
 log = "0.4.14"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.3.0"
