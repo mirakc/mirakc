@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use actix::prelude::*;
 use actix_files;
-use actix_web::{self, FromRequest};
+use actix_web::{self, FromRequest, HttpResponseBuilder};
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::web::{Bytes, BytesMut};
 use chrono::{DateTime, Duration};
@@ -202,6 +202,7 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_channel_stream)
         .service(get_channel_service_stream)
         .service(get_service_stream)
+        .service(head_service_stream)
         .service(get_service_logo)
         .service(head_service_logo)
         .service(get_program_stream)
@@ -416,6 +417,30 @@ async fn get_service_stream(
     do_get_service_stream(
         config, tuner_manager, service.channel, service.sid, user,
         filter_setting).await
+}
+
+// IPTV Simple Client in Kodi sends a HEAD request before streaming.
+#[actix_web::head("/services/{id}/stream")]
+async fn head_service_stream(
+    config: actix_web::web::Data<Arc<Config>>,
+    _tuner_manager: actix_web::web::Data<Addr<TunerManagerActor>>,
+    epg: actix_web::web::Data<Addr<EpgActor>>,
+    path: actix_web::web::Path<ServicePath>,
+    user: TunerUser,
+    filter_setting: FilterSetting,
+) -> ApiResult {
+    let _service = epg.send(QueryServiceMessage::ByNidSid {
+        nid: path.id.nid(),
+        sid: path.id.sid(),
+    }).await??;
+
+    let content_type = determine_stream_content_type(&config, &filter_setting);
+
+    // This endpoint returns a positive response even when no tuner is available
+    // for streaming at this point.  No one knows whether get_service_stream()
+    // will success or not until they try it actually.
+    Ok(create_response_for_streaming(&content_type, &user)
+       .streaming(tokio_stream::empty::<Result<Bytes, io::Error>>()))
 }
 
 #[actix_web::get("/programs/{id}/stream")]
@@ -715,6 +740,20 @@ async fn do_get_iptv_playlist(
         // IPTV Simple Client seems to treat it as Latin-1 when removing U+3000.
         match sv.service_type {
             0x01 | 0xA1 | 0xA5 => {  // video
+                // Special optimization for IPTV Simple Client.
+                //
+                // Explicitly specifying the mime type of each channel avoids redundant requests.
+                match determine_stream_content_type(&config, &filter_setting).as_str() {
+                    "video/MP2T" => {
+                        // The mime type MUST be `video/mp2t`.
+                        // See StreamUtils::GetStreamType() in
+                        // src/iptvsimple/utilities/StreamUtils.cpp in kodi-pvr/pvr.iptvsimple.
+                        write!(buf, "#KODIPROP:mimetype=video/mp2t\n")?;
+                    }
+                    mimetype => {
+                        write!(buf, "#KODIPROP:mimetype={}\n", mimetype)?;
+                    }
+                }
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
                 if config.resource.logos.contains_key(&sv.triple()) {
                     write!(buf, r#" tvg-logo="{}""#, logo_url)?;
@@ -998,12 +1037,8 @@ where
         }
         Ok(_) =>  {
             // Send the response headers and start streaming.
-            let mut builder = actix_web::HttpResponse::Ok();
-            builder
-                .force_close()
-               .insert_header(("cache-control", "no-store"))
-               .insert_header(("content-type", content_type))
-               .insert_header(("x-mirakurun-tuner-user-id", user.get_mirakurun_model().id));
+            let mut builder = create_response_for_streaming(&content_type, &user);
+            builder.force_close();
             if let Some(range) = range {
                 if range.is_partial() {
                     builder
@@ -1017,6 +1052,33 @@ where
             Ok(builder.streaming(peekable))
         }
     }
+}
+
+fn determine_stream_content_type(
+    config: &Config,
+    filter_setting: &FilterSetting,
+) -> String {
+    let mut result = "video/MP2T";
+    for name in filter_setting.post_filters.iter() {
+        if let Some(config) = config.post_filters.get(name) {
+            if let Some(ref content_type) = config.content_type {
+                result = content_type;
+            }
+        }
+    }
+    result.to_string()
+}
+
+fn create_response_for_streaming(
+    content_type: &str,
+    user: &TunerUser,
+) -> HttpResponseBuilder {
+    let mut builder = actix_web::HttpResponse::Ok();
+    builder
+        .insert_header(("cache-control", "no-store"))
+        .insert_header(("content-type", content_type))
+        .insert_header(("x-mirakurun-tuner-user-id", user.get_mirakurun_model().id));
+    builder
 }
 
 // extractors
@@ -1383,7 +1445,10 @@ impl MirakurunService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
     use std::net::SocketAddr;
+    use actix_web::body::MessageBody;
+    use actix_web::web::Buf;
     use assert_matches::assert_matches;
     use maplit::hashmap;
     use crate::broadcaster::BroadcasterStream;
@@ -1513,6 +1578,9 @@ mod tests {
         let res = get("/api/channels/GR/ch/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
         assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/MP2T");
+        });
 
         let res = get("/api/channels/GR/0/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -1538,6 +1606,12 @@ mod tests {
                                   decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+
+        let res = get("/api/channels/GR/ch/stream?post-filters[]=mp4").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/mp4");
+        });
     }
 
     #[actix::test]
@@ -1545,6 +1619,9 @@ mod tests {
         let res = get("/api/channels/GR/ch/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
         assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/MP2T");
+        });
 
         let res = get("/api/channels/GR/0/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -1576,6 +1653,12 @@ mod tests {
                 decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+
+        let res = get("/api/channels/GR/ch/services/1/stream?post-filters[]=mp4").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/mp4");
+        });
     }
 
     #[actix::test]
@@ -1583,6 +1666,9 @@ mod tests {
         let res = get("/api/services/1/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
         assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/MP2T");
+        });
 
         let res = get("/api/services/0/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -1606,6 +1692,34 @@ mod tests {
                                   decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+
+        let res = get("/api/services/1/stream?post-filters[]=mp4").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/mp4");
+        });
+    }
+
+    #[actix::test]
+    async fn test_head_service_stream() {
+        let res = head("/api/services/1/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/MP2T");
+        });
+
+        let res = head("/api/services/0/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
+
+        // See comments in head_service_stream().
+        let res = head("/api/services/2/stream").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+
+        let res = head("/api/services/1/stream?post-filters[]=mp4").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/mp4");
+        });
     }
 
     #[actix::test]
@@ -1613,6 +1727,9 @@ mod tests {
         let res = get("/api/programs/100001/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
         assert!(res.headers().contains_key("x-mirakurun-tuner-user-id"));
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/MP2T");
+        });
 
         let res = get("/api/programs/0/stream").await;
         assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
@@ -1636,6 +1753,12 @@ mod tests {
                                   decode).as_str()).await;
             assert!(res.status() == actix_web::http::StatusCode::NOT_FOUND);
         }
+
+        let res = get("/api/programs/100001/stream?post-filters[]=mp4").await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "video/mp4");
+        });
     }
 
     #[actix::test]
@@ -1712,14 +1835,30 @@ mod tests {
 
     #[actix::test]
     async fn test_get_iptv_playlist() {
-        let res = get("/api/iptv/playlist").await;
-        assert!(res.status() == actix_web::http::StatusCode::OK);
+        test_get_iptv_playlist_("/api/iptv/playlist").await;
     }
 
     #[actix::test]
     async fn test_get_iptv_channel_m3u8() {
-        let res = get("/api/iptv/channel.m3u8").await;
+        test_get_iptv_playlist_("/api/iptv/channel.m3u8").await;
+    }
+
+    async fn test_get_iptv_playlist_(endpoint: &str) {
+        let res = get(endpoint).await;
         assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
+        });
+        let playlist = into_response_string(res).await;
+        assert!(playlist.contains("#KODIPROP:mimetype=video/mp2t\n"));
+
+        let res = get(&format!("{}?post-filters[]=mp4", endpoint)).await;
+        assert!(res.status() == actix_web::http::StatusCode::OK);
+        assert_matches!(res.headers().get("content-type"), Some(v) => {
+            assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
+        });
+        let playlist = into_response_string(res).await;
+        assert!(playlist.contains("#KODIPROP:mimetype=video/mp4\n"));
     }
 
     #[actix::test]
@@ -1912,6 +2051,10 @@ mod tests {
             command: "cat".to_string(),
             content_type: None,
         });
+        config.post_filters.insert("mp4".to_string(), PostFilterConfig {
+            command: "cat".to_string(),
+            content_type: Some("video/mp4".to_string()),
+        });
         // Disable tracking airtime
         config.recorder.track_airtime_command = "true".to_string();
         // logo for SID#1
@@ -1974,7 +2117,25 @@ mod tests {
                 Box::<Option<Result<EpgChannel, Error>>>::new(Some(result))
             } else if let Some(_) = msg.downcast_ref::<QueryServicesMessage>() {
                 Box::<Option<Result<Vec<EpgService>, Error>>>::new(
-                    Some(Ok(Vec::new())))
+                    Some(Ok(vec![
+                        EpgService {
+                            nid: 0.into(),
+                            tsid: 0.into(),
+                            sid: 1.into(),
+                            service_type: 1,
+                            logo_id: 0,
+                            remote_control_key_id: 0,
+                            name: "test".to_string(),
+                            channel: EpgChannel {
+                                name: "test".to_string(),
+                                channel_type: ChannelType::GR,
+                                channel: "ch".to_string(),
+                                extra_args: "".to_string(),
+                                services: Vec::new(),
+                                excluded_services: Vec::new(),
+                            },
+                        },
+                    ])))
             } else if let Some(msg) = msg.downcast_ref::<QueryServiceMessage>() {
                 let result = match msg {
                     QueryServiceMessage::ByNidSid { nid, sid } => {
@@ -2115,5 +2276,12 @@ mod tests {
             info: TunerUserInfo::Web { id: "".to_string(), agent: None },
             priority
         }
+    }
+
+    async fn into_response_string(res: actix_web::HttpResponse) -> String {
+        let mut body = String::new();
+        let _ = res.into_body().try_into_bytes().unwrap()
+            .reader().read_to_string(&mut body);
+        body
     }
 }
