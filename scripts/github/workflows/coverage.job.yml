@@ -4,9 +4,6 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v2
-      - name: Install libfuse3-dev
-        run: |
-          sudo apt-get install libfuse3-dev pkg-config
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly

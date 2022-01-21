@@ -66,5 +66,14 @@ EXPOSE 40772
 ENTRYPOINT ["mirakc"]
 CMD []
 
-# We do NOT create Alpine Linux images for mirakc-timeshift-fs at this point.
-# You need to cross-build libfuse/libfuse3 for Alpine Linux on the buildenv if you like to do that.
+FROM alpine AS mirakc-timeshift-fs
+LABEL maintainer="Contributors of mirakc"
+COPY --from=mirakc-build /usr/local/bin/mirakc-timeshift-fs /usr/local/bin/
+COPY --from=mirakc-build /usr/local/bin/run-mirakc-timeshift-fs /usr/local/bin/
+COPY --from=mirakc-build /build/resources/strings.yml /etc/mirakc/strings.yml
+COPY --from=mirakc-build /build/resources/mirakurun.openapi.json /etc/mirakurun.openapi.json
+RUN apk add --no-cache fuse3 tzdata
+# dirty hack for linux/arm/v6
+RUN if [ "$TARGETPLATFORM" = "linux/arm/v6" ]; then ln -s /lib/ld-musl-armhf.so.1 /lib/ld-musl-arm.so.1; fi
+ENV MIRAKC_CONFIG=/etc/mirakc/config.yml
+ENTRYPOINT ["/usr/local/bin/run-mirakc-timeshift-fs"]

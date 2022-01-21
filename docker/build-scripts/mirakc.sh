@@ -35,17 +35,15 @@ cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc
 cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc /usr/local/bin/
 $STRIP /usr/local/bin/mirakc
 
-if [ "$TARGET" = debian ]; then
-  cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs
-  cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc-timeshift-fs /usr/local/bin/
-  $STRIP /usr/local/bin/mirakc-timeshift-fs
-  cat <<EOF >/usr/local/bin/run-mirakc-timeshift-fs
+cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs
+cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc-timeshift-fs /usr/local/bin/
+$STRIP /usr/local/bin/mirakc-timeshift-fs
+cat <<EOF >/usr/local/bin/run-mirakc-timeshift-fs
 #!/bin/sh
 trap 'umount /mnt' EXIT
 /usr/local/bin/mirakc-timeshift-fs /mnt
 EOF
-  chmod +x /usr/local/bin/run-mirakc-timeshift-fs
-fi
+chmod +x /usr/local/bin/run-mirakc-timeshift-fs
 
 # Compress mirakurun.openapi.json.
 TEMP_FILE=$(mktemp)

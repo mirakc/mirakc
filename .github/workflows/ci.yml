@@ -23,14 +23,6 @@ jobs:
     continue-on-error: ${{ matrix.runner == 'macos-latest' }} # macOS is unsupported officially
     steps:
       - uses: actions/checkout@v2
-      - name: Install macfuse (macos)
-        if: matrix.runner == 'macos-latest'
-        run: |
-          brew install macfuse
-      - name: Install libfuse3-dev (ubuntu)
-        if: matrix.runner == 'ubuntu-latest'
-        run: |
-          sudo apt-get install libfuse3-dev pkg-config
       # Took from rust-analyzer/rust-analyzer#6208
       - name: Install GNU tar (workaround for actions/cache#403)
         if: matrix.runner == 'macos-latest'
@@ -76,8 +68,6 @@ jobs:
           - aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:
-      # Unfortunately, there is no libfuse3-dev packages for ARM in the official APT repository.
-      # Therefore, we only build mirakc-core and run unit tests.
       - uses: actions/checkout@v2
       - name: Cache for Cargo
         uses: actions/cache@v2
@@ -99,13 +89,13 @@ jobs:
         with:
           use-cross: true
           command: build
-          args: -v --release --target=${{ matrix.target }} --lib
+          args: -v --release --target=${{ matrix.target }}
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: test
-          args: -v --release --target=${{ matrix.target }} --lib
+          args: -v --release --target=${{ matrix.target }}
   coverage:
     needs:
       - build
@@ -114,9 +104,6 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v2
-      - name: Install libfuse3-dev
-        run: |
-          sudo apt-get install libfuse3-dev pkg-config
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -226,7 +213,7 @@ jobs:
           cache-to: |
             type=local,dest=/tmp/.docker-cache-new
           push: true
-      - name: Test
+      - name: Test (docker.io/mirakc/mirakc)
         run: |
           # Enable experimental CLI features in Docker daemon.
           echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
@@ -242,8 +229,7 @@ jobs:
             docker run --rm --platform=$platform --entrypoint=mirakc-arib $TAG --version
             docker run --rm --platform=$platform --entrypoint=mirakc $TAG --version
           done
-      - name: Build and push (mirakc/timeshift-fs)
-        if: matrix.distro == 'debian'
+      - name: Build and push (docker.io/mirakc/timeshift-fs)
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -256,6 +242,18 @@ jobs:
           cache-to: |
             type=local,dest=/tmp/.docker-cache-new
           push: true
+      - name: Test (docker.io/mirakc/timeshift-fs)
+        run: |
+          # Enable experimental CLI features in Docker daemon.
+          echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
+          sudo service docker restart
+
+          TAG="${{ format(steps.docker-tags.outputs.main-tag, 'mirakc/timeshift-fs') }}"
+          for platform in $(echo ${{ matrix.platforms }} | tr ',' ' ')
+          do
+            echo "Testing $TAG for $platform..."
+            docker run --rm --platform=$platform --entrypoint=mirakc-timeshift-fs $TAG --version
+          done
       - name: Move cache
         run: |
           rm -rf /tmp/.docker-cache
