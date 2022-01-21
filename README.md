@@ -59,7 +59,7 @@ version: '3'
 
 services:
   mirakc:
-    image: mirakc/mirakc:alpine
+    image: docker.io/mirakc/mirakc:alpine
     container_name: mirakc
     init: true
     restart: unless-stopped
@@ -84,7 +84,15 @@ volumes:
 And then launch a mirakc container:
 
 ```shell
-docker-compose up
+docker compose up
+```
+
+You can also launch a mirakc container by using other tools like `podman` and
+`podman-compose` which supports Docker-compatible images and
+`docker-compose.yml`:
+
+```shell
+podman-compose up
 ```
 
 You should see the version string when running the following command if the

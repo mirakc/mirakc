@@ -213,7 +213,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push (mirakc/mirakc)
+      - name: Build and push (docker.io/mirakc/mirakc)
         uses: docker/build-push-action@v2
         with:
           context: .

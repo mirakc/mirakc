@@ -4,8 +4,8 @@ services:
   mirakc:
     # In this sample, we build a image from source.
     #
-    # Replace `mirakc` with `mirakc/mirakc` if you like to use a
-    # pre-built image in Docker Hub.
+    # Replace `mirakc-sample` with `docker.io/mirakc/mirakc` if you like to use
+    # a pre-built image in Docker Hub.
     image: mirakc-sample
     build:
       context: ../

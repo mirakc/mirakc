@@ -1,3 +1,12 @@
+# This file works properly only with Docker.
+# Assumed that docker.io registry is used.
+#
+# `podman buildx build` doesn't work at this point because it doesn't support
+# the following build arguments that docker set automagically:
+#
+#   BUILDPLATFORM
+#   TARGETPLATFORM
+
 FROM --platform=$BUILDPLATFORM rust:slim-buster AS buildenv
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM

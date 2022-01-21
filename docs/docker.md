@@ -5,13 +5,13 @@
 There are two types of pre-built images in [Docker Hub]:
 
 * Multi-Arch images
-  * mirakc/mirakc:latest
-    * Alias of mirakc/mirakc:$LATEST_VERSION
-  * mirakc/mirakc:$DISTRO
-    * Alias of mirakc/mirakc:$LATEST_VERSION-$DISTRO
-  * mirakc/mirakc:$VERSION
-    * Alias of mirakc/mirakc:$VERSION-debian
-  * mirakc/mirakc:$VERSION-$DISTRO
+  * docker.io/mirakc/mirakc:latest
+    * Alias of docker.io/mirakc/mirakc:$LATEST_VERSION
+  * docker.io/mirakc/mirakc:$DISTRO
+    * Alias of docker.io/mirakc/mirakc:$LATEST_VERSION-$DISTRO
+  * docker.io/mirakc/mirakc:$VERSION
+    * Alias of docker.io/mirakc/mirakc:$VERSION-debian
+  * docker.io/mirakc/mirakc:$VERSION-$DISTRO
 
 Where:
 
@@ -20,9 +20,9 @@ Where:
   * LATEST_VERSION points to the latest version tag
 * DISTRO
   * alpine
-    * Based on alpine:3.13
+    * Based on docker.io/alpine:latest
   * debian (main platform)
-    * Based on debian:buster-slim
+    * Based on docker.io/debian:buster-slim
 
 Platforms listed below are supported:
 
@@ -54,7 +54,7 @@ Specify one of pre-built images in the `FROM` directive in `Dockerfile`.  And
 then install additional software like below:
 
 ```Dockerfile
-FROM mirakc/mirakc:alpine
+FROM docker.io/mirakc/mirakc:alpine
 
 RUN apk add --no-cache ffmpeg
 ...
@@ -66,9 +66,9 @@ If you want to create a cleaner image, you can copy only necessary files from a
 pre-built image like below:
 
 ```Dockerfile
-FROM mirakc/mirakc:alpine AS mirakc-image
+FROM docker.io/mirakc/mirakc:alpine AS mirakc-image
 
-FROM alpine:3.13
+FROM docker.io/alpine
 
 COPY --from=mirakc-image /usr/local/bin/mirakc /usr/local/bin/
 COPY --from=mirakc-image /etc/mirakurun.openapi.json /etc/

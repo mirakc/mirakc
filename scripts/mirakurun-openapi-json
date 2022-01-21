@@ -2,7 +2,7 @@
 
 PROGNAME=$(basename $0)
 BASEDIR=$(cd $(dirname $0); pwd)
-IMAGE='chinachu/mirakurun'
+IMAGE='docker.io/chinachu/mirakurun'
 WAIT=5
 
 if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then

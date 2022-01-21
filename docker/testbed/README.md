@@ -1,11 +1,10 @@
-# docker-testbed
+# testbed
 
-## What's docker-testbed
+## What's testbed
 
-docker-testbed is an integration test environment for mirakc, built using
-Docker.
+testbed is an integration test environment for mirakc, built using containers.
 
-The docker-testbed is constructed with two containers listed below:
+The testbed is constructed with two containers listed below:
 
 * epgstation-v1
   * EPGStation v1 built using [./epgstation/Dockerfile](./epgstation/Dockerfile)
@@ -20,8 +19,8 @@ The docker-testbed is constructed with two containers listed below:
 
 Both container use sqlite3.
 
-No mirakc container is included in the docker-testbed.  A mirakc server has to
-be execuded outside the docker-testbed.  Start a mirakc server listening on
+No mirakc container is included in the testbed.  A mirakc server has to be
+executed outside the testbed.  Start a mirakc server listening on
 `/tmp/mirakc.sock` before launching the containers.
 
 ## How to use
@@ -29,29 +28,40 @@ be execuded outside the docker-testbed.  Start a mirakc server listening on
 Launch containers in the background:
 
 ```shell
-docker-compose up -d
+docker compose up -d
 ```
 
 Show operator logs:
 
 ```shell
-docker logs -f mirakc-testbed-epgstation-v1
+docker compose logs -f epgstation-v1
 ```
 
 Show service logs:
 
 ```shell
-docker exec mirakc-testbed-epgstation-v1 tail -F service.log
+docker compose exec epgstation-v1 tail -F service.log
 ```
 
 Recorded files are stored in /app/recorded folder inside containers.
 
 ```shell
-docker exec mirakc-testbed-epgstation-v1 ls -l /app/recorded
+docker compose exec epgstation-v1 ls -l /app/recorded
 ```
 
 Stop containers, and remove them together with networks and volumes:
 
 ```shell
-docker-compose down -v
+docker compose down -v
 ```
+
+## Podman
+
+The testbed also works property with [Podman] and [Podman Compose]:
+
+```shell
+podman-compose up -d
+```
+
+[Podman]: https://podman.io/
+[Podman Compose]: https://github.com/containers/podman-compose
