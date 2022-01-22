@@ -1,5 +1,15 @@
 [workspace]
 members = ["mirakc", "mirakc-core", "mirakc-timeshift-fs"]
+# Use the version "2" resolver in order to solve an issue in mirakc-timeshift-fs/Cargo.toml.
+# In this file, features of the fuser module change for each target.  The version "1" resolver
+# cannot handle properly such a situation.
+#
+# See pages listed below for detauls:
+#
+# * https://github.com/rust-lang/cargo/issues/9863
+# * https://rust-lang.github.io/rfcs/2957-cargo-features2.html
+# * https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+resolver = "2"
 
 [profile.release]
 lto = true

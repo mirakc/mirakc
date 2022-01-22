@@ -12,6 +12,10 @@ jobs:
     continue-on-error: ${{ matrix.runner == 'macos-latest' }}  # macOS is unsupported officially
     steps:
       - uses: actions/checkout@v2
+      - name: Install macfuse (macos)
+        if: matrix.runner == 'macos-latest'
+        run: |
+          brew install macfuse
       # Took from rust-analyzer/rust-analyzer#6208
       - name: Install GNU tar (workaround for actions/cache#403)
         if: matrix.runner == 'macos-latest'
