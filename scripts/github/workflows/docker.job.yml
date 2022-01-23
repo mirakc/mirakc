@@ -87,7 +87,7 @@ jobs:
           cache-to: |
             type=local,dest=/tmp/.docker-cache-new
           push: true
-      - name: Test
+      - name: Test (docker.io/mirakc/mirakc)
         run: |
           # Enable experimental CLI features in Docker daemon.
           echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
@@ -103,8 +103,7 @@ jobs:
             docker run --rm --platform=$platform --entrypoint=mirakc-arib $TAG --version
             docker run --rm --platform=$platform --entrypoint=mirakc $TAG --version
           done
-      - name: Build and push (mirakc/timeshift-fs)
-        if: matrix.distro == 'debian'
+      - name: Build and push (docker.io/mirakc/timeshift-fs)
         uses: docker/build-push-action@v2
         with:
           context: .
@@ -117,6 +116,18 @@ jobs:
           cache-to: |
             type=local,dest=/tmp/.docker-cache-new
           push: true
+      - name: Test (docker.io/mirakc/timeshift-fs)
+        run: |
+          # Enable experimental CLI features in Docker daemon.
+          echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
+          sudo service docker restart
+
+          TAG="${{ format(steps.docker-tags.outputs.main-tag, 'mirakc/timeshift-fs') }}"
+          for platform in $(echo ${{ matrix.platforms }} | tr ',' ' ')
+          do
+            echo "Testing $TAG for $platform..."
+            docker run --rm --platform=$platform --entrypoint=mirakc-timeshift-fs $TAG --version
+          done
       - name: Move cache
         # Temp fix
         # https://github.com/docker/build-push-action/issues/252

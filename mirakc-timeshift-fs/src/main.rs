@@ -34,6 +34,13 @@ struct Opt {
     )]
     log_format: String,
 
+    /// Additional mount options.
+    ///
+    /// The following mount options will be added internally:
+    /// fsname=mirakc-timeshift,ro,noatime
+    #[structopt(short, long)]
+    options: Vec<String>,
+
     /// Path to the mount point.
     #[structopt()]
     mount_point: PathBuf,
@@ -48,16 +55,17 @@ fn main() -> Result<(), Error> {
 
     let fs = TimeshiftFilesystem::new(config);
 
-    let options = vec![
+    let mut options = vec![
         fuser::MountOption::FSName("mirakc-timeshift".to_string()),
         fuser::MountOption::RO,
         fuser::MountOption::NoAtime,
-        fuser::MountOption::AllowOther,
-        fuser::MountOption::AutoUnmount,  // not work properly, see comments below.
     ];
+    for option in opt.options.iter() {
+        options.push(fuser::MountOption::CUSTOM(option.clone()));
+    }
 
-    // The auto-unmount option does NOT work properly when the process terminates by signals like
-    // SIGTERM.  Because the process terminates before fuser::Session<FS>::drop() is called.
+    // fuser::MountOption::AutoMount does NOT work properly when the process terminates by signals
+    // like SIGTERM.  Because the process terminates before fuser::Session<FS>::drop() is called.
     //
     // For avoiding the situation above, we can use a signal handler in mirakc-timeshift-fs.
     // However, we adopt a simpler solution like below:

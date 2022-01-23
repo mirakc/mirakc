@@ -30,7 +30,7 @@ COPY ./mirakurun.openapi.json /etc/mirakurun.openapi.json
 RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update \
- && apt-get install -y --no-install-recommends binutils ca-certificates curl libfuse3-dev socat \
+ && apt-get install -y --no-install-recommends binutils ca-certificates curl socat \
  # cleanup
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
