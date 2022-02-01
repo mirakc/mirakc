@@ -92,7 +92,7 @@ pub async fn serve(
         };
     }
     server
-        .keep_alive(0)  // disable keep-alive
+        .keep_alive(None)  // disable keep-alive
         .workers(server_config.workers)
         .run()
         .await?;
