@@ -21,7 +21,7 @@ tuners:
   - name: mirakc
     types: [GR, BS]
     command: >-
-      curl -sG http://mirakc:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream
+      curl -sG http://mirakc:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0
   # Normally, you need to define a tuner for each device like below:
   #
   # - name: bs1

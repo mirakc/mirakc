@@ -34,9 +34,8 @@ The endpoints above are enough to run [EPGStation].
 It also enough to run [BonDriver_mirakc].  It's strongly recommended to
 enable `SERVICE_SPLIT` in `BonDriver_mirakc.ini` in order to reduce network
 traffic between mirakc and BonDriver_mirakc.  Because the
-`/api/channels/{channel_type}/{channel}/stream` endpoint provides a **raw** TS
-stream which means that all TS packets from a tuner will be sent even though
-some of them don't need for playback.
+`/api/channels/{channel_type}/{channel}/stream` endpoint provides a TS stream
+which includes all services in the specified channel.
 
 Unfortunately, mirakc doesn't work with [BonDriver_Mirakurun] at this point due
 to some kind of issue in BonDriver_Mirakurun or mirakc.
@@ -90,6 +89,13 @@ mirakc and Mirakurun:
 * Can grab a tuner which is used by other users regardless of their priorities
   if the priority is 128
 
+## Incompatibility of the `decode` query parameter
+
+Before `1.0.30`, mirakc does **NOT** decode the stream when no `decode` query
+parameter is specified.  This behavior is **incompatible** with Mirakurun.
+
+This incompatibility was fixed in `1.0.30`.
+
 ## /api/version
 
 Returns the **current** version in the same JSON format as Mirakurun.
@@ -115,7 +121,7 @@ Starts streaming for a channel.
 Starts streaming for a service in a channel.
 
 Unlike Mirakurun, the `sid` must be a service ID.  In Mirakurun, the `sid` is a
-service ID or an ID of the `ServiceItem` class.
+service ID or the ID of a `ServiceItem` class.
 
 ## /api/services
 
@@ -153,7 +159,7 @@ Returns a program.
 
 Starts streaming for a program.
 
-The streaming will starts when the program starts and stops when the program
+The streaming will start when the program starts and stops when the program
 ends.
 
 ## /api/tuners

@@ -1146,13 +1146,19 @@ struct TimeshiftStreamQuery {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 struct FilterSetting {
-    #[serde(default)]
+    #[serde(default = "FilterSetting::default_decode")]
     #[serde(deserialize_with = "deserialize_stream_decode_query")]
-    decode: bool,  // default: false
+    decode: bool,  // default: true
     #[serde(default)]
     pre_filters: Vec<String>,  // default: empty
     #[serde(default)]
     post_filters: Vec<String>,  // default: empty
+}
+
+impl FilterSetting {
+    fn default_decode() -> bool {
+        true
+    }
 }
 
 impl FromRequest for FilterSetting {
@@ -1933,13 +1939,13 @@ mod tests {
         }
 
         assert_matches!(do_test("").await, Ok(v) => {
-            assert!(!v.decode);
+            assert!(v.decode);
             assert!(v.pre_filters.is_empty());
             assert!(v.post_filters.is_empty());
         });
 
         assert_matches!(do_test("?unknown=0").await, Ok(v) => {
-            assert!(!v.decode);
+            assert!(v.decode);
             assert!(v.pre_filters.is_empty());
             assert!(v.post_filters.is_empty());
         });
@@ -1971,14 +1977,14 @@ mod tests {
         assert_matches!(do_test("?decode=x").await, Err(_));
 
         assert_matches!(do_test("?pre-filters[]=a").await, Ok(v) => {
-            assert!(!v.decode);
+            assert!(v.decode);
             assert_eq!(v.pre_filters.len(), 1);
             assert_eq!(v.pre_filters[0], "a".to_string());
             assert!(v.post_filters.is_empty());
         });
 
         assert_matches!(do_test("?pre-filters[]=a&pre-filters[]=b").await, Ok(v) => {
-            assert!(!v.decode);
+            assert!(v.decode);
             assert_eq!(v.pre_filters.len(), 2);
             assert_eq!(v.pre_filters[0], "a".to_string());
             assert_eq!(v.pre_filters[1], "b".to_string());
@@ -1986,14 +1992,14 @@ mod tests {
         });
 
         assert_matches!(do_test("?pre-filters[0]=a").await, Ok(v) => {
-            assert!(!v.decode);
+            assert!(v.decode);
             assert_eq!(v.pre_filters.len(), 1);
             assert_eq!(v.pre_filters[0], "a".to_string());
             assert!(v.post_filters.is_empty());
         });
 
         assert_matches!(do_test("?pre-filters[0]=a&pre-filters[1]=b").await, Ok(v) => {
-            assert!(!v.decode);
+            assert!(v.decode);
             assert_eq!(v.pre_filters.len(), 2);
             assert_eq!(v.pre_filters[0], "a".to_string());
             assert_eq!(v.pre_filters[1], "b".to_string());
@@ -2001,14 +2007,14 @@ mod tests {
         });
 
         assert_matches!(do_test("?pre-filters[1]=a").await, Ok(v) => {
-            assert!(!v.decode);
+            assert!(v.decode);
             assert_eq!(v.pre_filters.len(), 1);
             assert_eq!(v.pre_filters[0], "a".to_string());
             assert!(v.post_filters.is_empty());
         });
 
         assert_matches!(do_test("?pre-filters[1]=a&pre-filters[2]=b").await, Ok(v) => {
-            assert!(!v.decode);
+            assert!(v.decode);
             assert_eq!(v.pre_filters.len(), 2);
             assert_eq!(v.pre_filters[0], "a".to_string());
             assert_eq!(v.pre_filters[1], "b".to_string());

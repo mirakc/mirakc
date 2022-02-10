@@ -345,8 +345,7 @@ tuners:
   - name: upstream
     types: [GR, BS]
     command: >-
-      curl -sG http://upstream:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream
-
+      curl -sG http://upstream:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0
 ```
 
 ## filters
