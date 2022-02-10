@@ -45,7 +45,7 @@ services:
       #
       # Normally, you don't need to define the following environment variables.
       MIRAKC_DEBUG_CHILD_PROCESS: 1
-      MIRAKC_ARIG_LOG: info,filter-service=debug,filter-program=debug
+      MIRAKC_ARIB_LOG: info,filter-service=debug,filter-program=debug
       MIRAKC_ARIB_LOG_NO_TIMESTAMP: 1
 
 volumes:
