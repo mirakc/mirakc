@@ -221,7 +221,10 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
 
 #[actix_web::get("/version")]
 async fn get_version() -> ApiResult {
-    Ok(actix_web::HttpResponse::Ok().json(env!("CARGO_PKG_VERSION")))
+    Ok(actix_web::HttpResponse::Ok().json(serde_json::json!({
+        "current": env!("CARGO_PKG_VERSION"),
+        "latest": env!("CARGO_PKG_VERSION"),  // unsupported
+    })))
 }
 
 #[actix_web::get("/status")]

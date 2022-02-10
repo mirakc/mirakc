@@ -4,7 +4,7 @@ Web API endpoints listed below have been implemented at this moment:
 
 | ENDPOINT                                        | COMPATIBLE WITH MIRAKURUN? |
 |-------------------------------------------------|----------------------------|
-| [/api/version]                                  |                            |
+| [/api/version]                                  | :heavy_check_mark:         |
 | [/api/status]                                   |                            |
 | [/api/channels]                                 | :heavy_check_mark:         |
 | [/api/channels/{channel_type}/{channel}/stream] | :heavy_check_mark:         |
@@ -92,7 +92,9 @@ mirakc and Mirakurun:
 
 ## /api/version
 
-Returns the version string.
+Returns the **current** version in the same JSON format as Mirakurun.
+
+The `latest` property is not supported and shows the current version.
 
 ## /api/status
 
