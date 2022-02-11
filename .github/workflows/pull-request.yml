@@ -130,6 +130,7 @@ jobs:
           command: install
           args: grcov
       - name: Generate coverage data
+        # actions-rs/grcov has not supported options like --excl-line
         run: >-
           grcov target/debug --branch --llvm --ignore-not-existing -s . --ignore '*/src/main.rs' --ignore 'mirakc-core/src/error.rs' --ignore 'mirakc-core/src/tracing_ext.rs' --excl-line '<coverage:exclude/>|unimplemented!|unreachable!' --excl-start '<coverage:exclude>' --excl-stop '</coverage:exclude>' -t lcov -o lcov.info
       - name: Update to codecov.io

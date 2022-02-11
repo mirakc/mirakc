@@ -5,3 +5,8 @@ updates:
     schedule:
       interval: daily
       time: '01:01'  # UTC
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+      time: '07:07'  # UTC
