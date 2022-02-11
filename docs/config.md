@@ -212,7 +212,7 @@ client disconnect all that time due to the issue#1313.
 Definitions of mount points for static files and folders on the file system.
 
 * path
-  * An absolute path to a file or directory on the file system
+  * An absolute path to an existing directory on the file system
 * index (default: `None`)
   * A name of the index file
 * listing (default: `false`)
@@ -220,13 +220,11 @@ Definitions of mount points for static files and folders on the file system.
 
 ```yaml
 mounts:
-  /file:
-    path: /path/to/file
   /public:
     path: /path/to/public
     listing: true
   /:
-    path: /path/to/html
+    path: /path/to/www
     index: index.html
 ```
 

@@ -210,9 +210,12 @@ pub struct MountConfig {
 
 impl MountConfig {
     fn validate(&self, mount_point: &str) {
-        assert!(Path::new(&self.path).exists(),
+        assert!(!mount_point.is_empty(),
+                "config.server.mounts: \
+                 a mount point must be a non-empty string");
+        assert!(Path::new(&self.path).is_dir(),
                 "config.server.mounts.{}: \
-                 `path` must be a path to an existing entry", mount_point);
+                 `path` must be a path to an existing directory", mount_point);
         if let Some(index) = self.index.as_ref() {
             assert!(!index.is_empty(),
                     "config.server.mounts.{}: `index` must be a non-empty string", mount_point);
@@ -968,18 +971,41 @@ mod tests {
             index: None,
             listing: false,
         };
-        config.validate("test");
+        config.validate("/test");
+        config.validate("/");
     }
 
     #[test]
     #[should_panic]
-    fn test_mount_config_validate_path() {
+    fn test_mount_config_validate_empty_mount_point() {
+        let config = MountConfig {
+            path: "/".to_string(),
+            index: None,
+            listing: false,
+        };
+        config.validate("");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_mount_config_validate_non_existing_path() {
         let config = MountConfig {
             path: "/path/to/dir".to_string(),
             index: None,
             listing: false,
         };
-        config.validate("test");
+        config.validate("/test");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_mount_config_validate_path_must_be_dir() {
+        let config = MountConfig {
+            path: "/dev/null".to_string(),
+            index: None,
+            listing: false,
+        };
+        config.validate("/test");
     }
 
     #[test]

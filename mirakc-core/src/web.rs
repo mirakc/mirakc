@@ -22,7 +22,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::airtime_tracker;
 use crate::chunk_stream::ChunkStream;
 use crate::command_util::*;
-use crate::config::{Config, ServerAddr, ResourceConfig};
+use crate::config::{Config, MountConfig, ServerAddr, ResourceConfig};
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
 use crate::error::Error;
 use crate::epg::*;
@@ -70,19 +70,7 @@ pub async fn serve(
                 .wrap(AccessControl)
                 .service(create_api_service());
             config.server.mounts.iter().fold(app, |app, (mount_point, mount)| {
-                let sv = actix_files::Files::new(&mount_point, &mount.path)
-                    .disable_content_disposition();
-                let sv = if let Some(ref index_file) = mount.index {
-                    sv.index_file(index_file)
-                } else {
-                    sv
-                };
-                let sv = if mount.listing {
-                    sv.show_files_listing()
-                } else {
-                    sv
-                };
-                app.service(sv)
+                app.service(create_mount_service(mount_point, mount))
             })
         });
     for addr in server_config.addrs.iter() {
@@ -217,6 +205,25 @@ fn create_api_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(get_iptv_epg)
         .service(get_iptv_xmltv)
         .service(get_docs)
+}
+
+fn create_mount_service(
+    mount_point: &str,
+    mount: &MountConfig,
+) -> impl actix_web::dev::HttpServiceFactory {
+    let sv = actix_files::Files::new(mount_point, &mount.path)
+        .disable_content_disposition();
+    let sv = if let Some(ref index_file) = mount.index {
+        sv.index_file(index_file)
+    } else {
+        sv
+    };
+    let sv = if mount.listing {
+        sv.show_files_listing()
+    } else {
+        sv
+    };
+    sv
 }
 
 #[actix_web::get("/version")]
@@ -1461,7 +1468,8 @@ mod tests {
     use assert_matches::assert_matches;
     use maplit::hashmap;
     use crate::broadcaster::BroadcasterStream;
-    use crate::config::{FilterConfig, PostFilterConfig};
+    use crate::config::FilterConfig;
+    use crate::config::PostFilterConfig;
 
     async fn request(req: actix_web::test::TestRequest) -> actix_web::HttpResponse {
         let mut app = actix_web::test::init_service(
@@ -1472,7 +1480,12 @@ mod tests {
                 .app_data(actix_web::web::Data::new(epg_for_test()))
                 .app_data(actix_web::web::Data::new(timeshift_manager_for_test()))
                 .wrap(AccessControl)
-                .service(create_api_service())).await;
+                .service(create_api_service())
+                .service(create_mount_service("/", &MountConfig {
+                    path: "/".to_string(),
+                    index: None,
+                    listing: true,
+                }))).await;
         actix_web::test::call_service(&mut app, req.to_request()).await.into()
     }
 
@@ -1900,6 +1913,21 @@ mod tests {
     async fn test_access_control_denied() {
         let _ = get_with_peer_addr(
             "/api/version", "8.8.8.8:10000".parse().unwrap()).await;
+    }
+
+    #[actix::test]
+    async fn test_mount() {
+        let res = get_with_peer_addr(
+            "/", "127.0.0.1:10000".parse().unwrap()).await;
+        assert_eq!(res.status(), actix_web::http::StatusCode::OK);
+
+        let res = get_with_peer_addr(
+            "/no-such-file", "127.0.0.1:10000".parse().unwrap()).await;
+        assert_eq!(res.status(), actix_web::http::StatusCode::NOT_FOUND);
+
+        let res = get_with_peer_addr(
+            "/api/version", "127.0.0.1:10000".parse().unwrap()).await;
+        assert_eq!(res.status(), actix_web::http::StatusCode::OK);
     }
 
     #[test]
