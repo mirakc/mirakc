@@ -1319,9 +1319,9 @@ fn is_private_ipv4_addr(ip: Ipv4Addr) -> bool {
 }
 
 fn is_private_ipv6_addr(ip: Ipv6Addr) -> bool {
-    // TODO: Support only IPv4-compatible and IPv4-mapped addresses at this
-    //       moment.
-    match ip.to_ipv4() {
+    ip.is_loopback() || match ip.to_ipv4() {
+        // TODO: Support only IPv4-compatible and IPv4-mapped addresses at this
+        //       moment.
         Some(ip) => is_private_ipv4_addr(ip),
         None => false,
     }
@@ -1905,10 +1905,25 @@ mod tests {
     #[test]
     fn test_is_private_ip_addr() {
         assert!(is_private_ip_addr("127.0.0.1".parse().unwrap()));
+        assert!(is_private_ip_addr("::1".parse().unwrap()));
+        assert!(is_private_ip_addr("::ffff:7f00:1".parse().unwrap()));
+        assert!(is_private_ip_addr("::ffff:127.0.0.1".parse().unwrap()));
+
         assert!(is_private_ip_addr("10.0.0.1".parse().unwrap()));
+        assert!(is_private_ip_addr("::ffff:a00:1".parse().unwrap()));
+        assert!(is_private_ip_addr("::ffff:10.0.0.1".parse().unwrap()));
+
         assert!(is_private_ip_addr("172.16.0.1".parse().unwrap()));
+        assert!(is_private_ip_addr("::ffff:ac10:1".parse().unwrap()));
+        assert!(is_private_ip_addr("::ffff:172.16.0.1".parse().unwrap()));
+
         assert!(is_private_ip_addr("192.168.0.1".parse().unwrap()));
+        assert!(is_private_ip_addr("::ffff:c0a8:1".parse().unwrap()));
+        assert!(is_private_ip_addr("::ffff:192.168.0.1".parse().unwrap()));
+
         assert!(!is_private_ip_addr("8.8.8.8".parse().unwrap()));
+        assert!(!is_private_ip_addr("::ffff:808:808".parse().unwrap()));
+        assert!(!is_private_ip_addr("::ffff:8.8.8.8".parse().unwrap()));
     }
 
     #[actix::test]
