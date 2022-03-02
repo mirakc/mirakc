@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.runner == 'macos-latest' }} # macOS is unsupported officially
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install macfuse (macos)
         if: matrix.runner == 'macos-latest'
         run: |
@@ -72,7 +72,7 @@ jobs:
           - aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache for Cargo
         uses: actions/cache@v2
         with:
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -157,7 +157,7 @@ jobs:
               linux/386, linux/amd64, linux/arm/v7, linux/arm64/v8,
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Docker tags
         id: docker-tags
         run: |
