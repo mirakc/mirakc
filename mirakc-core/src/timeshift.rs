@@ -992,7 +992,7 @@ impl StreamHandler<io::Result<String>> for TimeshiftRecorder {
             self.activator.do_send(ReactivateTimeshiftRecorderMessage {
                 name: self.name.clone(),
                 service: self.service.clone(),
-            }).unwrap();
+            });
         }
     }
 }

@@ -87,7 +87,7 @@ impl Epg {
         for recipient in self.service_recipients.iter() {
             recipient.do_send(NotifyServicesUpdatedMessage {
                 services: services.clone(),
-            }).unwrap();
+            });
         }
 
         self.services = services;
