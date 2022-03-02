@@ -67,6 +67,7 @@ jobs:
           key: ${{ runner.os }}-docker-cache-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}
           restore-keys: |
             ${{ runner.os }}-docker-cache-${{ matrix.distro }}-
+          buildkitd-flags: --debug
       - name: Login to Docker Hub
         uses: docker/login-action@v1
         with:
@@ -82,6 +83,19 @@ jobs:
           tags: ${{ format(steps.docker-tags.outputs.tags, 'mirakc/mirakc') }}
           cache-from: |
             type=local,src=/tmp/.docker-cache
+          cache-to: |
+            type=local,dest=/tmp/.docker-cache-new
+          push: true
+      - name: Build and push (docker.io/mirakc/timeshift-fs)
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: docker/Dockerfile.${{ matrix.distro }}
+          target: mirakc-timeshift-fs
+          platforms: ${{ matrix.platforms }}
+          tags: ${{ format(steps.docker-tags.outputs.tags, 'mirakc/timeshift-fs') }}
+          cache-from: |
+            type=local,src=/tmp/.docker-cache-new
           cache-to: |
             type=local,dest=/tmp/.docker-cache-new
           push: true
@@ -101,19 +115,6 @@ jobs:
             docker run --rm --platform=$platform --entrypoint=mirakc-arib $TAG --version
             docker run --rm --platform=$platform --entrypoint=mirakc $TAG --version
           done
-      - name: Build and push (docker.io/mirakc/timeshift-fs)
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          file: docker/Dockerfile.${{ matrix.distro }}
-          target: mirakc-timeshift-fs
-          platforms: ${{ matrix.platforms }}
-          tags: ${{ format(steps.docker-tags.outputs.tags, 'mirakc/timeshift-fs') }}
-          cache-from: |
-            type=local,src=/tmp/.docker-cache-new
-          cache-to: |
-            type=local,dest=/tmp/.docker-cache-new
-          push: true
       - name: Test (docker.io/mirakc/timeshift-fs)
         run: |
           # Enable experimental CLI features in Docker daemon.
