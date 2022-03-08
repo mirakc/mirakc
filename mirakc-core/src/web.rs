@@ -749,7 +749,7 @@ async fn do_get_iptv_playlist(
         // avoiding garbled characters in `ＮＨＫＢＳプレミアム`.  Kodi or PVR
         // IPTV Simple Client seems to treat it as Latin-1 when removing U+3000.
         match sv.service_type {
-            0x01 | 0xA1 | 0xA5 => {  // video
+            0x01 | 0xA1 | 0xA5 | 0xAD => {  // video
                 // Special optimization for IPTV Simple Client.
                 //
                 // Explicitly specifying the mime type of each channel avoids redundant requests.
