@@ -20,5 +20,6 @@ structopt = "0.3.26"
 [dev-dependencies]
 assert_matches = "1.5.0"
 
+# We don't specify versions because Dependabot cannot update crates in this section.
 [target.'cfg(target_os = "macos")'.dependencies]
-fuser = "0.10.0"  # There is no fusermount.
+fuser = "*"  # There is no fusermount.
