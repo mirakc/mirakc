@@ -12,7 +12,7 @@ actix-files = "0.6.0"
 actix-web = "4.0.0-rc.3"
 atty = "0.2.14"
 chrono = { version = "0.4.19", features = ["serde"] }
-cron = "0.9.0"
+cron = "0.10.0"
 failure = "0.1.8"
 fs2 = "0.4.3"
 futures = "0.3.21"
