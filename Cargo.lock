@@ -17,7 +17,7 @@ dependencies = [
  "futures-sink",
  "futures-task",
  "futures-util",
- "log 0.4.14",
+ "log 0.4.16",
  "once_cell",
  "parking_lot",
  "pin-project-lite",
@@ -36,7 +36,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
- "log 0.4.14",
+ "log 0.4.16",
  "memchr",
  "pin-project-lite",
  "tokio",
@@ -59,7 +59,7 @@ dependencies = [
  "derive_more",
  "futures-core",
  "http-range",
- "log 0.4.14",
+ "log 0.4.16",
  "mime",
  "mime_guess",
  "percent-encoding",
@@ -93,7 +93,7 @@ dependencies = [
  "itoa",
  "language-tags",
  "local-channel",
- "log 0.4.14",
+ "log 0.4.16",
  "mime",
  "percent-encoding",
  "pin-project-lite",
@@ -122,7 +122,7 @@ dependencies = [
  "bytestring",
  "firestorm",
  "http",
- "log 0.4.14",
+ "log 0.4.16",
  "regex",
  "serde",
 ]
@@ -202,7 +202,7 @@ dependencies = [
  "futures-util",
  "itoa",
  "language-tags",
- "log 0.4.14",
+ "log 0.4.16",
  "mime",
  "once_cell",
  "pin-project-lite",
@@ -636,7 +636,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aef8400a4ea1d18a8302e2952f5137a9a21ab257825ccc7d67db4a8018b89022"
 dependencies = [
  "libc",
- "log 0.4.14",
+ "log 0.4.16",
  "memchr",
  "page_size",
  "pkg-config",
@@ -942,14 +942,14 @@ version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e19e8d5c34a3e0e2223db8e060f9e8264aeeb5c5fc64a4ee9965c062211c024b"
 dependencies = [
- "log 0.4.14",
+ "log 0.4.16",
 ]
 
 [[package]]
 name = "log"
-version = "0.4.14"
+version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
+checksum = "6389c490849ff5bc16be905ae24bc913a9c8892e19b2341dbc175e14c341c2b8"
 dependencies = [
  "cfg-if",
 ]
@@ -1020,7 +1020,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ba42135c6a5917b9db9cd7b293e5409e1c6b041e6f9825e92e55a894c63b6f8"
 dependencies = [
  "libc",
- "log 0.4.14",
+ "log 0.4.16",
  "miow",
  "ntapi",
  "wasi 0.11.0+wasi-snapshot-preview1",
@@ -1041,7 +1041,7 @@ name = "mirakc"
 version = "1.0.35"
 dependencies = [
  "actix",
- "log 0.4.14",
+ "log 0.4.16",
  "mirakc-core",
  "serde_json",
  "structopt",
@@ -1066,7 +1066,7 @@ dependencies = [
  "indexmap",
  "itertools",
  "libc",
- "log 0.4.14",
+ "log 0.4.16",
  "maplit",
  "mustache",
  "num_cpus",
@@ -1091,7 +1091,7 @@ dependencies = [
  "fuser",
  "indexmap",
  "libc",
- "log 0.4.14",
+ "log 0.4.16",
  "mirakc-core",
  "sanitize-filename",
  "serde_json",
@@ -1709,7 +1709,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
- "log 0.4.14",
+ "log 0.4.16",
  "pin-project-lite",
  "tokio",
 ]
@@ -1723,7 +1723,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
- "log 0.4.14",
+ "log 0.4.16",
  "pin-project-lite",
  "tokio",
 ]
@@ -1735,7 +1735,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a1bdf54a7c28a2bbf701e1d2233f6c77f473486b94bee4f9678da5a148dca7f"
 dependencies = [
  "cfg-if",
- "log 0.4.14",
+ "log 0.4.16",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -1769,7 +1769,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6923477a48e41c1951f1999ef8bb5a3023eb723ceadafe78ffb65dc366761e3"
 dependencies = [
  "lazy_static",
- "log 0.4.14",
+ "log 0.4.16",
  "tracing-core",
 ]
 
@@ -1871,7 +1871,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24cc0f6d6f267b73e5a2cadf007ba8f9bc39c6a6f9666f8cf25ea809a153b032"
 dependencies = [
  "libc",
- "log 0.4.14",
+ "log 0.4.16",
 ]
 
 [[package]]

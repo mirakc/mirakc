@@ -11,7 +11,7 @@ publish = false
 fuser = { version = "0.11.0", default-features = false, features = ["abi-7-31"] }
 indexmap = { version = "1.8.0", features = ["serde-1"] }
 libc = "0.2.121"
-log = "0.4.14"
+log = "0.4.16"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.3.0"
 serde_json = { version = "1.0.79", features = ["preserve_order"] }
