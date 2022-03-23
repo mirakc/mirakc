@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 actix = "0.13.0"
-log = "0.4.14"
+log = "0.4.16"
 mirakc-core = { path = "../mirakc-core" }
 serde_json = { version = "1.0.79", features = ["preserve_order"] }
 structopt = "0.3.26"
