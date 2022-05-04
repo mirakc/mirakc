@@ -14,7 +14,7 @@ libc = "0.2.125"
 log = "0.4.17"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.3.0"
-serde_json = { version = "1.0.80", features = ["preserve_order"] }
+serde_json = { version = "1.0.81", features = ["preserve_order"] }
 structopt = "0.3.26"
 
 [dev-dependencies]
