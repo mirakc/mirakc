@@ -194,7 +194,7 @@ jobs:
           echo "::set-output name=tags::$TAGS"
           echo "::set-output name=version::$VERSION"
       - name: Setup QEMU user-mode emulation
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v2
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v2
         with:
