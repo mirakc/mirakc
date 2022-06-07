@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use actix::prelude::*;
-use failure::Error;
+use anyhow;
 use log;
 use serde::Deserialize;
 use serde_json;
@@ -78,7 +78,7 @@ where
         channel: &EpgChannel,
         command: &str,
         tuner_manager: &Addr<A>,
-    ) -> Result<Vec<SyncClock>, Error> {
+    ) -> anyhow::Result<Vec<SyncClock>> {
         log::debug!("Synchronizing clocks in {}...", channel.name);
 
         let user = TunerUser {
@@ -121,7 +121,7 @@ where
         // streaming in the next iteration.
         let _ = handle.await;
 
-        failure::ensure!(!buf.is_empty(), "No clock, maybe out of service");
+        anyhow::ensure!(!buf.is_empty(), "No clock, maybe out of service");
 
         let clocks: Vec<SyncClock> = serde_json::from_slice(&buf)?;
         log::debug!("Synchronized {} clocks in {}", clocks.len(), channel.name);

@@ -3,59 +3,62 @@ use std::fmt;
 use std::io;
 
 use actix;
-use failure::Fail;
+use anyhow;
 use mustache;
 use serde_json;
 use serde_yaml;
+use thiserror;
 
 use crate::command_util;
 
-#[derive(Debug, Fail)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[fail(display = "Streaming timed out")]
+    #[error("Streaming timed out")]
     StreamingTimedOut,
-    #[fail(display = "Tuner unavailable")]
+    #[error("Tuner unavailable")]
     TunerUnavailable,
-    #[fail(display = "Channel not found")]
+    #[error("Channel not found")]
     ChannelNotFound,
-    #[fail(display = "Service not found")]
+    #[error("Service not found")]
     ServiceNotFound,
-    #[fail(display = "Clock not synced")]
+    #[error("Clock not synced")]
     ClockNotSynced,
-    #[fail(display = "Program not found")]
+    #[error("Program not found")]
     ProgramNotFound,
-    #[fail(display = "Record not found")]
+    #[error("Record not found")]
     RecordNotFound,
-    #[fail(display = "Session not found")]
+    #[error("Session not found")]
     SessionNotFound,
-    #[fail(display = "Out of range")]
+    #[error("Out of range")]
     OutOfRange,
-    #[fail(display = "No content")]
+    #[error("No content")]
     NoContent,
-    #[fail(display = "No logo data")]
+    #[error("No logo data")]
     NoLogoData,
-    #[fail(display = "Access denied")]
+    #[error("Access denied")]
     AccessDenied,
-    #[fail(display = "Command failed: {}", 0)]
+    #[error("Command failed: {0}")]
     CommandFailed(command_util::Error),
-    #[fail(display = "std::fmt::error: {}", 0)]
+    #[error("std::fmt::error: {0}")]
     FmtError(fmt::Error),
-    #[fail(display = "std::io::error: {}", 0)]
+    #[error("std::io::error: {0}")]
     IoError(io::Error),
-    #[fail(display = "JSON error: {}", 0)]
+    #[error("JSON error: {0}")]
     JsonError(serde_json::Error),
-    #[fail(display = "YAML error: {}", 0)]
+    #[error("YAML error: {0}")]
     YamlError(serde_yaml::Error),
-    #[fail(display = "Querystring error: {}", 0)]
+    #[error("Querystring error: {0}")]
     QuerystringError(serde_qs::Error),
-    #[fail(display = "Mailbox error: {}", 0)]
+    #[error("Mailbox error: {0}")]
     MailboxError(actix::MailboxError),
-    #[fail(display = "Mustache error: {}", 0)]
+    #[error("Mustache error: {0}")]
     MustacheError(mustache::Error),
-    #[fail(display = "std::env error: {}", 0)]
+    #[error("std::env error: {0}")]
     EnvVarError(env::VarError),
-    #[fail(display = "tokio::sync::broadcast error: {:?}", 0)]
+    #[error("tokio::sync::broadcast error: {0:?}")]
     TokioSyncBroadcastError(tokio::sync::broadcast::error::RecvError),
+    #[error(transparent)]
+    AnyhowError(#[from] anyhow::Error),
 }
 
 impl From<command_util::Error> for Error {

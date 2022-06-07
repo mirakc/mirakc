@@ -1,5 +1,5 @@
 use actix::prelude::*;
-use failure::Error;
+use anyhow;
 use indexmap::IndexMap;
 use log;
 use serde::Deserialize;
@@ -75,7 +75,7 @@ where
         channel: &EpgChannel,
         command: &str,
         tuner_manager: &Addr<A>,
-    ) -> Result<Vec<EpgService>, Error> {
+    ) -> anyhow::Result<Vec<EpgService>> {
         log::debug!("Scanning services in {}...", channel.name);
 
         let user = TunerUser {
@@ -118,7 +118,7 @@ where
         // streaming in the next iteration.
         let _ = handle.await;
 
-        failure::ensure!(buf.len() > 0, "No service, maybe out of service");
+        anyhow::ensure!(buf.len() > 0, "No service, maybe out of service");
 
         let services: Vec<TsService> = serde_json::from_slice(&buf)?;
         log::debug!("Found {} services in {}", services.len(), channel.name);

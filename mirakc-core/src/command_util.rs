@@ -8,9 +8,9 @@ use std::task::{Poll, Context};
 use std::time::Duration;
 use std::thread::sleep;
 
-use failure::Fail;
 use humantime;
 use once_cell::sync::Lazy;
+use thiserror;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader, ReadBuf};
 use tokio::process::{Command, Child, ChildStdin, ChildStdout};
 use tokio::sync::broadcast;
@@ -98,20 +98,14 @@ where
 
 // errors
 
-#[derive(Debug, Fail)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[fail(display = "Unable to parse: {}", 0)]
+    #[error("Unable to parse: {0}")]
     UnableToParse(String),
-    #[fail(display = "Unable to spawn: {}: {}", 0, 1)]
+    #[error("Unable to spawn: {0}: 1{}")]
     UnableToSpawn(String, io::Error),
-    #[fail(display = "I/O error: {}", 0)]
-    IoError(io::Error),
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
-        Self::IoError(err)
-    }
+    #[error(transparent)]
+    IoError(#[from] io::Error),
 }
 
 // pipeline builder
