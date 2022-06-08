@@ -79,7 +79,6 @@ services:
     network_mode: host
     volumes:
       - /media/timeshift:/mnt:ro
-      - minidlna-cache:/var/cache/minidlna
     environment:
       <<: *default-environment
 ```
