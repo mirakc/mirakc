@@ -49,7 +49,7 @@ fi
 #     CMakeLists.txt:294 (find_package)
 #
 # I don't know the exact reason, but generating Makefiles for out-of-source build works fine.
-cmake -S . -B /build -D CMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE=toolchain.cmake
-make -C /build -j $(nproc) vendor
-make -C /build -j $(nproc)
+cmake -S . -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE=toolchain.cmake
+make -C build -j $(nproc) vendor
+make -C build -j $(nproc)
 $STRIP build/bin/mirakc-arib
