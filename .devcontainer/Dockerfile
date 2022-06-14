@@ -6,8 +6,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 COPY ./docker/build-scripts/vars.* /build-scripts/
 COPY ./docker/build-scripts/buildenv.sh /build-scripts/
 RUN sh /build-scripts/buildenv.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
-RUN mkdir -p /build
-WORKDIR /build
+RUN mkdir -p /tmp
+WORKDIR /tmp
 
 FROM buildenv AS recdvb-build
 COPY ./docker/build-scripts/recdvb.sh /build-scripts/
@@ -18,7 +18,6 @@ COPY ./docker/build-scripts/recpt1.sh /build-scripts/
 RUN sh /build-scripts/recpt1.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 
 FROM buildenv AS mirakc-arib-build
-WORKDIR /tmp
 COPY ./docker/build-scripts/mirakc-arib.sh /build-scripts/
 RUN sh /build-scripts/mirakc-arib.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 
