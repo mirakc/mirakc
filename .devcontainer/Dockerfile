@@ -6,8 +6,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 COPY ./docker/build-scripts/vars.* /build-scripts/
 COPY ./docker/build-scripts/buildenv.sh /build-scripts/
 RUN sh /build-scripts/buildenv.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
-RUN mkdir -p /tmp
-WORKDIR /tmp
+RUN mkdir -p /build
+WORKDIR /build
 
 FROM buildenv AS recdvb-build
 COPY ./docker/build-scripts/recdvb.sh /build-scripts/
