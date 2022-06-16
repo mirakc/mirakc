@@ -16,7 +16,12 @@
   },
 
   "settings": {
-    "terminal.integrated.shell.linux": "/bin/bash",
+    "terminal.integrated.profiles.linux": {
+      "bash (login)": {
+          "path": "bash",
+          "args": ["-l"]
+      }
+    },
     "lldb.executable": "/usr/bin/lldb",
     "files.watcherExclude": {
       "**/target/**": true
@@ -32,3 +37,4 @@
 
   "remoteUser": "vscode"
 }
+
