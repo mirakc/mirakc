@@ -24,7 +24,7 @@ RUN sh /build-scripts/mirakc-arib.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 FROM mcr.microsoft.com/vscode/devcontainers/rust:1
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
 COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/
-COPY --from=mirakc-arib-build /tmp/build/bin/mirakc-arib /usr/local/bin/
+COPY --from=mirakc-arib-build /build/build/bin/mirakc-arib /usr/local/bin/
 COPY ./resources/strings.yml /etc/mirakc/strings.yml
 COPY ./resources/mirakurun.openapi.json /etc/mirakurun.openapi.json
 RUN set -eux \
