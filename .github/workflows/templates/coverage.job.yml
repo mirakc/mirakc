@@ -40,6 +40,6 @@ jobs:
           --excl-stop '</coverage:exclude>'
           -t lcov -o lcov.info
       - name: Update to codecov.io
-        uses: codecov/codecov-action@v2
+        uses: codecov/codecov-action@v3
         with:
           files: lcov.info
