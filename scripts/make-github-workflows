@@ -19,18 +19,19 @@ EOF
 
 cat <<EOF >$PROJDIR/.github/workflows/ci.yml
 $HEADER
-$($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir docker.io/mikefarah/yq ea '. as $item ireduce ({}; . * $item)' \
+$($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir \
+    docker.io/mikefarah/yq ea '. as $item ireduce ({}; . *d $item)' \
     ci.workflow.yml \
     build.job.yml \
     cross-build.job.yml \
     coverage.job.yml \
-    docker.job.yml \
 )
 EOF
 
 cat <<EOF >$PROJDIR/.github/workflows/release.yml
 $HEADER
-$($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir docker.io/mikefarah/yq ea '. as $item ireduce ({}; . * $item)' \
+$($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir \
+    docker.io/mikefarah/yq ea '. as $item ireduce ({}; . *d $item)' \
     release.workflow.yml \
     docker.job.yml \
 )
@@ -38,10 +39,20 @@ EOF
 
 cat <<EOF >$PROJDIR/.github/workflows/pull-request.yml
 $HEADER
-$($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir docker.io/mikefarah/yq ea '. as $item ireduce ({}; . * $item)' \
+$($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir \
+    docker.io/mikefarah/yq ea '. as $item ireduce ({}; . *d $item)' \
     pull-request.workflow.yml \
     build.job.yml \
     cross-build.job.yml \
     coverage.job.yml \
+)
+EOF
+
+cat <<EOF >$PROJDIR/.github/workflows/daily.yml
+$HEADER
+$($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir \
+    docker.io/mikefarah/yq ea '. as $item ireduce ({}; . *d $item)' \
+    daily.workflow.yml \
+    docker.job.yml \
 )
 EOF

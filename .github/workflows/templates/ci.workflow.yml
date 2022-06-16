@@ -15,7 +15,3 @@ jobs:
     needs:
       - build
       - cross-build
-  docker:
-    needs:
-      - build
-      - cross-build
