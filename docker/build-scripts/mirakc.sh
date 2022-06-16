@@ -32,11 +32,11 @@ fi
 export PKG_CONFIG_ALLOW_CROSS=1
 
 cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc
-cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc /usr/local/bin/
+cp ./target/$RUST_TARGET_TRIPLE/release/mirakc /usr/local/bin/
 $STRIP /usr/local/bin/mirakc
 
 cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs
-cp /build/target/$RUST_TARGET_TRIPLE/release/mirakc-timeshift-fs /usr/local/bin/
+cp ./target/$RUST_TARGET_TRIPLE/release/mirakc-timeshift-fs /usr/local/bin/
 $STRIP /usr/local/bin/mirakc-timeshift-fs
 cat <<EOF >/usr/local/bin/run-mirakc-timeshift-fs
 #!/bin/sh
@@ -47,5 +47,5 @@ chmod +x /usr/local/bin/run-mirakc-timeshift-fs
 
 # Compress mirakurun.openapi.json.
 TEMP_FILE=$(mktemp)
-cat /build/resources/mirakurun.openapi.json | jq -Mc '.' >$TEMP_FILE
-mv -f $TEMP_FILE /build/resources/mirakurun.openapi.json
+cat ./resources/mirakurun.openapi.json | jq -Mc '.' >$TEMP_FILE
+mv -f $TEMP_FILE ./resources/mirakurun.openapi.json
