@@ -1,0 +1,14 @@
+name: Daily (release)
+
+on:
+  schedule:
+    - cron: '16 16 * * *'  # UTC
+
+jobs:
+  update:
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: release
+          # Use PAT in order to invoke other workflows.
+          token: ${{ secrets.BOT_GITHUB_TOKEN }}

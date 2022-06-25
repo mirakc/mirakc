@@ -48,11 +48,21 @@ $($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir \
 )
 EOF
 
-cat <<EOF >$PROJDIR/.github/workflows/daily.yml
+cat <<EOF >$PROJDIR/.github/workflows/daily-main.yml
 $HEADER
 $($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir \
     docker.io/mikefarah/yq ea '. as $item ireduce ({}; . *d $item)' \
-    daily.workflow.yml \
+    daily-main.workflow.yml \
+    update.job.yml \
     docker.job.yml \
+)
+EOF
+
+cat <<EOF >$PROJDIR/.github/workflows/daily-release.yml
+$HEADER
+$($DOCKER run --rm -v $PROJDIR/.github/workflows/templates:/workdir \
+    docker.io/mikefarah/yq ea '. as $item ireduce ({}; . *d $item)' \
+    daily-release.workflow.yml \
+    update.job.yml \
 )
 EOF

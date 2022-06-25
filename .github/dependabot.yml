@@ -1,11 +1,21 @@
+# Dependabot supports checking multiple branches.
+# See https://github.com/dependabot/feedback/issues/889.
 version: 2
 updates:
-  - package-ecosystem: cargo
+  - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: daily
       time: '01:01'  # UTC
-  - package-ecosystem: github-actions
+  # main branch
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: daily
+      time: '04:04'  # UTC
+  # release branch
+  - package-ecosystem: cargo
+    target-branch: release
     directory: /
     schedule:
       interval: daily
