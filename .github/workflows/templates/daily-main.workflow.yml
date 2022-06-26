@@ -4,21 +4,15 @@ on:
   schedule:
     - cron: '13 13 * * *'  # UTC
 
+env:
+  MIRAKC_GA_REF_NAME: main
+  MIRAKC_GA_REF_TYPE: branch
+  # Use PAT in order to invoke other workflows.
+  MIRAKC_GA_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
+
 jobs:
   update:
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: main
-          # Use PAT in order to invoke other workflows.
-          token: ${{ secrets.BOT_GITHUB_TOKEN }}
   docker:
+    if: needs.update.outputs.num-commits > 0
     needs:
       - update
-    if: needs.update.outputs.num-commits > 0
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: main
-          # Use PAT in order to invoke other workflows.
-          token: ${{ secrets.BOT_GITHUB_TOKEN }}

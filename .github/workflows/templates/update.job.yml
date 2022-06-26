@@ -5,6 +5,9 @@ jobs:
       num-commits: ${{ steps.count.outputs.num-commits }}
     steps:
       - uses: actions/checkout@v3
+        with:
+          ref: ${{ env.MIRAKC_GA_REF_NAME }}
+          token: ${{ env.MIRAKC_GA_TOKEN }}
       - name: git config
         run: |
           # https://github.com/actions/checkout#push-a-commit-using-the-built-in-token
@@ -26,7 +29,7 @@ jobs:
           ./scripts/update-mirakc-arib
       - name: Push if changed
         run: |
-          if git diff --quiet origin/main..HEAD
+          if git diff --quiet origin/$MIRAKC_GA_REF_NAME..HEAD
           then
             echo "No commit to push"
           else
@@ -35,5 +38,6 @@ jobs:
       - name: Count commits made within 24 hours
         id: count
         run: |
-          NUM_COMMITS=$(git rev-list --count --since '24 hours' main)
+          NUM_COMMITS=$(git rev-list --count --since '24 hours' $MIRAKC_GA_REF_NAME)
+          echo "NUM_COMMITS=$NUM_COMMITS"
           echo "::set-output name=num-commits::$NUM_COMMITS"

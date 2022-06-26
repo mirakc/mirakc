@@ -26,38 +26,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          ref: ${{ env.MIRAKC_GA_REF_NAME }}
+          token: ${{ env.MIRAKC_GA_TOKEN }}
       - name: Docker tags
         id: docker-tags
         run: |
           IMAGE="{0}"  # placeholder
-          if echo "$GITHUB_REF" | grep -e '^refs/heads/' >/dev/null 2>&1; then
-            GIT_BRANCH=$(echo "$GITHUB_REF" | sed -e 's|^refs/heads/||')
-            MAIN_TAG="$IMAGE:$GIT_BRANCH-${{ matrix.distro }}"
-            TAGS="$MAIN_TAG"
-            if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
-              TAGS="$TAGS,$IMAGE:$GIT_BRANCH"
-            fi
-            VERSION="$GIT_BRANCH"
-          else
-            GIT_TAG=$(echo "$GITHUB_REF" | sed -e 's|^refs/tags/||')
-            MAIN_TAG="$IMAGE:$GIT_TAG-${{ matrix.distro }}"
-            TAGS="$MAIN_TAG"
-            if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
-              TAGS="$TAGS,$IMAGE:$GIT_TAG"
-            fi
+          VERSION="$MIRAKC_GA_REF_NAME"
+          MAIN_TAG="$IMAGE:$VERSION-${{ matrix.distro }}"
+          TAGS="$MAIN_TAG"
+          if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]
+          then
+            TAGS="$TAGS,$IMAGE:$VERSION"
+          fi
+          if [ "$MIRAKC_GA_REF_TYPE" = tag ]
+          then
             # Always update latest image tags when a new git tag is created.
             TAGS="$TAGS,$IMAGE:${{ matrix.distro }}"
             if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
               TAGS="$TAGS,$IMAGE:latest"
             fi
-            VERSION="$GIT_TAG"
           fi
+          echo "Version: $VERSION"
           echo "Main tag: $MAIN_TAG"
           echo "Tags: $TAGS"
-          echo "Version: $VERSION"
+          echo "::set-output name=version::$VERSION"
           echo "::set-output name=main-tag::$MAIN_TAG"
           echo "::set-output name=tags::$TAGS"
-          echo "::set-output name=version::$VERSION"
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v2
       - name: Setup Docker Buildx
