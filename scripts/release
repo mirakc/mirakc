@@ -38,6 +38,10 @@ error() {
   exit 1
 }
 
+cleanup() {
+  find $PROJDIR -name '*.sed.backup' | xargs rm -f
+}
+
 while [ $# -gt 0 ]
 do
   case "$1" in
@@ -57,6 +61,8 @@ do
   esac
 done
 
+trap cleanup EXIT
+
 VERSION=$(npx semver $CURRENT -i $1)
 
 log "Pulling changes from origin..."
@@ -65,9 +71,7 @@ git pull
 log "Bumping the version to $VERSION..."
 for MANIFEST in $(find $PROJDIR -name Cargo.toml)
 do
-  # Don't use the -i option of `sed`.
-  # The incompatibility between macOS and GNU will cause troubles.
-  sed -e "s/^version = .*/version = \"$VERSION\"/" $MANIFEST | sponge $MANIFEST
+  sed -i'.sed.backup' -e "s/^version = .*/version = \"$VERSION\"/" $MANIFEST
 done
 
 # We assume that build never fails.

@@ -10,12 +10,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
+          # Always checkout the release branch.
           ref: release
           # Use PAT in order to invoke other workflows.
           token: ${{ secrets.BOT_GITHUB_TOKEN }}
-          # Fetch all history for all tags and branches so that `git describe` works properly
+          # Fetch all history for all tags and branches so that `git describe`
+          # works properly.
           fetch-depth: 0
-      - uses: actions-rs/toolchain@v1
+      - uses: actions-rs/toolchain@v1  # required for scripts/bump-version
         with:
           toolchain: stable
           override: true
@@ -30,7 +32,6 @@ jobs:
           then
             echo "Not changed, skip to create new release"
           else
-            sudo apt-get install -y moreutils  # sponge
             ./scripts/release patch
             git push
             git push --tags

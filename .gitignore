@@ -3,6 +3,7 @@
 /mirakurun.openapi.json
 /target
 *.pyc
+**/*.sed.backup
 **/*.rs.bk
 .DS_Store
 cobertura.xml
