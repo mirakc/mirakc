@@ -32,7 +32,7 @@ automake
 ca-certificates
 curl
 make
-pkg-config:$DEBIAN_ARCH
+pkg-config
 EOF
 )
 
@@ -42,7 +42,7 @@ automake
 ca-certificates
 curl
 make
-pkg-config:$DEBIAN_ARCH
+pkg-config
 EOF
 )
 
@@ -57,7 +57,7 @@ git
 libtool
 make
 patch
-pkg-config:$DEBIAN_ARCH
+pkg-config
 EOF
 )
 
@@ -65,7 +65,7 @@ MIRAKC_DEPS=$(cat <<EOF
 ca-certificates
 curl
 jq
-pkg-config:$DEBIAN_ARCH
+pkg-config
 EOF
 )
 
