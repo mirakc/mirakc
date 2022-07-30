@@ -9,7 +9,7 @@ suitable for your environment.
 | PROPERTY                                 | DEFAULT                           |
 |------------------------------------------|-----------------------------------|
 | [epg.cache-dir]                          | `None`                            |
-| [server.addrs]                           | `[{http: 'localhost:40772'}]`     |
+| [server.addrs]                           | `[!http 'localhost:40772']`       |
 | [server.workers]                         | The number of CPUs                |
 | [server.stream-chunk-size]               | `32768` (32KiB)                   |
 | [server.stream-max-chunks]               | `1000`                            |
@@ -125,7 +125,7 @@ HTTP protocol:
 ```yaml
 server:
   addrs:
-    - http: '0.0.0.0:40772'
+    - !http '0.0.0.0:40772'
 ```
 
 HTTPS protocol is not supported at this point.
@@ -135,7 +135,7 @@ UNIX domain socket:
 ```yaml
 server:
   addrs:
-    - unix: /var/run/mirakc.sock
+    - !unix /var/run/mirakc.sock
 ```
 
 mirakc never changes the ownership and permission of the socket.  Change them
@@ -147,8 +147,8 @@ Multiple addresses can be bound like below:
 ```yaml
 server:
   addrs:
-    - http: '0.0.0.0:40772'
-    - unix: /var/run/mirakc.sock
+    - !http '0.0.0.0:40772'
+    - !unix /var/run/mirakc.sock
 ```
 
 ## server.workers

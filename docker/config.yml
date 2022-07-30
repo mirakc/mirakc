@@ -5,7 +5,7 @@ server:
   # Replace `localhost` with `0.0.0.0` (ipv4) or `::` (ipv6) if you like to
   # connect from other hosts.
   addrs:
-    - http: '0.0.0.0:40772'
+    - !http '0.0.0.0:40772'
 
 # Change the following settings according to your environment.
 channels:

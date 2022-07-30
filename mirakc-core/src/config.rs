@@ -807,7 +807,7 @@ mod tests {
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(r#"
                 addrs:
-                  - http: '0.0.0.0:40772'
+                  - !http '0.0.0.0:40772'
             "#).unwrap(),
             ServerConfig {
                 addrs: vec![
@@ -823,7 +823,7 @@ mod tests {
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(r#"
                 addrs:
-                  - unix: /path/to/sock
+                  - !unix /path/to/sock
             "#).unwrap(),
             ServerConfig {
                 addrs: vec![
@@ -839,8 +839,8 @@ mod tests {
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(r#"
                 addrs:
-                  - http: '0.0.0.0:40772'
-                  - unix: /path/to/sock
+                  - !http '0.0.0.0:40772'
+                  - !unix /path/to/sock
             "#).unwrap(),
             ServerConfig {
                 addrs: vec![
