@@ -17,7 +17,7 @@ if [ "$TARGET" = alpine ]; then
   ARCHIVE="https://more.musl.cc/x86_64-linux-musl/${GCC_HOST_TRIPLE}-cross.tgz"
 
   apt-get install -y --no-install-recommends ca-certificates curl rsync
-  curl -vfSL $ARCHIVE | tar -xz -C /tmp
+  curl -fsSL $ARCHIVE | tar -xz -C /tmp
   rm -f $(find /tmp/${GCC_HOST_TRIPLE}-cross -name "ld-musl-*.so.1")
   rm /tmp/${GCC_HOST_TRIPLE}-cross/usr
   rsync --ignore-errors -rLaq /tmp/${GCC_HOST_TRIPLE}-cross/* / || true
