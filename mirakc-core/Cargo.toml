@@ -27,7 +27,7 @@ mustache = "0.9.0"
 num_cpus = "1.13.1"
 once_cell = "1.13.0"
 serde = { version = "1.0.141", features = ["derive", "rc"] }
-serde_json = { version = "1.0.82", features = ["preserve_order"] }
+serde_json = { version = "1.0.83", features = ["preserve_order"] }
 serde_yaml = "0.9.4"
 serde_qs = "0.10.1"
 shell-words = "1.1.0"
