@@ -1,0 +1,118 @@
+#!/bin/sh -eu
+
+PROGNAME=$(basename $0)
+BASEDIR=$(cd $(dirname $0); pwd)
+PROJDIR=$(cd $BASEDIR/..; pwd)
+
+IMAGE=mirakc/buildenv
+DISTROS='alpine debian'
+PLATFORMS='linux/386 linux/amd64 linux/arm/v6 linux/arm/v7 linux/arm64/v8'
+
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+  DOCKER='docker'
+else
+  DOCKER='sudo docker'
+fi
+
+PUSH_OPT=
+
+help() {
+  cat <<EOF >&2
+Update mirakc/buildenv images.
+
+USAGE:
+  $PROGNAME
+  $PROGNAME -h | --help
+
+OPTIONS:
+  -h, --help
+    Show help.
+
+  --push
+    Push images.
+
+DESCRIPTION:
+  This script build buildenv images and optionally push them to Docker Hub.
+
+  You have to login to Docker Hub by running \`docker login\` when you want to
+  push images to Docker Hub.
+EOF
+  exit 0
+}
+
+log() {
+  echo "$1" >&2
+}
+
+error() {
+  log "ERROR: $1"
+  exit 1
+}
+
+is_supported() {
+  case $1 in
+    alpine)
+      true
+      ;;
+    debian)
+      if [ "$2" = linux/arm/v6 ]
+      then
+        false
+      else
+        true
+      fi
+      ;;
+  esac
+}
+
+tag_name() {
+  case "$2" in
+    linux/386)
+      echo "$1-linux-386"
+      ;;
+    linux/amd64)
+      echo "$1-linux-amd64"
+      ;;
+    linux/arm/v6)
+      echo "$1-linux-armv6"
+      ;;
+    linux/arm/v7)
+      echo "$1-linux-armv7"
+      ;;
+    linux/arm64/v8)
+      # `docker buildx build` doesn't define TARGETVARIANT
+      echo "$1-linux-arm64"
+      ;;
+  esac
+}
+
+while [ $# -gt 0 ]
+do
+  case "$1" in
+    '-h' | '--help')
+      help
+      ;;
+    '--push')
+      PUSH_OPT='--push'
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+for DISTRO in $DISTROS
+do
+  for PLATFORM in $PLATFORMS
+  do
+    if is_supported $DISTRO $PLATFORM
+    then
+      IMG="$IMAGE:$(tag_name $DISTRO $PLATFORM)"
+      log "Updating $IMG..."
+      docker buildx build -t $IMG -f $PROJDIR/docker/Dockerfile.buildenv \
+        --build-arg="DISTRO=$DISTRO" --build-arg="TARGETPLATFORM=$PLATFORM" \
+        $PUSH_OPT $PROJDIR
+    fi
+  done
+done

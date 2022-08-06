@@ -1,0 +1,9 @@
+FROM rust:slim-buster
+ARG DISTRO
+ARG TARGETPLATFORM
+ENV DEBIAN_FRONTEND=noninteractive
+COPY ./docker/build-scripts/vars.* /build-scripts/
+COPY ./docker/build-scripts/buildenv.sh /build-scripts/
+RUN sh /build-scripts/buildenv.sh $DISTRO linux/amd64 $TARGETPLATFORM
+RUN mkdir -p /build
+WORKDIR /build

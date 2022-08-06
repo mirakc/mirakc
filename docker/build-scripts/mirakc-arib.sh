@@ -1,7 +1,7 @@
 set -eu
 
 BASEDIR=$(cd $(dirname $0); pwd)
-TARGET=$1
+DISTRO=$1
 BUILDPLATFORM=$2
 TARGETPLATFORM=$3
 
@@ -21,7 +21,7 @@ set(CMAKE_CXX_COMPILER $GXX)
 set(CMAKE_CXX_COMPILER_TARGET $GCC_HOST_TRIPLE)
 EOF
 
-if [ "$TARGET" = alpine ]; then
+if [ "$DISTRO" = alpine ]; then
   # See https://gist.github.com/uru2/cb3f7b553c2c58570ca9bf18e47cebb3
   MIRAKC_ARIB_TSDUCK_ARIB_CXXFLAGS='-Wno-error=zero-as-null-pointer-constant'
   if [ "$TARGETPLATFORM" = linux/386 ]; then

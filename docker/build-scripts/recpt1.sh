@@ -1,7 +1,7 @@
 set -eu
 
 BASEDIR=$(cd $(dirname $0); pwd)
-TARGET=$1
+DISTRO=$1
 BUILDPLATFORM=$2
 TARGETPLATFORM=$3
 
@@ -14,7 +14,7 @@ cd recpt1
 ./autogen.sh
 ./configure --prefix=/usr/local --host=$GCC_HOST_TRIPLE  # without `--enable-b25`
 curl -fsSL $PATCH | patch -p1  # remove CR in log messages
-if [ "$TARGET" = alpine ]; then
+if [ "$DISTRO" = alpine ]; then
   sed -i -e 's/^LDFLAGS  =$/LDFLAGS = -static -no-pie/' Makefile
 fi
 make -j $(nproc)
