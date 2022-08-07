@@ -37,6 +37,7 @@ jobs:
         run: |
           timeout 120 ./scripts/update-mirakurun-openapi-json
       - name: Update mirakc-arib
+        if: env.MIRAKC_GA_REF_NAME == 'main'
         run: |
           ./scripts/update-mirakc-arib
       - name: Push if changed
