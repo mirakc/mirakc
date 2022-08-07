@@ -77,8 +77,8 @@ $MIRAKC_DEPS
 EOF
 )
 
-# Import target-specific variables
-. $BASEDIR/vars.$TARGET.sh
+# Import distribution-specific variables
+. $BASEDIR/vars.$DISTRO.sh
 
 cat <<EOF
 BUILD_DEPS

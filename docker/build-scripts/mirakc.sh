@@ -1,7 +1,7 @@
 set -eu
 
 BASEDIR=$(cd $(dirname $0); pwd)
-TARGET=$1
+DISTRO=$1
 BUILDPLATFORM=$2
 TARGETPLATFORM=$3
 

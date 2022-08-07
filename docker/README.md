@@ -27,3 +27,11 @@ docker buildx build -t mirakc-sample -f Dockerfile.debian --target mirakc \
 You cannot use `--load` option when building multi-arch images.  See
 [this comment](https://github.com/docker/buildx/issues/59#issuecomment-659303756)
 in docker/buildx#59.
+
+## mirakc/buildenv
+
+A [mirakc/buildenv] image is used as a build environment for each target platform.
+
+The images can be updated by running [//scripts/update-buildenv](../scripts/update-buildenv).
+
+mirakc/buildenv: https://hub.docker.com/r/mirakc/buildenv
