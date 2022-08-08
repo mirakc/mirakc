@@ -5,7 +5,8 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
-use crate::eit_feeder::{AudioComponentDescriptor, ComponentDescriptor };
+use crate::eit_feeder::{AudioComponentDescriptor, ComponentDescriptor};
+use crate::eit_feeder::SeriesDescriptor;
 use crate::epg::{EpgChannel, EpgService, EpgProgram};
 use crate::tuner::TunerSubscriptionId;
 
@@ -582,6 +583,10 @@ pub struct MirakurunProgram {
     pub audios: Vec<MirakurunProgramAudio>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub genres: Option<Vec<EpgGenre>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series: Option<MirakurunProgramSeries>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related_items: Vec<MirakurunProgramRelatedItem>,
 }
 
 impl From<EpgProgram> for MirakurunProgram {
@@ -613,6 +618,22 @@ impl From<EpgProgram> for MirakurunProgram {
                 .map(MirakurunProgramAudio::from)
                 .collect(),
             genres: program.genres,
+            series: program.series.map(MirakurunProgramSeries::from),
+            related_items: program.event_group
+                .map_or(vec![], |event_group| {
+                    event_group.events
+                        .iter()
+                        .map(|event| {
+                            MirakurunProgramRelatedItem {
+                                group_type: MirakurunProgramRelatedItem::get_type(
+                                    event_group.group_type),
+                                network_id: event.original_network_id.clone(),
+                                service_id: event.service_id,
+                                event_id: event.event_id,
+                            }
+                        })
+                        .collect()
+                }),
         }
     }
 }
@@ -719,6 +740,54 @@ impl From<AudioComponentDescriptor> for MirakurunProgramAudio {
             Self::convert_sampling_rate(audio.sampling_rate),
             langs,
         )
+    }
+}
+
+#[derive(Clone, Debug)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MirakurunProgramSeries {
+    id: u16,
+    repeat: u8,
+    pattern: u8,
+    expire_at: i64,
+    episode: u16,
+    last_episode: u16,
+    name: String,
+}
+
+impl From<SeriesDescriptor> for MirakurunProgramSeries {
+    fn from(series: SeriesDescriptor) -> Self {
+        Self {
+            id: series.series_id,
+            repeat: series.repeat_label,
+            pattern: series.program_pattern,
+            expire_at: series.expire_date.map_or(-1, |unix_time_ms| unix_time_ms),
+            episode: series.episode_number,
+            last_episode: series.last_episode_number,
+            name: series.series_name.unwrap_or("".to_string()),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MirakurunProgramRelatedItem {
+    #[serde(rename = "type")]
+    group_type: &'static str,
+    network_id: Option<NetworkId>,
+    service_id: ServiceId,
+    event_id: EventId,
+}
+
+impl MirakurunProgramRelatedItem {
+    fn get_type(group_type: u8) -> &'static str {
+        match group_type {
+            1 => "shared",
+            2 | 4 => "relay",
+            _ => "movement",
+        }
     }
 }
 

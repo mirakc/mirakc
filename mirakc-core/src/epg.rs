@@ -1126,6 +1126,8 @@ pub struct EpgProgram {
     pub video: Option<ComponentDescriptor>,
     pub audios: HashMap<u8, AudioComponentDescriptor>,  // component_tag -> value
     pub genres: Option<Vec<EpgGenre>>,
+    pub series: Option<SeriesDescriptor>,
+    pub event_group: Option<EventGroupDescriptor>,
 }
 
 impl EpgProgram {
@@ -1141,6 +1143,8 @@ impl EpgProgram {
             video: None,
             audios: HashMap::new(),  // assumed that component_tag is unique in the same event
             genres: None,
+            series: None,
+            event_group: None,
         }
     }
 
@@ -1175,6 +1179,12 @@ impl EpgProgram {
                     self.genres = Some(nibbles.iter()
                                        .map(|nibble| EpgGenre::new(*nibble))
                                        .collect());
+                }
+                EitDescriptor::Series(value) => {
+                    self.series = Some(value.clone());
+                }
+                EitDescriptor::EventGroup(value) => {
+                    self.event_group = Some(value.clone());
                 }
                 EitDescriptor::ExtendedEvent { items } => {
                     let mut map = IndexMap::new();

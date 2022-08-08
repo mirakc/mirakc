@@ -299,6 +299,8 @@ pub enum EitDescriptor {
     Content {
         nibbles: Vec<(u8, u8, u8, u8)>,
     },
+    Series(SeriesDescriptor),
+    EventGroup(EventGroupDescriptor),
     #[serde(rename_all = "camelCase")]
     ExtendedEvent {
         items: Vec<(String, String)>,
@@ -334,4 +336,39 @@ pub struct AudioComponentDescriptor {
     pub language_code2: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+}
+
+#[derive(Clone)]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesDescriptor {
+    pub series_id: u16,
+    pub repeat_label: u8,
+    pub program_pattern: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expire_date: Option<i64>,
+    pub episode_number: u16,
+    pub last_episode_number: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series_name: Option<String>,
+}
+
+#[derive(Clone)]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventGroupDescriptor {
+    pub group_type: u8,
+    pub events: Vec<EventGroupEvent>,
+}
+
+#[derive(Clone)]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventGroupEvent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_network_id: Option<NetworkId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_stream_id: Option<TransportStreamId>,
+    pub service_id: ServiceId,
+    pub event_id: EventId,
 }
