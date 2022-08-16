@@ -10,28 +10,7 @@
 #   TARGETARCH
 #   TARGETVARIANT
 
-FROM mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS recdvb-build
-ARG BUILDPLATFORM
-ARG TARGETPLATFORM
-COPY ./docker/build-scripts/recdvb.sh /build-scripts/
-RUN sh /build-scripts/recdvb.sh alpine $BUILDPLATFORM $TARGETPLATFORM
-
-FROM mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS recpt1-build
-ARG BUILDPLATFORM
-ARG TARGETPLATFORM
-COPY ./docker/build-scripts/recpt1.sh /build-scripts/
-RUN sh /build-scripts/recpt1.sh alpine $BUILDPLATFORM $TARGETPLATFORM
-
-FROM mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-arib-build
-ARG BUILDPLATFORM
-ARG TARGETPLATFORM
-COPY ./docker/build-scripts/mirakc-arib.sh /build-scripts/
-RUN sh /build-scripts/mirakc-arib.sh alpine $BUILDPLATFORM $TARGETPLATFORM
-
-FROM scratch AS mirakc-tools
-COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
-COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/
-COPY --from=mirakc-arib-build /build/build/bin/mirakc-arib /usr/local/bin/
+FROM mirakc/tools:alpine AS mirakc-tools
 
 FROM mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 ARG BUILDPLATFORM
@@ -47,7 +26,7 @@ RUN sh /build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM
 FROM alpine AS mirakc
 LABEL maintainer="Contributors of mirakc"
 ARG TARGETPLATFORM
-COPY --from=mirakc-tools /usr/local/bin/* /usr/local/bin/
+COPY --from=mirakc-tools /usr/local/bin /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
 COPY --from=mirakc-build /build/resources/strings.yml /etc/mirakc/strings.yml
 COPY --from=mirakc-build /build/resources/mirakurun.openapi.json /etc/mirakurun.openapi.json

@@ -18,7 +18,7 @@ PUSH_OPT=
 
 help() {
   cat <<EOF >&2
-Update mirakc/buildenv images.
+Update $IMAGE images.
 
 USAGE:
   $PROGNAME
@@ -32,7 +32,7 @@ OPTIONS:
     Push images.
 
 DESCRIPTION:
-  This script build buildenv images and optionally push them to Docker Hub.
+  This script build $IMAGE images and optionally push them to Docker Hub.
 
   You have to login to Docker Hub by running \`docker login\` when you want to
   push images to Docker Hub.

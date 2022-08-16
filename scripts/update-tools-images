@@ -1,0 +1,100 @@
+#!/bin/sh -eu
+
+PROGNAME=$(basename $0)
+BASEDIR=$(cd $(dirname $0); pwd)
+PROJDIR=$(cd $BASEDIR/..; pwd)
+
+IMAGE=mirakc/tools
+DISTROS='alpine debian'
+
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+  DOCKER='docker'
+else
+  DOCKER='sudo docker'
+fi
+
+PUSH_OPT=
+VERSION=
+
+help() {
+  cat <<EOF >&2
+Update $IMAGE images.
+
+USAGE:
+  $PROGNAME [<version>]
+  $PROGNAME -h | --help
+
+OPTIONS:
+  -h, --help
+    Show help.
+
+  --push
+    Push images.
+
+ARGUMENTS:
+  <version>
+    Optional version number.
+
+DESCRIPTION:
+  This script build $IMAGE images and optionally push them to Docker Hub.
+
+  You have to login to Docker Hub by running \`docker login\` when you want to
+  push images to Docker Hub.
+EOF
+  exit 0
+}
+
+log() {
+  echo "$1" >&2
+}
+
+error() {
+  log "ERROR: $1"
+  exit 1
+}
+
+platforms() {
+  case $1 in
+    alpine)
+      echo 'linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8'
+      ;;
+    debian)
+      echo 'linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8'
+      ;;
+  esac
+}
+
+while [ $# -gt 0 ]
+do
+  case "$1" in
+    '-h' | '--help')
+      help
+      ;;
+    '--push')
+      PUSH_OPT='--push'
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [ $# -gt 0 ]
+then
+  VERSION="$1"
+fi
+
+for DISTRO in $DISTROS
+do
+  PLATFORMS=$(platforms $DISTRO)
+  IMG="$IMAGE:$DISTRO"
+  if [ -n "$VERSION" ]
+  then
+    IMG="$IMG-$VERSION"
+  fi
+  log "Updating $IMG..."
+  docker buildx build -t $IMG -f $PROJDIR/docker/Dockerfile.tools \
+    --platform="$PLATFORMS" --build-arg="DISTRO=$DISTRO" \
+    $PUSH_OPT $PROJDIR
+done

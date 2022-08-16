@@ -1,0 +1,39 @@
+# This file works properly only with Docker.
+# Assumed that docker.io registry is used.
+#
+# `podman buildx build` doesn't work at this point because it doesn't support
+# the following build arguments that docker set automagically:
+#
+#   BUILDPLATFORM
+#   TARGETPLATFORM
+#   TARGETOS
+#   TARGETARCH
+#   TARGETVARIANT
+
+ARG DISTRO
+
+FROM mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS recdvb-build
+ARG DISTRO
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+COPY ./docker/build-scripts/recdvb.sh /build-scripts/
+RUN sh /build-scripts/recdvb.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
+
+FROM mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS recpt1-build
+ARG DISTRO
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+COPY ./docker/build-scripts/recpt1.sh /build-scripts/
+RUN sh /build-scripts/recpt1.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
+
+FROM mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-arib-build
+ARG DISTRO
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+COPY ./docker/build-scripts/mirakc-arib.sh /build-scripts/
+RUN sh /build-scripts/mirakc-arib.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
+
+FROM scratch AS mirakc-tools
+COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
+COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/
+COPY --from=mirakc-arib-build /build/build/bin/mirakc-arib /usr/local/bin/
