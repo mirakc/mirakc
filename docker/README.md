@@ -52,6 +52,6 @@ A [mirakc/buildenv] image is used as a build environment for each target platfor
 [mirakc/tools] images were introduced in order to solve timeout issues in
 `docker` jobs of GitHub Actions workflows.
 
-mirakc/buildenv: https://hub.docker.com/r/mirakc/buildenv
-mirakc/tools: https://hub.docker.com/r/mirakc/tools
-musl.cc: https://musl.cc/
+[mirakc/buildenv]: https://hub.docker.com/r/mirakc/buildenv
+[mirakc/tools]: https://hub.docker.com/r/mirakc/tools
+[musl.cc]: https://musl.cc/
