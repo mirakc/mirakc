@@ -28,4 +28,5 @@ then
 else
   git add $TARGET_FILE
   git commit -m "build(deps): bump mirakc-arib from $CURRENT to $VERSION"
+  $PROJDIR/scripts/update-tools-images --push
 fi
