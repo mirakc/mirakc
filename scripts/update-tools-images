@@ -64,6 +64,19 @@ platforms() {
   esac
 }
 
+# Use a base image other than `scratch` in order to make it possible to run
+# commands with `docker run mirakc/tools:<tag> <command>`.
+base_image() {
+  case $1 in
+    alpine)
+      echo 'busybox'
+      ;;
+    debian)
+      echo 'debian:buster-slim'
+      ;;
+  esac
+}
+
 while [ $# -gt 0 ]
 do
   case "$1" in
@@ -88,6 +101,7 @@ fi
 for DISTRO in $DISTROS
 do
   PLATFORMS=$(platforms $DISTRO)
+  BASE_IMAGE=$(base_image $DISTRO)
   IMG="$IMAGE:$DISTRO"
   if [ -n "$VERSION" ]
   then
@@ -96,5 +110,6 @@ do
   log "Updating $IMG..."
   docker buildx build -t $IMG -f $PROJDIR/docker/Dockerfile.tools \
     --platform="$PLATFORMS" --build-arg="DISTRO=$DISTRO" \
+    --build-arg="BASE_IMAGE=$BASE_IMAGE" \
     $PUSH_OPT $PROJDIR
 done
