@@ -32,6 +32,26 @@ in docker/buildx#59.
 
 A [mirakc/buildenv] image is used as a build environment for each target platform.
 
-The images can be updated by running [//scripts/update-buildenv](../scripts/update-buildenv).
+[mirakc/buildenv] images on Docker Hub can be updated by running
+[//scripts/update-buildenv-images](../scripts/update-buildenv-images).
+
+[mirakc/buildenv] images were introduced in order to reduce network traffic to
+[musl.cc].  See https://github.com/orgs/community/discussions/27906 for details.
+
+## mirakc/tools
+
+[mirakc/tools] is a multi-arch image which contains the following commands:
+
+* mirakc-arib
+* recdvb
+* recpt1
+
+[mirakc/tools] images on Docker Hub can be updated by running
+[//scripts/update-tools-images](../scripts/update-tools-images).
+
+[mirakc/tools] images were introduced in order to solve timeout issues in
+`docker` jobs of GitHub Actions workflows.
 
 mirakc/buildenv: https://hub.docker.com/r/mirakc/buildenv
+mirakc/tools: https://hub.docker.com/r/mirakc/tools
+musl.cc: https://musl.cc/
