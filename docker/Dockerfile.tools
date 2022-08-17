@@ -11,6 +11,7 @@
 #   TARGETVARIANT
 
 ARG DISTRO
+ARG BASE_IMAGE=scratch
 
 FROM mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS recdvb-build
 ARG DISTRO
@@ -33,7 +34,7 @@ ARG TARGETPLATFORM
 COPY ./docker/build-scripts/mirakc-arib.sh /build-scripts/
 RUN sh /build-scripts/mirakc-arib.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 
-FROM scratch AS mirakc-tools
+FROM $BASE_IMAGE AS mirakc-tools
 COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
 COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/
 COPY --from=mirakc-arib-build /build/build/bin/mirakc-arib /usr/local/bin/
