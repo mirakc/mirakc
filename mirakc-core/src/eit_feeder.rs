@@ -47,9 +47,11 @@ impl EitFeeder {
     ) -> Result<(), Error> {
         let services = epg.send(QueryServicesMessage).await??;
 
-        let mut map: HashMap<NetworkId, EpgChannel> = HashMap::new();
+        let mut map: HashMap<String, EpgChannel> = HashMap::new();
         for sv in services.iter() {
-            map.entry(sv.nid)
+            let chid = format!(
+                "{}/{}", sv.channel.channel_type, sv.channel.channel);
+            map.entry(chid)
                 .and_modify(|ch| ch.services.push(sv.sid))
                 .or_insert(EpgChannel {
                     name: sv.channel.name.clone(),
