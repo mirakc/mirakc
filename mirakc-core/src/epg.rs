@@ -194,7 +194,6 @@ impl Epg {
     // Must be called before other load functions.
     fn load_services(&mut self) -> Result<(), Error> {
         let channels: Vec<EpgChannel> = self.config.channels.iter()
-            .filter(|config| !config.disabled)
             .cloned()
             .map(EpgChannel::from)
             .collect();
@@ -394,7 +393,6 @@ impl Handler<QueryChannelsMessage> for Epg {
     ) -> Self::Result {
         log::debug!("{}", msg);
         let channels = self.config.channels.iter()
-            .filter(|config| !config.disabled)
             .map(|config| MirakurunChannel {
                 channel_type: config.channel_type,
                 channel:  config.channel.clone(),
@@ -440,7 +438,6 @@ impl Handler<QueryChannelMessage> for Epg {
     ) -> Self::Result {
         log::debug!("{}", msg);
         self.config.channels.iter()
-            .filter(|config| !config.disabled)
             .find(|config| {
                   config.channel_type == msg.channel_type &&
                     config.channel == msg.channel

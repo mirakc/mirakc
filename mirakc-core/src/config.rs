@@ -8,6 +8,7 @@ use std::time::SystemTime;
 use cron;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use log;
 use num_cpus;
 use serde::Deserialize;
 use serde_yaml;
@@ -25,6 +26,8 @@ pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
         .unwrap_or_else(|err| {
             panic!("Failed to parse {:?}: {}", config_path, err);
         });
+
+    config.channels = ChannelConfig::normalize(config.channels);
 
     config.validate();
 
@@ -223,7 +226,7 @@ impl MountConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct ChannelConfig {
@@ -242,14 +245,59 @@ pub struct ChannelConfig {
 }
 
 impl ChannelConfig {
-    fn validate(&self, index: usize) {
-        if self.disabled {
-            return;
+    fn normalize(channels: Vec<ChannelConfig>) -> Vec<ChannelConfig> {
+        let mut normalized: Vec<ChannelConfig> = vec![];
+        // Remove disabled channels and merge channels having the same `type`
+        // and `channel`.
+        for mut channel in channels.into_iter().filter(|ch| !ch.disabled) {
+            match normalized.iter_mut().find(|ch| **ch == channel) {
+                Some(ch) => {
+                    if ch.extra_args != channel.extra_args {
+                        log::warn!(
+                            "Channels having the same `type` and `channel` \
+                             should have the same `extra-args`");
+                    }
+                    if ch.services.is_empty() {
+                        // Collect all services.
+                    } else if channel.services.is_empty() {
+                        // Collect all services.
+                        ch.services = vec![];
+                    } else {
+                        ch.services.append(&mut channel.services);
+                    }
+                    ch.excluded_services.append(&mut channel.excluded_services);
+                }
+                None => normalized.push(channel),
+            }
         }
+        // Normalize
+        for mut channel in normalized.iter_mut() {
+            channel.services = channel.services.iter()
+                .sorted()
+                .unique()
+                .cloned()
+                .collect();
+            channel.excluded_services = channel.excluded_services.iter()
+                .sorted()
+                .unique()
+                .cloned()
+                .collect();
+        }
+        normalized
+    }
+
+    fn validate(&self, index: usize) {
+        debug_assert!(!self.disabled);
         assert!(!self.name.is_empty(),
                 "config.channels[{}]: `name` must be a non-empty string", index);
         assert!(!self.channel.is_empty(),
                 "config.channels[{}]: `channel` must be a non-empty string", index);
+    }
+}
+
+impl PartialEq for ChannelConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.channel_type == other.channel_type && self.channel == other.channel
     }
 }
 
@@ -1105,6 +1153,164 @@ mod tests {
     }
 
     #[test]
+    fn test_channel_config_normalize() {
+        assert_eq!(
+            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+                - name: ch
+                  type: GR
+                  channel: 1
+                - name: ch
+                  type: GR
+                  channel: 2
+            "#).unwrap()),
+            vec![
+                ChannelConfig {
+                    name: "ch".to_string(),
+                    channel_type: ChannelType::GR,
+                    channel: "1".to_string(),
+                    extra_args: "".to_string(),
+                    services: vec![],
+                    excluded_services: vec![],
+                    disabled: false,
+                },
+                ChannelConfig {
+                    name: "ch".to_string(),
+                    channel_type: ChannelType::GR,
+                    channel: "2".to_string(),
+                    extra_args: "".to_string(),
+                    services: vec![],
+                    excluded_services: vec![],
+                    disabled: false,
+                },
+            ],
+        );
+
+        assert_eq!(
+            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+                - name: ch
+                  type: GR
+                  channel: 1
+                  services: [1]
+                  excluded-services: [3]
+                - name: ch
+                  type: GR
+                  channel: 1
+                  services: [2]
+                  excluded-services: [4]
+            "#).unwrap()),
+            vec![
+                ChannelConfig {
+                    name: "ch".to_string(),
+                    channel_type: ChannelType::GR,
+                    channel: "1".to_string(),
+                    extra_args: "".to_string(),
+                    services: vec![1.into(), 2.into()],
+                    excluded_services: vec![3.into(), 4.into()],
+                    disabled: false,
+                },
+            ],
+        );
+
+        assert_eq!(
+            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+                - name: ch
+                  type: GR
+                  channel: 1
+                  services: [2]
+                  excluded-services: [4]
+                - name: ch
+                  type: GR
+                  channel: 1
+                  services: [1]
+                  excluded-services: [3]
+            "#).unwrap()),
+            vec![
+                ChannelConfig {
+                    name: "ch".to_string(),
+                    channel_type: ChannelType::GR,
+                    channel: "1".to_string(),
+                    extra_args: "".to_string(),
+                    services: vec![1.into(), 2.into()],
+                    excluded_services: vec![3.into(), 4.into()],
+                    disabled: false,
+                },
+            ],
+        );
+
+        assert_eq!(
+            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+                - name: ch
+                  type: GR
+                  channel: 1
+                  services: [1]
+                  excluded-services: [3]
+                - name: ch
+                  type: GR
+                  channel: 1
+                  services: [1, 2]
+                  excluded-services: [3, 4]
+            "#).unwrap()),
+            vec![
+                ChannelConfig {
+                    name: "ch".to_string(),
+                    channel_type: ChannelType::GR,
+                    channel: "1".to_string(),
+                    extra_args: "".to_string(),
+                    services: vec![1.into(), 2.into()],
+                    excluded_services: vec![3.into(), 4.into()],
+                    disabled: false,
+                },
+            ],
+        );
+
+        assert_eq!(
+            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+                - name: ch
+                  type: GR
+                  channel: 1
+                - name: ch
+                  type: GR
+                  channel: 1
+                  services: [2]
+            "#).unwrap()),
+            vec![
+                ChannelConfig {
+                    name: "ch".to_string(),
+                    channel_type: ChannelType::GR,
+                    channel: "1".to_string(),
+                    extra_args: "".to_string(),
+                    services: vec![],
+                    excluded_services: vec![],
+                    disabled: false,
+                },
+            ],
+        );
+
+        assert_eq!(
+            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+                - name: ch
+                  type: GR
+                  channel: 1
+                  services: [1]
+                - name: ch
+                  type: GR
+                  channel: 1
+            "#).unwrap()),
+            vec![
+                ChannelConfig {
+                    name: "ch".to_string(),
+                    channel_type: ChannelType::GR,
+                    channel: "1".to_string(),
+                    extra_args: "".to_string(),
+                    services: vec![],
+                    excluded_services: vec![],
+                    disabled: false,
+                },
+            ],
+        );
+    }
+
+    #[test]
     fn test_channel_config_validate() {
         let config = ChannelConfig {
             name: "test".to_string(),
@@ -1144,20 +1350,6 @@ mod tests {
             services: vec![],
             excluded_services: vec![],
             disabled: false,
-        };
-        config.validate(0);
-    }
-
-    #[test]
-    fn test_channel_config_validate_disabled() {
-        let config = ChannelConfig {
-            name: "".to_string(),
-            channel_type: ChannelType::GR,
-            channel: "".to_string(),
-            extra_args: "".to_string(),
-            services: vec![],
-            excluded_services: vec![],
-            disabled: true,
         };
         config.validate(0);
     }

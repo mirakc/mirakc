@@ -290,6 +290,61 @@ channels:
     extra-args: '--space 1'
 ```
 
+Definitions with the same `type` and `channel` will be merged.  For example, the
+following definitions:
+
+```yaml
+  - name: NHK1
+    type: GR
+    channel: '27'
+    services: [1024]
+  - name: NHK2
+    type: GR
+    channel: '27'
+    services: [1025]
+
+  - name: ETV
+    type: GR
+    channel: '26'
+    excluded-services: [1034]
+  - name: ETV3
+    type: GR
+    channel: '26'
+    services: [1034]
+
+  - name: BS1
+    type: BS
+    channel: BS15_0
+    extra-args: args
+  - name: BS1
+    type: BS
+    channel: BS15_0
+    extra-args: differecnt-args
+```
+
+are equivalent to:
+
+```yaml
+  # `services` of channels having the same `type` and `channel` will be merged.
+  - name: ETV
+    type: GR
+    channel: '27'
+    services: [1024, 1025]
+
+  # `services` becomes empty if there is a channel with empty `services`.
+  - name: ETV
+    type: GR
+    channel: '27'
+    excluded-services: [1034]
+
+  # Channels having the same `type` and `channel` should have the same
+  # `extra-args`.
+  - name: BS1
+    type: BS
+    channel: BS15_0
+    extra-args: args
+```
+
 ## tuners
 
 Definitions of tuners.  At least, one tuner must be defined.

@@ -61,7 +61,7 @@ impl From<u16> for TransportStreamId {
     fn from(value: u16) -> Self { Self(value) }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[derive(Deserialize, Serialize)]
 pub struct ServiceId(u16);
 
