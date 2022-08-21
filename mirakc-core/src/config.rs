@@ -450,7 +450,7 @@ impl JobsConfig {
             command: "mirakc-arib scan-services\
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
-            schedule: "0 31 5 * * * *".to_string(),
+            schedule: "0 1 5,17 * * * *".to_string(),
             disabled: false,
         }
     }
@@ -460,7 +460,7 @@ impl JobsConfig {
             command: "mirakc-arib sync-clocks\
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
-            schedule: "0 3 12 * * * *".to_string(),
+            schedule: "0 11 5,17 * * * *".to_string(),
             disabled: false,
         }
     }
@@ -470,7 +470,7 @@ impl JobsConfig {
             command: "mirakc-arib collect-eits\
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
-            schedule: "0 7,37 * * * * *".to_string(),
+            schedule: "0 21 5,17 * * * *".to_string(),
             disabled: false,
         }
     }
@@ -783,7 +783,7 @@ mod tests {
                 channel: test
               - name: test
                 type: GR
-                channel: test
+                channel: test1
             resource:
               strings-yaml: /bin/sh
             mirakurun:

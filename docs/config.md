@@ -35,13 +35,13 @@ suitable for your environment.
 | [pre-filters]                            | `{}`                              |
 | [post-filters]                           | `{}`                              |
 | [jobs.scan-services.command]             | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
-| [jobs.scan-services.schedule]            | `'0 31 5 * * * *'` (execute at 05:31 every day) |
+| [jobs.scan-services.schedule]            | `'0 1 5,17 * * * *'` (execute at 05:01 and 17:01 every day) |
 | [jobs.scan-services.disabled]            | `false`                           |
 | [jobs.sync-clocks.command]               | `mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
-| [jobs.sync-clocks.schedule]              | `'0 3 12 * * * *'` (execute at 12:03 every day) |
+| [jobs.sync-clocks.schedule]              | `'0 11 5,17 * * * *'` (execute at 05:11 and 17:11 every day) |
 | [jobs.sync-clocks.disabled]              | `false`                           |
 | [jobs.update-schedules.command]          | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
-| [jobs.update-schedules.schedule]         | `'0 7,37 * * * * *'` (execute at 7 and 37 minutes every hour) |
+| [jobs.update-schedules.schedule]         | `'0 21 5,17 * * * *'` (execute at 05:21 and 17:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
 | [timeshift.recorders\[\].service-triple] |                                   |
