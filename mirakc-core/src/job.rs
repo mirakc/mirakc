@@ -135,8 +135,7 @@ impl JobManager {
         self.scanning_services = true;
 
         let scanner = ServiceScanner::new(
-            self.config.jobs.scan_services.command.clone(),
-            self.collect_enabled_channels(),
+            self.config.clone(),
             self.tuner_manager.clone());
 
         let job = JobKind::ScanServices.create(self.semaphore.clone())
@@ -177,8 +176,7 @@ impl JobManager {
         self.synchronizing_clocks = true;
 
         let sync = ClockSynchronizer::new(
-            self.config.jobs.sync_clocks.command.clone(),
-            self.collect_enabled_channels(),
+            self.config.clone(),
             self.tuner_manager.clone());
 
         let job = JobKind::SyncClocks.create(self.semaphore.clone())
@@ -240,16 +238,6 @@ impl JobManager {
         log::info!("update-schedules: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
         ctx.run_later(interval, Self::update_schedules);
-    }
-
-    fn collect_enabled_channels(&self) -> Vec<EpgChannel> {
-        self.config
-            .channels
-            .iter()
-            .filter(|config| !config.disabled)
-            .cloned()
-            .map(EpgChannel::from)
-            .collect()
     }
 
     fn is_job_disabled_for_debug(job: &str) -> bool {

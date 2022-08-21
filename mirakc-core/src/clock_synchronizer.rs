@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use actix::prelude::*;
 use anyhow;
@@ -11,13 +12,14 @@ use tokio::io::AsyncReadExt;
 use serde::Serialize;
 
 use crate::command_util;
+use crate::config::ChannelConfig;
+use crate::config::Config;
 use crate::epg::*;
 use crate::models::*;
 use crate::tuner::*;
 
 pub struct ClockSynchronizer<A: Actor> {
-    command: String,
-    channels: Vec<EpgChannel>,
+    config: Arc<Config>,
     tuner_manager: Addr<A>,
 }
 
@@ -35,11 +37,10 @@ where
     const LABEL: &'static str = "clock-synchronizer";
 
     pub fn new(
-        command: String,
-        channels: Vec<EpgChannel>,
+        config: Arc<Config>,
         tuner_manager: Addr<A>,
     ) -> Self {
-        ClockSynchronizer { command, channels, tuner_manager }
+        ClockSynchronizer { config, tuner_manager }
     }
 
     pub async fn sync_clocks(
@@ -47,11 +48,12 @@ where
     ) -> Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)> {
         log::debug!("Synchronizing clocks...");
 
+        let command = &self.config.jobs.sync_clocks.command;
         let mut results = Vec::new();
 
-        for channel in self.channels.iter() {
+        for channel in self.config.channels.iter() {
             let result = match Self::sync_clocks_in_channel(
-                &channel, &self.command, &self.tuner_manager).await {
+                channel, command, &self.tuner_manager).await {
                 Ok(clocks) => {
                     let mut map = HashMap::new();
                     for clock in clocks.into_iter() {
@@ -66,16 +68,16 @@ where
                     None
                 }
             };
-            results.push((channel.clone(), result));
+            results.push((channel.clone().into(), result));
         }
 
-        log::debug!("Synchronized {} channels", self.channels.len());
+        log::debug!("Synchronized {} channels", self.config.channels.len());
 
         results
     }
 
     async fn sync_clocks_in_channel(
-        channel: &EpgChannel,
+        channel: &ChannelConfig,
         command: &str,
         tuner_manager: &Addr<A>,
     ) -> anyhow::Result<Vec<SyncClock>> {
@@ -87,7 +89,7 @@ where
         };
 
         let stream = tuner_manager.send(StartStreamingMessage {
-            channel: channel.clone(),
+            channel: channel.clone().into(),
             user
         }).await??;
 
@@ -165,15 +167,6 @@ mod tests {
             }
         })).start();
 
-        let channels = vec![EpgChannel {
-            name: "channel".to_string(),
-            channel_type: ChannelType::GR,
-            channel: "0".to_string(),
-            extra_args: "".to_string(),
-            services: vec![],
-            excluded_services: vec![],
-        }];
-
         let expected = vec![SyncClock {
             nid: 1.into(),
             tsid: 2.into(),
@@ -181,9 +174,20 @@ mod tests {
             clock: Clock { pid: 1, pcr: 2, time: 3 },
         }];
 
-        let cmd = format!(
-            "echo '{}'", serde_json::to_string(&expected).unwrap());
-        let sync = ClockSynchronizer::new(cmd, channels.clone(), mock.clone());
+        let config_yml = format!(r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              sync-clocks:
+                command: echo '{}'
+        "#, serde_json::to_string(&expected).unwrap());
+
+        let config = Arc::new(
+            serde_yaml::from_str::<Config>(&config_yml).unwrap());
+
+        let sync = ClockSynchronizer::new(config, mock.clone());
         let results = sync.sync_clocks().await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, Some(v)) => {
@@ -198,8 +202,16 @@ mod tests {
         });
 
         // Emulate out of services by using `false`
-        let cmd = "false".to_string();
-        let sync = ClockSynchronizer::new(cmd, channels.clone(), mock.clone());
+        let config = Arc::new(serde_yaml::from_str::<Config>(r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              scan-services:
+                command: false
+        "#).unwrap());
+        let sync = ClockSynchronizer::new(config, mock.clone());
         let results = sync.sync_clocks().await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, None));

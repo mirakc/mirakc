@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use actix::prelude::*;
 use anyhow;
 use indexmap::IndexMap;
@@ -10,13 +12,14 @@ use tokio::io::AsyncReadExt;
 use serde::Serialize;
 
 use crate::command_util;
+use crate::config::ChannelConfig;
+use crate::config::Config;
 use crate::epg::*;
 use crate::models::*;
 use crate::tuner::*;
 
 pub struct ServiceScanner<A: Actor> {
-    command: String,
-    channels: Vec<EpgChannel>,
+    config: Arc<Config>,
     tuner_manager: Addr<A>,
 }
 
@@ -34,11 +37,10 @@ where
     const LABEL: &'static str = "service-scanner";
 
     pub fn new(
-        command: String,
-        channels: Vec<EpgChannel>,
+        config: Arc<Config>,
         tuner_manager: Addr<A>,
     ) -> Self {
-        ServiceScanner { command, channels, tuner_manager }
+        ServiceScanner { config, tuner_manager }
     }
 
     pub async fn scan_services(
@@ -46,10 +48,12 @@ where
     ) -> Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)> {
         log::debug!("Scanning services...");
 
+        let command = &self.config.jobs.scan_services.command;
         let mut results = Vec::new();
-        for channel in self.channels.iter() {
+
+        for channel in self.config.channels.iter() {
             let result = match Self::scan_services_in_channel(
-                &channel, &self.command, &self.tuner_manager).await {
+                channel, command, &self.tuner_manager).await {
                 Ok(services) => {
                     let mut map = IndexMap::new();
                     for service in services.into_iter() {
@@ -63,16 +67,16 @@ where
                     None
                 }
             };
-            results.push((channel.clone(), result));
+            results.push((channel.clone().into(), result));
         }
 
-        log::debug!("Scanned {} channels", self.channels.len());
+        log::debug!("Scanned {} channels", self.config.channels.len());
 
         results
     }
 
     async fn scan_services_in_channel(
-        channel: &EpgChannel,
+        channel: &ChannelConfig,
         command: &str,
         tuner_manager: &Addr<A>,
     ) -> anyhow::Result<Vec<EpgService>> {
@@ -84,7 +88,7 @@ where
         };
 
         let stream = tuner_manager.send(StartStreamingMessage {
-            channel: channel.clone(),
+            channel: channel.clone().into(),
             user
         }).await??;
 
@@ -146,8 +150,8 @@ struct TsService {
     name: String,
 }
 
-impl From<(&EpgChannel, &TsService)> for EpgService {
-    fn from((ch, sv): (&EpgChannel, &TsService)) -> Self {
+impl From<(&ChannelConfig, &TsService)> for EpgService {
+    fn from((ch, sv): (&ChannelConfig, &TsService)) -> Self {
         EpgService {
             nid: sv.nid,
             tsid: sv.tsid,
@@ -156,7 +160,7 @@ impl From<(&EpgChannel, &TsService)> for EpgService {
             logo_id: sv.logo_id,
             remote_control_key_id: sv.remote_control_key_id,
             name: sv.name.clone(),
-            channel: ch.clone(),
+            channel: ch.clone().into(),
         }
     }
 }
@@ -185,15 +189,6 @@ mod tests {
             }
         })).start();
 
-        let channels = vec![EpgChannel {
-            name: "channel".to_string(),
-            channel_type: ChannelType::GR,
-            channel: "0".to_string(),
-            extra_args: "".to_string(),
-            services: vec![],
-            excluded_services: vec![],
-        }];
-
         let expected = vec![TsService {
             nid: 1.into(),
             tsid: 2.into(),
@@ -204,16 +199,35 @@ mod tests {
             name: "service".to_string(),
         }];
 
-        let cmd = format!(
-            "echo '{}'", serde_json::to_string(&expected).unwrap());
-        let scan = ServiceScanner::new(cmd, channels.clone(), mock.clone());
+        let config_yml = format!(r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              scan-services:
+                command: echo '{}'
+        "#, serde_json::to_string(&expected).unwrap());
+
+        let config = Arc::new(
+            serde_yaml::from_str::<Config>(&config_yml).unwrap());
+
+        let scan = ServiceScanner::new(config, mock.clone());
         let results = scan.scan_services().await;
         assert!(results[0].1.is_some());
         assert_eq!(results[0].1.as_ref().unwrap().len(), 1);
 
         // Emulate out of services by using `false`
-        let cmd = "false".to_string();
-        let scan = ServiceScanner::new(cmd, channels.clone(), mock.clone());
+        let config = Arc::new(serde_yaml::from_str::<Config>(r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              scan-services:
+                command: false
+        "#).unwrap());
+        let scan = ServiceScanner::new(config, mock.clone());
         let results = scan.scan_services().await;
         assert!(results[0].1.is_none());
     }
