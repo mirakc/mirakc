@@ -113,6 +113,7 @@ jobs:
             docker run --rm --platform=$platform --entrypoint=recpt1 $TAG --version
             docker run --rm --platform=$platform --entrypoint=mirakc-arib $TAG --version
             docker run --rm --platform=$platform --entrypoint=mirakc $TAG --version
+            docker run --rm --platform=$platform --entrypoint=dvbv5-zap $TAG --version
           done
       - name: Test (docker.io/mirakc/timeshift-fs)
         run: |
