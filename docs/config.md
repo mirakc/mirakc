@@ -53,7 +53,7 @@ suitable for your environment.
 | [timeshift.recorders\[\].priority]       | `128`                             |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
-| [mirakurun.openapi-json]                 | `/etc/mirakurun.openapi.json`     |
+| [mirakurun.openapi-json]                 | `/etc/mirakc/mirakurun.openapi.json` |
 
 [epg.cache-dir]: #epgcache-dir
 [server.addrs]: #serveraddrs

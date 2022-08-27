@@ -730,7 +730,7 @@ pub struct MirakurunConfig {
 
 impl MirakurunConfig {
     fn default_openapi_json() -> String {
-        "/etc/mirakurun.openapi.json".to_string()
+        "/etc/mirakc/mirakurun.openapi.json".to_string()
     }
 
     fn validate(&self) {
