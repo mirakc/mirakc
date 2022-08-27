@@ -49,3 +49,4 @@ chmod +x /usr/local/bin/run-mirakc-timeshift-fs
 TEMP_FILE=$(mktemp)
 cat ./resources/mirakurun.openapi.json | jq -Mc '.' >$TEMP_FILE
 mv -f $TEMP_FILE ./resources/mirakurun.openapi.json
+chmod +r ./resources/mirakurun.openapi.json
