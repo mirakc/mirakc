@@ -15,7 +15,7 @@ atty = "0.2.14"
 chrono = { version = "0.4.22", features = ["serde"] }
 cron = "0.11.0"
 fs2 = "0.4.3"
-futures = "0.3.23"
+futures = "0.3.24"
 http-range = "0.1.5"
 humantime = "2.1.0"
 indexmap = { version = "1.9.1", features = ["serde-1"] }
