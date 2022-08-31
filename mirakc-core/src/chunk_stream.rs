@@ -2,7 +2,8 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use actix_web::web::{Bytes, BytesMut};
+use bytes::Bytes;
+use bytes::BytesMut;
 use tokio::io::AsyncRead;
 use tokio_stream::Stream;
 use tokio_util::io::poll_read_buf;

@@ -57,12 +57,12 @@ where
     let stop_trigger = TunerStreamStopTrigger::new(
         stream.id(), tuner_manager.clone().recipient());
 
-    actix::spawn(async {
+    tokio::spawn(async {
         let _ = stream.pipe(input).await;
     });
 
     let quad = program.quad;
-    actix::spawn(async move {
+    tokio::spawn(async move {
         let _ = update_airtime(quad, output, epg).await;
         // Keep the pipeline until the tracker stops.
         drop(pipeline);

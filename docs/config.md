@@ -202,6 +202,9 @@ server:
 The value must be larger than `prepTime` defined in [EPGStation](https://github.com/l3tnun/EPGStation/blob/v1.6.9/src/server/Model/Operator/Recording/RecordingManageModel.ts#L45),
 which is `15000` (15s) in v1.6.9.
 
+
+### Historical Notes
+
 This property is needed for avoiding the issue#1313 in actix-web in a streaming
 request for a TV program.  In this case, no data is sent to the client until the
 first TS packet comes from the streaming pipeline.  actix-web cannot detect the

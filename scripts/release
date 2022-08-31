@@ -5,12 +5,13 @@ BASEDIR="$(cd $(dirname $0); pwd)"
 PROJDIR="$(cd $BASEDIR/..; pwd)"
 CURRENT=$(git describe --abbrev=0)
 
-NO_COMMIT=NO
+COMMIT=YES
+PREID=
 
 help() {
     cat <<EOF >&2
 USAGE:
-  $PROGNAME [--no-commit] (major|minor|patch)
+  $PROGNAME [--no-commit] [--preid <preid>] (major|minor|patch)
   $PROGNAME -h | --help
 
 OPTIONS:
@@ -49,8 +50,12 @@ do
       help
       ;;
     '--no-commit')
-      NO_COMMIT=YES
+      COMMIT=NO
       shift
+      ;;
+    '--preid')
+      PREID=$2
+      shift 2
       ;;
     'major' | 'minor' | 'patch')
       break
@@ -63,7 +68,14 @@ done
 
 trap cleanup EXIT
 
-VERSION=$(npx semver $CURRENT -i $1)
+if [ -n "$PREID" ]
+then
+  OPTIONS="-i pre$1 --preid $PREID"
+else
+  OPTIONS="-i $1"
+fi
+
+VERSION=$(npx semver $CURRENT $OPTIONS)
 
 log "Pulling changes from origin..."
 git pull
@@ -80,13 +92,15 @@ done
 cargo update -w
 
 git add .
-if [ "$NO_COMMIT" = NO ]; then
+if [ "$COMMIT" = YES ]
+then
   git commit -m "misc: bump version to $VERSION"
 fi
 
 # TODO: Genereate CHANGELOG.md
 
-if [ "$NO_COMMIT" = NO ]; then
+if [ "$COMMIT" = YES ]
+then
   log "Making an annotated tag for $VERSION..."
   git tag -a "$VERSION" -m "release: $VERSION"
 fi

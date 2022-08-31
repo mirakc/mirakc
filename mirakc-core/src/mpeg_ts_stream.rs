@@ -2,7 +2,7 @@ use std::fmt;
 use std::io;
 use std::pin::Pin;
 
-use actix_web::web::Bytes;
+use bytes::Bytes;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio_stream::{Stream, StreamExt};
 
@@ -133,7 +133,7 @@ impl MpegTsStreamRange {
 // terminator
 //
 // A terminator is attached on the output-side endpoint of an MPEG-TS packets
-// filtering pipeline in order to shutting down streaming quickly when a HTTP
+// filtering pipeline in order to shutting down streaming quickly when an HTTP
 // transaction ends.
 //
 // There is a delay from the HTTP transaction end to the tuner release when
@@ -223,7 +223,7 @@ mod tests {
     use super::*;
     use tokio_stream::wrappers::ReceiverStream;
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_pipe() {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 

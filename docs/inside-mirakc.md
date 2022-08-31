@@ -64,7 +64,7 @@ mirakc has a pipeline to process MPEG-TS packets.
     +------+
     |
     V
-  actix-web (HTTP chunk encoding)
+  axum/hyper (HTTP chunk encoding)
     |
     V
   client

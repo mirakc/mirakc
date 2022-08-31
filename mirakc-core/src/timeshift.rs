@@ -735,7 +735,7 @@ impl TimeshiftRecorder {
 
         let (input, output) = pipeline.take_endpoints()?;
 
-        actix::spawn(async move {
+        tokio::spawn(async move {
             let _ = stream.pipe(input).await;
         });
 
@@ -1190,7 +1190,7 @@ pub struct TimeshiftRecordStreamSource {
 impl TimeshiftRecordStreamSource {
     pub async fn create_stream(
         self,
-        accept_range: bool,
+        seekable: bool,
     ) -> Result<(TimeshiftRecordStream, TimeshiftStreamStopTrigger), Error> {
         log::debug!("{}: Start streaming {} bytes of {} from {}",
                     self.recorder_name, self.range.bytes(), self.id, self.start);
@@ -1200,7 +1200,7 @@ impl TimeshiftRecordStreamSource {
         reader.set_position(self.start).await?;
         let stream = ChunkStream::new(reader.take(self.range.bytes()), CHUNK_SIZE);
         let id = format!("timeshift({})/{}", self.recorder_name, self.id);
-        if accept_range {
+        if seekable {
             Ok((MpegTsStream::with_range(id, stream, self.range).decoded(), stop_trigger))
         } else {
             Ok((MpegTsStream::new(id, stream).decoded(), stop_trigger))

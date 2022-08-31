@@ -1,0 +1,14 @@
+[package]
+name = "axum-test-helper"
+version = "1.1.0-dev.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+axum = { git = "https://github.com/tokio-rs/axum", tag = "axum-v0.6.0-rc.2" }
+reqwest = { version = "0.11.11", default-features = false, features = ["json", "stream", "multipart"] }
+serde = { version = "1.0.144", features = ["derive"] }
+tokio = "1.21.1"
+tower = { version = "0.4.13", default-features = false, features = ["make"] }
+tower-service = "0.3.2"
