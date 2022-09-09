@@ -34,7 +34,7 @@ shell-words = "1.1.0"
 thiserror = "1.0.34"
 tokio = { version = "1.21.0", features = ["full"] }
 tokio-stream = { version = "0.1.9", features = ["io-util"] }
-tokio-util = { version = "0.7.3", features = ["io"] }
+tokio-util = { version = "0.7.4", features = ["io"] }
 tracing = "0.1.36"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter", "json"] }
 
