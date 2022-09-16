@@ -41,7 +41,7 @@ tuners:
     command: >-
       recpt1 --device /dev/px4video2 {{{channel}}} - -
 
-filter:
+filters:
   # Optionally, you can specify a command to process TS packets before sending
   # them to a client.
   #
