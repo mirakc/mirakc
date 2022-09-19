@@ -16,6 +16,7 @@ FROM mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 COPY ./Cargo.* ./
+COPY ./axum-test-helper ./axum-test-helper/
 COPY ./mirakc ./mirakc/
 COPY ./mirakc-core ./mirakc-core/
 COPY ./mirakc-timeshift-fs ./mirakc-timeshift-fs/
