@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::fs::File;
+use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -146,16 +149,26 @@ pub struct ServerConfig {
     pub mounts: IndexMap<String, MountConfig>,  // keeps the insertion order
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum ServerAddr {
-    Http(String),
-    Unix(String),
-}
-
 impl ServerConfig {
+    pub(crate) fn http_addrs(&self) -> impl Iterator<Item = SocketAddr> + '_ {
+        self.addrs.iter()
+            .filter_map(|addr| match addr {
+                ServerAddr::Http(addr) => addr.to_socket_addrs().ok(),
+                _ => None,
+            })
+            .flatten()
+    }
+
+    pub(crate) fn uds_paths(&self) -> impl Iterator<Item = &Path> {
+        self.addrs.iter()
+            .filter_map(|addr| match addr {
+                ServerAddr::Unix(path) => Some(path.as_path()),
+                _ => None,
+            })
+    }
+
     fn default_addrs() -> Vec<ServerAddr> {
-        vec![ServerAddr::Http("localhost:40772".to_string())]
+        vec![Default::default()]
     }
 
     fn default_workers() -> usize {
@@ -182,8 +195,8 @@ impl ServerConfig {
         assert!(self.stream_time_limit >= SERVER_STREAM_TIME_LIMIT_MIN,
                 "config.server: `stream_time_limit` must be larger than or equal to {}",
                 SERVER_STREAM_TIME_LIMIT_MIN);
-        self.mounts.iter()
-            .for_each(|(mp, config)| config.validate(mp));
+        self.addrs.iter().for_each(|addr| addr.validate());
+        self.mounts.iter().for_each(|(mp, config)| config.validate(mp));
     }
 }
 
@@ -202,26 +215,55 @@ impl Default for ServerConfig {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+pub enum ServerAddr {
+    Http(String),
+    Unix(PathBuf),
+}
+
+impl ServerAddr {
+    fn validate(&self) {
+        match self {
+            Self::Http(addr) => assert!(
+                addr.to_socket_addrs().is_ok(),
+                "config.server.addrs.{}: invalid socket address", addr),
+            Self::Unix(_) => (),
+        }
+    }
+}
+
+impl Default for ServerAddr {
+    fn default() -> Self {
+        ServerAddr::Http("localhost:40772".to_string())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct MountConfig {
-    pub path: String,
+    pub path: PathBuf,
     #[serde(default)]
-    pub index: Option<String>,
+    pub index: Option<PathBuf>,
     #[serde(default)]
     pub listing: bool,
 }
 
 impl MountConfig {
     fn validate(&self, mount_point: &str) {
-        assert!(!mount_point.is_empty(),
-                "config.server.mounts: \
-                 a mount point must be a non-empty string");
-        assert!(Path::new(&self.path).is_dir(),
-                "config.server.mounts.{}: \
-                 `path` must be a path to an existing directory", mount_point);
+        assert!(mount_point.starts_with("/"),
+                "config.server.mounts[{}]: \
+                 a mount point must starts with '/'", mount_point);
+        assert!(self.path.exists(),
+                "config.server.mounts[{}]: \
+                 `path` must be a path to an existing entry", mount_point);
         if let Some(index) = self.index.as_ref() {
-            assert!(!index.is_empty(),
-                    "config.server.mounts.{}: `index` must be a non-empty string", mount_point);
+            let path = self.path.join(index);
+            if path.exists() {
+                assert!(path.is_file(),
+                        "config.server.mounts[{}]: \
+                         `index` must be an existing file if it exists",
+                        mount_point);
+            }
         }
     }
 }
@@ -357,6 +399,8 @@ impl FiltersConfig {
     }
 
     fn default_program_filter() -> FilterConfig {
+        // Historical Notes
+        // ----------------
         // The --pre-streaming option is NOT used anymore due to the issue#30.
         // Without the --pre-streaming option, actix-web cannot detect the
         // client disconnection until trying to write data to the socket.  In
@@ -688,7 +732,7 @@ impl ResourceConfig {
 
     fn validate(&self) {
         assert!(Path::new(&self.strings_yaml).is_file(),
-                "config.resources: `strings-yaml` must be a path to a existing YAML file");
+                "config.resources: `strings-yaml` must be a path to an existing YAML file");
         for (triple, image) in self.logos.iter() {
             assert!(Path::new(image).is_file(),
                     "config.resources: `logos[({}, {}, {})]` must be a path to an existing \
@@ -735,7 +779,7 @@ impl MirakurunConfig {
 
     fn validate(&self) {
         assert!(Path::new(&self.openapi_json).is_file(),
-                "config.resources: `openapi-json` must be a path to a existing JSON file");
+                "config.resources: `openapi-json` must be a path to an existing JSON file");
     }
 }
 
@@ -875,7 +919,7 @@ mod tests {
             "#).unwrap(),
             ServerConfig {
                 addrs: vec![
-                    ServerAddr::Unix("/path/to/sock".to_string()),
+                    ServerAddr::Unix("/path/to/sock".into()),
                 ],
                 workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
@@ -893,7 +937,7 @@ mod tests {
             ServerConfig {
                 addrs: vec![
                     ServerAddr::Http("0.0.0.0:40772".to_string()),
-                    ServerAddr::Unix("/path/to/sock".to_string()),
+                    ServerAddr::Unix("/path/to/sock".into()),
                 ],
                 workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
@@ -974,18 +1018,18 @@ mod tests {
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: indexmap!{
                     "/ui".to_string() => MountConfig {
-                        path: "/path/to/ui".to_string(),
+                        path: "/path/to/ui".into(),
                         index: None,
                         listing: false,
                     },
                     "/public".to_string() => MountConfig {
-                        path: "/path/to/public".to_string(),
+                        path: "/path/to/public".into(),
                         index: None,
                         listing: true,
                     },
                     "/".to_string() => MountConfig {
-                        path: "/path/to/folder".to_string(),
-                        index: Some("index.html".to_string()),
+                        path: "/path/to/folder".into(),
+                        index: Some("index.html".into()),
                         listing: false,
                     },
                 }
@@ -1013,9 +1057,17 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_server_config_validate_addrs() {
+        let mut config = ServerConfig::default();
+        config.addrs = vec![ServerAddr::Http("invalid".to_string())];
+        config.validate();
+    }
+
+    #[test]
     fn test_mount_config_validate() {
         let config = MountConfig {
-            path: "/".to_string(),
+            path: env!("CARGO_MANIFEST_DIR").into(),
             index: None,
             listing: false,
         };
@@ -1027,7 +1079,7 @@ mod tests {
     #[should_panic]
     fn test_mount_config_validate_empty_mount_point() {
         let config = MountConfig {
-            path: "/".to_string(),
+            path: env!("CARGO_MANIFEST_DIR").into(),
             index: None,
             listing: false,
         };
@@ -1038,7 +1090,7 @@ mod tests {
     #[should_panic]
     fn test_mount_config_validate_non_existing_path() {
         let config = MountConfig {
-            path: "/path/to/dir".to_string(),
+            path: "/path/to/dir".into(),
             index: None,
             listing: false,
         };
@@ -1046,10 +1098,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_mount_config_validate_path_must_be_dir() {
+    fn test_mount_config_validate_path_file() {
         let config = MountConfig {
-            path: "/dev/null".to_string(),
+            path: "/dev/null".into(),
             index: None,
             listing: false,
         };
@@ -1060,8 +1111,8 @@ mod tests {
     #[should_panic]
     fn test_mount_config_validate_index() {
         let config = MountConfig {
-            path: "/".to_string(),
-            index: Some("".to_string()),
+            path: env!("CARGO_MANIFEST_DIR").into(),
+            index: Some("not_found".into()),
             listing: false,
         };
         config.validate("test");

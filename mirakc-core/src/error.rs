@@ -4,6 +4,7 @@ use std::io;
 
 use actix;
 use anyhow;
+use hyper;
 use mustache;
 use serde_json;
 use serde_yaml;
@@ -57,6 +58,10 @@ pub enum Error {
     EnvVarError(env::VarError),
     #[error("tokio::sync::broadcast error: {0:?}")]
     TokioSyncBroadcastError(tokio::sync::broadcast::error::RecvError),
+    #[error("hyper error: {0:?}")]
+    HyperError(hyper::Error),
+    #[error("axum::http error: {0:?}")]
+    AxumHttpError(axum::http::Error),
     #[error(transparent)]
     AnyhowError(#[from] anyhow::Error),
 }
@@ -124,5 +129,17 @@ impl From<env::VarError> for Error {
 impl From<tokio::sync::broadcast::error::RecvError> for Error {
     fn from(err: tokio::sync::broadcast::error::RecvError) -> Self {
         Self::TokioSyncBroadcastError(err)
+    }
+}
+
+impl From<hyper::Error> for Error {
+    fn from(err: hyper::Error) -> Self {
+        Self::HyperError(err)
+    }
+}
+
+impl From<axum::http::Error> for Error {
+    fn from(err: axum::http::Error) -> Self {
+        Self::AxumHttpError(err)
     }
 }

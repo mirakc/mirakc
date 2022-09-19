@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use actix::prelude::*;
-use actix_web::web::Bytes;
+use bytes::Bytes;
 use humantime;
 use log;
 use tokio::io::AsyncRead;

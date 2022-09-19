@@ -4,6 +4,7 @@ use chrono::{DateTime, Duration};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+use crate::config::ResourceConfig;
 use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
 use crate::eit_feeder::{AudioComponentDescriptor, ComponentDescriptor};
 use crate::eit_feeder::SeriesDescriptor;
@@ -518,6 +519,14 @@ pub struct MirakurunService {
     pub name: String,
     pub channel: MirakurunServiceChannel,
     pub has_logo_data: bool,
+}
+
+impl MirakurunService {
+    pub fn check_logo_existence(&mut self, config: &ResourceConfig) {
+        let triple = ServiceTriple::new(
+            self.network_id, self.transport_stream_id, self.service_id);
+        self.has_logo_data = config.logos.contains_key(&triple)
+    }
 }
 
 impl From<EpgService> for MirakurunService {
