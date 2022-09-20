@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use actix::prelude::*;
 use chrono::{DateTime, Duration};
-use log;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -73,11 +72,11 @@ impl Actor for EitFeeder {
     type Context = Context<Self>;
 
     fn started(&mut self, _: &mut Self::Context) {
-        log::debug!("Started");
+        tracing::debug!("Started");
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
-        log::debug!("Stopped");
+        tracing::debug!("Stopped");
     }
 }
 
@@ -101,7 +100,7 @@ impl Handler<FeedEitSectionsMessage> for EitFeeder {
         msg: FeedEitSectionsMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         Box::pin(Self::feed_eit_sections(
             self.config.jobs.update_schedules.command.clone(),
             self.tuner_manager.clone(), self.epg.clone()))
@@ -136,13 +135,13 @@ impl EitCollector {
     pub async fn collect_schedules(
         self
     ) -> Result<(), Error> {
-        log::info!("Collecting EIT sections...");
+        tracing::info!("Collecting EIT sections...");
         let mut num_sections = 0;
         for channel in self.channels.iter() {
             num_sections += Self::collect_eits_in_channel(
                 &channel, &self.command, &self.tuner_manager, &self.epg).await?;
         }
-        log::info!("Collected {} EIT sections", num_sections);
+        tracing::info!("Collected {} EIT sections", num_sections);
         Ok(())
     }
 
@@ -152,7 +151,7 @@ impl EitCollector {
         tuner_manager: &Addr<TunerManager>,
         epg: &Addr<Epg>,
     ) -> Result<usize, Error> {
-        log::debug!("Collecting EIT sections in {}...", channel.name);
+        tracing::debug!("Collecting EIT sections in {}...", channel.name);
 
         let user = TunerUser {
             info: TunerUserInfo::Job { name: Self::LABEL.to_string() },
@@ -215,8 +214,8 @@ impl EitCollector {
             triples: triples.into_iter().collect(),
         });
 
-        log::debug!("Collected {} EIT sections in {}",
-                    num_sections, channel.name);
+        tracing::debug!("Collected {} EIT sections in {}",
+                        num_sections, channel.name);
 
         Ok(num_sections)
     }

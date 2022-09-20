@@ -9,7 +9,6 @@ use std::sync::Arc;
 use actix::prelude::*;
 use chrono::{DateTime, Duration, TimeZone};
 use indexmap::IndexMap;
-use log;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Config, ChannelConfig};
@@ -94,7 +93,7 @@ impl Epg {
 
         match self.save_services() {
             Ok(_) => (),
-            Err(err) => log::error!("Failed to save services: {}", err),
+            Err(err) => tracing::error!("Failed to save services: {}", err),
         }
     }
 
@@ -130,7 +129,7 @@ impl Epg {
 
         match self.save_clocks() {
             Ok(_) => (),
-            Err(err) => log::error!("Failed to save clocks: {}", err),
+            Err(err) => tracing::error!("Failed to save clocks: {}", err),
         }
     }
 
@@ -156,8 +155,8 @@ impl Epg {
             if num_programs > 0 {
                 let service = self.services.get(triple)
                     .expect("Service must exist");
-                log::info!("Collected {} programs of {} ({})",
-                           num_programs, service.name, triple);
+                tracing::info!("Collected {} programs of {} ({})",
+                               num_programs, service.name, triple);
             }
         }
     }
@@ -187,7 +186,7 @@ impl Epg {
         // Removing "garbage" schedules.
         for id in unused_ids.iter() {
             self.schedules.remove(&id);
-            log::debug!("Removed schedule#{}", id);
+            tracing::debug!("Removed schedule#{}", id);
         }
     }
 
@@ -201,8 +200,8 @@ impl Epg {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = PathBuf::from(cache_dir).join("services.json");
-                log::debug!("Loading schedules from {}...",
-                            json_path.display());
+                tracing::debug!("Loading schedules from {}...",
+                                json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
                 let services: IndexMap<ServiceTriple, EpgService> =
                     serde_json::from_reader(reader)?;
@@ -215,17 +214,17 @@ impl Epg {
                             .iter()
                             .any(|ch| ch == &sv.channel);
                         if !not_changed {  // if changed
-                            log::debug!("Drop service#{} ({}) due to changes \
-                                         of the channel config",
-                                        sv.triple(), sv.name);
+                            tracing::debug!("Drop service#{} ({}) due to changes \
+                                             of the channel config",
+                                            sv.triple(), sv.name);
                         }
                         not_changed
                     })
                     .collect();
-                log::info!("Loaded {} services", self.services.len());
+                tracing::info!("Loaded {} services", self.services.len());
             }
             None => {
-                log::warn!("No epg.cache-dir specified, skip to load services");
+                tracing::warn!("No epg.cache-dir specified, skip to load services");
             }
         }
         Ok(())
@@ -235,7 +234,7 @@ impl Epg {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = PathBuf::from(cache_dir).join("clocks.json");
-                log::debug!("Loading clocks from {}...", json_path.display());
+                tracing::debug!("Loading clocks from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
                 let clocks: HashMap<ServiceTriple, Clock> =
                     serde_json::from_reader(reader)?;
@@ -246,16 +245,16 @@ impl Epg {
                     .filter(|(triple, _)| {
                         let contained = self.services.contains_key(triple);
                         if !contained {
-                            log::debug!(
+                            tracing::debug!(
                                 "Drop clock for missing service#{}", triple);
                         }
                         contained
                     })
                     .collect();
-                log::info!("Loaded {} clocks", self.clocks.len());
+                tracing::info!("Loaded {} clocks", self.clocks.len());
             }
             None => {
-                log::warn!("No epg.cache-dir specified, skip to load clock");
+                tracing::warn!("No epg.cache-dir specified, skip to load clock");
             }
         }
         Ok(())
@@ -265,7 +264,7 @@ impl Epg {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = PathBuf::from(cache_dir).join("schedules.json");
-                log::debug!("Loading schedules from {}...", json_path.display());
+                tracing::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
                 let schedules: HashMap<ServiceTriple, EpgSchedule> =
                     serde_json::from_reader(reader)?;
@@ -276,16 +275,16 @@ impl Epg {
                     .filter(|(triple, _)| {
                         let contained = self.services.contains_key(triple);
                         if !contained {
-                            log::debug!(
+                            tracing::debug!(
                                 "Drop schedule for missing service#{}", triple);
                         }
                         contained
                     })
                     .collect();
-                log::info!("Loaded schedules for {} services", self.schedules.len());
+                tracing::info!("Loaded schedules for {} services", self.schedules.len());
             }
             None => {
-                log::warn!("No epg.cache-dir specified, skip to load");
+                tracing::warn!("No epg.cache-dir specified, skip to load");
             }
         }
         Ok(())
@@ -295,13 +294,13 @@ impl Epg {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = PathBuf::from(cache_dir).join("services.json");
-                log::debug!("Saving services into {}...", json_path.display());
+                tracing::debug!("Saving services into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 serde_json::to_writer(writer, &self.services)?;
-                log::info!("Saved {} services", self.services.len());
+                tracing::info!("Saved {} services", self.services.len());
             }
             None => {
-                log::warn!("No epg.cache-dir specified, skip to save services");
+                tracing::warn!("No epg.cache-dir specified, skip to save services");
             }
         }
         Ok(())
@@ -311,13 +310,13 @@ impl Epg {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = PathBuf::from(cache_dir).join("clocks.json");
-                log::debug!("Saving clocks into {}...", json_path.display());
+                tracing::debug!("Saving clocks into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 serde_json::to_writer(writer, &self.clocks)?;
-                log::info!("Saved {} clocks", self.clocks.len());
+                tracing::info!("Saved {} clocks", self.clocks.len());
             }
             None => {
-                log::warn!("No epg.cache-dir specified, skip to save clocks");
+                tracing::warn!("No epg.cache-dir specified, skip to save clocks");
             }
         }
         Ok(())
@@ -327,14 +326,14 @@ impl Epg {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = PathBuf::from(cache_dir).join("schedules.json");
-                log::debug!("Saving schedules into {}...", json_path.display());
+                tracing::debug!("Saving schedules into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 serde_json::to_writer(writer, &self.schedules)?;
-                log::info!("Saved schedules for {} services",
-                           self.schedules.len());
+                tracing::info!("Saved schedules for {} services",
+                               self.schedules.len());
             }
             None => {
-                log::warn!(
+                tracing::warn!(
                     "No epg.cache-dir specified, skip to save schedules");
             }
         }
@@ -353,21 +352,21 @@ impl Actor for Epg {
 
     fn started(&mut self, _: &mut Self::Context) {
         // It's guaranteed that no response is sent before cached EPG data is loaded.
-        log::debug!("Started");
+        tracing::debug!("Started");
         if let Err(err) = self.load_services() {
-            log::warn!("Failed to load services: {}", err);
+            tracing::warn!("Failed to load services: {}", err);
         }
         if let Err(err) = self.load_clocks() {
-            log::warn!("Failed to load clocks: {}", err);
+            tracing::warn!("Failed to load clocks: {}", err);
         }
         if let Err(err) = self.load_schedules() {
-            log::warn!("Failed to load schedules: {}", err);
+            tracing::warn!("Failed to load schedules: {}", err);
         }
         self.collect_programs();
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
-        log::debug!("Stopped");
+        tracing::debug!("Stopped");
     }
 }
 
@@ -391,7 +390,7 @@ impl Handler<QueryChannelsMessage> for Epg {
         msg: QueryChannelsMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         let channels = self.config.channels.iter()
             .map(|config| MirakurunChannel {
                 channel_type: config.channel_type,
@@ -436,7 +435,7 @@ impl Handler<QueryChannelMessage> for Epg {
         msg: QueryChannelMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.config.channels.iter()
             .find(|config| {
                   config.channel_type == msg.channel_type &&
@@ -468,7 +467,7 @@ impl Handler<QueryServicesMessage> for Epg {
         msg: QueryServicesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         // Assumed that `self.services` keeps insertion order.
         Ok(self.services.values()
            .filter(|sv| sv.is_exportable())
@@ -503,7 +502,7 @@ impl Handler<QueryServiceMessage> for Epg {
         msg: QueryServiceMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         match msg {
             QueryServiceMessage::ByNidSid { nid, sid } => {
                 self.services
@@ -538,7 +537,7 @@ impl Handler<QueryClockMessage> for Epg {
         msg: QueryClockMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.clocks.get(&msg.triple).cloned().ok_or(Error::ClockNotSynced)
     }
 }
@@ -563,7 +562,7 @@ impl Handler<QueryProgramsMessage> for Epg {
         msg: QueryProgramsMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         let mut programs = Vec::new();
         for schedule in self.schedules.values() {
             programs.extend(schedule.programs.values().cloned())
@@ -598,7 +597,7 @@ impl Handler<QueryProgramMessage> for Epg {
         msg: QueryProgramMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         match msg {
             QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
                 let triple = self.services
@@ -644,7 +643,7 @@ impl Handler<UpdateServicesMessage> for Epg {
         msg: UpdateServicesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.update_services(msg.results);
     }
 }
@@ -671,7 +670,7 @@ impl Handler<UpdateClocksMessage> for Epg {
         msg: UpdateClocksMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.update_clocks(msg.results);
     }
 }
@@ -698,7 +697,7 @@ impl Handler<UpdateSchedulesMessage> for Epg {
         msg: UpdateSchedulesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.update_schedules(msg.sections);
     }
 }
@@ -729,7 +728,7 @@ impl Handler<FlushSchedulesMessage> for Epg {
         msg: FlushSchedulesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.flush_schedules(msg.triples);
     }
 }
@@ -754,10 +753,10 @@ impl Handler<SaveSchedulesMessage> for Epg {
         msg: SaveSchedulesMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         match self.save_schedules() {
             Ok(_) => (),
-            Err(err) => log::error!("Failed to save schedules: {}", err),
+            Err(err) => tracing::error!("Failed to save schedules: {}", err),
         }
     }
 }
@@ -785,7 +784,7 @@ impl Handler<UpdateAirtimeMessage> for Epg {
         msg: UpdateAirtimeMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.airtimes.insert(msg.quad, msg.airtime);
     }
 }
@@ -812,7 +811,7 @@ impl Handler<RemoveAirtimeMessage> for Epg {
         msg: RemoveAirtimeMessage,
         _: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.airtimes.remove(&msg.quad);
     }
 }
@@ -873,8 +872,8 @@ impl EpgSchedule {
                 events = table.collect_overnight_events(midnight, events);
             }
         }
-        log::debug!("Saved {} overnight events of schedule#{}",
-                    events.len(), self.service_triple);
+        tracing::debug!("Saved {} overnight events of schedule#{}",
+                        events.len(), self.service_triple);
         self.overnight_events = events;
     }
 

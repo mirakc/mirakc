@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 use actix::prelude::*;
 use bytes::Bytes;
 use humantime;
-use log;
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
@@ -70,16 +69,16 @@ impl Broadcaster {
         for subscriber in self.subscribers.iter_mut() {
             match subscriber.sender.try_send(chunk.clone()) {
                 Ok(_) => {
-                    log::trace!("{}: Sent a chunk of {} bytes to {}",
-                                self.id, chunk_size, subscriber.id);
+                    tracing::trace!("{}: Sent a chunk of {} bytes to {}",
+                                    self.id, chunk_size, subscriber.id);
                 },
                 Err(mpsc::error::TrySendError::Full(_)) => {
-                    log::warn!("{}: No space for {}, drop the chunk",
-                               self.id, subscriber.id);
+                    tracing::warn!("{}: No space for {}, drop the chunk",
+                                   self.id, subscriber.id);
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
-                    log::debug!("{}: Closed by {}, wait for unsubscribe",
-                                self.id, subscriber.id);
+                    tracing::debug!("{}: Closed by {}, wait for unsubscribe",
+                                    self.id, subscriber.id);
                 }
             }
         }
@@ -90,8 +89,8 @@ impl Broadcaster {
     fn check_timeout(&mut self, ctx: &mut Context<Self>) {
         let elapsed = self.last_received.elapsed();
         if  elapsed > self.time_limit {
-            log::error!("{}: No packet from the tuner for {}, stop",
-                        self.id, humantime::format_duration(elapsed));
+            tracing::error!("{}: No packet from the tuner for {}, stop",
+                            self.id, humantime::format_duration(elapsed));
             ctx.stop();
         }
     }
@@ -102,11 +101,11 @@ impl Actor for Broadcaster {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.run_interval(self.time_limit, Self::check_timeout);
-        log::debug!("{}: Started", self.id);
+        tracing::debug!("{}: Started", self.id);
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
-        log::debug!("{}: Stopped", self.id);
+        tracing::debug!("{}: Stopped", self.id);
     }
 }
 
@@ -132,7 +131,7 @@ impl Handler<SubscribeMessage> for Broadcaster {
         msg: SubscribeMessage,
         _: &mut Self::Context
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.subscribe(msg.id)
     }
 }
@@ -159,7 +158,7 @@ impl Handler<UnsubscribeMessage> for Broadcaster {
         msg: UnsubscribeMessage,
         _: &mut Self::Context
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.unsubscribe(msg.id)
     }
 }
@@ -173,14 +172,14 @@ impl StreamHandler<io::Result<Bytes>> for Broadcaster {
                 self.broadcast(chunk);
             }
             Err(err) => {
-                log::error!("{}: Error, stop: {}", self.id, err);
+                tracing::error!("{}: Error, stop: {}", self.id, err);
                 ctx.stop();
             }
         }
     }
 
     fn finished(&mut self, ctx: &mut Context<Self>) {
-        log::debug!("{}: EOS reached, stop", self.id);
+        tracing::debug!("{}: EOS reached, stop", self.id);
         ctx.stop();
     }
 }

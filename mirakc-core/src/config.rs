@@ -11,7 +11,6 @@ use std::time::SystemTime;
 use cron;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use log;
 use num_cpus;
 use serde::Deserialize;
 use serde_yaml;
@@ -295,7 +294,7 @@ impl ChannelConfig {
             match normalized.iter_mut().find(|ch| **ch == channel) {
                 Some(ch) => {
                     if ch.extra_args != channel.extra_args {
-                        log::warn!(
+                        tracing::warn!(
                             "Channels having the same `type` and `channel` \
                              should have the same `extra-args`");
                     }

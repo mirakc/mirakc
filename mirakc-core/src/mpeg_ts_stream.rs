@@ -182,30 +182,30 @@ where
     loop {
         match stream.next().await {
             Some(Ok(chunk)) => {
-                log::trace!("{}: Received a chunk of {} bytes",
-                            stream.id(), chunk.len());
+                tracing::trace!("{}: Received a chunk of {} bytes",
+                                stream.id(), chunk.len());
                 if let Err(err) = writer.write_all(&chunk).await {
                     if err.kind() == io::ErrorKind::BrokenPipe {
-                        log::debug!("{}: Downstream has been closed",
-                                    stream.id());
+                        tracing::debug!("{}: Downstream has been closed",
+                                        stream.id());
                     } else {
-                        log::error!("{}: Failed to write to downstream: {}",
-                                    stream.id(), err);
+                        tracing::error!("{}: Failed to write to downstream: {}",
+                                        stream.id(), err);
                     }
                     break;
                 }
             }
             Some(Err(err)) => {
                 if err.kind() == io::ErrorKind::BrokenPipe {
-                    log::debug!("{}: Upstream has been closed", stream.id());
+                    tracing::debug!("{}: Upstream has been closed", stream.id());
                 } else {
-                    log::error!("{}: Failed to read from upstream: {}",
-                                stream.id(), err);
+                    tracing::error!("{}: Failed to read from upstream: {}",
+                                    stream.id(), err);
                 }
                 break;
             }
             None => {
-                log::debug!("{}: EOF reached", stream.id());
+                tracing::debug!("{}: EOF reached", stream.id());
                 break;
             }
         }
@@ -214,7 +214,7 @@ where
     }
 
     if let Err(err) = writer.shutdown().await {
-        log::warn!("{}: Failed to shutdown: {}", stream.id(), err);
+        tracing::warn!("{}: Failed to shutdown: {}", stream.id(), err);
     }
 }
 

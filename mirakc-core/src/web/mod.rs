@@ -598,7 +598,7 @@ async fn program_stream_g(
 
     match result {
         Err(Error::ProgramNotFound) =>
-            log::warn!("No stream for the program#{}, maybe canceled", id),
+            tracing::warn!("No stream for the program#{}, maybe canceled", id),
         _ => (),
     }
 
@@ -1052,7 +1052,7 @@ where
             user, stream, content_type, range, stop_triggers,
             config.server.stream_time_limit).await
     } else {
-        log::debug!("Streaming with filters: {:?}", filters);
+        tracing::debug!("Streaming with filters: {:?}", filters);
 
         let mut pipeline = spawn_pipeline(filters, stream.id())?;
 
@@ -1073,15 +1073,15 @@ where
         tokio::spawn(async move {
             while let Some(result) = stream.next().await {
                 if let Ok(chunk) = result {
-                    log::trace!("{}: Received a filtered chunk of {} bytes",
-                                stream_id, chunk.len());
+                    tracing::trace!("{}: Received a filtered chunk of {} bytes",
+                                    stream_id, chunk.len());
                     // The task yields if the buffer is full.
                     if let Err(_) = sender.send(Ok(chunk)).await {
-                        log::debug!("{}: Disconnected by client", stream_id);
+                        tracing::debug!("{}: Disconnected by client", stream_id);
                         break;
                     }
                 } else {
-                    log::error!("{}: Error, stop streaming", stream_id);
+                    tracing::error!("{}: Error, stop streaming", stream_id);
                     break;
                 }
 

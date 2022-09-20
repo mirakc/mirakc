@@ -272,12 +272,12 @@ impl TimeshiftFilesystem {
                 data_mtime
             }
             _ => {
-                log::debug!("{}: Reuse cached timeshift data", ino);
+                tracing::debug!("{}: Reuse cached timeshift data", ino);
                 return;
             }
         };
 
-        log::debug!("{}: Load timeshift data", ino);
+        tracing::debug!("{}: Load timeshift data", ino);
         let cache = Self::load_data(config)
             .map(|data| Cache {
                 mtime,
@@ -289,7 +289,7 @@ impl TimeshiftFilesystem {
                 self.caches.insert(ino.recorder_index(), cache);
             }
             Err(err) => {
-                log::error!("{}: Failed to read timeshift data: {}", ino, err);
+                tracing::error!("{}: Failed to read timeshift data: {}", ino, err);
             }
         }
     }
@@ -299,10 +299,10 @@ impl TimeshiftFilesystem {
         let mut buf = Vec::with_capacity(4096 * 1_000);
         {
             let _lockfile = TimeshiftLockfile::lock_shared(&config.data_file)?;
-            log::debug!("Locked {} for read...", config.data_file);
+            tracing::debug!("Locked {} for read...", config.data_file);
             let mut file = std::fs::File::open(&config.data_file)?;
             file.read_to_end(&mut buf)?;
-            log::debug!("Unlocked {}", config.data_file);
+            tracing::debug!("Unlocked {}", config.data_file);
             // It's guaranteed that the lockfile will be unlocked after the file is closed.
         }
         let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
@@ -459,7 +459,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 reply.ok();
             }
             _ => {
-                log::error!("{}: Invalid handle {}", ino, fh);
+                tracing::error!("{}: Invalid handle {}", ino, fh);
                 reply.error(libc::EBADF);
             }
         }
@@ -478,7 +478,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             match self.open_record(ino) {
                 Ok(handle) => reply.opened(handle, 0),
                 Err(_) => {
-                    log::debug!("{}: Record not found", ino);
+                    tracing::debug!("{}: Record not found", ino);
                     reply.error(libc::ENOENT);
                 }
             }
@@ -502,7 +502,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             match self.open_contexts.remove(&fh) {
                 Some(_) => reply.ok(),
                 None => {
-                    log::error!("{}: Invalid handle {}", ino, fh);
+                    tracing::error!("{}: Invalid handle {}", ino, fh);
                     reply.error(libc::EBADF);
                 }
             }
@@ -529,7 +529,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             let (record, config) = match self.get_record(ino).zip(self.get_recorder_config(ino)) {
                 Some(tuple) => tuple,
                 None => {
-                    log::error!("{}: Record not found", ino);
+                    tracing::error!("{}: Record not found", ino);
                     reply.error(libc::ENOENT);
                     return;
                 }
@@ -542,7 +542,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             let buf = match self.open_contexts.get_mut(&fh) {
                 Some(OpenContext::Record(buf)) => buf,
                 _ => {
-                    log::error!("{}: Invalid handle {}", ino, fh);
+                    tracing::error!("{}: Invalid handle {}", ino, fh);
                     reply.error(libc::EBADF);
                     return;
                 }
@@ -551,7 +551,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             match buf.fill(ranges) {
                 Ok(_) => reply.data(buf.data()),
                 Err(err) => {
-                    log::error!("{}: Faild to read data: {}", ino, err);
+                    tracing::error!("{}: Faild to read data: {}", ino, err);
                     reply.error(libc::EIO);
                 }
             }
@@ -663,16 +663,15 @@ impl RecordBuffer {
         debug_assert!(self.data().is_empty());
         match ranges {
             (None, None) => {
-                log::trace!("{}: EOF reached", self.ino);
+                tracing::trace!("{}: EOF reached", self.ino);
                 Ok(())
             }
             (Some(range), None) => {
-                log::trace!("{}: Read data in {:?}", self.ino, range);
+                tracing::trace!("{}: Read data in {:?}", self.ino, range);
                 self.fill1(&range)
             }
             (Some(first), Some(second)) => {
-                log::trace!("{}: Read data in {:?} and {:?} successfully",
-                            self.ino, first, second);
+                tracing::trace!("{}: Read data in {:?} and {:?} successfully", self.ino, first, second);
                 self.fill2(&first, &second)
             }
             _ => unreachable!(),

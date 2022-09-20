@@ -1,6 +1,5 @@
 use actix::prelude::*;
 use chrono::{DateTime, Duration};
-use log;
 use serde::Deserialize;
 use serde_json;
 use tokio::io::{AsyncRead, AsyncBufReadExt, BufReader};
@@ -84,7 +83,7 @@ where
     E: Handler<RemoveAirtimeMessage>,
     E::Context: actix::dev::ToEnvelope<E, RemoveAirtimeMessage>,
 {
-    log::info!("Tracking airtime of {}...", quad);
+    tracing::info!("Tracking airtime of {}...", quad);
 
     let mut reader = BufReader::new(output);
     let mut json = String::new();
@@ -98,7 +97,7 @@ where
                 airtime
             }
             Err(err) => {
-                log::error!("Failed to parse JSON: {}", err);
+                tracing::error!("Failed to parse JSON: {}", err);
                 continue
             }
         };
@@ -110,7 +109,7 @@ where
     }
     epg.send(RemoveAirtimeMessage { quad }).await?;
 
-    log::info!("Stopped tracking airtime of {}", quad);
+    tracing::info!("Stopped tracking airtime of {}", quad);
 
     Ok(())
 }

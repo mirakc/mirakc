@@ -11,11 +11,11 @@ publish = false
 fuser = { version = "0.11.1", default-features = false, features = ["abi-7-31"] }
 indexmap = { version = "1.9.1", features = ["serde-1"] }
 libc = "0.2.133"
-log = "0.4.17"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.4.0"
 serde_json = { version = "1.0.85", features = ["preserve_order"] }
 structopt = "0.3.26"
+tracing = "0.1.36"
 
 [dev-dependencies]
 assert_matches = "1.5.0"

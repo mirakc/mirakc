@@ -9,7 +9,6 @@ use actix::prelude::*;
 use chrono::DateTime;
 use cron;
 use humantime;
-use log;
 use tokio::sync::Semaphore;
 
 use crate::clock_synchronizer::ClockSynchronizer;
@@ -43,14 +42,14 @@ impl Job {
     where
         F: Future<Output = T>,
     {
-        log::debug!("{}: acquiring semaphore...", self.kind);
+        tracing::debug!("{}: acquiring semaphore...", self.kind);
         let _permit = self.semaphore.acquire().await;
-        log::info!("{}: performing...", self.kind);
+        tracing::info!("{}: performing...", self.kind);
         let now = Instant::now();
         let results = fut.await;
         let elapsed = now.elapsed();
-        log::info!("{}: Done, {} elapsed",
-                   self.kind, humantime::format_duration(elapsed));
+        tracing::info!("{}: Done, {} elapsed",
+                       self.kind, humantime::format_duration(elapsed));
         results
     }
 }
@@ -119,7 +118,7 @@ impl JobManager {
 
     fn scan_services(&mut self, ctx: &mut Context<Self>) {
         if Self::is_job_disabled_for_debug("scan-services") {
-            log::debug!("scan-services: disabled for debug");
+            tracing::debug!("scan-services: disabled for debug");
             return;
         }
         self.invoke_scan_services(ctx);
@@ -128,7 +127,7 @@ impl JobManager {
 
     fn invoke_scan_services(&mut self, ctx: &mut Context<Self>) {
         if self.scanning_services {
-            log::warn!("scan-services: Already running, skip");
+            tracing::warn!("scan-services: Already running, skip");
             return;
         }
 
@@ -153,14 +152,14 @@ impl JobManager {
     fn schedule_scan_services(&self, ctx: &mut Context<Self>) {
         let datetime = self.calc_next_scheduled_datetime(
             &self.config.jobs.scan_services.schedule);
-        log::info!("scan-services: Scheduled for {}", datetime);
+        tracing::info!("scan-services: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
         ctx.run_later(interval, Self::scan_services);
     }
 
     fn sync_clocks(&mut self, ctx: &mut Context<Self>) {
         if Self::is_job_disabled_for_debug("sync-clocks") {
-            log::debug!("sync-clocks: disabled for debug");
+            tracing::debug!("sync-clocks: disabled for debug");
             return;
         }
         self.invoke_sync_clocks(ctx);
@@ -169,7 +168,7 @@ impl JobManager {
 
     fn invoke_sync_clocks(&mut self, ctx: &mut Context<Self>) {
         if self.synchronizing_clocks {
-            log::warn!("sync-clocks: Already running, skip");
+            tracing::warn!("sync-clocks: Already running, skip");
             return;
         }
 
@@ -194,14 +193,14 @@ impl JobManager {
     fn schedule_sync_clocks(&self, ctx: &mut Context<Self>) {
         let datetime = self.calc_next_scheduled_datetime(
             &self.config.jobs.sync_clocks.schedule);
-        log::info!("sync-clocks: Scheduled for {}", datetime);
+        tracing::info!("sync-clocks: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
         ctx.run_later(interval, Self::sync_clocks);
     }
 
     fn update_schedules(&mut self, ctx: &mut Context<Self>) {
         if Self::is_job_disabled_for_debug("update-schedules") {
-            log::debug!("update-schedules: disabled for debug");
+            tracing::debug!("update-schedules: disabled for debug");
             return;
         }
         self.invoke_update_schedules(ctx);
@@ -210,7 +209,7 @@ impl JobManager {
 
     fn invoke_update_schedules(&mut self, ctx: &mut Context<Self>) {
         if self.updating_schedules {
-            log::warn!("update-schedules: Already running, skip");
+            tracing::warn!("update-schedules: Already running, skip");
             return;
         }
 
@@ -235,7 +234,7 @@ impl JobManager {
     fn schedule_update_schedules(&mut self, ctx: &mut Context<Self>) {
         let datetime = self.calc_next_scheduled_datetime(
             &self.config.jobs.update_schedules.schedule);
-        log::info!("update-schedules: Scheduled for {}", datetime);
+        tracing::info!("update-schedules: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
         ctx.run_later(interval, Self::update_schedules);
     }
@@ -254,26 +253,26 @@ impl Actor for JobManager {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         // It's guaranteed that no response is sent before initial jobs are invoked.
-        log::debug!("Started");
+        tracing::debug!("Started");
         if self.config.jobs.scan_services.disabled {
-            log::warn!("The scan-services job is disabled");
+            tracing::warn!("The scan-services job is disabled");
         } else {
             self.scan_services(ctx);
         }
         if self.config.jobs.sync_clocks.disabled {
-            log::warn!("The sync-clocks job is disabled");
+            tracing::warn!("The sync-clocks job is disabled");
         } else {
             self.sync_clocks(ctx);
         }
         if self.config.jobs.update_schedules.disabled {
-            log::warn!("The update-schedules job is disabled");
+            tracing::warn!("The update-schedules job is disabled");
         } else {
             self.update_schedules(ctx);
         }
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
-        log::debug!("Stopped");
+        tracing::debug!("Stopped");
     }
 }
 
@@ -299,7 +298,7 @@ impl Handler<InvokeScanServicesMessage> for JobManager {
         msg: InvokeScanServicesMessage,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.invoke_scan_services(ctx);
     }
 }
@@ -326,7 +325,7 @@ impl Handler<InvokeSyncClocksMessage> for JobManager {
         msg: InvokeSyncClocksMessage,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.invoke_sync_clocks(ctx);
     }
 }
@@ -353,7 +352,7 @@ impl Handler<InvokeUpdateSchedulesMessage> for JobManager {
         msg: InvokeUpdateSchedulesMessage,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        log::debug!("{}", msg);
+        tracing::debug!("{}", msg);
         self.invoke_update_schedules(ctx);
     }
 }

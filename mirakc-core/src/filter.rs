@@ -33,7 +33,7 @@ impl FilterPipelineBuilder {
             if pre_filters.contains_key(name) {
                 self.add_pre_filter(&pre_filters[name], name)?;
             } else {
-                log::warn!("No such pre-filter: {}", name);
+                tracing::warn!("No such pre-filter: {}", name);
             }
         }
         Ok(())
@@ -46,7 +46,7 @@ impl FilterPipelineBuilder {
     ) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
-            log::warn!("pre-filter({}) not valid", name);
+            tracing::warn!("pre-filter({}) not valid", name);
         } else {
             self.filters.push(filter);
         }
@@ -59,7 +59,7 @@ impl FilterPipelineBuilder {
     ) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
-            log::warn!("service-filter not valid");
+            tracing::warn!("service-filter not valid");
         } else {
             self.filters.push(filter);
         }
@@ -72,7 +72,7 @@ impl FilterPipelineBuilder {
     ) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
-            log::warn!("decode-filter not valid");
+            tracing::warn!("decode-filter not valid");
         } else {
             self.filters.push(filter);
         }
@@ -85,7 +85,7 @@ impl FilterPipelineBuilder {
     ) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
-            log::warn!("program-filter not valid");
+            tracing::warn!("program-filter not valid");
         } else {
             self.filters.push(filter);
         }
@@ -101,7 +101,7 @@ impl FilterPipelineBuilder {
             if post_filters.contains_key(name) {
                 self.add_post_filter(&post_filters[name], name)?;
             } else {
-                log::warn!("No such post-filter: {}", name);
+                tracing::warn!("No such post-filter: {}", name);
             }
         }
         Ok(())
@@ -114,7 +114,7 @@ impl FilterPipelineBuilder {
     ) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
-            log::warn!("post-filter({}) not valid", name);
+            tracing::warn!("post-filter({}) not valid", name);
         } else {
             self.filters.push(filter);
             if let Some(content_type) = config.content_type.as_ref() {

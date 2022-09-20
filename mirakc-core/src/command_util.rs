@@ -22,11 +22,12 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
     let nanos = env::var("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS")
         .ok()
         .map(|s| s.parse::<u64>()
-             .expect("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS must be a u64 value"))
+             .expect("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS \
+                      must be a u64 value"))
         .map(|nanos| Duration::from_nanos(nanos))
         .unwrap_or(COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT);
-    log::debug!("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: {}",
-                humantime::format_duration(nanos));
+    tracing::debug!("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: {}",
+                    humantime::format_duration(nanos));
     nanos
 });
 
@@ -68,9 +69,9 @@ pub fn spawn_process(
                     if n == 0 {  // EOF
                         break;
                     }
-                    log::debug!("{}#{}: {}", prog, child_id,
-                                // data may contain non-utf8 sequence.
-                                String::from_utf8_lossy(&data).trim_end());
+                    tracing::debug!("{}#{}: {}", prog, child_id,
+                                    // data may contain non-utf8 sequence.
+                                    String::from_utf8_lossy(&data).trim_end());
                     data.clear();
                 }
             });
@@ -149,7 +150,8 @@ where
         };
 
         let mut process = spawn_process(&command, input)?;
-        log::debug!("{}: Spawned {}: `{}`", self.id, process.id().unwrap(), command);
+        tracing::debug!("{}: Spawned {}: `{}`",
+                        self.id, process.id().unwrap(), command);
 
         if self.stdin.is_none() {
             self.stdin = process.stdin.take();
@@ -197,11 +199,11 @@ where
     fn drop(&mut self) {
         for data in self.commands.iter() {
             match data.process.id() {
-                Some(pid) => log::debug!("{}: Kill {}: `{}`", self.id, pid, data.command),
-                None => log::debug!("{}: Already terminated: {}", self.id, data.command),
+                Some(pid) => tracing::debug!("{}: Kill {}: `{}`", self.id, pid, data.command),
+                None => tracing::debug!("{}: Already terminated: {}", self.id, data.command),
             }
         }
-        log::debug!("{}: Wait for the command pipeline termination...", self.id);
+        tracing::debug!("{}: Wait for the command pipeline termination...", self.id);
         for data in self.commands.iter_mut() {
             // Send a SIGKILL to the process regardless of life or dead.
             let _ = data.process.start_kill();
@@ -219,7 +221,7 @@ where
                 sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
             }
         }
-        log::debug!("{}: The command pipeline has terminated", self.id);
+        tracing::debug!("{}: The command pipeline has terminated", self.id);
     }
 }
 

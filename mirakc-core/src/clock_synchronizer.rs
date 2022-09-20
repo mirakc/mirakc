@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use actix::prelude::*;
 use anyhow;
-use log;
 use serde::Deserialize;
 use serde_json;
 use tokio::io::AsyncReadExt;
@@ -46,7 +45,7 @@ where
     pub async fn sync_clocks(
         self
     ) -> Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)> {
-        log::debug!("Synchronizing clocks...");
+        tracing::debug!("Synchronizing clocks...");
 
         let command = &self.config.jobs.sync_clocks.command;
         let mut results = Vec::new();
@@ -63,15 +62,15 @@ where
                     Some(map)
                 }
                 Err(err) => {
-                    log::warn!("Failed to synchronize clocks in {}: {}",
-                               channel.name, err);
+                    tracing::warn!("Failed to synchronize clocks in {}: {}",
+                                   channel.name, err);
                     None
                 }
             };
             results.push((channel.clone().into(), result));
         }
 
-        log::debug!("Synchronized {} channels", self.config.channels.len());
+        tracing::debug!("Synchronized {} channels", self.config.channels.len());
 
         results
     }
@@ -81,7 +80,7 @@ where
         command: &str,
         tuner_manager: &Addr<A>,
     ) -> anyhow::Result<Vec<SyncClock>> {
-        log::debug!("Synchronizing clocks in {}...", channel.name);
+        tracing::debug!("Synchronizing clocks in {}...", channel.name);
 
         let user = TunerUser {
             info: TunerUserInfo::Job { name: Self::LABEL.to_string() },
@@ -126,7 +125,8 @@ where
         anyhow::ensure!(!buf.is_empty(), "No clock, maybe out of service");
 
         let clocks: Vec<SyncClock> = serde_json::from_slice(&buf)?;
-        log::debug!("Synchronized {} clocks in {}", clocks.len(), channel.name);
+        tracing::debug!(
+            "Synchronized {} clocks in {}", clocks.len(), channel.name);
 
         Ok(clocks)
     }

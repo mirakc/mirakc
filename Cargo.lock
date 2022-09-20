@@ -769,7 +769,6 @@ name = "mirakc"
 version = "1.1.0-dev.0"
 dependencies = [
  "actix",
- "log 0.4.17",
  "mirakc-core",
  "serde_json",
  "structopt",
@@ -796,7 +795,6 @@ dependencies = [
  "indexmap",
  "itertools",
  "libc",
- "log 0.4.17",
  "maplit",
  "mustache",
  "num_cpus",
@@ -824,11 +822,11 @@ dependencies = [
  "fuser",
  "indexmap",
  "libc",
- "log 0.4.17",
  "mirakc-core",
  "sanitize-filename",
  "serde_json",
  "structopt",
+ "tracing",
 ]
 
 [[package]]

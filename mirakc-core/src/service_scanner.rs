@@ -3,7 +3,6 @@ use std::sync::Arc;
 use actix::prelude::*;
 use anyhow;
 use indexmap::IndexMap;
-use log;
 use serde::Deserialize;
 use serde_json;
 use tokio::io::AsyncReadExt;
@@ -46,7 +45,7 @@ where
     pub async fn scan_services(
         self
     ) -> Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)> {
-        log::debug!("Scanning services...");
+        tracing::debug!("Scanning services...");
 
         let command = &self.config.jobs.scan_services.command;
         let mut results = Vec::new();
@@ -62,15 +61,15 @@ where
                     Some(map)
                 }
                 Err(err) => {
-                    log::warn!("Failed to scan services in {}: {}",
-                               channel.name, err);
+                    tracing::warn!("Failed to scan services in {}: {}",
+                                   channel.name, err);
                     None
                 }
             };
             results.push((channel.clone().into(), result));
         }
 
-        log::debug!("Scanned {} channels", self.config.channels.len());
+        tracing::debug!("Scanned {} channels", self.config.channels.len());
 
         results
     }
@@ -80,7 +79,7 @@ where
         command: &str,
         tuner_manager: &Addr<A>,
     ) -> anyhow::Result<Vec<EpgService>> {
-        log::debug!("Scanning services in {}...", channel.name);
+        tracing::debug!("Scanning services in {}...", channel.name);
 
         let user = TunerUser {
             info: TunerUserInfo::Job { name: Self::LABEL.to_string() },
@@ -125,7 +124,7 @@ where
         anyhow::ensure!(buf.len() > 0, "No service, maybe out of service");
 
         let services: Vec<TsService> = serde_json::from_slice(&buf)?;
-        log::debug!("Found {} services in {}", services.len(), channel.name);
+        tracing::debug!("Found {} services in {}", services.len(), channel.name);
 
         Ok(services
            .into_iter()
