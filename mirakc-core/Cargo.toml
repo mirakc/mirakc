@@ -19,7 +19,7 @@ futures = "0.3.24"
 http-range = "0.1.5"
 humantime = "2.1.0"
 indexmap = { version = "1.9.1", features = ["serde-1"] }
-itertools = "0.10.4"
+itertools = "0.10.5"
 libc = "0.2.133"
 log = "0.4.17"
 maplit = "1.0.2"
