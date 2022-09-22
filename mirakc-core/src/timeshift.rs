@@ -16,9 +16,9 @@ use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader, ReadBuf, Take};
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::LinesStream;
+use tokio_util::io::ReaderStream;
 
 use crate::config::*;
-use crate::chunk_stream::*;
 use crate::datetime_ext::*;
 use crate::eit_feeder::*;
 use crate::error::Error;
@@ -45,8 +45,10 @@ pub fn start(
 
 // timeshift manager
 
-type TimeshiftLiveStream = MpegTsStream<String, ChunkStream<TimeshiftFileReader>>;
-type TimeshiftRecordStream = MpegTsStream<String, ChunkStream<Take<TimeshiftFileReader>>>;
+type TimeshiftLiveStream =
+    MpegTsStream<String, ReaderStream<TimeshiftFileReader>>;
+type TimeshiftRecordStream =
+    MpegTsStream<String, ReaderStream<Take<TimeshiftFileReader>>>;
 
 pub struct TimeshiftManager {
     config: Arc<Config>,
@@ -1161,7 +1163,7 @@ impl TimeshiftLiveStreamSource {
             .await?
             .with_stop_trigger();
         reader.set_position(self.point.pos).await?;
-        let stream = ChunkStream::new(reader, CHUNK_SIZE);
+        let stream = ReaderStream::with_capacity(reader, CHUNK_SIZE);
         let id = format!("timeshift({})", self.name);
         Ok((MpegTsStream::new(id, stream).decoded(), stop_trigger))
     }
@@ -1198,7 +1200,8 @@ impl TimeshiftRecordStreamSource {
             .await?
             .with_stop_trigger();
         reader.set_position(self.start).await?;
-        let stream = ChunkStream::new(reader.take(self.range.bytes()), CHUNK_SIZE);
+        let stream = ReaderStream::with_capacity(
+            reader.take(self.range.bytes()), CHUNK_SIZE);
         let id = format!("timeshift({})/{}", self.recorder_name, self.id);
         if seekable {
             Ok((MpegTsStream::with_range(id, stream, self.range).decoded(), stop_trigger))

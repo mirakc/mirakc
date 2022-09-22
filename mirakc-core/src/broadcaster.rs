@@ -10,8 +10,8 @@ use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::io::ReaderStream;
 
-use crate::chunk_stream::ChunkStream;
 use crate::tuner::TunerSessionId as BroadcasterId;
 use crate::tuner::TunerSubscriptionId as SubscriberId;
 
@@ -43,7 +43,7 @@ impl Broadcaster {
     where
         R: AsyncRead + Unpin + 'static,
     {
-        let stream = ChunkStream::new(source, Self::CHUNK_SIZE);
+        let stream = ReaderStream::with_capacity(source, Self::CHUNK_SIZE);
         let _ = Self::add_stream(stream, ctx);
         Self {
             id,

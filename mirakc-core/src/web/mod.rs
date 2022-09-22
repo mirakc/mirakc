@@ -56,13 +56,13 @@ use serde::Serialize;
 use tokio;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::io::ReaderStream;
 use tower_http::services::ServeDir;
 use tower_http::services::ServeFile;
 use tower_http::trace::TraceLayer;
 
 use crate::airtime_tracker;
 use crate::config::Config;
-use crate::chunk_stream::ChunkStream;
 use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipelineProcessModel;
 use crate::datetime_ext::serde_jst;
@@ -1067,7 +1067,7 @@ where
         //
         // The command pipeline often breaks when reading stops for a few
         // seconds.
-        let mut stream = ChunkStream::new(
+        let mut stream = ReaderStream::with_capacity(
             output, config.server.stream_chunk_size);
         let (sender, receiver) = mpsc::channel(config.server.stream_max_chunks);
         tokio::spawn(async move {
