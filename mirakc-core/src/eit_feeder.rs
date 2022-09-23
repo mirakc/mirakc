@@ -119,7 +119,6 @@ pub struct EitCollector {
 
 impl EitCollector {
     const LABEL: &'static str = "eit-collector";
-    const UPDATE_CHUNK_SIZE: usize = 32;
 
     pub fn new(
         command: String,
@@ -193,20 +192,12 @@ impl EitCollector {
         let mut json = String::new();
         let mut num_sections = 0;
         let mut triples = HashSet::new();
-        let mut sections = Vec::with_capacity(Self::UPDATE_CHUNK_SIZE);
         while reader.read_line(&mut json).await? > 0 {
-            let eit = serde_json::from_str::<EitSection>(&json)?;
-            triples.insert(eit.service_triple());
-            sections.push(eit);
-            if sections.len() == Self::UPDATE_CHUNK_SIZE {
-                epg.do_send(UpdateSchedulesMessage { sections });
-                sections = Vec::with_capacity(32);
-            }
+            let section = serde_json::from_str::<EitSection>(&json)?;
+            triples.insert(section.service_triple());
+            epg.do_send(UpdateSchedulesMessage { section });
             json.clear();
             num_sections += 1;
-        }
-        if !sections.is_empty() {
-            epg.do_send(UpdateSchedulesMessage { sections });
         }
 
         drop(stop_trigger);

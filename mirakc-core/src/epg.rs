@@ -130,14 +130,12 @@ impl Epg {
         }
     }
 
-    fn update_schedules(&mut self, sections: Vec<EitSection>) {
+    fn update_schedules(&mut self, section: EitSection) {
         self.prepare_schedules(Jst::now());
-        for section in sections.into_iter() {
-            let triple = section.service_triple();
-            self.schedules.entry(triple).and_modify(move |sched| {
-                sched.update(section);
-            });
-        }
+        let triple = section.service_triple();
+        self.schedules.entry(triple).and_modify(move |sched| {
+            sched.update(section);
+        });
     }
 
     fn flush_schedules(&mut self, triples: Vec<ServiceTriple>) {
@@ -658,25 +656,25 @@ impl Handler<UpdateClocksMessage> for Epg {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct UpdateSchedulesMessage {
-    pub sections: Vec<EitSection>,
-}
-
-impl fmt::Display for UpdateSchedulesMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "UpdateSchedules with {} EIT sections",
-            self.sections.len()
-        )
-    }
+    pub section: EitSection,
 }
 
 impl Handler<UpdateSchedulesMessage> for Epg {
     type Result = ();
 
     fn handle(&mut self, msg: UpdateSchedulesMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
-        self.update_schedules(msg.sections);
+        tracing::debug!(
+            msg.name = "UpdateSchedules",
+            msg.section.nid = ?msg.section.original_network_id.value(),
+            msg.section.tsid = ?msg.section.transport_stream_id.value(),
+            msg.section.sid = ?msg.section.service_id.value(),
+            msg.section.table_id,
+            msg.section.section_number,
+            msg.section.last_section_number,
+            msg.section.segment_last_section_number,
+            msg.section.version_number,
+        );
+        self.update_schedules(msg.section);
     }
 }
 
