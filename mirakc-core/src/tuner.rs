@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use actix::prelude::*;
 use mustache;
@@ -31,9 +31,12 @@ pub struct TunerSessionId {
 
 impl TunerSessionId {
     pub fn new(tuner_index: usize) -> Self {
-        static COUNTER:AtomicU32 = AtomicU32::new(0);
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
         let session_number = COUNTER.fetch_add(1, Ordering::Relaxed);
-        TunerSessionId { tuner_index, session_number }
+        TunerSessionId {
+            tuner_index,
+            session_number,
+        }
     }
 }
 
@@ -52,7 +55,10 @@ pub struct TunerSubscriptionId {
 
 impl TunerSubscriptionId {
     pub fn new(session_id: TunerSessionId, serial_number: u32) -> Self {
-        Self { session_id, serial_number }
+        Self {
+            session_id,
+            serial_number,
+        }
     }
 }
 
@@ -77,18 +83,26 @@ struct TunerSubscription {
 
 impl TunerSubscription {
     fn new(id: TunerSubscriptionId, broadcaster: Addr<Broadcaster>) -> Self {
-        Self { id, broadcaster, decoded: false, }
+        Self {
+            id,
+            broadcaster,
+            decoded: false,
+        }
     }
 }
 
 impl TunerManager {
     pub fn new(config: Arc<Config>) -> Self {
-        TunerManager { config, tuners: Vec::new() }
+        TunerManager {
+            config,
+            tuners: Vec::new(),
+        }
     }
 
     fn load_tuners(&mut self) {
         tracing::info!("Loading tuners...");
-        let tuners: Vec<Tuner> = self.config
+        let tuners: Vec<Tuner> = self
+            .config
             .tuners
             .iter()
             .filter(|config| !config.disabled)
@@ -112,39 +126,49 @@ impl TunerManager {
             return Err(Error::TunerUnavailable);
         }
 
-        let found = self.tuners
+        let found = self
+            .tuners
             .iter_mut()
             .find(|tuner| tuner.is_reuseable(&channel));
         if let Some(tuner) = found {
-            tracing::info!("tuner#{}: Reuse tuner already activated for {}",
-                           tuner.index, channel);
+            tracing::info!(
+                "tuner#{}: Reuse tuner already activated for {}",
+                tuner.index,
+                channel
+            );
             return Ok(tuner.subscribe(user));
         }
 
         // Clone the config in order to avoid compile errors from the borrow checker.
         let config = self.config.clone();
 
-        let found = self.tuners
+        let found = self
+            .tuners
             .iter_mut()
             .find(|tuner| tuner.is_available_for(&channel));
         if let Some(tuner) = found {
             tracing::info!("tuner#{}: Activate for {}", tuner.index, channel);
-            let filters = Self::make_filter_commands(
-                &tuner, &channel, &config.filters.tuner_filter)?;
+            let filters =
+                Self::make_filter_commands(&tuner, &channel, &config.filters.tuner_filter)?;
             tuner.activate(channel, filters)?;
             return Ok(tuner.subscribe(user));
         }
 
         // No available tuner at this point.
         // Grab a tuner used by lower priority users.
-        let found = self.tuners
+        let found = self
+            .tuners
             .iter_mut()
             .filter(|tuner| tuner.is_supported_type(&channel))
             .find(|tuner| tuner.can_grab(user.priority));
         if let Some(tuner) = found {
-            tracing::info!("tuner#{}: Grab tuner, reactivate for {}", tuner.index, channel);
-            let filters = Self::make_filter_commands(
-                &tuner, &channel, &config.filters.tuner_filter)?;
+            tracing::info!(
+                "tuner#{}: Grab tuner, reactivate for {}",
+                tuner.index,
+                channel
+            );
+            let filters =
+                Self::make_filter_commands(&tuner, &channel, &config.filters.tuner_filter)?;
             tuner.deactivate();
             tuner.activate(channel, filters)?;
             return Ok(tuner.subscribe(user));
@@ -226,13 +250,10 @@ impl fmt::Display for QueryTunersMessage {
 impl Handler<QueryTunersMessage> for TunerManager {
     type Result = Result<Vec<MirakurunTuner>, Error>;
 
-    fn handle(
-        &mut self,
-        msg: QueryTunersMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: QueryTunersMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
-        let tuners: Vec<MirakurunTuner> = self.tuners
+        let tuners: Vec<MirakurunTuner> = self
+            .tuners
             .iter()
             .map(|tuner| tuner.get_mirakurun_model())
             .collect();
@@ -258,11 +279,7 @@ impl fmt::Display for StartStreamingMessage {
 impl Handler<StartStreamingMessage> for TunerManager {
     type Result = ActorResponse<Self, Result<TunerStream, Error>>;
 
-    fn handle(
-        &mut self,
-        msg: StartStreamingMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: StartStreamingMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
 
         let subscription = match self.activate_tuner(msg.channel, msg.user) {
@@ -270,21 +287,26 @@ impl Handler<StartStreamingMessage> for TunerManager {
             Err(err) => return ActorResponse::reply(Err(Error::from(err))),
         };
 
-        let fut = actix::fut::wrap_future::<_, Self>(
-            subscription.broadcaster.send(SubscribeMessage {
-                id: subscription.id
+        let fut =
+            actix::fut::wrap_future::<_, Self>(subscription.broadcaster.send(SubscribeMessage {
+                id: subscription.id,
             }))
             .map(move |result, act, _ctx| {
                 if result.is_ok() {
                     tracing::info!("{}: Started streaming", subscription.id);
                 } else {
-                    tracing::error!("{}: Broadcaster may have stopped",
-                                subscription.id);
+                    tracing::error!("{}: Broadcaster may have stopped", subscription.id);
                     act.deactivate_tuner(subscription.id);
                 }
                 result
                     .map(|stream| MpegTsStream::new(subscription.id, stream))
-                    .map(|stream| if subscription.decoded { stream.decoded() } else { stream })
+                    .map(|stream| {
+                        if subscription.decoded {
+                            stream.decoded()
+                        } else {
+                            stream
+                        }
+                    })
                     .map_err(Error::from)
             });
 
@@ -309,11 +331,7 @@ impl fmt::Display for StopStreamingMessage {
 impl Handler<StopStreamingMessage> for TunerManager {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: StopStreamingMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: StopStreamingMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.stop_streaming(msg.id)
     }
@@ -332,10 +350,7 @@ struct Tuner {
 }
 
 impl Tuner {
-    fn new(
-        index: usize,
-        config: &TunerConfig,
-    ) -> Self {
+    fn new(index: usize, config: &TunerConfig) -> Self {
         Tuner {
             index,
             name: config.name.clone(),
@@ -371,14 +386,10 @@ impl Tuner {
         priority.is_grab() || self.activity.can_grab(priority)
     }
 
-    fn activate(
-        &mut self,
-        channel: EpgChannel,
-        filters: Vec<String>,
-    ) -> Result<(), Error> {
+    fn activate(&mut self, channel: EpgChannel, filters: Vec<String>) -> Result<(), Error> {
         let command = self.make_command(&channel)?;
-        self.activity.activate(
-            self.index, channel, command, filters, self.time_limit)
+        self.activity
+            .activate(self.index, channel, command, filters, self.time_limit)
     }
 
     fn deactivate(&mut self) {
@@ -391,10 +402,7 @@ impl Tuner {
         subscription
     }
 
-    fn stop_streaming(
-        &mut self,
-        id: TunerSubscriptionId,
-    ) -> Result<(), Error> {
+    fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<(), Error> {
         let num_users = self.activity.stop_streaming(id)?;
         if num_users == 0 {
             self.deactivate();
@@ -450,8 +458,8 @@ impl TunerActivity {
     ) -> Result<(), Error> {
         match self {
             Self::Inactive => {
-                let session = TunerSession::new(
-                    tuner_index, channel, command, filters, time_limit)?;
+                let session =
+                    TunerSession::new(tuner_index, channel, command, filters, time_limit)?;
                 *self = Self::Active(session);
                 Ok(())
             }
@@ -488,10 +496,7 @@ impl TunerActivity {
         }
     }
 
-    fn stop_streaming(
-        &mut self,
-        id: TunerSubscriptionId,
-    ) -> Result<usize, Error> {
+    fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<usize, Error> {
         match self {
             Self::Inactive => Err(Error::SessionNotFound),
             Self::Active(session) => session.stop_streaming(id),
@@ -505,9 +510,7 @@ impl TunerActivity {
         }
     }
 
-    fn get_mirakurun_models(
-        &self
-    ) -> (Option<String>, Option<u32>, Vec<MirakurunTunerUser>) {
+    fn get_mirakurun_models(&self) -> (Option<String>, Option<u32>, Vec<MirakurunTunerUser>) {
         match self {
             Self::Inactive => (None, None, Vec::new()),
             Self::Active(session) => session.get_mirakurun_models(),
@@ -541,21 +544,24 @@ impl TunerSession {
         let id = TunerSessionId::new(tuner_index);
         let mut pipeline = spawn_pipeline(commands, id)?;
         let (_, output) = pipeline.take_endpoints()?;
-        let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(id.clone(), output, time_limit, ctx)
-        });
+        let broadcaster =
+            Broadcaster::create(|ctx| Broadcaster::new(id.clone(), output, time_limit, ctx));
 
         tracing::info!("{}: Activated with {}", id, channel);
 
         Ok(TunerSession {
-            id, channel, command, pipeline, broadcaster,
-            subscribers: HashMap::new(), next_serial_number: 1
+            id,
+            channel,
+            command,
+            pipeline,
+            broadcaster,
+            subscribers: HashMap::new(),
+            next_serial_number: 1,
         })
     }
 
     fn is_reuseable(&self, channel: &EpgChannel) -> bool {
-        self.channel.channel_type == channel.channel_type &&
-            self.channel.channel == channel.channel
+        self.channel.channel_type == channel.channel_type && self.channel.channel == channel.channel
     }
 
     fn subscribe(&mut self, user: TunerUser) -> TunerSubscription {
@@ -575,13 +581,12 @@ impl TunerSession {
             .all(|user| priority > user.priority)
     }
 
-    fn stop_streaming(
-        &mut self,
-        id: TunerSubscriptionId
-    ) -> Result<usize, Error> {
+    fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<usize, Error> {
         if self.id != id.session_id {
-            tracing::warn!("Session ID unmatched, {} was probably deactivated",
-                           id.session_id);
+            tracing::warn!(
+                "Session ID unmatched, {} was probably deactivated",
+                id.session_id
+            );
             return Err(Error::SessionNotFound);
         }
         match self.subscribers.remove(&id.serial_number) {
@@ -592,13 +597,14 @@ impl TunerSession {
         Ok(self.subscribers.len())
     }
 
-    fn get_mirakurun_models(
-        &self
-    ) -> (Option<String>, Option<u32>, Vec<MirakurunTunerUser>) {
+    fn get_mirakurun_models(&self) -> (Option<String>, Option<u32>, Vec<MirakurunTunerUser>) {
         (
             Some(self.command.clone()),
             self.pipeline.pids().iter().cloned().next().flatten(),
-            self.subscribers.values().map(|user| user.get_mirakurun_model()).collect(),
+            self.subscribers
+                .values()
+                .map(|user| user.get_mirakurun_model())
+                .collect(),
         )
     }
 }
@@ -615,10 +621,7 @@ pub struct TunerStreamStopTrigger {
 }
 
 impl TunerStreamStopTrigger {
-    pub fn new(
-        id: TunerSubscriptionId,
-        recipient: Recipient<StopStreamingMessage>
-    ) -> Self {
+    pub fn new(id: TunerSubscriptionId, recipient: Recipient<StopStreamingMessage>) -> Self {
         Self { id, recipient }
     }
 }
@@ -626,21 +629,21 @@ impl TunerStreamStopTrigger {
 impl Drop for TunerStreamStopTrigger {
     fn drop(&mut self) {
         tracing::debug!("{}: Closing...", self.id);
-        let _ = self.recipient.do_send(StopStreamingMessage {
-            id: self.id
-        });
+        let _ = self.recipient.do_send(StopStreamingMessage { id: self.id });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_matches::assert_matches;
     use crate::command_util::Error as CommandUtilError;
+    use assert_matches::assert_matches;
 
     #[actix::test]
     async fn test_start_streaming() {
-        let config: Arc<Config> = Arc::new(serde_yaml::from_str(r#"
+        let config: Arc<Config> = Arc::new(
+            serde_yaml::from_str(
+                r#"
             tuners:
               - name: bs
                 types: [BS]
@@ -650,41 +653,52 @@ mod tests {
                 types: [GR]
                 command: >-
                   true
-        "#).unwrap());
+        "#,
+            )
+            .unwrap(),
+        );
 
         let manager = start(config);
 
-        let result = manager.send(StartStreamingMessage {
-            channel: create_channel("0"),
-            user: create_user(0.into()),
-        }).await;
+        let result = manager
+            .send(StartStreamingMessage {
+                channel: create_channel("0"),
+                user: create_user(0.into()),
+            })
+            .await;
         let stream1 = assert_matches!(result, Ok(Ok(stream)) => {
             assert_eq!(stream.id().session_id.tuner_index, 1);
             stream
         });
 
         // Reuse the tuner
-        let result = manager.send(StartStreamingMessage {
-            channel: create_channel("0"),
-            user: create_user(1.into()),
-        }).await;
+        let result = manager
+            .send(StartStreamingMessage {
+                channel: create_channel("0"),
+                user: create_user(1.into()),
+            })
+            .await;
         assert_matches!(result, Ok(Ok(stream)) => {
             assert_eq!(stream.id().session_id, stream1.id().session_id);
             assert_ne!(stream.id(), stream1.id());
         });
 
         // Lower and same priority user cannot grab the tuner
-        let result = manager.send(StartStreamingMessage {
-            channel: create_channel("1"),
-            user: create_user(1.into()),
-        }).await;
+        let result = manager
+            .send(StartStreamingMessage {
+                channel: create_channel("1"),
+                user: create_user(1.into()),
+            })
+            .await;
         assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
 
         // Higher priority user can grab the tuner
-        let result = manager.send(StartStreamingMessage {
-            channel: create_channel("1"),
-            user: create_user(2.into()),
-        }).await;
+        let result = manager
+            .send(StartStreamingMessage {
+                channel: create_channel("1"),
+                user: create_user(2.into()),
+            })
+            .await;
         assert_matches!(result, Ok(Ok(stream)) => {
             assert_eq!(stream.id().session_id.tuner_index, 1);
             assert_ne!(stream.id().session_id, stream1.id().session_id);
@@ -723,8 +737,10 @@ mod tests {
             let config = create_config("cmd '".to_string());
             let mut tuner = Tuner::new(0, &config);
             let result = tuner.activate(create_channel("1"), vec![]);
-            assert_matches!(result, Err(Error::CommandFailed(
-                CommandUtilError::UnableToParse(_))));
+            assert_matches!(
+                result,
+                Err(Error::CommandFailed(CommandUtilError::UnableToParse(_)))
+            );
             tokio::task::yield_now().await;
         }
 
@@ -732,8 +748,10 @@ mod tests {
             let config = create_config("no-such-command".to_string());
             let mut tuner = Tuner::new(0, &config);
             let result = tuner.activate(create_channel("1"), vec![]);
-            assert_matches!(result, Err(Error::CommandFailed(
-                CommandUtilError::UnableToSpawn(..))));
+            assert_matches!(
+                result,
+                Err(Error::CommandFailed(CommandUtilError::UnableToSpawn(..)))
+            );
             tokio::task::yield_now().await;
         }
     }
@@ -748,7 +766,10 @@ mod tests {
         let result = tuner.activate(create_channel("1"), vec![]);
         assert!(result.is_ok());
         let subscription = tuner.subscribe(TunerUser {
-            info: TunerUserInfo::Web { id: "".to_string(), agent: None },
+            info: TunerUserInfo::Web {
+                id: "".to_string(),
+                agent: None,
+            },
             priority: 0.into(),
         });
 
@@ -831,8 +852,10 @@ mod tests {
 
     fn create_user(priority: TunerUserPriority) -> TunerUser {
         TunerUser {
-            info: TunerUserInfo::Job { name: "test".to_string() },
-            priority
+            info: TunerUserInfo::Job {
+                name: "test".to_string(),
+            },
+            priority,
         }
     }
 }

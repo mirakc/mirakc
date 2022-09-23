@@ -33,10 +33,9 @@ where
 {
     type Rejection = Error;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        Ok(Self(serde_qs::from_str::<T>(parts.uri.query().unwrap_or(""))?))
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Self(serde_qs::from_str::<T>(
+            parts.uri.query().unwrap_or(""),
+        )?))
     }
 }

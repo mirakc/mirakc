@@ -44,10 +44,7 @@ where
     // `BoxFuture` is a type alias for `Pin<Box<dyn Future + Send + 'a>>`
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn poll_ready(
-        &mut self,
-        cx: &mut Context<'_>
-    ) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
     }
 

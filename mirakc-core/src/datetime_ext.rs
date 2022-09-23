@@ -1,8 +1,7 @@
 use std::fmt;
 
 use chrono::{
-    Date, DateTime, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset,
-    TimeZone, Utc,
+    Date, DateTime, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset, TimeZone, Utc,
 };
 
 // The following implementation is based on chrono::offset::Utc.
@@ -30,35 +29,42 @@ impl Jst {
 impl TimeZone for Jst {
     type Offset = Jst;
 
-    fn from_offset(_offset: &Jst) -> Jst { Jst }
+    fn from_offset(_offset: &Jst) -> Jst {
+        Jst
+    }
 
     fn offset_from_local_date(&self, _local: &NaiveDate) -> LocalResult<Jst> {
         LocalResult::Single(Jst)
     }
 
-    fn offset_from_local_datetime(
-        &self, _local: &NaiveDateTime) -> LocalResult<Jst> {
+    fn offset_from_local_datetime(&self, _local: &NaiveDateTime) -> LocalResult<Jst> {
         LocalResult::Single(Jst)
     }
 
-    fn offset_from_utc_date(&self, _utc: &NaiveDate) -> Jst { Jst }
+    fn offset_from_utc_date(&self, _utc: &NaiveDate) -> Jst {
+        Jst
+    }
 
-    fn offset_from_utc_datetime(&self, _utc: &NaiveDateTime) -> Jst { Jst }
+    fn offset_from_utc_datetime(&self, _utc: &NaiveDateTime) -> Jst {
+        Jst
+    }
 }
 
 impl Offset for Jst {
-    fn fix(&self) -> FixedOffset { FixedOffset::east(9 * 60 * 60) }
+    fn fix(&self) -> FixedOffset {
+        FixedOffset::east(9 * 60 * 60)
+    }
 }
 
 impl fmt::Display for Jst {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.fix(), f)  // Simply delegate to FixedOffset
+        fmt::Display::fmt(&self.fix(), f) // Simply delegate to FixedOffset
     }
 }
 
 impl fmt::Debug for Jst {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self.fix(), f)  // Simply delegate to FixedOffset
+        fmt::Debug::fmt(&self.fix(), f) // Simply delegate to FixedOffset
     }
 }
 
@@ -84,8 +90,8 @@ mod tests {
     #[test]
     fn test_from_rfc2822() {
         let jst = DateTime::parse_from_rfc2822(RFC2822_STR)
-                           .unwrap()
-                           .with_timezone(&Jst);
+            .unwrap()
+            .with_timezone(&Jst);
         assert_eq!(jst.timestamp(), UNIX_TIME);
     }
 }
@@ -105,21 +111,22 @@ mod tests {
 // chrono::serde::*::{serialize, deserialize} on the DateTime<T> object like
 // below.
 pub mod serde_jst {
-    use chrono::{DateTime, Utc};
     use chrono::serde::ts_milliseconds;
-    use serde::{ser, de};
+    use chrono::{DateTime, Utc};
+    use serde::{de, ser};
 
     use super::Jst;
 
-    pub fn serialize<S>(
-        jst: &DateTime<Jst>, s: S) -> Result<S::Ok, S::Error>
-    where S: ser::Serializer
+    pub fn serialize<S>(jst: &DateTime<Jst>, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
     {
         ts_milliseconds::serialize(&jst.with_timezone(&Utc), s)
     }
 
     pub fn deserialize<'de, D>(d: D) -> Result<DateTime<Jst>, D::Error>
-    where D: de::Deserializer<'de>
+    where
+        D: de::Deserializer<'de>,
     {
         Ok(ts_milliseconds::deserialize(d)?.with_timezone(&Jst))
     }
@@ -127,7 +134,7 @@ pub mod serde_jst {
     #[cfg(test)]
     mod tests {
         use chrono::{DateTime, TimeZone, Utc};
-        use serde::{Serialize, Deserialize};
+        use serde::{Deserialize, Serialize};
         use serde_json;
 
         use crate::datetime_ext::{serde_jst, Jst};
@@ -135,7 +142,7 @@ pub mod serde_jst {
         #[derive(Debug, Deserialize, Serialize, PartialEq)]
         struct Data {
             #[serde(with = "serde_jst")]
-            datetime: DateTime<Jst>
+            datetime: DateTime<Jst>,
         }
 
         impl Data {
@@ -151,14 +158,15 @@ pub mod serde_jst {
 
         #[test]
         fn test_deserialize() {
-            assert_eq!(Data::new(UNIX_TIME),
-                       serde_json::from_str::<Data>(JSON).unwrap());
+            assert_eq!(
+                Data::new(UNIX_TIME),
+                serde_json::from_str::<Data>(JSON).unwrap()
+            );
         }
 
         #[test]
         fn test_serialize() {
-            assert_eq!(JSON,
-                       serde_json::to_string(&Data::new(UNIX_TIME)).unwrap());
+            assert_eq!(JSON, serde_json::to_string(&Data::new(UNIX_TIME)).unwrap());
         }
     }
 }
@@ -166,21 +174,22 @@ pub mod serde_jst {
 // The `serde_duration_in_millis` module provides serde implementaion for
 // chrono::Duration, which can be applied with the `with` field attribute.
 pub mod serde_duration_in_millis {
-    use std::fmt;
     use std::convert::TryFrom;
+    use std::fmt;
 
     use chrono::Duration;
-    use serde::{ser, de};
+    use serde::{de, ser};
 
-    pub fn serialize<S>(
-        duration: &Duration, s: S) -> Result<S::Ok, S::Error>
-    where S: ser::Serializer
+    pub fn serialize<S>(duration: &Duration, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
     {
         s.serialize_i64(duration.num_milliseconds())
     }
 
     pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
-    where D: de::Deserializer<'de>
+    where
+        D: de::Deserializer<'de>,
     {
         d.deserialize_i64(DurationVisitor)
     }
@@ -195,13 +204,15 @@ pub mod serde_duration_in_millis {
         }
 
         fn visit_i64<E>(self, value: i64) -> Result<Duration, E>
-        where E: de::Error
+        where
+            E: de::Error,
         {
             Ok(Duration::milliseconds(value))
         }
 
         fn visit_u64<E>(self, value: u64) -> Result<Duration, E>
-        where E: de::Error
+        where
+            E: de::Error,
         {
             match i64::try_from(value) {
                 Ok(v) => Ok(Duration::milliseconds(v)),
@@ -213,7 +224,7 @@ pub mod serde_duration_in_millis {
     #[cfg(test)]
     mod tests {
         use chrono::Duration;
-        use serde::{Serialize, Deserialize};
+        use serde::{Deserialize, Serialize};
         use serde_json;
 
         use crate::datetime_ext::serde_duration_in_millis;
@@ -221,7 +232,7 @@ pub mod serde_duration_in_millis {
         #[derive(Debug, Deserialize, Serialize, PartialEq)]
         struct Data {
             #[serde(with = "serde_duration_in_millis")]
-            duration: Duration
+            duration: Duration,
         }
 
         impl Data {
@@ -237,17 +248,21 @@ pub mod serde_duration_in_millis {
 
         #[test]
         fn test_deserialize() {
-            assert_eq!(Data::new(DURATION),
-                       serde_json::from_str::<Data>(JSON).unwrap());
+            assert_eq!(
+                Data::new(DURATION),
+                serde_json::from_str::<Data>(JSON).unwrap()
+            );
 
-            assert!(serde_json::from_str::<Data>(
-                &format!(r#"{{"duration":{}}}"#, u64::max_value())).is_err());
+            assert!(serde_json::from_str::<Data>(&format!(
+                r#"{{"duration":{}}}"#,
+                u64::max_value()
+            ))
+            .is_err());
         }
 
         #[test]
         fn test_serialize() {
-            assert_eq!(JSON,
-                       serde_json::to_string(&Data::new(DURATION)).unwrap());
+            assert_eq!(JSON, serde_json::to_string(&Data::new(DURATION)).unwrap());
         }
     }
 }

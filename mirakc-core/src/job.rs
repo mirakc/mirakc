@@ -48,8 +48,11 @@ impl Job {
         let now = Instant::now();
         let results = fut.await;
         let elapsed = now.elapsed();
-        tracing::info!("{}: Done, {} elapsed",
-                       self.kind, humantime::format_duration(elapsed));
+        tracing::info!(
+            "{}: Done, {} elapsed",
+            self.kind,
+            humantime::format_duration(elapsed)
+        );
         results
     }
 }
@@ -79,7 +82,7 @@ impl fmt::Display for JobKind {
 
 pub struct JobManager {
     config: Arc<Config>,
-    semaphore: Arc<Semaphore>,  // job concurrency
+    semaphore: Arc<Semaphore>, // job concurrency
     scanning_services: bool,
     synchronizing_clocks: bool,
     updating_schedules: bool,
@@ -133,11 +136,10 @@ impl JobManager {
 
         self.scanning_services = true;
 
-        let scanner = ServiceScanner::new(
-            self.config.clone(),
-            self.tuner_manager.clone());
+        let scanner = ServiceScanner::new(self.config.clone(), self.tuner_manager.clone());
 
-        let job = JobKind::ScanServices.create(self.semaphore.clone())
+        let job = JobKind::ScanServices
+            .create(self.semaphore.clone())
             .perform(scanner.scan_services());
 
         actix::fut::wrap_future::<_, Self>(job)
@@ -150,8 +152,7 @@ impl JobManager {
     }
 
     fn schedule_scan_services(&self, ctx: &mut Context<Self>) {
-        let datetime = self.calc_next_scheduled_datetime(
-            &self.config.jobs.scan_services.schedule);
+        let datetime = self.calc_next_scheduled_datetime(&self.config.jobs.scan_services.schedule);
         tracing::info!("scan-services: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
         ctx.run_later(interval, Self::scan_services);
@@ -174,11 +175,10 @@ impl JobManager {
 
         self.synchronizing_clocks = true;
 
-        let sync = ClockSynchronizer::new(
-            self.config.clone(),
-            self.tuner_manager.clone());
+        let sync = ClockSynchronizer::new(self.config.clone(), self.tuner_manager.clone());
 
-        let job = JobKind::SyncClocks.create(self.semaphore.clone())
+        let job = JobKind::SyncClocks
+            .create(self.semaphore.clone())
             .perform(sync.sync_clocks());
 
         actix::fut::wrap_future::<_, Self>(job)
@@ -191,8 +191,7 @@ impl JobManager {
     }
 
     fn schedule_sync_clocks(&self, ctx: &mut Context<Self>) {
-        let datetime = self.calc_next_scheduled_datetime(
-            &self.config.jobs.sync_clocks.schedule);
+        let datetime = self.calc_next_scheduled_datetime(&self.config.jobs.sync_clocks.schedule);
         tracing::info!("sync-clocks: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
         ctx.run_later(interval, Self::sync_clocks);
@@ -217,10 +216,9 @@ impl JobManager {
 
         let eit_feeder = self.eit_feeder.clone();
 
-        let job = JobKind::UpdateSchedules.create(self.semaphore.clone())
-            .perform(async move {
-                eit_feeder.send(FeedEitSectionsMessage).await?
-            });
+        let job = JobKind::UpdateSchedules
+            .create(self.semaphore.clone())
+            .perform(async move { eit_feeder.send(FeedEitSectionsMessage).await? });
 
         actix::fut::wrap_future::<_, Self>(job)
             .then(|_, act, _| {
@@ -232,8 +230,8 @@ impl JobManager {
     }
 
     fn schedule_update_schedules(&mut self, ctx: &mut Context<Self>) {
-        let datetime = self.calc_next_scheduled_datetime(
-            &self.config.jobs.update_schedules.schedule);
+        let datetime =
+            self.calc_next_scheduled_datetime(&self.config.jobs.update_schedules.schedule);
         tracing::info!("update-schedules: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
         ctx.run_later(interval, Self::update_schedules);
@@ -293,11 +291,7 @@ impl Message for InvokeScanServicesMessage {
 impl Handler<InvokeScanServicesMessage> for JobManager {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: InvokeScanServicesMessage,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: InvokeScanServicesMessage, ctx: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.invoke_scan_services(ctx);
     }
@@ -320,11 +314,7 @@ impl Message for InvokeSyncClocksMessage {
 impl Handler<InvokeSyncClocksMessage> for JobManager {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: InvokeSyncClocksMessage,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: InvokeSyncClocksMessage, ctx: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.invoke_sync_clocks(ctx);
     }

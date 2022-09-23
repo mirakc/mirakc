@@ -5,15 +5,19 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::config::ResourceConfig;
-use crate::datetime_ext::{serde_jst, serde_duration_in_millis, Jst};
-use crate::eit_feeder::{AudioComponentDescriptor, ComponentDescriptor};
+use crate::datetime_ext::{serde_duration_in_millis, serde_jst, Jst};
 use crate::eit_feeder::SeriesDescriptor;
-use crate::epg::{EpgChannel, EpgService, EpgProgram};
+use crate::eit_feeder::{AudioComponentDescriptor, ComponentDescriptor};
+use crate::epg::{EpgChannel, EpgProgram, EpgService};
 use crate::tuner::TunerSubscriptionId;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[derive(Deserialize, Serialize)]
-pub enum ChannelType { GR, BS, CS, SKY }
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+pub enum ChannelType {
+    GR,
+    BS,
+    CS,
+    SKY,
+}
 
 impl fmt::Display for ChannelType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -26,12 +30,13 @@ impl fmt::Display for ChannelType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct NetworkId(u16);
 
 impl NetworkId {
-    pub fn value(&self) -> u16 { self.0 }
+    pub fn value(&self) -> u16 {
+        self.0
+    }
 }
 
 impl fmt::Display for NetworkId {
@@ -41,15 +46,18 @@ impl fmt::Display for NetworkId {
 }
 
 impl From<u16> for NetworkId {
-    fn from(value: u16) -> Self { Self(value) }
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct TransportStreamId(u16);
 
 impl TransportStreamId {
-    pub fn value(&self) -> u16 { self.0 }
+    pub fn value(&self) -> u16 {
+        self.0
+    }
 }
 
 impl fmt::Display for TransportStreamId {
@@ -59,15 +67,18 @@ impl fmt::Display for TransportStreamId {
 }
 
 impl From<u16> for TransportStreamId {
-    fn from(value: u16) -> Self { Self(value) }
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct ServiceId(u16);
 
 impl ServiceId {
-    pub fn value(&self) -> u16 { self.0 }
+    pub fn value(&self) -> u16 {
+        self.0
+    }
 }
 
 impl fmt::Display for ServiceId {
@@ -77,15 +88,18 @@ impl fmt::Display for ServiceId {
 }
 
 impl From<u16> for ServiceId {
-    fn from(value: u16) -> Self { Self(value) }
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct EventId(u16);
 
 impl EventId {
-    pub fn value(&self) -> u16 { self.0 }
+    pub fn value(&self) -> u16 {
+        self.0
+    }
 }
 
 impl fmt::Display for EventId {
@@ -95,24 +109,20 @@ impl fmt::Display for EventId {
 }
 
 impl From<u16> for EventId {
-    fn from(value: u16) -> Self { Self(value) }
+    fn from(value: u16) -> Self {
+        Self(value)
+    }
 }
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Debug))]
 pub struct ServiceTriple(u64);
 
 impl ServiceTriple {
-    pub fn new(
-        nid: NetworkId,
-        tsid: TransportStreamId,
-        sid: ServiceId,
-    ) -> Self {
+    pub fn new(nid: NetworkId, tsid: TransportStreamId, sid: ServiceId) -> Self {
         ServiceTriple(
-            (nid.value() as u64)  << 48 |
-            (tsid.value() as u64) << 32 |
-            (sid.value() as u64)  << 16 )
+            (nid.value() as u64) << 48 | (tsid.value() as u64) << 32 | (sid.value() as u64) << 16,
+        )
     }
 
     pub fn value(&self) -> u64 {
@@ -139,9 +149,7 @@ impl fmt::Display for ServiceTriple {
 }
 
 impl From<(NetworkId, TransportStreamId, ServiceId)> for ServiceTriple {
-    fn from(
-        triple: (NetworkId, TransportStreamId, ServiceId)
-    ) -> ServiceTriple {
+    fn from(triple: (NetworkId, TransportStreamId, ServiceId)) -> ServiceTriple {
         ServiceTriple::new(triple.0, triple.1, triple.2)
     }
 }
@@ -152,22 +160,16 @@ impl From<EventQuad> for ServiceTriple {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct EventQuad(u64);
 
 impl EventQuad {
-    pub fn new(
-        nid: NetworkId,
-        tsid: TransportStreamId,
-        sid: ServiceId,
-        eid: EventId
-    ) -> Self {
+    pub fn new(nid: NetworkId, tsid: TransportStreamId, sid: ServiceId, eid: EventId) -> Self {
         EventQuad(
-            (nid.value() as u64)  << 48 |
-            (tsid.value() as u64) << 32 |
-            (sid.value() as u64)  << 16 |
-            (eid.value() as u64)
+            (nid.value() as u64) << 48
+                | (tsid.value() as u64) << 32
+                | (sid.value() as u64) << 16
+                | (eid.value() as u64),
         )
     }
 
@@ -205,15 +207,12 @@ impl From<(ServiceTriple, EventId)> for EventQuad {
 }
 
 impl From<(NetworkId, TransportStreamId, ServiceId, EventId)> for EventQuad {
-    fn from(
-        quad: (NetworkId, TransportStreamId, ServiceId, EventId)
-    ) -> EventQuad {
+    fn from(quad: (NetworkId, TransportStreamId, ServiceId, EventId)) -> EventQuad {
         EventQuad::new(quad.0, quad.1, quad.2, quad.3)
     }
 }
 
-#[derive(Clone, Debug)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Clock {
     // PID of PCR packets
@@ -224,8 +223,7 @@ pub struct Clock {
     pub time: i64,
 }
 
-#[derive(Clone, Debug)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EpgGenre {
     pub lv1: u8,
     pub lv2: u8,
@@ -265,12 +263,12 @@ impl fmt::Display for TunerUserInfo {
         match self {
             Self::Job { name } => write!(f, "Job({})", name),
             Self::Recorder { name } => write!(f, "Recorder({})", name),
-            Self::Tracker { stream_id } =>
-                write!(f, "Tracker({})", stream_id),
-            Self::Web { id, agent: None } =>
-                write!(f, r#"Web(id="{}")"#, id),
-            Self::Web { id, agent: Some(agent) } =>
-                write!(f, r#"Web(id="{}" agent="{}")"#, id, agent),
+            Self::Tracker { stream_id } => write!(f, "Tracker({})", stream_id),
+            Self::Web { id, agent: None } => write!(f, r#"Web(id="{}")"#, id),
+            Self::Web {
+                id,
+                agent: Some(agent),
+            } => write!(f, r#"Web(id="{}" agent="{}")"#, id, agent),
         }
     }
 }
@@ -309,7 +307,11 @@ pub struct TunerUser {
 impl TunerUser {
     pub fn get_mirakurun_model(&self) -> MirakurunTunerUser {
         let (id, agent) = self.info.get_mirakurun_model();
-        MirakurunTunerUser { id, agent, priority: self.priority.0 }
+        MirakurunTunerUser {
+            id,
+            agent,
+            priority: self.priority.0,
+        }
     }
 }
 
@@ -319,8 +321,7 @@ impl fmt::Display for TunerUser {
     }
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct TimeshiftRecordId(u32);
 
 impl TimeshiftRecordId {
@@ -352,8 +353,7 @@ impl From<u32> for TimeshiftRecordId {
 
 // Mirakurun-compatible models
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct MirakurunServiceId(u64);
 
 impl MirakurunServiceId {
@@ -362,8 +362,7 @@ impl MirakurunServiceId {
     fn new(nid: NetworkId, sid: ServiceId) -> Self {
         // An unique identifier compatible with Mirakurun.
         // See src/Mirakurun/ServiceItem.ts in Chinachu/Mirakurun.
-        MirakurunServiceId(
-            nid.value() as u64 * Self::MAGIC_NUMBER + sid.value() as u64)
+        MirakurunServiceId(nid.value() as u64 * Self::MAGIC_NUMBER + sid.value() as u64)
     }
 
     pub fn value(&self) -> u64 {
@@ -409,8 +408,7 @@ impl From<MirakurunProgramId> for MirakurunServiceId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct MirakurunProgramId(u64);
 
 impl MirakurunProgramId {
@@ -421,17 +419,17 @@ impl MirakurunProgramId {
         // See src/Mirakurun/ProgramItem.ts#L28 in Chinachu/Mirakurun.
         MirakurunProgramId(
             nid.value() as u64 * Self::MAGIC_NUMBER * Self::MAGIC_NUMBER
-                + sid.value() as u64 * Self::MAGIC_NUMBER + eid.value() as u64)
+                + sid.value() as u64 * Self::MAGIC_NUMBER
+                + eid.value() as u64,
+        )
     }
 
     pub fn nid(&self) -> NetworkId {
-        NetworkId::from(
-            (self.0 / (Self::MAGIC_NUMBER * Self::MAGIC_NUMBER)) as u16)
+        NetworkId::from((self.0 / (Self::MAGIC_NUMBER * Self::MAGIC_NUMBER)) as u16)
     }
 
     pub fn sid(&self) -> ServiceId {
-        ServiceId::from(
-            ((self.0 / Self::MAGIC_NUMBER) % Self::MAGIC_NUMBER) as u16)
+        ServiceId::from(((self.0 / Self::MAGIC_NUMBER) % Self::MAGIC_NUMBER) as u16)
     }
 
     pub fn eid(&self) -> EventId {
@@ -441,7 +439,14 @@ impl MirakurunProgramId {
 
 impl fmt::Display for MirakurunProgramId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ({} {} {})", self.0, self.nid(), self.sid(), self.eid())
+        write!(
+            f,
+            "{} ({} {} {})",
+            self.0,
+            self.nid(),
+            self.sid(),
+            self.eid()
+        )
     }
 }
 
@@ -451,8 +456,7 @@ impl From<EventQuad> for MirakurunProgramId {
     }
 }
 
-#[derive(Debug)]
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunTuner {
     pub index: usize,
@@ -469,8 +473,7 @@ pub struct MirakurunTuner {
     pub is_fault: bool,
 }
 
-#[derive(Debug)]
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunTunerUser {
     pub id: String,
@@ -480,8 +483,7 @@ pub struct MirakurunTunerUser {
     // url, disableDecoder, streamSetting and streamInfo properties are not supported.
 }
 
-#[derive(Debug)]
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunChannel {
     #[serde(rename = "type")]
@@ -491,24 +493,22 @@ pub struct MirakurunChannel {
     pub services: Vec<MirakurunChannelService>,
 }
 
-#[derive(Debug)]
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunChannelService {
     pub id: MirakurunServiceId,
     pub service_id: ServiceId,
-    pub transport_stream_id: TransportStreamId,  // incompatible with Mirakurun
+    pub transport_stream_id: TransportStreamId, // incompatible with Mirakurun
     pub network_id: NetworkId,
     pub name: String,
 }
 
-#[derive(Debug)]
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunService {
     pub id: MirakurunServiceId,
     pub service_id: ServiceId,
-    pub transport_stream_id: TransportStreamId,  // incompatible with Mirakurun
+    pub transport_stream_id: TransportStreamId, // incompatible with Mirakurun
     pub network_id: NetworkId,
     #[serde(rename = "type")]
     pub service_type: u16,
@@ -523,8 +523,7 @@ pub struct MirakurunService {
 
 impl MirakurunService {
     pub fn check_logo_existence(&mut self, config: &ResourceConfig) {
-        let triple = ServiceTriple::new(
-            self.network_id, self.transport_stream_id, self.service_id);
+        let triple = ServiceTriple::new(self.network_id, self.transport_stream_id, self.service_id);
         self.has_logo_data = config.logos.contains_key(&triple)
     }
 }
@@ -546,8 +545,7 @@ impl From<EpgService> for MirakurunService {
     }
 }
 
-#[derive(Debug)]
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunServiceChannel {
     #[serde(rename = "type")]
@@ -564,14 +562,13 @@ impl From<EpgChannel> for MirakurunServiceChannel {
     }
 }
 
-#[derive(Clone, Debug)]
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgram {
     pub id: MirakurunProgramId,
     pub event_id: EventId,
     pub service_id: ServiceId,
-    pub transport_stream_id: TransportStreamId,  // incompatible with Mirakurun
+    pub transport_stream_id: TransportStreamId, // incompatible with Mirakurun
     pub network_id: NetworkId,
     #[serde(with = "serde_jst")]
     pub start_at: DateTime<Jst>,
@@ -587,7 +584,7 @@ pub struct MirakurunProgram {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<MirakurunProgramVideo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<MirakurunProgramAudio>,  // for backward compatibility
+    pub audio: Option<MirakurunProgramAudio>, // for backward compatibility
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub audios: Vec<MirakurunProgramAudio>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -616,39 +613,37 @@ impl From<EpgProgram> for MirakurunProgram {
             // Unkike Mirakurun, return properties of the main audio.
             // Mirakurun returns the last audio info in descriptors.
             // See src/Mirakurun/epg.ts#L373 in Chinachu/Mirakurun.
-            audio: program.audios
+            audio: program
+                .audios
                 .values()
                 .find(|audio| audio.main_component_flag)
                 .cloned()
                 .map(MirakurunProgramAudio::from),
-            audios: program.audios
+            audios: program
+                .audios
                 .values()
                 .cloned()
                 .map(MirakurunProgramAudio::from)
                 .collect(),
             genres: program.genres,
             series: program.series.map(MirakurunProgramSeries::from),
-            related_items: program.event_group
-                .map_or(vec![], |event_group| {
-                    event_group.events
-                        .iter()
-                        .map(|event| {
-                            MirakurunProgramRelatedItem {
-                                group_type: MirakurunProgramRelatedItem::get_type(
-                                    event_group.group_type),
-                                network_id: event.original_network_id.clone(),
-                                service_id: event.service_id,
-                                event_id: event.event_id,
-                            }
-                        })
-                        .collect()
-                }),
+            related_items: program.event_group.map_or(vec![], |event_group| {
+                event_group
+                    .events
+                    .iter()
+                    .map(|event| MirakurunProgramRelatedItem {
+                        group_type: MirakurunProgramRelatedItem::get_type(event_group.group_type),
+                        network_id: event.original_network_id.clone(),
+                        service_id: event.service_id,
+                        event_id: event.event_id,
+                    })
+                    .collect()
+            }),
         }
     }
 }
 
-#[derive(Clone, Debug)]
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramVideo {
     #[serde(rename = "type")]
@@ -673,14 +668,14 @@ impl MirakurunProgramVideo {
             0x01 => Some("mpeg2".to_string()),
             0x05 => Some("h.264".to_string()),
             0x09 => Some("h.265".to_string()),
-            _    => None,
+            _ => None,
         }
     }
 
     fn get_resolution(component_type: u8) -> Option<String> {
         match component_type {
             0x01..=0x04 => Some("480i".to_string()),
-            0x83        => Some("4320p".to_string()),
+            0x83 => Some("4320p".to_string()),
             0x91..=0x94 => Some("2160p".to_string()),
             0xA1..=0xA4 => Some("480p".to_string()),
             0xB1..=0xB4 => Some("1080i".to_string()),
@@ -688,7 +683,7 @@ impl MirakurunProgramVideo {
             0xD1..=0xD4 => Some("240p".to_string()),
             0xE1..=0xE4 => Some("1080p".to_string()),
             0xF1..=0xF4 => Some("180p".to_string()),
-            _           => None,
+            _ => None,
         }
     }
 }
@@ -699,8 +694,7 @@ impl From<ComponentDescriptor> for MirakurunProgramVideo {
     }
 }
 
-#[derive(Clone, Debug)]
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramAudio {
     component_type: u8,
@@ -752,8 +746,7 @@ impl From<AudioComponentDescriptor> for MirakurunProgramAudio {
     }
 }
 
-#[derive(Clone, Debug)]
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramSeries {
     id: u16,
@@ -779,8 +772,7 @@ impl From<SeriesDescriptor> for MirakurunProgramSeries {
     }
 }
 
-#[derive(Clone, Debug)]
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramRelatedItem {
     #[serde(rename = "type")]
@@ -813,8 +805,8 @@ impl Serialize for MirakurunLangCode {
             0 => serializer.serialize_str(""),
             _ => {
                 let char0 = (((self.0 >> 16) & 0xFF) as u8) as char;
-                let char1 = (((self.0 >>  8) & 0xFF) as u8) as char;
-                let char2 = (((self.0 >>  0) & 0xFF) as u8) as char;
+                let char1 = (((self.0 >> 8) & 0xFF) as u8) as char;
+                let char2 = (((self.0 >> 0) & 0xFF) as u8) as char;
                 let lang: String = [char0, char1, char2].iter().collect();
                 serializer.serialize_str(&lang)
             }
@@ -831,15 +823,13 @@ mod test_helper {
 
     impl From<(u16, u16, u16)> for ServiceTriple {
         fn from(triple: (u16, u16, u16)) -> ServiceTriple {
-            ServiceTriple::new(
-                triple.0.into(), triple.1.into(), triple.2.into())
+            ServiceTriple::new(triple.0.into(), triple.1.into(), triple.2.into())
         }
     }
 
     impl From<(u16, u16, u16, u16)> for EventQuad {
         fn from(quad: (u16, u16, u16, u16)) -> EventQuad {
-            EventQuad::new(
-                quad.0.into(), quad.1.into(), quad.2.into(), quad.3.into())
+            EventQuad::new(quad.0.into(), quad.1.into(), quad.2.into(), quad.3.into())
         }
     }
 }
@@ -854,13 +844,18 @@ mod tests {
 
         assert_eq!(
             serde_json::from_str::<ChannelType>(r#""GR""#).unwrap(),
-            ChannelType::GR);
+            ChannelType::GR
+        );
 
         assert_eq!(
-            serde_json::from_str::<Vec<ChannelType>>(
-                r#"["GR", "BS", "CS", "SKY"]"#).unwrap(),
-            vec![ChannelType::GR, ChannelType::BS,
-                 ChannelType::CS, ChannelType::SKY]);
+            serde_json::from_str::<Vec<ChannelType>>(r#"["GR", "BS", "CS", "SKY"]"#).unwrap(),
+            vec![
+                ChannelType::GR,
+                ChannelType::BS,
+                ChannelType::CS,
+                ChannelType::SKY
+            ]
+        );
     }
 
     #[test]

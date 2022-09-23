@@ -20,21 +20,21 @@ use crate::models::*;
 pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
     let config_path = config_path.as_ref();
 
-    let reader = File::open(config_path)
-        .unwrap_or_else(|err| {
-            panic!("Failed to open {:?}: {}", config_path, err);
-        });
-    let mut config: Config = serde_yaml::from_reader(reader)
-        .unwrap_or_else(|err| {
-            panic!("Failed to parse {:?}: {}", config_path, err);
-        });
+    let reader = File::open(config_path).unwrap_or_else(|err| {
+        panic!("Failed to open {:?}: {}", config_path, err);
+    });
+    let mut config: Config = serde_yaml::from_reader(reader).unwrap_or_else(|err| {
+        panic!("Failed to parse {:?}: {}", config_path, err);
+    });
 
     config.channels = ChannelConfig::normalize(config.channels);
 
     config.validate();
 
     config.last_modified = std::fs::metadata(config_path)
-        .map(|metadata| metadata.modified().ok()).ok().flatten();
+        .map(|metadata| metadata.modified().ok())
+        .ok()
+        .flatten();
     Arc::new(config)
 }
 
@@ -77,7 +77,8 @@ impl Config {
     fn validate(&self) {
         self.epg.validate();
         self.server.validate();
-        self.channels.iter()
+        self.channels
+            .iter()
             .enumerate()
             .for_each(|(i, config)| config.validate(i));
         // The channels[].name property should be a unique, but some scripts generating a
@@ -91,19 +92,25 @@ impl Config {
         //            .unique()
         //            .count(),
         //            "config.channels: `name` must be a unique");
-        self.tuners.iter()
+        self.tuners
+            .iter()
             .enumerate()
             .for_each(|(i, config)| config.validate(i));
-        assert_eq!(self.tuners.len(),
-                   self.tuners.iter()
-                   .map(|config| &config.name)
-                   .unique()
-                   .count(),
-                   "config.tuners: `name` must be a unique");
+        assert_eq!(
+            self.tuners.len(),
+            self.tuners
+                .iter()
+                .map(|config| &config.name)
+                .unique()
+                .count(),
+            "config.tuners: `name` must be a unique"
+        );
         self.filters.validate();
-        self.pre_filters.iter()
+        self.pre_filters
+            .iter()
             .for_each(|(name, config)| config.validate("pre-filters", name));
-        self.post_filters.iter()
+        self.post_filters
+            .iter()
             .for_each(|(name, config)| config.validate(name));
         self.jobs.validate();
         self.recorder.validate();
@@ -124,8 +131,10 @@ pub struct EpgConfig {
 impl EpgConfig {
     fn validate(&self) {
         if let Some(cache_dir) = self.cache_dir.as_ref() {
-            assert!(Path::new(cache_dir).is_dir(),
-                    "config.epg: `cache_dir` must be a path to an existing directory");
+            assert!(
+                Path::new(cache_dir).is_dir(),
+                "config.epg: `cache_dir` must be a path to an existing directory"
+            );
         }
     }
 }
@@ -145,12 +154,13 @@ pub struct ServerConfig {
     #[serde(default = "ServerConfig::default_stream_time_limit")]
     pub stream_time_limit: u64,
     #[serde(default)]
-    pub mounts: IndexMap<String, MountConfig>,  // keeps the insertion order
+    pub mounts: IndexMap<String, MountConfig>, // keeps the insertion order
 }
 
 impl ServerConfig {
     pub(crate) fn http_addrs(&self) -> impl Iterator<Item = SocketAddr> + '_ {
-        self.addrs.iter()
+        self.addrs
+            .iter()
             .filter_map(|addr| match addr {
                 ServerAddr::Http(addr) => addr.to_socket_addrs().ok(),
                 _ => None,
@@ -159,11 +169,10 @@ impl ServerConfig {
     }
 
     pub(crate) fn uds_paths(&self) -> impl Iterator<Item = &Path> {
-        self.addrs.iter()
-            .filter_map(|addr| match addr {
-                ServerAddr::Unix(path) => Some(path.as_path()),
-                _ => None,
-            })
+        self.addrs.iter().filter_map(|addr| match addr {
+            ServerAddr::Unix(path) => Some(path.as_path()),
+            _ => None,
+        })
     }
 
     fn default_addrs() -> Vec<ServerAddr> {
@@ -185,17 +194,21 @@ impl ServerConfig {
     }
 
     fn default_stream_time_limit() -> u64 {
-        16 * 1000  // 16s
+        16 * 1000 // 16s
     }
 
     fn validate(&self) {
         const SERVER_STREAM_TIME_LIMIT_MIN: u64 = 15_000;
 
-        assert!(self.stream_time_limit >= SERVER_STREAM_TIME_LIMIT_MIN,
-                "config.server: `stream_time_limit` must be larger than or equal to {}",
-                SERVER_STREAM_TIME_LIMIT_MIN);
+        assert!(
+            self.stream_time_limit >= SERVER_STREAM_TIME_LIMIT_MIN,
+            "config.server: `stream_time_limit` must be larger than or equal to {}",
+            SERVER_STREAM_TIME_LIMIT_MIN
+        );
         self.addrs.iter().for_each(|addr| addr.validate());
-        self.mounts.iter().for_each(|(mp, config)| config.validate(mp));
+        self.mounts
+            .iter()
+            .for_each(|(mp, config)| config.validate(mp));
     }
 }
 
@@ -224,7 +237,9 @@ impl ServerAddr {
         match self {
             Self::Http(addr) => assert!(
                 addr.to_socket_addrs().is_ok(),
-                "config.server.addrs.{}: invalid socket address", addr),
+                "config.server.addrs.{}: invalid socket address",
+                addr
+            ),
             Self::Unix(_) => (),
         }
     }
@@ -249,19 +264,27 @@ pub struct MountConfig {
 
 impl MountConfig {
     fn validate(&self, mount_point: &str) {
-        assert!(mount_point.starts_with("/"),
-                "config.server.mounts[{}]: \
-                 a mount point must starts with '/'", mount_point);
-        assert!(self.path.exists(),
-                "config.server.mounts[{}]: \
-                 `path` must be a path to an existing entry", mount_point);
+        assert!(
+            mount_point.starts_with("/"),
+            "config.server.mounts[{}]: \
+                 a mount point must starts with '/'",
+            mount_point
+        );
+        assert!(
+            self.path.exists(),
+            "config.server.mounts[{}]: \
+                 `path` must be a path to an existing entry",
+            mount_point
+        );
         if let Some(index) = self.index.as_ref() {
             let path = self.path.join(index);
             if path.exists() {
-                assert!(path.is_file(),
-                        "config.server.mounts[{}]: \
+                assert!(
+                    path.is_file(),
+                    "config.server.mounts[{}]: \
                          `index` must be an existing file if it exists",
-                        mount_point);
+                    mount_point
+                );
             }
         }
     }
@@ -296,7 +319,8 @@ impl ChannelConfig {
                     if ch.extra_args != channel.extra_args {
                         tracing::warn!(
                             "Channels having the same `type` and `channel` \
-                             should have the same `extra-args`");
+                             should have the same `extra-args`"
+                        );
                     }
                     if ch.services.is_empty() {
                         // Collect all services.
@@ -313,12 +337,10 @@ impl ChannelConfig {
         }
         // Normalize
         for mut channel in normalized.iter_mut() {
-            channel.services = channel.services.iter()
-                .sorted()
-                .unique()
-                .cloned()
-                .collect();
-            channel.excluded_services = channel.excluded_services.iter()
+            channel.services = channel.services.iter().sorted().unique().cloned().collect();
+            channel.excluded_services = channel
+                .excluded_services
+                .iter()
                 .sorted()
                 .unique()
                 .cloned()
@@ -329,10 +351,16 @@ impl ChannelConfig {
 
     fn validate(&self, index: usize) {
         debug_assert!(!self.disabled);
-        assert!(!self.name.is_empty(),
-                "config.channels[{}]: `name` must be a non-empty string", index);
-        assert!(!self.channel.is_empty(),
-                "config.channels[{}]: `channel` must be a non-empty string", index);
+        assert!(
+            !self.name.is_empty(),
+            "config.channels[{}]: `name` must be a non-empty string",
+            index
+        );
+        assert!(
+            !self.channel.is_empty(),
+            "config.channels[{}]: `channel` must be a non-empty string",
+            index
+        );
     }
 }
 
@@ -360,19 +388,28 @@ pub struct TunerConfig {
 
 impl TunerConfig {
     fn default_time_limit() -> u64 {
-        30 * 1000  // 30s
+        30 * 1000 // 30s
     }
 
     fn validate(&self, index: usize) {
         if self.disabled {
             return;
         }
-        assert!(!self.name.is_empty(),
-                "config.tuners[{}]: `name` must be a non-empty string", index);
-        assert!(!self.channel_types.is_empty(),
-                "config.tuners[{}]: `types` must be a non-empty list", index);
-        assert!(!self.command.is_empty(),
-                "config.tuners[{}]: `command` must be a non-empty string", index);
+        assert!(
+            !self.name.is_empty(),
+            "config.tuners[{}]: `name` must be a non-empty string",
+            index
+        );
+        assert!(
+            !self.channel_types.is_empty(),
+            "config.tuners[{}]: `types` must be a non-empty list",
+            index
+        );
+        assert!(
+            !self.command.is_empty(),
+            "config.tuners[{}]: `command` must be a non-empty string",
+            index
+        );
     }
 }
 
@@ -393,7 +430,7 @@ pub struct FiltersConfig {
 impl FiltersConfig {
     fn default_service_filter() -> FilterConfig {
         FilterConfig {
-            command: "mirakc-arib filter-service --sid={{{sid}}}".to_string()
+            command: "mirakc-arib filter-service --sid={{{sid}}}".to_string(),
         }
     }
 
@@ -416,7 +453,8 @@ impl FiltersConfig {
                       --clock-time={{{clock_time}}} --end-margin=2000\
                       {{#video_tags}} --video-tag={{{.}}}{{/video_tags}}\
                       {{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}\
-                      ".to_string()
+                      "
+            .to_string(),
         }
     }
 
@@ -449,8 +487,12 @@ pub struct FilterConfig {
 
 impl FilterConfig {
     fn validate(&self, group: &str, name: &str) {
-        assert!(!self.command.is_empty(),
-                "config.{}.{}: `command` must be a non-empty string", group, name);
+        assert!(
+            !self.command.is_empty(),
+            "config.{}.{}: `command` must be a non-empty string",
+            group,
+            name
+        );
     }
 }
 
@@ -466,11 +508,17 @@ pub struct PostFilterConfig {
 
 impl PostFilterConfig {
     fn validate(&self, name: &str) {
-        assert!(!self.command.is_empty(),
-                "config.post-filters.{}: `command` must be a non-empty string", name);
+        assert!(
+            !self.command.is_empty(),
+            "config.post-filters.{}: `command` must be a non-empty string",
+            name
+        );
         if let Some(content_type) = self.content_type.as_ref() {
-        assert!(!content_type.is_empty(),
-                "config.post-filters.{}: `content-type` must be a non-empty string", name);
+            assert!(
+                !content_type.is_empty(),
+                "config.post-filters.{}: `content-type` must be a non-empty string",
+                name
+            );
         }
     }
 }
@@ -492,7 +540,8 @@ impl JobsConfig {
         JobConfig {
             command: "mirakc-arib scan-services\
                       {{#sids}} --sids={{{.}}}{{/sids}}\
-                      {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
+                      {{#xsids}} --xsids={{{.}}}{{/xsids}}"
+                .to_string(),
             schedule: "0 1 5,17 * * * *".to_string(),
             disabled: false,
         }
@@ -502,7 +551,8 @@ impl JobsConfig {
         JobConfig {
             command: "mirakc-arib sync-clocks\
                       {{#sids}} --sids={{{.}}}{{/sids}}\
-                      {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
+                      {{#xsids}} --xsids={{{.}}}{{/xsids}}"
+                .to_string(),
             schedule: "0 11 5,17 * * * *".to_string(),
             disabled: false,
         }
@@ -512,7 +562,8 @@ impl JobsConfig {
         JobConfig {
             command: "mirakc-arib collect-eits\
                       {{#sids}} --sids={{{.}}}{{/sids}}\
-                      {{#xsids}} --xsids={{{.}}}{{/xsids}}".to_string(),
+                      {{#xsids}} --xsids={{{.}}}{{/xsids}}"
+                .to_string(),
             schedule: "0 21 5,17 * * * *".to_string(),
             disabled: false,
         }
@@ -550,10 +601,16 @@ pub struct JobConfig {
 impl JobConfig {
     fn validate(&self, name: &str) {
         if !self.disabled {
-            assert!(!self.command.is_empty(),
-                    "config.jobs.{}: `command` must be a non-empty string", name);
-            assert!(cron::Schedule::from_str(&self.schedule).is_ok(),
-                    "config.jobs.{}: `schedule` is not valid", name);
+            assert!(
+                !self.command.is_empty(),
+                "config.jobs.{}: `command` must be a non-empty string",
+                name
+            );
+            assert!(
+                cron::Schedule::from_str(&self.schedule).is_ok(),
+                "config.jobs.{}: `schedule` is not valid",
+                name
+            );
         }
     }
 }
@@ -572,12 +629,15 @@ impl TimeshiftConfig {
     fn default_command() -> String {
         "mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} \
          --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} \
-         --start-pos={{{start_pos}}}".to_string()
+         --start-pos={{{start_pos}}}"
+            .to_string()
     }
 
     fn validate(&self) {
-        assert!(!self.command.is_empty(),
-                "config.timeshift: `command` must be a non-empty string");
+        assert!(
+            !self.command.is_empty(),
+            "config.timeshift: `command` must be a non-empty string"
+        );
         self.recorders
             .iter()
             .for_each(|(name, config)| config.validate(name));
@@ -622,25 +682,41 @@ impl TimeshiftRecorderConfig {
     }
 
     fn validate(&self, name: &str) {
-        assert!(!self.ts_file.is_empty(),
-                "config.timeshift.recorders.{}: `ts-file` must be a non-empty path", name);
+        assert!(
+            !self.ts_file.is_empty(),
+            "config.timeshift.recorders.{}: `ts-file` must be a non-empty path",
+            name
+        );
         if let Some(parent) = Path::new(&self.ts_file).parent() {
-            assert!(parent.is_dir(),
-                    "config.timeshift.recorders.{}: \
-                     The parent directory of `ts-file` must exists", name);
+            assert!(
+                parent.is_dir(),
+                "config.timeshift.recorders.{}: \
+                     The parent directory of `ts-file` must exists",
+                name
+            );
         } else {
             unreachable!(
-                "config.timeshift.recorders.{}: `ts-file` must be a path to a file", name);
+                "config.timeshift.recorders.{}: `ts-file` must be a path to a file",
+                name
+            );
         }
-        assert!(!self.data_file.is_empty(),
-                "config.timeshift.recorders.{}: `data-file` must be a non-empty path", name);
+        assert!(
+            !self.data_file.is_empty(),
+            "config.timeshift.recorders.{}: `data-file` must be a non-empty path",
+            name
+        );
         if let Some(parent) = Path::new(&self.data_file).parent() {
-            assert!(parent.is_dir(),
-                    "config.timeshift.recorders.{}: \
-                     The parent directory of `data-file` must exists", name);
+            assert!(
+                parent.is_dir(),
+                "config.timeshift.recorders.{}: \
+                     The parent directory of `data-file` must exists",
+                name
+            );
         } else {
             unreachable!(
-                "config.timeshift.recorders.{}: `data-file` must be a path to a file", name);
+                "config.timeshift.recorders.{}: `data-file` must be a path to a file",
+                name
+            );
         }
         // TODO
         // ----
@@ -652,24 +728,42 @@ impl TimeshiftRecorderConfig {
         //
         // We may support a binary format in the future if there is a crate that works well with
         // our data formats.
-        assert!(self.data_file.ends_with(".json"),
-                "config.timeshift.recorders.{}: `data-file` must be a JSON file", name);
-        assert!(self.chunk_size > 0,
-                "config.timeshift.recorders.{}: `chunk-size` must be larger than 0", name);
-        assert!(self.chunk_size % Self::BUFSIZE == 0,
-                "config.timeshift.recorders.{}: `chunk-size` must be a multiple of {}",
-                name, Self::BUFSIZE);
-        assert!(self.num_chunks > 2,
-                "config.timeshift.recorders.{}: `num-chunks` must be larger than 2", name);
-        assert!(self.num_reserves > 0,
-                "config.timeshift.recorders.{}: `num-reserves` must be larger than 0", name);
-        assert!(self.num_chunks - self.num_reserves > 1,
-                "config.timeshift.recorders.{}: Maximum number of available chunks \
-                 (`num-chunks` - `num-reserves`) must be larger than 1", name);
+        assert!(
+            self.data_file.ends_with(".json"),
+            "config.timeshift.recorders.{}: `data-file` must be a JSON file",
+            name
+        );
+        assert!(
+            self.chunk_size > 0,
+            "config.timeshift.recorders.{}: `chunk-size` must be larger than 0",
+            name
+        );
+        assert!(
+            self.chunk_size % Self::BUFSIZE == 0,
+            "config.timeshift.recorders.{}: `chunk-size` must be a multiple of {}",
+            name,
+            Self::BUFSIZE
+        );
+        assert!(
+            self.num_chunks > 2,
+            "config.timeshift.recorders.{}: `num-chunks` must be larger than 2",
+            name
+        );
+        assert!(
+            self.num_reserves > 0,
+            "config.timeshift.recorders.{}: `num-reserves` must be larger than 0",
+            name
+        );
+        assert!(
+            self.num_chunks - self.num_reserves > 1,
+            "config.timeshift.recorders.{}: Maximum number of available chunks \
+                 (`num-chunks` - `num-reserves`) must be larger than 1",
+            name
+        );
     }
 
     fn default_chunk_size() -> usize {
-        Self::BUFSIZE * 20000  // 40K Blocks
+        Self::BUFSIZE * 20000 // 40K Blocks
     }
 
     fn default_num_reserves() -> usize {
@@ -690,8 +784,10 @@ pub struct RecorderConfig {
 
 impl RecorderConfig {
     fn validate(&self) {
-        assert!(!self.track_airtime_command.is_empty(),
-                "config.recorder: `track-airtime-command` must be a non-empty string");
+        assert!(
+            !self.track_airtime_command.is_empty(),
+            "config.recorder: `track-airtime-command` must be a non-empty string"
+        );
     }
 }
 
@@ -699,7 +795,8 @@ impl Default for RecorderConfig {
     fn default() -> Self {
         RecorderConfig {
             track_airtime_command: "mirakc-arib track-airtime \
-                                    --sid={{{sid}}} --eid={{{eid}}}".to_string(),
+                                    --sid={{{sid}}} --eid={{{eid}}}"
+                .to_string(),
         }
     }
 }
@@ -730,17 +827,24 @@ impl ResourceConfig {
     }
 
     fn validate(&self) {
-        assert!(Path::new(&self.strings_yaml).is_file(),
-                "config.resources: `strings-yaml` must be a path to an existing YAML file");
+        assert!(
+            Path::new(&self.strings_yaml).is_file(),
+            "config.resources: `strings-yaml` must be a path to an existing YAML file"
+        );
         for (triple, image) in self.logos.iter() {
-            assert!(Path::new(image).is_file(),
-                    "config.resources: `logos[({}, {}, {})]` must be a path to an existing \
-                     file", triple.nid(), triple.tsid(), triple.sid());
+            assert!(
+                Path::new(image).is_file(),
+                "config.resources: `logos[({}, {}, {})]` must be a path to an existing \
+                     file",
+                triple.nid(),
+                triple.tsid(),
+                triple.sid()
+            );
         }
     }
 
     fn deserialize_logos<'de, D>(
-        deserializer: D
+        deserializer: D,
     ) -> Result<HashMap<ServiceTriple, String>, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -777,8 +881,10 @@ impl MirakurunConfig {
     }
 
     fn validate(&self) {
-        assert!(Path::new(&self.openapi_json).is_file(),
-                "config.resources: `openapi-json` must be a path to an existing JSON file");
+        assert!(
+            Path::new(&self.openapi_json).is_file(),
+            "config.resources: `openapi-json` must be a path to an existing JSON file"
+        );
     }
 }
 
@@ -793,19 +899,22 @@ impl Default for MirakurunConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use maplit::hashmap;
     use indexmap::indexmap;
+    use maplit::hashmap;
 
     #[test]
     fn test_config() {
         assert_eq!(
             serde_yaml::from_str::<Config>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
-        let result = serde_yaml::from_str::<Config>(r#"
+        let result = serde_yaml::from_str::<Config>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
@@ -819,7 +928,8 @@ mod tests {
 
     #[test]
     fn test_config_validate_channel_names() {
-        let config = serde_yaml::from_str::<Config>(r#"
+        let config = serde_yaml::from_str::<Config>(
+            r#"
             channels:
               - name: test
                 type: GR
@@ -831,14 +941,17 @@ mod tests {
               strings-yaml: /bin/sh
             mirakurun:
               openapi-json: /bin/sh
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         config.validate();
     }
 
     #[test]
     #[should_panic]
     fn test_config_validate_tuner_names() {
-        let config = serde_yaml::from_str::<Config>(r#"
+        let config = serde_yaml::from_str::<Config>(
+            r#"
             tuners:
               - name: test
                 types: [GR]
@@ -850,7 +963,9 @@ mod tests {
               strings-yaml: /bin/sh
             mirakurun:
               openapi-json: /bin/sh
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         config.validate();
     }
 
@@ -858,20 +973,27 @@ mod tests {
     fn test_epg_config() {
         assert_eq!(
             serde_yaml::from_str::<EpgConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<EpgConfig>(r#"
+            serde_yaml::from_str::<EpgConfig>(
+                r#"
                 cache-dir: /path/to/epg
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             EpgConfig {
                 cache_dir: Some("/path/to/epg".to_string()),
-            });
+            }
+        );
 
-        let result = serde_yaml::from_str::<EpgConfig>(r#"
+        let result = serde_yaml::from_str::<EpgConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
@@ -893,31 +1015,57 @@ mod tests {
     fn test_server_config() {
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ServerConfig>(r#"
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
                 addrs:
                   - !http '0.0.0.0:40772'
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ServerConfig {
-                addrs: vec![
-                    ServerAddr::Http("0.0.0.0:40772".to_string()),
-                ],
+                addrs: vec![ServerAddr::Http("0.0.0.0:40772".to_string()),],
                 workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ServerConfig>(r#"
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
                 addrs:
                   - !unix /path/to/sock
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
+            ServerConfig {
+                addrs: vec![ServerAddr::Unix("/path/to/sock".into()),],
+                workers: ServerConfig::default_workers(),
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
+                mounts: Default::default(),
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
+                addrs:
+                  - !http '0.0.0.0:40772'
+                  - !unix /path/to/sock
+            "#
+            )
+            .unwrap(),
             ServerConfig {
                 addrs: vec![
+                    ServerAddr::Http("0.0.0.0:40772".to_string()),
                     ServerAddr::Unix("/path/to/sock".into()),
                 ],
                 workers: ServerConfig::default_workers(),
@@ -925,30 +1073,16 @@ mod tests {
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ServerConfig>(r#"
-                addrs:
-                  - !http '0.0.0.0:40772'
-                  - !unix /path/to/sock
-            "#).unwrap(),
-            ServerConfig {
-                addrs: vec![
-                    ServerAddr::Http("0.0.0.0:40772".to_string()),
-                    ServerAddr::Unix("/path/to/sock".into()),
-                ],
-                workers: ServerConfig::default_workers(),
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                mounts: Default::default(),
-            });
-
-        assert_eq!(
-            serde_yaml::from_str::<ServerConfig>(r#"
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
                 workers: 2
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
                 workers: 2,
@@ -956,12 +1090,16 @@ mod tests {
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ServerConfig>(r#"
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
                 stream-max-chunks: 1000
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
                 workers: ServerConfig::default_workers(),
@@ -969,12 +1107,16 @@ mod tests {
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ServerConfig>(r#"
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
                 stream-chunk-size: 10000
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
                 workers: ServerConfig::default_workers(),
@@ -982,12 +1124,16 @@ mod tests {
                 stream_chunk_size: 10000,
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ServerConfig>(r#"
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
                 stream-time-limit: 10000
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
                 workers: ServerConfig::default_workers(),
@@ -995,10 +1141,12 @@ mod tests {
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: 10000,
                 mounts: Default::default(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ServerConfig>(r#"
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
                 mounts:
                   /ui:
                     path: /path/to/ui
@@ -1008,14 +1156,16 @@ mod tests {
                   /:
                     path: /path/to/folder
                     index: index.html
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
                 workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
-                mounts: indexmap!{
+                mounts: indexmap! {
                     "/ui".to_string() => MountConfig {
                         path: "/path/to/ui".into(),
                         index: None,
@@ -1032,12 +1182,15 @@ mod tests {
                         listing: false,
                     },
                 }
-            });
+            }
+        );
 
-        let result = serde_yaml::from_str::<ServerConfig>(r#"
+        let result = serde_yaml::from_str::<ServerConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
@@ -1122,11 +1275,14 @@ mod tests {
         assert!(serde_yaml::from_str::<ChannelConfig>("{}").is_err());
 
         assert_eq!(
-            serde_yaml::from_str::<ChannelConfig>(r#"
+            serde_yaml::from_str::<ChannelConfig>(
+                r#"
                 name: x
                 type: GR
                 channel: y
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ChannelConfig {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
@@ -1135,15 +1291,19 @@ mod tests {
                 services: vec![],
                 excluded_services: vec![],
                 disabled: false,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ChannelConfig>(r#"
+            serde_yaml::from_str::<ChannelConfig>(
+                r#"
                 name: x
                 type: GR
                 channel: y
                 extra-args: "--extra args"
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ChannelConfig {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
@@ -1152,15 +1312,19 @@ mod tests {
                 services: vec![],
                 excluded_services: vec![],
                 disabled: false,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ChannelConfig>(r#"
+            serde_yaml::from_str::<ChannelConfig>(
+                r#"
                 name: x
                 type: GR
                 channel: y
                 disabled: true
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ChannelConfig {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
@@ -1169,15 +1333,19 @@ mod tests {
                 services: vec![],
                 excluded_services: vec![],
                 disabled: true,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ChannelConfig>(r#"
+            serde_yaml::from_str::<ChannelConfig>(
+                r#"
                 name: x
                 type: GR
                 channel: y
                 excluded-services: [100]
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ChannelConfig {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
@@ -1186,33 +1354,43 @@ mod tests {
                 services: vec![],
                 excluded_services: vec![100.into()],
                 disabled: false,
-            });
+            }
+        );
 
-        assert!(
-            serde_yaml::from_str::<ChannelConfig>(r#"
+        assert!(serde_yaml::from_str::<ChannelConfig>(
+            r#"
                 name: x
                 type: WOWOW
                 channel: y
-            "#).is_err());
+            "#
+        )
+        .is_err());
 
-        let result = serde_yaml::from_str::<ChannelConfig>(r#"
+        let result = serde_yaml::from_str::<ChannelConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_channel_config_normalize() {
         assert_eq!(
-            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+            ChannelConfig::normalize(
+                serde_yaml::from_str::<Vec<ChannelConfig>>(
+                    r#"
                 - name: ch
                   type: GR
                   channel: 1
                 - name: ch
                   type: GR
                   channel: 2
-            "#).unwrap()),
+            "#
+                )
+                .unwrap()
+            ),
             vec![
                 ChannelConfig {
                     name: "ch".to_string(),
@@ -1236,7 +1414,9 @@ mod tests {
         );
 
         assert_eq!(
-            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+            ChannelConfig::normalize(
+                serde_yaml::from_str::<Vec<ChannelConfig>>(
+                    r#"
                 - name: ch
                   type: GR
                   channel: 1
@@ -1247,22 +1427,25 @@ mod tests {
                   channel: 1
                   services: [2]
                   excluded-services: [4]
-            "#).unwrap()),
-            vec![
-                ChannelConfig {
-                    name: "ch".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "1".to_string(),
-                    extra_args: "".to_string(),
-                    services: vec![1.into(), 2.into()],
-                    excluded_services: vec![3.into(), 4.into()],
-                    disabled: false,
-                },
-            ],
+            "#
+                )
+                .unwrap()
+            ),
+            vec![ChannelConfig {
+                name: "ch".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "1".to_string(),
+                extra_args: "".to_string(),
+                services: vec![1.into(), 2.into()],
+                excluded_services: vec![3.into(), 4.into()],
+                disabled: false,
+            },],
         );
 
         assert_eq!(
-            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+            ChannelConfig::normalize(
+                serde_yaml::from_str::<Vec<ChannelConfig>>(
+                    r#"
                 - name: ch
                   type: GR
                   channel: 1
@@ -1273,22 +1456,25 @@ mod tests {
                   channel: 1
                   services: [1]
                   excluded-services: [3]
-            "#).unwrap()),
-            vec![
-                ChannelConfig {
-                    name: "ch".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "1".to_string(),
-                    extra_args: "".to_string(),
-                    services: vec![1.into(), 2.into()],
-                    excluded_services: vec![3.into(), 4.into()],
-                    disabled: false,
-                },
-            ],
+            "#
+                )
+                .unwrap()
+            ),
+            vec![ChannelConfig {
+                name: "ch".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "1".to_string(),
+                extra_args: "".to_string(),
+                services: vec![1.into(), 2.into()],
+                excluded_services: vec![3.into(), 4.into()],
+                disabled: false,
+            },],
         );
 
         assert_eq!(
-            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+            ChannelConfig::normalize(
+                serde_yaml::from_str::<Vec<ChannelConfig>>(
+                    r#"
                 - name: ch
                   type: GR
                   channel: 1
@@ -1299,22 +1485,25 @@ mod tests {
                   channel: 1
                   services: [1, 2]
                   excluded-services: [3, 4]
-            "#).unwrap()),
-            vec![
-                ChannelConfig {
-                    name: "ch".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "1".to_string(),
-                    extra_args: "".to_string(),
-                    services: vec![1.into(), 2.into()],
-                    excluded_services: vec![3.into(), 4.into()],
-                    disabled: false,
-                },
-            ],
+            "#
+                )
+                .unwrap()
+            ),
+            vec![ChannelConfig {
+                name: "ch".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "1".to_string(),
+                extra_args: "".to_string(),
+                services: vec![1.into(), 2.into()],
+                excluded_services: vec![3.into(), 4.into()],
+                disabled: false,
+            },],
         );
 
         assert_eq!(
-            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+            ChannelConfig::normalize(
+                serde_yaml::from_str::<Vec<ChannelConfig>>(
+                    r#"
                 - name: ch
                   type: GR
                   channel: 1
@@ -1322,22 +1511,25 @@ mod tests {
                   type: GR
                   channel: 1
                   services: [2]
-            "#).unwrap()),
-            vec![
-                ChannelConfig {
-                    name: "ch".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "1".to_string(),
-                    extra_args: "".to_string(),
-                    services: vec![],
-                    excluded_services: vec![],
-                    disabled: false,
-                },
-            ],
+            "#
+                )
+                .unwrap()
+            ),
+            vec![ChannelConfig {
+                name: "ch".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "1".to_string(),
+                extra_args: "".to_string(),
+                services: vec![],
+                excluded_services: vec![],
+                disabled: false,
+            },],
         );
 
         assert_eq!(
-            ChannelConfig::normalize(serde_yaml::from_str::<Vec<ChannelConfig>>(r#"
+            ChannelConfig::normalize(
+                serde_yaml::from_str::<Vec<ChannelConfig>>(
+                    r#"
                 - name: ch
                   type: GR
                   channel: 1
@@ -1345,18 +1537,19 @@ mod tests {
                 - name: ch
                   type: GR
                   channel: 1
-            "#).unwrap()),
-            vec![
-                ChannelConfig {
-                    name: "ch".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "1".to_string(),
-                    extra_args: "".to_string(),
-                    services: vec![],
-                    excluded_services: vec![],
-                    disabled: false,
-                },
-            ],
+            "#
+                )
+                .unwrap()
+            ),
+            vec![ChannelConfig {
+                name: "ch".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "1".to_string(),
+                extra_args: "".to_string(),
+                services: vec![],
+                excluded_services: vec![],
+                disabled: false,
+            },],
         );
     }
 
@@ -1409,91 +1602,119 @@ mod tests {
         assert!(serde_yaml::from_str::<TunerConfig>("{}").is_err());
 
         assert_eq!(
-            serde_yaml::from_str::<TunerConfig>(r#"
+            serde_yaml::from_str::<TunerConfig>(
+                r#"
                 name: x
                 types: [GR, BS, CS, SKY]
                 command: open tuner
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             TunerConfig {
                 name: "x".to_string(),
-                channel_types: vec![ChannelType::GR,
-                                    ChannelType::BS,
-                                    ChannelType::CS,
-                                    ChannelType::SKY],
+                channel_types: vec![
+                    ChannelType::GR,
+                    ChannelType::BS,
+                    ChannelType::CS,
+                    ChannelType::SKY
+                ],
                 command: "open tuner".to_string(),
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: false,
                 decoded: false,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<TunerConfig>(r#"
+            serde_yaml::from_str::<TunerConfig>(
+                r#"
                 name: x
                 types: [GR, BS, CS, SKY]
                 command: open tuner
                 time-limit: 1
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             TunerConfig {
                 name: "x".to_string(),
-                channel_types: vec![ChannelType::GR,
-                                    ChannelType::BS,
-                                    ChannelType::CS,
-                                    ChannelType::SKY],
+                channel_types: vec![
+                    ChannelType::GR,
+                    ChannelType::BS,
+                    ChannelType::CS,
+                    ChannelType::SKY
+                ],
                 command: "open tuner".to_string(),
                 time_limit: 1,
                 disabled: false,
                 decoded: false,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<TunerConfig>(r#"
+            serde_yaml::from_str::<TunerConfig>(
+                r#"
                 name: x
                 types: [GR, BS, CS, SKY]
                 command: open tuner
                 disabled: true
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             TunerConfig {
                 name: "x".to_string(),
-                channel_types: vec![ChannelType::GR,
-                                    ChannelType::BS,
-                                    ChannelType::CS,
-                                    ChannelType::SKY],
+                channel_types: vec![
+                    ChannelType::GR,
+                    ChannelType::BS,
+                    ChannelType::CS,
+                    ChannelType::SKY
+                ],
                 command: "open tuner".to_string(),
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: true,
                 decoded: false,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<TunerConfig>(r#"
+            serde_yaml::from_str::<TunerConfig>(
+                r#"
                 name: x
                 types: [GR, BS, CS, SKY]
                 command: open tuner
                 decoded: true
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             TunerConfig {
                 name: "x".to_string(),
-                channel_types: vec![ChannelType::GR,
-                                    ChannelType::BS,
-                                    ChannelType::CS,
-                                    ChannelType::SKY],
+                channel_types: vec![
+                    ChannelType::GR,
+                    ChannelType::BS,
+                    ChannelType::CS,
+                    ChannelType::SKY
+                ],
                 command: "open tuner".to_string(),
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: false,
                 decoded: true,
-            });
+            }
+        );
 
-        assert!(
-            serde_yaml::from_str::<TunerConfig>(r#"
+        assert!(serde_yaml::from_str::<TunerConfig>(
+            r#"
                 name: x
                 types: [WOWOW]
                 command: open tuner
-            "#).is_err());
+            "#
+        )
+        .is_err());
 
-        let result = serde_yaml::from_str::<TunerConfig>(r#"
+        let result = serde_yaml::from_str::<TunerConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
@@ -1569,60 +1790,87 @@ mod tests {
     fn test_filters_config() {
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<FiltersConfig>(r#"
+            serde_yaml::from_str::<FiltersConfig>(
+                r#"
                 tuner-filter:
                   command: filter
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             FiltersConfig {
-                tuner_filter: FilterConfig { command: "filter".to_string() },
+                tuner_filter: FilterConfig {
+                    command: "filter".to_string()
+                },
                 service_filter: FiltersConfig::default_service_filter(),
                 decode_filter: Default::default(),
                 program_filter: FiltersConfig::default_program_filter(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<FiltersConfig>(r#"
+            serde_yaml::from_str::<FiltersConfig>(
+                r#"
                 service-filter:
                   command: filter
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             FiltersConfig {
                 tuner_filter: Default::default(),
-                service_filter: FilterConfig { command: "filter".to_string() },
+                service_filter: FilterConfig {
+                    command: "filter".to_string()
+                },
                 decode_filter: Default::default(),
                 program_filter: FiltersConfig::default_program_filter(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<FiltersConfig>(r#"
+            serde_yaml::from_str::<FiltersConfig>(
+                r#"
                 decode-filter:
                   command: filter
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             FiltersConfig {
                 tuner_filter: Default::default(),
                 service_filter: FiltersConfig::default_service_filter(),
-                decode_filter: FilterConfig { command: "filter".to_string() },
+                decode_filter: FilterConfig {
+                    command: "filter".to_string()
+                },
                 program_filter: FiltersConfig::default_program_filter(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<FiltersConfig>(r#"
+            serde_yaml::from_str::<FiltersConfig>(
+                r#"
                 program-filter:
                   command: filter
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             FiltersConfig {
                 tuner_filter: Default::default(),
                 service_filter: FiltersConfig::default_service_filter(),
                 decode_filter: Default::default(),
-                program_filter: FilterConfig { command: "filter".to_string() },
-            });
+                program_filter: FilterConfig {
+                    command: "filter".to_string()
+                },
+            }
+        );
 
-        let result = serde_yaml::from_str::<FiltersConfig>(r#"
+        let result = serde_yaml::from_str::<FiltersConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
@@ -1630,20 +1878,27 @@ mod tests {
     fn test_filter_config() {
         assert_eq!(
             serde_yaml::from_str::<FilterConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<FilterConfig>(r#"
+            serde_yaml::from_str::<FilterConfig>(
+                r#"
                 command: filter
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             FilterConfig {
                 command: "filter".to_string(),
-            });
+            }
+        );
 
-        let result = serde_yaml::from_str::<FilterConfig>(r#"
+        let result = serde_yaml::from_str::<FilterConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
@@ -1668,31 +1923,42 @@ mod tests {
     fn test_post_filter_config() {
         assert_eq!(
             serde_yaml::from_str::<PostFilterConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<PostFilterConfig>(r#"
+            serde_yaml::from_str::<PostFilterConfig>(
+                r#"
                 command: filter
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             PostFilterConfig {
                 command: "filter".to_string(),
                 content_type: None,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<PostFilterConfig>(r#"
+            serde_yaml::from_str::<PostFilterConfig>(
+                r#"
                 command: filter
                 content-type: video/mp4
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             PostFilterConfig {
                 command: "filter".to_string(),
                 content_type: Some("video/mp4".to_string()),
-            });
+            }
+        );
 
-        let result = serde_yaml::from_str::<PostFilterConfig>(r#"
+        let result = serde_yaml::from_str::<PostFilterConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
@@ -1729,14 +1995,18 @@ mod tests {
     fn test_jobs_config() {
         assert_eq!(
             serde_yaml::from_str::<JobsConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<JobsConfig>(r#"
+            serde_yaml::from_str::<JobsConfig>(
+                r#"
                 scan-services:
                   command: job
                   schedule: '*'
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             JobsConfig {
                 scan_services: JobConfig {
                     command: "job".to_string(),
@@ -1745,14 +2015,18 @@ mod tests {
                 },
                 sync_clocks: JobsConfig::default_sync_clocks(),
                 update_schedules: JobsConfig::default_update_schedules(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<JobsConfig>(r#"
+            serde_yaml::from_str::<JobsConfig>(
+                r#"
                 sync-clocks:
                   command: job
                   schedule: '*'
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             JobsConfig {
                 scan_services: JobsConfig::default_scan_services(),
                 sync_clocks: JobConfig {
@@ -1761,14 +2035,18 @@ mod tests {
                     disabled: false,
                 },
                 update_schedules: JobsConfig::default_update_schedules(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<JobsConfig>(r#"
+            serde_yaml::from_str::<JobsConfig>(
+                r#"
                 update-schedules:
                   command: job
                   schedule: '*'
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             JobsConfig {
                 scan_services: JobsConfig::default_scan_services(),
                 sync_clocks: JobsConfig::default_sync_clocks(),
@@ -1777,12 +2055,15 @@ mod tests {
                     schedule: "*".to_string(),
                     disabled: false,
                 },
-            });
+            }
+        );
 
-        let result = serde_yaml::from_str::<JobsConfig>(r#"
+        let result = serde_yaml::from_str::<JobsConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
@@ -1794,42 +2075,58 @@ mod tests {
                 command: "".to_string(),
                 schedule: "".to_string(),
                 disabled: false,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<JobConfig>(r#"
+            serde_yaml::from_str::<JobConfig>(
+                r#"
                 command: test
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             JobConfig {
                 command: "test".to_string(),
                 schedule: "".to_string(),
                 disabled: false,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<JobConfig>(r#"
+            serde_yaml::from_str::<JobConfig>(
+                r#"
                 schedule: '*'
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             JobConfig {
                 command: "".to_string(),
                 schedule: "*".to_string(),
                 disabled: false,
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<JobConfig>(r#"
+            serde_yaml::from_str::<JobConfig>(
+                r#"
                 disabled: true
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             JobConfig {
                 command: "".to_string(),
                 schedule: "".to_string(),
                 disabled: true,
-            });
+            }
+        );
 
-        assert!(serde_yaml::from_str::<JobConfig>(r#"
+        assert!(serde_yaml::from_str::<JobConfig>(
+            r#"
             unknown:
               property: value
-        "#).is_err());
+        "#
+        )
+        .is_err());
     }
 
     #[test]
@@ -1878,10 +2175,12 @@ mod tests {
     fn test_timeshift_config() {
         assert_eq!(
             serde_yaml::from_str::<TimeshiftConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<TimeshiftConfig>(r#"
+            serde_yaml::from_str::<TimeshiftConfig>(
+                r#"
                 command: command
                 recorders:
                   test:
@@ -1889,10 +2188,12 @@ mod tests {
                     ts-file: /path/to/timeshift.m2ts
                     data-file: /path/to/timeshift.json
                     num-chunks: 100
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             TimeshiftConfig {
                 command: "command".to_string(),
-                recorders: indexmap!{
+                recorders: indexmap! {
                     "test".to_string() => TimeshiftRecorderConfig {
                         service_triple: (1.into(), 2.into(), 3.into()),
                         ts_file: "/path/to/timeshift.m2ts".to_string(),
@@ -1906,16 +2207,19 @@ mod tests {
             },
         );
 
-        assert!(serde_yaml::from_str::<TimeshiftConfig>(r#"
+        assert!(serde_yaml::from_str::<TimeshiftConfig>(
+            r#"
             unknown: property
-        "#).is_err());
+        "#
+        )
+        .is_err());
     }
 
     #[test]
     fn test_timeshift_config_validate() {
         let config = TimeshiftConfig {
             command: "test".to_string(),
-            recorders: indexmap!{},
+            recorders: indexmap! {},
         };
         config.validate();
     }
@@ -1925,7 +2229,7 @@ mod tests {
     fn test_timeshift_config_validate_empty_command() {
         let config = TimeshiftConfig {
             command: "".to_string(),
-            recorders: indexmap!{},
+            recorders: indexmap! {},
         };
         config.validate();
     }
@@ -1934,21 +2238,27 @@ mod tests {
     fn test_timeshift_recorder_config() {
         assert!(serde_yaml::from_str::<TimeshiftRecorderConfig>("{}").is_err());
 
-        assert!(serde_yaml::from_str::<TimeshiftRecorderConfig>(r#"
+        assert!(serde_yaml::from_str::<TimeshiftRecorderConfig>(
+            r#"
             service-triple: [1, 2, 3]
             ts-file: /path/to/timeshift.m2ts
             data-file: /path/to/timeshift.data
             num-chunks: 100
             unknown: property
-        "#).is_err());
+        "#
+        )
+        .is_err());
 
         assert_eq!(
-            serde_yaml::from_str::<TimeshiftRecorderConfig>(r#"
+            serde_yaml::from_str::<TimeshiftRecorderConfig>(
+                r#"
                 service-triple: [1, 2, 3]
                 ts-file: /path/to/timeshift.m2ts
                 data-file: /path/to/timeshift.data
                 num-chunks: 100
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             TimeshiftRecorderConfig {
                 service_triple: (1.into(), 2.into(), 3.into()),
                 ts_file: "/path/to/timeshift.m2ts".to_string(),
@@ -1957,10 +2267,12 @@ mod tests {
                 num_chunks: 100,
                 num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
                 priority: TimeshiftRecorderConfig::default_priority(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<TimeshiftRecorderConfig>(r#"
+            serde_yaml::from_str::<TimeshiftRecorderConfig>(
+                r#"
                 service-triple: [1, 2, 3]
                 ts-file: /path/to/timeshift.m2ts
                 data-file: /path/to/timeshift.data
@@ -1968,7 +2280,9 @@ mod tests {
                 num-chunks: 100
                 num-reserves: 2
                 priority: 2
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             TimeshiftRecorderConfig {
                 service_triple: (1.into(), 2.into(), 3.into()),
                 ts_file: "/path/to/timeshift.m2ts".to_string(),
@@ -1977,7 +2291,8 @@ mod tests {
                 num_chunks: 100,
                 num_reserves: 2,
                 priority: 2.into(),
-            });
+            }
+        );
     }
 
     #[test]
@@ -2178,35 +2493,46 @@ mod tests {
     fn test_resource_config() {
         assert_eq!(
             serde_yaml::from_str::<ResourceConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ResourceConfig>(r#"
+            serde_yaml::from_str::<ResourceConfig>(
+                r#"
                 strings-yaml: /path/to/strings.yml
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ResourceConfig {
                 strings_yaml: "/path/to/strings.yml".to_string(),
                 logos: Default::default(),
-            });
+            }
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<ResourceConfig>(r#"
+            serde_yaml::from_str::<ResourceConfig>(
+                r#"
                 logos:
                   - service-triple: [1, 2, 3]
                     image: /path/to/logo.png
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             ResourceConfig {
                 strings_yaml: ResourceConfig::default_strings_yaml(),
-                logos: hashmap!{
+                logos: hashmap! {
                     ServiceTriple::new(1.into(), 2.into(), 3.into())
                         => "/path/to/logo.png".to_string(),
                 },
-            });
+            }
+        );
 
-        let result = serde_yaml::from_str::<ResourceConfig>(r#"
+        let result = serde_yaml::from_str::<ResourceConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 
@@ -2229,7 +2555,7 @@ mod tests {
     fn test_resource_config_validate_existing_logos() {
         let config = ResourceConfig {
             strings_yaml: "/bin/sh".to_string(),
-            logos: hashmap!{
+            logos: hashmap! {
                 ServiceTriple::new(1.into(), 2.into(), 3.into())
                     => "/bin/sh".to_string(),
             },
@@ -2242,7 +2568,7 @@ mod tests {
     fn test_epg_config_validate_non_existing_logos() {
         let config = ResourceConfig {
             strings_yaml: "/bin/sh".to_string(),
-            logos: hashmap!{
+            logos: hashmap! {
                 ServiceTriple::new(1.into(), 2.into(), 3.into())
                     => "/path/to/non-existing".to_string(),
             },
@@ -2254,20 +2580,27 @@ mod tests {
     fn test_mirakurun_config() {
         assert_eq!(
             serde_yaml::from_str::<MirakurunConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<MirakurunConfig>(r#"
+            serde_yaml::from_str::<MirakurunConfig>(
+                r#"
                 openapi-json: /path/to/json
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             MirakurunConfig {
                 openapi_json: "/path/to/json".to_string(),
-            });
+            }
+        );
 
-        let result = serde_yaml::from_str::<MirakurunConfig>(r#"
+        let result = serde_yaml::from_str::<MirakurunConfig>(
+            r#"
             unknown:
               property: value
-        "#);
+        "#,
+        );
         assert!(result.is_err());
     }
 

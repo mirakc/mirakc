@@ -4,45 +4,45 @@ use std::fmt;
 use std::io;
 use std::pin::Pin;
 use std::process::Stdio;
-use std::task::{Poll, Context};
-use std::time::Duration;
+use std::task::{Context, Poll};
 use std::thread::sleep;
+use std::time::Duration;
 
 use humantime;
 use once_cell::sync::Lazy;
 use thiserror;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader, ReadBuf};
-use tokio::process::{Command, Child, ChildStdin, ChildStdout};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::broadcast;
 
-const COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT: Duration =
-    Duration::from_nanos(100_000);  // 100us
+const COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT: Duration = Duration::from_nanos(100_000); // 100us
 
 static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
     let nanos = env::var("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS")
         .ok()
-        .map(|s| s.parse::<u64>()
-             .expect("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS \
-                      must be a u64 value"))
+        .map(|s| {
+            s.parse::<u64>().expect(
+                "MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS \
+                      must be a u64 value",
+            )
+        })
         .map(|nanos| Duration::from_nanos(nanos))
         .unwrap_or(COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT);
-    tracing::debug!("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: {}",
-                    humantime::format_duration(nanos));
+    tracing::debug!(
+        "MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: {}",
+        humantime::format_duration(nanos)
+    );
     nanos
 });
 
-pub fn spawn_process(
-    command: &str,
-    input: Stdio,
-) -> Result<Child, Error> {
+pub fn spawn_process(command: &str, input: Stdio) -> Result<Child, Error> {
     let words = match shell_words::split(command) {
         Ok(words) => words,
         Err(_) => return Err(Error::UnableToParse(command.to_string())),
     };
     let words: Vec<&str> = words.iter().map(|word| &word[..]).collect();
     let (prog, args) = words.split_first().unwrap();
-    let debug_child_process =
-        env::var_os("MIRAKC_DEBUG_CHILD_PROCESS").is_some();
+    let debug_child_process = env::var_os("MIRAKC_DEBUG_CHILD_PROCESS").is_some();
     let stderr = if debug_child_process {
         Stdio::piped()
     } else {
@@ -66,12 +66,17 @@ pub fn spawn_process(
                 // sequence is found.  Therefore, we use BufReader::read_until()
                 // here in order to avoid such a situation.
                 while let Ok(n) = reader.read_until(0x0A, &mut data).await {
-                    if n == 0 {  // EOF
+                    if n == 0 {
+                        // EOF
                         break;
                     }
-                    tracing::debug!("{}#{}: {}", prog, child_id,
-                                    // data may contain non-utf8 sequence.
-                                    String::from_utf8_lossy(&data).trim_end());
+                    tracing::debug!(
+                        "{}#{}: {}",
+                        prog,
+                        child_id,
+                        // data may contain non-utf8 sequence.
+                        String::from_utf8_lossy(&data).trim_end()
+                    );
                     data.clear();
                 }
             });
@@ -83,10 +88,7 @@ pub fn spawn_process(
 // Spawn processes for input commands and build a pipeline, then returns it.
 // Input and output endpoints can be took from the pipeline only once
 // respectively.
-pub fn spawn_pipeline<T>(
-    commands: Vec<String>,
-    id: T,
-) -> Result<CommandPipeline<T>, Error>
+pub fn spawn_pipeline<T>(commands: Vec<String>, id: T) -> Result<CommandPipeline<T>, Error>
 where
     T: fmt::Display + Clone + Unpin,
 {
@@ -150,8 +152,12 @@ where
         };
 
         let mut process = spawn_process(&command, input)?;
-        tracing::debug!("{}: Spawned {}: `{}`",
-                        self.id, process.id().unwrap(), command);
+        tracing::debug!(
+            "{}: Spawned {}: `{}`",
+            self.id,
+            process.id().unwrap(),
+            command
+        );
 
         if self.stdin.is_none() {
             self.stdin = process.stdin.take();
@@ -173,21 +179,22 @@ where
     }
 
     pub fn pids(&self) -> Vec<Option<u32>> {
-        self.commands
-            .iter()
-            .map(|data| data.process.id())
-            .collect()
+        self.commands.iter().map(|data| data.process.id()).collect()
     }
 
     pub fn take_endpoints(
-        &mut self
+        &mut self,
     ) -> Result<(CommandPipelineInput<T>, CommandPipelineOutput<T>), Error> {
         let input = CommandPipelineInput::new(
-            self.stdin.take().unwrap().try_into().unwrap(), self.id.clone(),
-            self.sender.subscribe());
+            self.stdin.take().unwrap().try_into().unwrap(),
+            self.id.clone(),
+            self.sender.subscribe(),
+        );
         let output = CommandPipelineOutput::new(
-            self.stdout.take().unwrap().try_into().unwrap(), self.id.clone(),
-            self.sender.subscribe());
+            self.stdout.take().unwrap().try_into().unwrap(),
+            self.id.clone(),
+            self.sender.subscribe(),
+        );
         Ok((input, output))
     }
 }
@@ -245,12 +252,12 @@ impl<T> CommandPipelineInput<T>
 where
     T: fmt::Display + Clone + Unpin,
 {
-    fn new(
-        inner: ChildStdin,
-        pipeline_id: T,
-        receiver: broadcast::Receiver<()>,
-    ) -> Self {
-        Self { inner, _pipeline_id: pipeline_id, receiver }
+    fn new(inner: ChildStdin, pipeline_id: T, receiver: broadcast::Receiver<()>) -> Self {
+        Self {
+            inner,
+            _pipeline_id: pipeline_id,
+            receiver,
+        }
     }
 
     fn has_pipeline_broken(&mut self) -> bool {
@@ -268,7 +275,7 @@ where
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context,
-        buf: &[u8]
+        buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         if self.has_pipeline_broken() {
             Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "")))
@@ -277,10 +284,7 @@ where
         }
     }
 
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context
-    ) -> Poll<io::Result<()>> {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
         if self.has_pipeline_broken() {
             Poll::Ready(Ok(()))
         } else {
@@ -288,10 +292,7 @@ where
         }
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context
-    ) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
         if self.has_pipeline_broken() {
             Poll::Ready(Ok(()))
         } else {
@@ -315,12 +316,12 @@ impl<T> CommandPipelineOutput<T>
 where
     T: fmt::Display + Clone + Unpin,
 {
-    fn new(
-        inner: ChildStdout,
-        pipeline_id: T,
-        receiver: broadcast::Receiver<()>,
-    ) -> Self {
-        Self { inner, _pipeline_id: pipeline_id, receiver }
+    fn new(inner: ChildStdout, pipeline_id: T, receiver: broadcast::Receiver<()>) -> Self {
+        Self {
+            inner,
+            _pipeline_id: pipeline_id,
+            receiver,
+        }
     }
 
     fn has_pipeline_broken(&mut self) -> bool {
@@ -341,7 +342,7 @@ where
         buf: &mut ReadBuf,
     ) -> Poll<io::Result<()>> {
         if self.has_pipeline_broken() {
-            Poll::Ready(Ok(()))  // EOF
+            Poll::Ready(Ok(())) // EOF
         } else {
             Pin::new(&mut self.inner).poll_read(cx, buf)
         }
@@ -366,8 +367,10 @@ mod tests {
 
         let result = spawn_process("command-not-found", Stdio::null());
         assert!(result.is_err());
-        assert_matches!(result.unwrap_err(),
-                        Error::UnableToSpawn(_, io::Error {..}));
+        assert_matches!(
+            result.unwrap_err(),
+            Error::UnableToSpawn(_, io::Error { .. })
+        );
     }
 
     #[tokio::test]
@@ -409,11 +412,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_pipeline_mulpile_commands() {
-        let mut pipeline = spawn_pipeline(vec![
-            "cat".to_string(),
-            "cat".to_string(),
-            "cat".to_string(),
-        ], 0u8).unwrap();
+        let mut pipeline = spawn_pipeline(
+            vec!["cat".to_string(), "cat".to_string(), "cat".to_string()],
+            0u8,
+        )
+        .unwrap();
         let (mut input, mut output) = pipeline.take_endpoints().unwrap();
 
         let result = input.write_all(b"hello").await;
@@ -507,7 +510,7 @@ mod tests {
             fn poll_write(
                 mut self: Pin<&mut Self>,
                 cx: &mut Context,
-                buf: &[u8]
+                buf: &[u8],
             ) -> Poll<io::Result<usize>> {
                 let poll = Pin::new(&mut self.inner).poll_write(cx, buf);
                 if poll.is_pending() {
@@ -518,24 +521,16 @@ mod tests {
                 poll
             }
 
-            fn poll_flush(
-                mut self: Pin<&mut Self>,
-                cx: &mut Context
-            ) -> Poll<io::Result<()>> {
+            fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
                 Pin::new(&mut self.inner).poll_flush(cx)
             }
 
-            fn poll_shutdown(
-                mut self: Pin<&mut Self>,
-                cx: &mut Context
-            ) -> Poll<io::Result<()>> {
+            fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
                 Pin::new(&mut self.inner).poll_shutdown(cx)
             }
         }
 
-        let mut pipeline = spawn_pipeline(vec![
-            "sh -c 'exec 0<&-;'".to_string(),
-        ], 0u8).unwrap();
+        let mut pipeline = spawn_pipeline(vec!["sh -c 'exec 0<&-;'".to_string()], 0u8).unwrap();
         let (input, _) = pipeline.take_endpoints().unwrap();
 
         let (tx, rx) = oneshot::channel();

@@ -19,19 +19,12 @@ use std::sync::Arc;
 
 use actix::prelude::*;
 use axum::async_trait;
-use axum::Json;
-use axum::Router;
-use axum::Server;
-use axum::TypedHeader;
 use axum::body::StreamBody;
 use axum::extract::FromRequestParts;
 use axum::extract::Host;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
-use axum::http::StatusCode;
-use axum::http::HeaderMap;
-use axum::http::HeaderValue;
 use axum::http::header::ACCEPT_RANGES;
 use axum::http::header::CACHE_CONTROL;
 use axum::http::header::CONNECTION;
@@ -41,9 +34,16 @@ use axum::http::header::SERVER;
 use axum::http::header::TRANSFER_ENCODING;
 use axum::http::header::USER_AGENT;
 use axum::http::request::Parts;
+use axum::http::HeaderMap;
+use axum::http::HeaderValue;
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing;
+use axum::Json;
+use axum::Router;
+use axum::Server;
+use axum::TypedHeader;
 use bytes::Bytes;
 use chrono::DateTime;
 use chrono::Duration;
@@ -62,13 +62,12 @@ use tower_http::services::ServeFile;
 use tower_http::trace::TraceLayer;
 
 use crate::airtime_tracker;
-use crate::config::Config;
 use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipelineProcessModel;
-use crate::datetime_ext::serde_jst;
+use crate::config::Config;
 use crate::datetime_ext::serde_duration_in_millis;
+use crate::datetime_ext::serde_jst;
 use crate::datetime_ext::Jst;
-use crate::error::Error;
 use crate::epg::EpgChannel;
 use crate::epg::QueryChannelMessage;
 use crate::epg::QueryChannelsMessage;
@@ -77,6 +76,7 @@ use crate::epg::QueryProgramMessage;
 use crate::epg::QueryProgramsMessage;
 use crate::epg::QueryServiceMessage;
 use crate::epg::QueryServicesMessage;
+use crate::error::Error;
 use crate::filter::FilterPipelineBuilder;
 use crate::models::*;
 use crate::mpeg_ts_stream::MpegTsStream;
@@ -116,8 +116,7 @@ type Epg = actix::actors::mocker::Mocker<crate::epg::Epg>;
 #[cfg(not(test))]
 type TimeshiftManager = crate::timeshift::TimeshiftManager;
 #[cfg(test)]
-type TimeshiftManager =
-    actix::actors::mocker::Mocker<crate::timeshift::TimeshiftManager>;
+type TimeshiftManager = actix::actors::mocker::Mocker<crate::timeshift::TimeshiftManager>;
 
 pub async fn serve(
     config: Arc<Config>,
@@ -134,9 +133,13 @@ pub async fn serve(
         timeshift_manager,
     }));
 
-    let http_servers = config.server.http_addrs()
+    let http_servers = config
+        .server
+        .http_addrs()
         .map(|addr| serve_http(addr, app.clone()).boxed());
-    let uds_servers = config.server.uds_paths()
+    let uds_servers = config
+        .server
+        .uds_paths()
         .map(|path| serve_uds(path, app.clone()).boxed());
 
     let servers = http_servers.chain(uds_servers);
@@ -147,10 +150,7 @@ pub async fn serve(
 
 // http
 
-async fn serve_http(
-    addr: SocketAddr,
-    app: Router,
-) -> hyper::Result<()> {
+async fn serve_http(addr: SocketAddr, app: Router) -> hyper::Result<()> {
     Server::bind(&addr)
         .http1_keepalive(false)
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
@@ -159,13 +159,12 @@ async fn serve_http(
 
 // uds
 
-async fn serve_uds(
-    path: &std::path::Path,
-    app: Router,
-) -> hyper::Result<()> {
+async fn serve_uds(path: &std::path::Path, app: Router) -> hyper::Result<()> {
     // Cleanup the previous socket if it exists.
     let _ = tokio::fs::remove_file(&path).await;
-    tokio::fs::create_dir_all(path.parent().unwrap()).await.unwrap();
+    tokio::fs::create_dir_all(path.parent().unwrap())
+        .await
+        .unwrap();
 
     Server::builder(UdsListener::new(path))
         .http1_keepalive(false)
@@ -181,7 +180,7 @@ macro_rules! header_value {
     };
     ($v:expr) => {
         HeaderValue::from_str(&$v).unwrap()
-    }
+    };
 }
 
 // headers
@@ -204,13 +203,13 @@ fn build_app(state: Arc<AppState>) -> Router {
         router = if path.is_dir() {
             router.nest(
                 &mount_point,
-                routing::get_service(ServeDir::new(&path))
-                    .handle_error(convert_error))
+                routing::get_service(ServeDir::new(&path)).handle_error(convert_error),
+            )
         } else if path.is_file() {
             router.route(
                 &mount_point,
-                routing::get_service(ServeFile::new(&path))
-                    .handle_error(convert_error))
+                routing::get_service(ServeFile::new(&path)).handle_error(convert_error),
+            )
         } else {
             router
         };
@@ -251,28 +250,41 @@ fn build_api(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/programs", routing::get(programs_gh))
         .route("/programs/:id", routing::get(program_gh))
         .route("/tuners", routing::get(tuners_gh))
-        .route("/channels/:channel_type/:channel/stream",
-               routing::get(channel_stream_g)
-               .head(channel_stream_h))
-        .route("/channels/:channel_type/:channel/services/:sid/stream",
-               routing::get(channel_service_stream_g)
-               .head(channel_service_stream_h))
-        .route("/services/:id/stream",
-               routing::get(service_stream_g)
-               .head(service_stream_h))
-        .route("/programs/:id/stream",
-               routing::get(program_stream_g)
-               .head(program_stream_h))
+        .route(
+            "/channels/:channel_type/:channel/stream",
+            routing::get(channel_stream_g).head(channel_stream_h),
+        )
+        .route(
+            "/channels/:channel_type/:channel/services/:sid/stream",
+            routing::get(channel_service_stream_g).head(channel_service_stream_h),
+        )
+        .route(
+            "/services/:id/stream",
+            routing::get(service_stream_g).head(service_stream_h),
+        )
+        .route(
+            "/programs/:id/stream",
+            routing::get(program_stream_g).head(program_stream_h),
+        )
         .route("/timeshift", routing::get(timeshift_recorders_gh))
         .route("/timeshift/:recorder", routing::get(timeshift_recorder_gh))
-        .route("/timeshift/:recorder/records",
-               routing::get(timeshift_records_gh))
-        .route("/timeshift/:recorder/records/:id",
-               routing::get(timeshift_record_gh))
+        .route(
+            "/timeshift/:recorder/records",
+            routing::get(timeshift_records_gh),
+        )
+        .route(
+            "/timeshift/:recorder/records/:id",
+            routing::get(timeshift_record_gh),
+        )
         // The following two endpoints won't allocate any tuner.
-        .route("/timeshift/:recorder/stream", routing::get(timeshift_stream_gh))
-        .route("/timeshift/:recorder/records/:id/stream",
-               routing::get(timeshift_record_stream_gh))
+        .route(
+            "/timeshift/:recorder/stream",
+            routing::get(timeshift_stream_gh),
+        )
+        .route(
+            "/timeshift/:recorder/records/:id/stream",
+            routing::get(timeshift_record_stream_gh),
+        )
         .route("/iptv/playlist", routing::get(iptv_playlist_gh))
         // For compatibility with EPGStation
         .route("/iptv/channel.m3u8", routing::get(iptv_playlist_gh))
@@ -295,7 +307,7 @@ fn build_api(state: Arc<AppState>) -> Router<Arc<AppState>> {
 async fn version_gh() -> impl IntoResponse {
     Json(Version {
         current: env!("CARGO_PKG_VERSION"),
-        latest: env!("CARGO_PKG_VERSION"),  // unsupported
+        latest: env!("CARGO_PKG_VERSION"), // unsupported
     })
 }
 
@@ -304,24 +316,28 @@ async fn status_gh() -> impl IntoResponse {
 }
 
 async fn channels_gh(
-    State(state): State<Arc<AppState>>
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<MirakurunChannel>>, Error> {
-    state.epg.send(QueryChannelsMessage).await?
-        .map(Json::from)
+    state.epg.send(QueryChannelsMessage).await?.map(Json::from)
 }
 
 async fn services_gh(
-    State(state): State<Arc<AppState>>
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<MirakurunService>>, Error> {
-    state.epg.send(QueryServicesMessage).await?
-        .map(|services| services
-             .into_iter()
-             .map(MirakurunService::from)
-             .map(|mut service| {
-                 service.check_logo_existence(&state.config.resource);
-                 service
-             })
-             .collect::<Vec<MirakurunService>>())
+    state
+        .epg
+        .send(QueryServicesMessage)
+        .await?
+        .map(|services| {
+            services
+                .into_iter()
+                .map(MirakurunService::from)
+                .map(|mut service| {
+                    service.check_logo_existence(&state.config.resource);
+                    service
+                })
+                .collect::<Vec<MirakurunService>>()
+        })
         .map(Json::from)
 }
 
@@ -333,7 +349,10 @@ async fn service_gh(
         nid: id.nid(),
         sid: id.sid(),
     };
-    state.epg.send(msg).await?
+    state
+        .epg
+        .send(msg)
+        .await?
         .map(MirakurunService::from)
         .map(|mut service| {
             service.check_logo_existence(&state.config.resource);
@@ -345,17 +364,20 @@ async fn service_logo_gh(
     State(state): State<Arc<AppState>>,
     Path(id): Path<MirakurunServiceId>,
 ) -> Result<Response<StaticFileBody>, Error> {
-    let service = state.epg.send(QueryServiceMessage::ByNidSid {
-        nid: id.nid(),
-        sid: id.sid(),
-    }).await??;
+    let service = state
+        .epg
+        .send(QueryServiceMessage::ByNidSid {
+            nid: id.nid(),
+            sid: id.sid(),
+        })
+        .await??;
 
     match state.config.resource.logos.get(&service.triple()) {
         Some(path) => {
             Ok(Response::builder()
-               // TODO: The type should be specified in config.yml.
-               .header(CONTENT_TYPE, "image/png")
-               .body(StaticFileBody::new(path).await?)?)
+                // TODO: The type should be specified in config.yml.
+                .header(CONTENT_TYPE, "image/png")
+                .body(StaticFileBody::new(path).await?)?)
         }
         None => Err(Error::NoLogoData),
     }
@@ -364,11 +386,16 @@ async fn service_logo_gh(
 async fn programs_gh(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<MirakurunProgram>>, Error> {
-    state.epg.send(QueryProgramsMessage).await?
-        .map(|programs| programs
-             .into_iter()
-             .map(MirakurunProgram::from)
-             .collect::<Vec<MirakurunProgram>>())
+    state
+        .epg
+        .send(QueryProgramsMessage)
+        .await?
+        .map(|programs| {
+            programs
+                .into_iter()
+                .map(MirakurunProgram::from)
+                .collect::<Vec<MirakurunProgram>>()
+        })
         .map(Json::from)
 }
 
@@ -381,15 +408,19 @@ async fn program_gh(
         sid: id.sid(),
         eid: id.eid(),
     };
-    state.epg.send(msg).await?
+    state
+        .epg
+        .send(msg)
+        .await?
         .map(MirakurunProgram::from)
         .map(Json::from)
 }
 
-async fn tuners_gh(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<MirakurunTuner>>, Error> {
-    state.tuner_manager.send(QueryTunersMessage).await?
+async fn tuners_gh(State(state): State<Arc<AppState>>) -> Result<Json<Vec<MirakurunTuner>>, Error> {
+    state
+        .tuner_manager
+        .send(QueryTunersMessage)
+        .await?
         .map(Json::from)
 }
 
@@ -399,20 +430,26 @@ async fn channel_stream_g(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error> {
-    let channel = state.epg.send(QueryChannelMessage {
-        channel_type: path.channel_type,
-        channel: path.channel,
-    }).await??;
+    let channel = state
+        .epg
+        .send(QueryChannelMessage {
+            channel_type: path.channel_type,
+            channel: path.channel,
+        })
+        .await??;
 
-    let stream = state.tuner_manager.send(StartStreamingMessage {
-        channel: channel.clone(),
-        user: user.clone(),
-    }).await??;
+    let stream = state
+        .tuner_manager
+        .send(StartStreamingMessage {
+            channel: channel.clone(),
+            user: user.clone(),
+        })
+        .await??;
 
     // stop_trigger must be created here in order to stop streaming when an
     // error occurs.
-    let stop_trigger = TunerStreamStopTrigger::new(
-        stream.id(), state.tuner_manager.clone().recipient());
+    let stop_trigger =
+        TunerStreamStopTrigger::new(stream.id(), state.tuner_manager.clone().recipient());
 
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &channel.name)
@@ -421,17 +458,22 @@ async fn channel_stream_g(
         .build();
 
     let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(
-        &state.config.pre_filters, &filter_setting.pre_filters)?;
+    builder.add_pre_filters(&state.config.pre_filters, &filter_setting.pre_filters)?;
     if !stream.is_decoded() && filter_setting.decode {
         builder.add_decode_filter(&state.config.filters.decode_filter)?;
     }
-    builder.add_post_filters(
-        &state.config.post_filters, &filter_setting.post_filters)?;
+    builder.add_post_filters(&state.config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
     streaming(
-        &state.config, user, stream, filters, content_type, stop_trigger).await
+        &state.config,
+        user,
+        stream,
+        filters,
+        content_type,
+        stop_trigger,
+    )
+    .await
 }
 
 async fn channel_stream_h(
@@ -440,10 +482,13 @@ async fn channel_stream_h(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> impl IntoResponse {
-    let _channel = state.epg.send(QueryChannelMessage {
-        channel_type: path.channel_type,
-        channel: path.channel,
-    }).await??;
+    let _channel = state
+        .epg
+        .send(QueryChannelMessage {
+            channel_type: path.channel_type,
+            channel: path.channel,
+        })
+        .await??;
 
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
@@ -457,15 +502,23 @@ async fn channel_service_stream_g(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error> {
-    let channel = state.epg.send(QueryChannelMessage {
-        channel_type: path.channel_type,
-        channel: path.channel,
-    }).await??;
+    let channel = state
+        .epg
+        .send(QueryChannelMessage {
+            channel_type: path.channel_type,
+            channel: path.channel,
+        })
+        .await??;
 
     do_service_stream(
-        &state.config, &state.tuner_manager, channel, path.sid, user,
-        filter_setting
-    ).await
+        &state.config,
+        &state.tuner_manager,
+        channel,
+        path.sid,
+        user,
+        filter_setting,
+    )
+    .await
 }
 
 async fn channel_service_stream_h(
@@ -474,10 +527,13 @@ async fn channel_service_stream_h(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> impl IntoResponse {
-    let _channel = state.epg.send(QueryChannelMessage {
-        channel_type: path.channel_type,
-        channel: path.channel,
-    }).await??;
+    let _channel = state
+        .epg
+        .send(QueryChannelMessage {
+            channel_type: path.channel_type,
+            channel: path.channel,
+        })
+        .await??;
 
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
@@ -491,15 +547,23 @@ async fn service_stream_g(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error> {
-    let service = state.epg.send(QueryServiceMessage::ByNidSid {
-        nid: id.nid(),
-        sid: id.sid(),
-    }).await??;
+    let service = state
+        .epg
+        .send(QueryServiceMessage::ByNidSid {
+            nid: id.nid(),
+            sid: id.sid(),
+        })
+        .await??;
 
     do_service_stream(
-        &state.config, &state.tuner_manager, service.channel, service.sid, user,
-        filter_setting
-    ).await
+        &state.config,
+        &state.tuner_manager,
+        service.channel,
+        service.sid,
+        user,
+        filter_setting,
+    )
+    .await
 }
 
 // IPTV Simple Client in Kodi sends a HEAD request before streaming.
@@ -509,10 +573,13 @@ async fn service_stream_h(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> impl IntoResponse {
-    let _service = state.epg.send(QueryServiceMessage::ByNidSid {
-        nid: id.nid(),
-        sid: id.sid(),
-    }).await??;
+    let _service = state
+        .epg
+        .send(QueryServiceMessage::ByNidSid {
+            nid: id.nid(),
+            sid: id.sid(),
+        })
+        .await??;
 
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
@@ -526,37 +593,51 @@ async fn program_stream_g(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error> {
-    let program = state.epg.send(QueryProgramMessage::ByNidSidEid {
-        nid: id.nid(),
-        sid: id.sid(),
-        eid: id.eid(),
-    }).await??;
+    let program = state
+        .epg
+        .send(QueryProgramMessage::ByNidSidEid {
+            nid: id.nid(),
+            sid: id.sid(),
+            eid: id.eid(),
+        })
+        .await??;
 
-    let service = state.epg.send(QueryServiceMessage::ByNidSid {
-        nid: id.nid(),
-        sid: id.sid(),
-    }).await??;
+    let service = state
+        .epg
+        .send(QueryServiceMessage::ByNidSid {
+            nid: id.nid(),
+            sid: id.sid(),
+        })
+        .await??;
 
-    let clock = state.epg.send(QueryClockMessage {
-        triple: service.triple(),
-    }).await??;
+    let clock = state
+        .epg
+        .send(QueryClockMessage {
+            triple: service.triple(),
+        })
+        .await??;
 
-    let stream = state.tuner_manager.send(StartStreamingMessage {
-        channel: service.channel.clone(),
-        user: user.clone(),
-    }).await??;
+    let stream = state
+        .tuner_manager
+        .send(StartStreamingMessage {
+            channel: service.channel.clone(),
+            user: user.clone(),
+        })
+        .await??;
 
     // stream_stop_trigger must be created here in order to stop streaming when
     // an error occurs.
-    let stream_stop_trigger = TunerStreamStopTrigger::new(
-        stream.id(), state.tuner_manager.clone().recipient());
+    let stream_stop_trigger =
+        TunerStreamStopTrigger::new(stream.id(), state.tuner_manager.clone().recipient());
 
-    let video_tags: Vec<u8> = program.video
+    let video_tags: Vec<u8> = program
+        .video
         .iter()
         .map(|video| video.component_tag)
         .collect();
 
-    let audio_tags: Vec<u8> = program.audios
+    let audio_tags: Vec<u8> = program
+        .audios
         .values()
         .map(|audio| audio.component_tag)
         .collect();
@@ -575,30 +656,40 @@ async fn program_stream_g(
         .build();
 
     let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(
-        &state.config.pre_filters, &filter_setting.pre_filters)?;
+    builder.add_pre_filters(&state.config.pre_filters, &filter_setting.pre_filters)?;
     if !stream.is_decoded() && filter_setting.decode {
         builder.add_decode_filter(&state.config.filters.decode_filter)?;
     }
     builder.add_program_filter(&state.config.filters.program_filter)?;
-    builder.add_post_filters(
-        &state.config.post_filters, &filter_setting.post_filters)?;
+    builder.add_post_filters(&state.config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
     let tracker_stop_trigger = airtime_tracker::track_airtime(
-        &state.config.recorder.track_airtime_command, &service.channel,
-        &program, stream.id(), state.tuner_manager.clone(), state.epg.clone()
-    ).await?;
+        &state.config.recorder.track_airtime_command,
+        &service.channel,
+        &program,
+        stream.id(),
+        state.tuner_manager.clone(),
+        state.epg.clone(),
+    )
+    .await?;
 
     let stop_triggers = vec![stream_stop_trigger, tracker_stop_trigger];
 
     let result = streaming(
-        &state.config, user, stream, filters, content_type, stop_triggers
-    ).await;
+        &state.config,
+        user,
+        stream,
+        filters,
+        content_type,
+        stop_triggers,
+    )
+    .await;
 
     match result {
-        Err(Error::ProgramNotFound) =>
-            tracing::warn!("No stream for the program#{}, maybe canceled", id),
+        Err(Error::ProgramNotFound) => {
+            tracing::warn!("No stream for the program#{}, maybe canceled", id)
+        }
         _ => (),
     }
 
@@ -611,20 +702,29 @@ async fn program_stream_h(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> impl IntoResponse {
-    let _program = state.epg.send(QueryProgramMessage::ByNidSidEid {
-        nid: id.nid(),
-        sid: id.sid(),
-        eid: id.eid(),
-    }).await??;
+    let _program = state
+        .epg
+        .send(QueryProgramMessage::ByNidSidEid {
+            nid: id.nid(),
+            sid: id.sid(),
+            eid: id.eid(),
+        })
+        .await??;
 
-    let service = state.epg.send(QueryServiceMessage::ByNidSid {
-        nid: id.nid(),
-        sid: id.sid(),
-    }).await??;
+    let service = state
+        .epg
+        .send(QueryServiceMessage::ByNidSid {
+            nid: id.nid(),
+            sid: id.sid(),
+        })
+        .await??;
 
-    let _clock = state.epg.send(QueryClockMessage {
-        triple: service.triple(),
-    }).await??;
+    let _clock = state
+        .epg
+        .send(QueryClockMessage {
+            triple: service.triple(),
+        })
+        .await??;
 
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
@@ -635,10 +735,16 @@ async fn program_stream_h(
 async fn timeshift_recorders_gh(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<WebTimeshiftRecorder>>, Error> {
-    state.timeshift_manager.send(QueryTimeshiftRecordersMessage).await?
-        .map(|recorders| recorders.into_iter()
-             .map(WebTimeshiftRecorder::from)
-             .collect::<Vec<WebTimeshiftRecorder>>())
+    state
+        .timeshift_manager
+        .send(QueryTimeshiftRecordersMessage)
+        .await?
+        .map(|recorders| {
+            recorders
+                .into_iter()
+                .map(WebTimeshiftRecorder::from)
+                .collect::<Vec<WebTimeshiftRecorder>>()
+        })
         .map(Json::from)
 }
 
@@ -649,7 +755,10 @@ async fn timeshift_recorder_gh(
     let msg = QueryTimeshiftRecorderMessage {
         recorder: TimeshiftRecorderQuery::ByName(recorder),
     };
-    state.timeshift_manager.send(msg).await?
+    state
+        .timeshift_manager
+        .send(msg)
+        .await?
         .map(WebTimeshiftRecorder::from)
         .map(Json::from)
 }
@@ -661,10 +770,16 @@ async fn timeshift_records_gh(
     let msg = QueryTimeshiftRecordsMessage {
         recorder: TimeshiftRecorderQuery::ByName(recorder),
     };
-    state.timeshift_manager.send(msg).await?
-        .map(|records| records.into_iter()
-             .map(WebTimeshiftRecord::from)
-             .collect::<Vec<WebTimeshiftRecord>>())
+    state
+        .timeshift_manager
+        .send(msg)
+        .await?
+        .map(|records| {
+            records
+                .into_iter()
+                .map(WebTimeshiftRecord::from)
+                .collect::<Vec<WebTimeshiftRecord>>()
+        })
         .map(Json::from)
 }
 
@@ -676,7 +791,10 @@ async fn timeshift_record_gh(
         recorder: TimeshiftRecorderQuery::ByName(path.recorder),
         record_id: path.id,
     };
-    state.timeshift_manager.send(msg).await?
+    state
+        .timeshift_manager
+        .send(msg)
+        .await?
         .map(WebTimeshiftRecord::from)
         .map(Json::from)
 }
@@ -709,16 +827,20 @@ async fn timeshift_stream_gh(
         .build();
 
     let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(
-        &state.config.pre_filters, &filter_setting.pre_filters)?;
+    builder.add_pre_filters(&state.config.pre_filters, &filter_setting.pre_filters)?;
     // The stream has already been decoded.
-    builder.add_post_filters(
-        &state.config.post_filters, &filter_setting.post_filters)?;
+    builder.add_post_filters(&state.config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
     streaming(
-        &state.config, user, stream, filters, content_type, stop_trigger
-    ).await
+        &state.config,
+        user,
+        stream,
+        filters,
+        content_type,
+        stop_trigger,
+    )
+    .await
 }
 
 async fn timeshift_record_stream_gh(
@@ -765,12 +887,16 @@ async fn timeshift_record_stream_gh(
 
     let (stream, stop_trigger) = src.create_stream(seekable).await?;
 
-    let video_tags: Vec<u8> = record.program.video
+    let video_tags: Vec<u8> = record
+        .program
+        .video
         .iter()
         .map(|video| video.component_tag)
         .collect();
 
-    let audio_tags: Vec<u8> = record.program.audios
+    let audio_tags: Vec<u8> = record
+        .program
+        .audios
         .values()
         .map(|audio| audio.component_tag)
         .collect();
@@ -791,16 +917,20 @@ async fn timeshift_record_stream_gh(
         .build();
 
     let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(
-        &state.config.pre_filters, &filter_setting.pre_filters)?;
+    builder.add_pre_filters(&state.config.pre_filters, &filter_setting.pre_filters)?;
     // The stream has already been decoded.
-    builder.add_post_filters(
-        &state.config.post_filters, &filter_setting.post_filters)?;
+    builder.add_post_filters(&state.config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
     streaming(
-        &state.config, user, stream, filters, content_type, stop_trigger
-    ).await
+        &state.config,
+        user,
+        stream,
+        filters,
+        content_type,
+        stop_trigger,
+    )
+    .await
 }
 
 async fn iptv_playlist_gh(
@@ -817,9 +947,9 @@ async fn do_iptv_playlist(
     host: &str,
     mut filter_setting: FilterSetting,
 ) -> Result<Response<String>, Error> {
-    const INITIAL_BUFSIZE: usize = 8 * 1024;  // 8KB
+    const INITIAL_BUFSIZE: usize = 8 * 1024; // 8KB
 
-    filter_setting.decode = true;  // always decode
+    filter_setting.decode = true; // always decode
     let query = serde_qs::to_string(&filter_setting).expect("Never fails");
 
     let services = epg.send(QueryServicesMessage).await??;
@@ -838,7 +968,8 @@ async fn do_iptv_playlist(
         // avoiding garbled characters in `ＮＨＫＢＳプレミアム`.  Kodi or PVR
         // IPTV Simple Client seems to treat it as Latin-1 when removing U+3000.
         match sv.service_type {
-            0x01 | 0xA1 | 0xA5 | 0xAD => {  // video
+            0x01 | 0xA1 | 0xA5 | 0xAD => {
+                // video
                 // Special optimization for IPTV Simple Client.
                 //
                 // Explicitly specifying the mime type of each channel avoids
@@ -859,26 +990,38 @@ async fn do_iptv_playlist(
                 if config.resource.logos.contains_key(&sv.triple()) {
                     write!(buf, r#" tvg-logo="{}""#, logo_url)?;
                 }
-                write!(buf, r#" group-title="{}", {}　"#,
-                       sv.channel.channel_type, sv.name)?;
+                write!(
+                    buf,
+                    r#" group-title="{}", {}　"#,
+                    sv.channel.channel_type, sv.name
+                )?;
             }
-            0x02 | 0xA2 | 0xA6 => {  // audio
+            0x02 | 0xA2 | 0xA6 => {
+                // audio
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
                 if config.resource.logos.contains_key(&sv.triple()) {
                     write!(buf, r#" tvg-logo="{}""#, logo_url)?;
                 }
-                write!(buf, r#" group-title="{}-Radio" radio=true, {}　"#,
-                       sv.channel.channel_type, sv.name)?;
+                write!(
+                    buf,
+                    r#" group-title="{}-Radio" radio=true, {}　"#,
+                    sv.channel.channel_type, sv.name
+                )?;
             }
             _ => unreachable!(),
         }
-        write!(buf, "\nhttp://{}/api/services/{}/stream?{}\n",
-               host, id.value(), query)?;
+        write!(
+            buf,
+            "\nhttp://{}/api/services/{}/stream?{}\n",
+            host,
+            id.value(),
+            query
+        )?;
     }
 
     Ok(Response::builder()
-       .header(CONTENT_TYPE, "application/x-mpegurl; charset=UTF-8")
-       .body(buf)?)
+        .header(CONTENT_TYPE, "application/x-mpegurl; charset=UTF-8")
+        .body(buf)?)
 }
 
 async fn iptv_epg_gh(
@@ -886,20 +1029,15 @@ async fn iptv_epg_gh(
     Host(host): Host,
     Query(query): Query<IptvEpgQuery>,
 ) -> impl IntoResponse {
-    do_iptv_epg(
-        &state.config, &state.string_table, &state.epg, &host, query).await
+    do_iptv_epg(&state.config, &state.string_table, &state.epg, &host, query).await
 }
 
 // For compatibility with Mirakurun
-async fn iptv_xmltv_gh(
-    State(state): State<Arc<AppState>>,
-    Host(host): Host,
-) -> impl IntoResponse {
+async fn iptv_xmltv_gh(State(state): State<Arc<AppState>>, Host(host): Host) -> impl IntoResponse {
     // Mirakurun doesn't support the days query parameter and returns all
     // programs.
     let query = IptvEpgQuery { days: 10 };
-    do_iptv_epg(
-        &state.config, &state.string_table, &state.epg, &host, query).await
+    do_iptv_epg(&state.config, &state.string_table, &state.epg, &host, query).await
 }
 
 async fn do_iptv_epg(
@@ -909,7 +1047,7 @@ async fn do_iptv_epg(
     host: &str,
     query: IptvEpgQuery,
 ) -> Result<Response<String>, Error> {
-    const INITIAL_BUFSIZE: usize = 8 * 1024 * 1024;  // 8MB
+    const INITIAL_BUFSIZE: usize = 8 * 1024 * 1024; // 8MB
     const DATETIME_FORMAT: &'static str = "%Y%m%d%H%M%S %z";
 
     let end_after = Jst::midnight();
@@ -923,14 +1061,20 @@ async fn do_iptv_epg(
     let mut buf = String::with_capacity(INITIAL_BUFSIZE);
     write!(buf, r#"<?xml version="1.0" encoding="UTF-8" ?>"#)?;
     write!(buf, r#"<!DOCTYPE tv SYSTEM "xmltv.dtd">"#)?;
-    write!(buf, r#"<tv generator-info-name="{}">"#, escape(&server_name()))?;
+    write!(
+        buf,
+        r#"<tv generator-info-name="{}">"#,
+        escape(&server_name())
+    )?;
     for sv in services.iter() {
         let id = MirakurunServiceId::from(sv.triple());
-        let logo_url = format!("http://{}/api/services/{}/logo",
-                               host, id.value());
+        let logo_url = format!("http://{}/api/services/{}/logo", host, id.value());
         write!(buf, r#"<channel id="{}">"#, id.value())?;
-        write!(buf, r#"<display-name lang="ja">{}</display-name>"#,
-               escape(&sv.name))?;
+        write!(
+            buf,
+            r#"<display-name lang="ja">{}</display-name>"#,
+            escape(&sv.name)
+        )?;
         if config.resource.logos.contains_key(&sv.triple()) {
             write!(buf, r#"<icon src="{}" />"#, logo_url)?;
         }
@@ -942,10 +1086,13 @@ async fn do_iptv_epg(
         .filter(|pg| pg.start_at < start_before && pg.end_at() > end_after)
     {
         let id = MirakurunServiceId::from(pg.quad);
-        write!(buf, r#"<programme start="{}" stop="{}" channel="{}">"#,
-               pg.start_at.format(DATETIME_FORMAT),
-               pg.end_at().format(DATETIME_FORMAT),
-               id.value())?;
+        write!(
+            buf,
+            r#"<programme start="{}" stop="{}" channel="{}">"#,
+            pg.start_at.format(DATETIME_FORMAT),
+            pg.end_at().format(DATETIME_FORMAT),
+            id.value()
+        )?;
         if let Some(name) = pg.name.as_ref() {
             write!(buf, r#"<title lang="ja">{}</title>"#, escape(&name))?;
         }
@@ -966,14 +1113,21 @@ async fn do_iptv_epg(
         if let Some(genres) = pg.genres.as_ref() {
             for genre in genres.iter() {
                 let genre_str = &string_table.genres[genre.lv1 as usize].genre;
-                let subgenre_str = &string_table.genres[genre.lv1 as usize]
-                    .subgenres[genre.lv2 as usize];
+                let subgenre_str =
+                    &string_table.genres[genre.lv1 as usize].subgenres[genre.lv2 as usize];
                 if subgenre_str.is_empty() {
-                    write!(buf, r#"<category lang="ja">{}</category>"#,
-                           escape(&genre_str))?;
+                    write!(
+                        buf,
+                        r#"<category lang="ja">{}</category>"#,
+                        escape(&genre_str)
+                    )?;
                 } else {
-                    write!(buf, r#"<category lang="ja">{} / {}</category>"#,
-                           escape(&genre_str), escape(&subgenre_str))?;
+                    write!(
+                        buf,
+                        r#"<category lang="ja">{} / {}</category>"#,
+                        escape(&genre_str),
+                        escape(&subgenre_str)
+                    )?;
                 }
             }
         }
@@ -982,16 +1136,14 @@ async fn do_iptv_epg(
     write!(buf, r#"</tv>"#)?;
 
     Ok(Response::builder()
-       .header(CONTENT_TYPE, "application/xml; charset=UTF-8")
-       .body(buf)?)
+        .header(CONTENT_TYPE, "application/xml; charset=UTF-8")
+        .body(buf)?)
 }
 
-async fn docs_gh(
-    State(state): State<Arc<AppState>>,
-) -> Result<Response<StaticFileBody>, Error> {
+async fn docs_gh(State(state): State<Arc<AppState>>) -> Result<Response<StaticFileBody>, Error> {
     Ok(Response::builder()
-       .header(CONTENT_TYPE, "application/json")
-       .body(StaticFileBody::new(&state.config.mirakurun.openapi_json).await?)?)
+        .header(CONTENT_TYPE, "application/json")
+        .body(StaticFileBody::new(&state.config.mirakurun.openapi_json).await?)?)
 }
 
 async fn do_service_stream(
@@ -1002,15 +1154,16 @@ async fn do_service_stream(
     user: TunerUser,
     filter_setting: FilterSetting,
 ) -> Result<Response, Error> {
-    let stream = tuner_manager.send(StartStreamingMessage {
-        channel: channel.clone(),
-        user: user.clone(),
-    }).await??;
+    let stream = tuner_manager
+        .send(StartStreamingMessage {
+            channel: channel.clone(),
+            user: user.clone(),
+        })
+        .await??;
 
     // stop_trigger must be created here in order to stop streaming when an
     // error occurs.
-    let stop_trigger = TunerStreamStopTrigger::new(
-        stream.id(), tuner_manager.clone().recipient());
+    let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().recipient());
 
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &channel.name)
@@ -1020,14 +1173,12 @@ async fn do_service_stream(
         .build();
 
     let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(
-        &config.pre_filters, &filter_setting.pre_filters)?;
+    builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
     if !stream.is_decoded() && filter_setting.decode {
         builder.add_decode_filter(&config.filters.decode_filter)?;
     }
     builder.add_service_filter(&config.filters.service_filter)?;
-    builder.add_post_filters(
-        &config.post_filters, &filter_setting.post_filters)?;
+    builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
     streaming(&config, user, stream, filters, content_type, stop_trigger).await
@@ -1049,8 +1200,14 @@ where
     let range = stream.range();
     if filters.is_empty() {
         do_streaming(
-            user, stream, content_type, range, stop_triggers,
-            config.server.stream_time_limit).await
+            user,
+            stream,
+            content_type,
+            range,
+            stop_triggers,
+            config.server.stream_time_limit,
+        )
+        .await
     } else {
         tracing::debug!("Streaming with filters: {:?}", filters);
 
@@ -1067,14 +1224,16 @@ where
         //
         // The command pipeline often breaks when the client stops reading for a
         // few seconds.
-        let mut stream = ReaderStream::with_capacity(
-            output, config.server.stream_chunk_size);
+        let mut stream = ReaderStream::with_capacity(output, config.server.stream_chunk_size);
         let (sender, receiver) = mpsc::channel(config.server.stream_max_chunks);
         tokio::spawn(async move {
             while let Some(result) = stream.next().await {
                 if let Ok(chunk) = result {
-                    tracing::trace!("{}: Received a filtered chunk of {} bytes",
-                                    stream_id, chunk.len());
+                    tracing::trace!(
+                        "{}: Received a filtered chunk of {} bytes",
+                        stream_id,
+                        chunk.len()
+                    );
                     // The task yields if the buffer is full.
                     if let Err(_) = sender.send(Ok(chunk)).await {
                         tracing::debug!("{}: Disconnected by client", stream_id);
@@ -1102,8 +1261,14 @@ where
         });
 
         do_streaming(
-            user, ReceiverStream::new(receiver), content_type, range,
-            stop_triggers, config.server.stream_time_limit).await
+            user,
+            ReceiverStream::new(receiver),
+            content_type,
+            range,
+            stop_triggers,
+            config.server.stream_time_limit,
+        )
+        .await
     }
 }
 
@@ -1125,32 +1290,28 @@ where
     // streaming pipeline.
     let mut peekable = stream.peekable();
     let fut = Pin::new(&mut peekable).peek();
-    match tokio::time::timeout(
-        std::time::Duration::from_millis(time_limit), fut).await {
+    match tokio::time::timeout(std::time::Duration::from_millis(time_limit), fut).await {
         Ok(None) => {
             // No packets come from the pipeline, maybe the program has been
             // canceled.
             Err(Error::ProgramNotFound)
         }
-        Err(_) => {
-            Err(Error::StreamingTimedOut)
-        }
-        Ok(_) =>  {
+        Err(_) => Err(Error::StreamingTimedOut),
+        Ok(_) => {
             // Send the response headers and start streaming.
             let mut headers = HeaderMap::new();
             headers.insert(CONTENT_TYPE, header_value!(content_type));
             headers.insert(
                 X_MIRAKURUN_TUNER_USER_ID,
-                header_value!(&user.get_mirakurun_model().id));
+                header_value!(&user.get_mirakurun_model().id),
+            );
             let body = StreamBody::new(peekable);
             if let Some(range) = range {
                 headers.insert(ACCEPT_RANGES, header_value!("bytes"));
-                headers.insert(CONTENT_RANGE, header_value!(
-                    range.make_content_range()));
+                headers.insert(CONTENT_RANGE, header_value!(range.make_content_range()));
                 let body = SeekableStreamBody::new(body, range.bytes());
                 if range.is_partial() {
-                    Ok((StatusCode::PARTIAL_CONTENT, headers, body)
-                       .into_response())
+                    Ok((StatusCode::PARTIAL_CONTENT, headers, body).into_response())
                 } else {
                     Ok((headers, body).into_response())
                 }
@@ -1173,8 +1334,10 @@ fn do_stream_h(
     headers.insert(ACCEPT_RANGES, header_value!("none"));
     headers.insert(CACHE_CONTROL, header_value!("no-store"));
     headers.insert(CONTENT_TYPE, header_value!(content_type));
-    headers.insert(X_MIRAKURUN_TUNER_USER_ID, header_value!(
-        user.get_mirakurun_model().id));
+    headers.insert(
+        X_MIRAKURUN_TUNER_USER_ID,
+        header_value!(user.get_mirakurun_model().id),
+    );
     // axum doesn't add the following header even thought we use a StreamBody.
     headers.insert(TRANSFER_ENCODING, header_value!("chunked"));
 
@@ -1182,8 +1345,7 @@ fn do_stream_h(
     //
     // Create an empty stream in order to prevent a "content-length: 0" header
     // from being added.
-    let body = StreamBody::new(
-        futures::stream::empty::<Result<Bytes, Error>>());
+    let body = StreamBody::new(futures::stream::empty::<Result<Bytes, Error>>());
 
     Ok((headers, body).into_response())
 }
@@ -1244,11 +1406,11 @@ struct TimeshiftRecordPath {
 struct FilterSetting {
     #[serde(default = "FilterSetting::default_decode")]
     #[serde(deserialize_with = "FilterSetting::deserialize_stream_decode_query")]
-    decode: bool,  // default: true
+    decode: bool, // default: true
     #[serde(default)]
-    pre_filters: Vec<String>,  // default: empty
+    pre_filters: Vec<String>, // default: empty
     #[serde(default)]
-    post_filters: Vec<String>,  // default: empty
+    post_filters: Vec<String>, // default: empty
 }
 
 impl FilterSetting {
@@ -1256,9 +1418,7 @@ impl FilterSetting {
         true
     }
 
-    fn deserialize_stream_decode_query<'de, D>(
-        deserializer: D
-    ) -> Result<bool, D::Error>
+    fn deserialize_stream_decode_query<'de, D>(deserializer: D) -> Result<bool, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -1270,7 +1430,8 @@ impl FilterSetting {
             return Ok(true);
         }
         Err(serde::de::Error::custom(
-            "The value of the decode query must be 0, 1, false or true"))
+            "The value of the decode query must be 0, 1, false or true",
+        ))
     }
 }
 
@@ -1281,7 +1442,9 @@ struct IptvEpgQuery {
 }
 
 impl IptvEpgQuery {
-    fn default_days() -> u8 { 3 }
+    fn default_days() -> u8 {
+        3
+    }
 }
 
 #[async_trait]
@@ -1291,10 +1454,7 @@ where
 {
     type Rejection = Infallible;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         use axum::extract::ConnectInfo;
 
         fn ms_since_unix_epoch() -> u128 {
@@ -1304,21 +1464,24 @@ where
                 .unwrap_or(0)
         }
 
-        let id = parts.extensions
+        let id = parts
+            .extensions
             .get::<ConnectInfo<SocketAddr>>()
             .map(|ConnectInfo(addr)| addr.to_string())
             .unwrap_or_else(|| format!("unix:{}", ms_since_unix_epoch()));
 
-        let agent = parts.headers.get_all(USER_AGENT)
+        let agent = parts
+            .headers
+            .get_all(USER_AGENT)
             .iter()
             .last()
-            .map(|value| {
-                value.to_str().ok().map_or(String::new(), |s| s.to_string())
-            });
+            .map(|value| value.to_str().ok().map_or(String::new(), |s| s.to_string()));
 
         let info = TunerUserInfo::Web { id, agent };
 
-        let priority = parts.headers.get_all(X_MIRAKURUN_TUNER_USER_ID)
+        let priority = parts
+            .headers
+            .get_all(X_MIRAKURUN_TUNER_USER_ID)
             .iter()
             .filter_map(|value| value.to_str().ok())
             .filter_map(|value| value.parse::<i32>().ok())
@@ -1362,8 +1525,11 @@ impl From<TimeshiftRecorderModel> for WebTimeshiftRecorder {
             service: model.service.into(),
             start_time: model.start_time.clone(),
             duration: model.end_time - model.start_time,
-            pipeline: model.pipeline
-                .into_iter().map(WebProcessModel::from).collect(),
+            pipeline: model
+                .pipeline
+                .into_iter()
+                .map(WebProcessModel::from)
+                .collect(),
             recording: model.recording,
         }
     }
@@ -1416,57 +1582,51 @@ impl From<TimeshiftRecordModel> for WebTimeshiftRecord {
 #[derive(Serialize)]
 struct ErrorBody {
     code: u16,
-    reason:  Option<&'static str>,
+    reason: Option<&'static str>,
     errors: Vec<u8>,
 }
 
 macro_rules! error_response {
     ($status_code:expr) => {
-        ($status_code,
-         Json(ErrorBody {
-             code: $status_code.as_u16(),
-             reason: None,
-             errors: vec![],
-         }),
-        ).into_response()
+        (
+            $status_code,
+            Json(ErrorBody {
+                code: $status_code.as_u16(),
+                reason: None,
+                errors: vec![],
+            }),
+        )
+            .into_response()
     };
     ($status_code:expr, $reason:literal) => {
-        ($status_code,
-         Json(ErrorBody {
-             code: $status_code.as_u16(),
-             reason: Some($reason),
-             errors: vec![],
-         }),
-        ).into_response()
+        (
+            $status_code,
+            Json(ErrorBody {
+                code: $status_code.as_u16(),
+                reason: Some($reason),
+                errors: vec![],
+            }),
+        )
+            .into_response()
     };
 }
 
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         match self {
-            Error::StreamingTimedOut =>
-                error_response!(StatusCode::REQUEST_TIMEOUT),
-            Error::TunerUnavailable =>
-                error_response!(StatusCode::NOT_FOUND),
-            Error::ChannelNotFound =>
-                error_response!(StatusCode::NOT_FOUND),
-            Error::ServiceNotFound =>
-                error_response!(StatusCode::NOT_FOUND),
-            Error::ProgramNotFound =>
-                error_response!(StatusCode::NOT_FOUND),
-            Error::RecordNotFound =>
-                error_response!(StatusCode::NOT_FOUND),
-            Error::OutOfRange =>
-                error_response!(StatusCode::RANGE_NOT_SATISFIABLE),
-            Error::NoContent =>
-                error_response!(StatusCode::NO_CONTENT),
-            Error::NoLogoData =>
-                error_response!(
-                    StatusCode::SERVICE_UNAVAILABLE, "Logo Data Unavailable"),
-            Error::AccessDenied =>
-                error_response!(StatusCode::FORBIDDEN),
-            Error::QuerystringError(_) =>
-                error_response!(StatusCode::BAD_REQUEST),
+            Error::StreamingTimedOut => error_response!(StatusCode::REQUEST_TIMEOUT),
+            Error::TunerUnavailable => error_response!(StatusCode::NOT_FOUND),
+            Error::ChannelNotFound => error_response!(StatusCode::NOT_FOUND),
+            Error::ServiceNotFound => error_response!(StatusCode::NOT_FOUND),
+            Error::ProgramNotFound => error_response!(StatusCode::NOT_FOUND),
+            Error::RecordNotFound => error_response!(StatusCode::NOT_FOUND),
+            Error::OutOfRange => error_response!(StatusCode::RANGE_NOT_SATISFIABLE),
+            Error::NoContent => error_response!(StatusCode::NO_CONTENT),
+            Error::NoLogoData => {
+                error_response!(StatusCode::SERVICE_UNAVAILABLE, "Logo Data Unavailable")
+            }
+            Error::AccessDenied => error_response!(StatusCode::FORBIDDEN),
+            Error::QuerystringError(_) => error_response!(StatusCode::BAD_REQUEST),
             _ => error_response!(StatusCode::INTERNAL_SERVER_ERROR),
         }
     }

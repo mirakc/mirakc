@@ -27,7 +27,7 @@ impl FilterPipelineBuilder {
     pub fn add_pre_filters(
         &mut self,
         pre_filters: &HashMap<String, FilterConfig>,
-        names: &Vec<String>
+        names: &Vec<String>,
     ) -> Result<(), Error> {
         for name in names.iter() {
             if pre_filters.contains_key(name) {
@@ -39,11 +39,7 @@ impl FilterPipelineBuilder {
         Ok(())
     }
 
-    pub fn add_pre_filter(
-        &mut self,
-        config: &FilterConfig,
-        name: &str,
-    ) -> Result<(), Error> {
+    pub fn add_pre_filter(&mut self, config: &FilterConfig, name: &str) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("pre-filter({}) not valid", name);
@@ -53,10 +49,7 @@ impl FilterPipelineBuilder {
         Ok(())
     }
 
-    pub fn add_service_filter(
-        &mut self,
-        config: &FilterConfig,
-    ) -> Result<(), Error> {
+    pub fn add_service_filter(&mut self, config: &FilterConfig) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("service-filter not valid");
@@ -66,10 +59,7 @@ impl FilterPipelineBuilder {
         Ok(())
     }
 
-    pub fn add_decode_filter(
-        &mut self,
-        config: &FilterConfig
-    ) -> Result<(), Error> {
+    pub fn add_decode_filter(&mut self, config: &FilterConfig) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("decode-filter not valid");
@@ -79,10 +69,7 @@ impl FilterPipelineBuilder {
         Ok(())
     }
 
-    pub fn add_program_filter(
-        &mut self,
-        config: &FilterConfig,
-    ) -> Result<(), Error> {
+    pub fn add_program_filter(&mut self, config: &FilterConfig) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("program-filter not valid");
@@ -95,7 +82,7 @@ impl FilterPipelineBuilder {
     pub fn add_post_filters(
         &mut self,
         post_filters: &HashMap<String, PostFilterConfig>,
-        names: &Vec<String>
+        names: &Vec<String>,
     ) -> Result<(), Error> {
         for name in names.iter() {
             if post_filters.contains_key(name) {
@@ -107,11 +94,7 @@ impl FilterPipelineBuilder {
         Ok(())
     }
 
-    pub fn add_post_filter(
-        &mut self,
-        config: &PostFilterConfig,
-        name: &str,
-    ) -> Result<(), Error> {
+    pub fn add_post_filter(&mut self, config: &PostFilterConfig, name: &str) -> Result<(), Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("post-filter({}) not valid", name);
@@ -126,6 +109,9 @@ impl FilterPipelineBuilder {
 
     pub fn make_filter(&self, command: &str) -> Result<String, Error> {
         let template = mustache::compile_str(command)?;
-        Ok(template.render_data_to_string(&self.data)?.trim().to_string())
+        Ok(template
+            .render_data_to_string(&self.data)?
+            .trim()
+            .to_string())
     }
 }

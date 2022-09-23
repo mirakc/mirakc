@@ -1,5 +1,3 @@
-use axum::BoxError;
-use axum::Server;
 use axum::body::Body;
 use axum::body::Bytes;
 use axum::body::HttpBody;
@@ -8,6 +6,8 @@ use axum::http::{
     header::{HeaderName, HeaderValue},
     Request, StatusCode,
 };
+use axum::BoxError;
+use axum::Server;
 use std::net::{SocketAddr, TcpListener};
 use tower::make::Shared;
 use tower_service::Service;

@@ -40,10 +40,7 @@ where
     // `BoxFuture` is a type alias for `Pin<Box<dyn Future + Send + 'a>>`
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn poll_ready(
-        &mut self,
-        cx: &mut Context<'_>
-    ) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.0.poll_ready(cx)
     }
 
@@ -56,7 +53,8 @@ where
                 tracing::debug!(?addr, allowed);
                 allowed
             }
-            None => {  // UNIX domain socket
+            None => {
+                // UNIX domain socket
                 tracing::debug!(addr = "uds", allowed = true);
                 true
             }
@@ -64,13 +62,9 @@ where
 
         if allowed {
             let fut = self.0.call(req);
-            Box::pin(async move {
-                Ok(fut.await?)
-            })
+            Box::pin(async move { Ok(fut.await?) })
         } else {
-            Box::pin(async {
-                Ok(Error::AccessDenied.into_response())
-            })
+            Box::pin(async { Ok(Error::AccessDenied.into_response()) })
         }
     }
 }
@@ -88,12 +82,13 @@ fn is_private_ipv4_addr(ip: Ipv4Addr) -> bool {
 }
 
 fn is_private_ipv6_addr(ip: Ipv6Addr) -> bool {
-    ip.is_loopback() || match ip.to_ipv4() {
-        // TODO: Support only IPv4-compatible and IPv4-mapped addresses at this
-        //       moment.
-        Some(ip) => is_private_ipv4_addr(ip),
-        None => false,
-    }
+    ip.is_loopback()
+        || match ip.to_ipv4() {
+            // TODO: Support only IPv4-compatible and IPv4-mapped addresses at this
+            //       moment.
+            Some(ip) => is_private_ipv4_addr(ip),
+            None => false,
+        }
 }
 
 #[cfg(test)]

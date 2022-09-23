@@ -18,11 +18,21 @@ pub struct MpegTsStream<T, S> {
 
 impl<T, S> MpegTsStream<T, S> {
     pub fn new(id: T, stream: S) -> Self {
-        MpegTsStream { id, stream, decoded: false, range: None, }
+        MpegTsStream {
+            id,
+            stream,
+            decoded: false,
+            range: None,
+        }
     }
 
     pub fn with_range(id: T, stream: S, range: MpegTsStreamRange) -> Self {
-        MpegTsStream { id, stream, decoded: false, range: Some(range), }
+        MpegTsStream {
+            id,
+            stream,
+            decoded: false,
+            range: Some(range),
+        }
     }
 
     pub fn decoded(mut self) -> Self {
@@ -70,7 +80,7 @@ where
 
     fn poll_next(
         mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context
+        cx: &mut std::task::Context,
     ) -> std::task::Poll<Option<Self::Item>> {
         Pin::new(&mut self.stream).poll_next(cx)
     }
@@ -120,13 +130,13 @@ impl MpegTsStreamRange {
     pub fn make_content_range(&self) -> String {
         if let Some(size) = self.size {
             format!("bytes {}-{}/{}", self.first, self.last, size)
-        } else  {
+        } else {
             format!("bytes {}-{}/*", self.first, self.last)
         }
     }
 
     fn new(first: u64, last: u64, size: Option<u64>) -> Self {
-        MpegTsStreamRange { first, last, size, }
+        MpegTsStreamRange { first, last, size }
     }
 }
 
@@ -154,7 +164,10 @@ pub struct MpegTsStreamTerminator<S, T> {
 
 impl<S, T> MpegTsStreamTerminator<S, T> {
     pub fn new(inner: S, _stop_trigger: T) -> Self {
-        Self { inner, _stop_trigger }
+        Self {
+            inner,
+            _stop_trigger,
+        }
     }
 }
 
@@ -167,7 +180,7 @@ where
 
     fn poll_next(
         mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context
+        cx: &mut std::task::Context,
     ) -> std::task::Poll<Option<Self::Item>> {
         Pin::new(&mut self.inner).poll_next(cx)
     }
@@ -182,15 +195,12 @@ where
     loop {
         match stream.next().await {
             Some(Ok(chunk)) => {
-                tracing::trace!("{}: Received a chunk of {} bytes",
-                                stream.id(), chunk.len());
+                tracing::trace!("{}: Received a chunk of {} bytes", stream.id(), chunk.len());
                 if let Err(err) = writer.write_all(&chunk).await {
                     if err.kind() == io::ErrorKind::BrokenPipe {
-                        tracing::debug!("{}: Downstream has been closed",
-                                        stream.id());
+                        tracing::debug!("{}: Downstream has been closed", stream.id());
                     } else {
-                        tracing::error!("{}: Failed to write to downstream: {}",
-                                        stream.id(), err);
+                        tracing::error!("{}: Failed to write to downstream: {}", stream.id(), err);
                     }
                     break;
                 }
@@ -199,8 +209,7 @@ where
                 if err.kind() == io::ErrorKind::BrokenPipe {
                     tracing::debug!("{}: Upstream has been closed", stream.id());
                 } else {
-                    tracing::error!("{}: Failed to read from upstream: {}",
-                                    stream.id(), err);
+                    tracing::error!("{}: Failed to read from upstream: {}", stream.id(), err);
                 }
                 break;
             }
@@ -245,7 +254,10 @@ mod tests {
 
     impl TestWriter {
         fn new(expected: &'static [u8]) -> Self {
-            Self { buf: Vec::new(), expected }
+            Self {
+                buf: Vec::new(),
+                expected,
+            }
         }
     }
 
@@ -253,7 +265,7 @@ mod tests {
         fn poll_write(
             mut self: Pin<&mut Self>,
             _: &mut std::task::Context,
-            buf: &[u8]
+            buf: &[u8],
         ) -> std::task::Poll<io::Result<usize>> {
             self.buf.extend_from_slice(buf);
             std::task::Poll::Ready(Ok(buf.len()))
@@ -261,14 +273,14 @@ mod tests {
 
         fn poll_flush(
             self: Pin<&mut Self>,
-            _: &mut std::task::Context
+            _: &mut std::task::Context,
         ) -> std::task::Poll<io::Result<()>> {
             std::task::Poll::Ready(Ok(()))
         }
 
         fn poll_shutdown(
             self: Pin<&mut Self>,
-            _: &mut std::task::Context
+            _: &mut std::task::Context,
         ) -> std::task::Poll<io::Result<()>> {
             std::task::Poll::Ready(Ok(()))
         }

@@ -35,15 +35,15 @@ where
 {
     const LABEL: &'static str = "service-scanner";
 
-    pub fn new(
-        config: Arc<Config>,
-        tuner_manager: Addr<A>,
-    ) -> Self {
-        ServiceScanner { config, tuner_manager }
+    pub fn new(config: Arc<Config>, tuner_manager: Addr<A>) -> Self {
+        ServiceScanner {
+            config,
+            tuner_manager,
+        }
     }
 
     pub async fn scan_services(
-        self
+        self,
     ) -> Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)> {
         tracing::debug!("Scanning services...");
 
@@ -51,21 +51,20 @@ where
         let mut results = Vec::new();
 
         for channel in self.config.channels.iter() {
-            let result = match Self::scan_services_in_channel(
-                channel, command, &self.tuner_manager).await {
-                Ok(services) => {
-                    let mut map = IndexMap::new();
-                    for service in services.into_iter() {
-                        map.insert(service.triple(), service.clone());
+            let result =
+                match Self::scan_services_in_channel(channel, command, &self.tuner_manager).await {
+                    Ok(services) => {
+                        let mut map = IndexMap::new();
+                        for service in services.into_iter() {
+                            map.insert(service.triple(), service.clone());
+                        }
+                        Some(map)
                     }
-                    Some(map)
-                }
-                Err(err) => {
-                    tracing::warn!("Failed to scan services in {}: {}",
-                                   channel.name, err);
-                    None
-                }
-            };
+                    Err(err) => {
+                        tracing::warn!("Failed to scan services in {}: {}", channel.name, err);
+                        None
+                    }
+                };
             results.push((channel.clone().into(), result));
         }
 
@@ -82,17 +81,21 @@ where
         tracing::debug!("Scanning services in {}...", channel.name);
 
         let user = TunerUser {
-            info: TunerUserInfo::Job { name: Self::LABEL.to_string() },
+            info: TunerUserInfo::Job {
+                name: Self::LABEL.to_string(),
+            },
             priority: (-1).into(),
         };
 
-        let stream = tuner_manager.send(StartStreamingMessage {
-            channel: channel.clone().into(),
-            user
-        }).await??;
+        let stream = tuner_manager
+            .send(StartStreamingMessage {
+                channel: channel.clone().into(),
+                user,
+            })
+            .await??;
 
-        let stop_trigger = TunerStreamStopTrigger::new(
-            stream.id(), tuner_manager.clone().recipient());
+        let stop_trigger =
+            TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().recipient());
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()
@@ -101,8 +104,7 @@ where
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let mut pipeline = command_util::spawn_pipeline(
-            vec![cmd], stream.id())?;
+        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id())?;
 
         let (input, mut output) = pipeline.take_endpoints().unwrap();
 
@@ -127,9 +129,9 @@ where
         tracing::debug!("Found {} services in {}", services.len(), channel.name);
 
         Ok(services
-           .into_iter()
-           .map(|sv| EpgService::from((channel, &sv)))
-           .collect())
+            .into_iter()
+            .map(|sv| EpgService::from((channel, &sv)))
+            .collect())
     }
 }
 
@@ -186,7 +188,8 @@ mod tests {
             } else {
                 unimplemented!();
             }
-        })).start();
+        }))
+        .start();
 
         let expected = vec![TsService {
             nid: 1.into(),
@@ -198,7 +201,8 @@ mod tests {
             name: "service".to_string(),
         }];
 
-        let config_yml = format!(r#"
+        let config_yml = format!(
+            r#"
             channels:
               - name: channel
                 type: GR
@@ -206,10 +210,11 @@ mod tests {
             jobs:
               scan-services:
                 command: echo '{}'
-        "#, serde_json::to_string(&expected).unwrap());
+        "#,
+            serde_json::to_string(&expected).unwrap()
+        );
 
-        let config = Arc::new(
-            serde_yaml::from_str::<Config>(&config_yml).unwrap());
+        let config = Arc::new(serde_yaml::from_str::<Config>(&config_yml).unwrap());
 
         let scan = ServiceScanner::new(config, mock.clone());
         let results = scan.scan_services().await;
@@ -217,7 +222,9 @@ mod tests {
         assert_eq!(results[0].1.as_ref().unwrap().len(), 1);
 
         // Emulate out of services by using `false`
-        let config = Arc::new(serde_yaml::from_str::<Config>(r#"
+        let config = Arc::new(
+            serde_yaml::from_str::<Config>(
+                r#"
             channels:
               - name: channel
                 type: GR
@@ -225,7 +232,10 @@ mod tests {
             jobs:
               scan-services:
                 command: false
-        "#).unwrap());
+        "#,
+            )
+            .unwrap(),
+        );
         let scan = ServiceScanner::new(config, mock.clone());
         let results = scan.scan_services().await;
         assert!(results[0].1.is_none());

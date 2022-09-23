@@ -4,8 +4,8 @@ use atty;
 use chrono;
 use tracing_subscriber;
 use tracing_subscriber::filter::EnvFilter;
-use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::fmt::format::Writer;
+use tracing_subscriber::fmt::time::FormatTime;
 
 pub fn init_tracing(format: &str) {
     match format {
@@ -48,6 +48,10 @@ struct Rfc3339Micros;
 impl FormatTime for Rfc3339Micros {
     fn format_time(&self, w: &mut Writer) -> fmt::Result {
         let time = chrono::Local::now();
-        write!(w, "{}", time.to_rfc3339_opts(chrono::SecondsFormat::Micros, false))
+        write!(
+            w,
+            "{}",
+            time.to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+        )
     }
 }

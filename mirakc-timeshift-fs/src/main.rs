@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use fuser;
 use structopt::StructOpt;
 
+use crate::filesystem::TimeshiftFilesystem;
 use mirakc_core;
 use mirakc_core::error::Error;
-use crate::filesystem::TimeshiftFilesystem;
 
 #[derive(StructOpt)]
 #[structopt(about)]
@@ -18,11 +18,7 @@ struct Opt {
     /// specified.  Its value has to be an absolute path.
     ///
     /// See docs/config.md for details of the YAML format.
-    #[structopt(
-        short,
-        long,
-        env = "MIRAKC_CONFIG",
-    )]
+    #[structopt(short, long, env = "MIRAKC_CONFIG")]
     config: PathBuf,
 
     /// Logging format.

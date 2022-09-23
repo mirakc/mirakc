@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use structopt::StructOpt;
 
-use mirakc_core::*;
 use mirakc_core::error::Error;
 use mirakc_core::tracing_ext::init_tracing;
+use mirakc_core::*;
 
 #[derive(StructOpt)]
 #[structopt(about)]
@@ -15,11 +15,7 @@ struct Opt {
     /// specified.  Its value has to be an absolute path.
     ///
     /// See docs/config.md for details of the YAML format.
-    #[structopt(
-        short,
-        long,
-        env = "MIRAKC_CONFIG",
-    )]
+    #[structopt(short, long, env = "MIRAKC_CONFIG")]
     config: PathBuf,
 
     /// Logging format.
@@ -45,19 +41,25 @@ async fn main() -> Result<(), Error> {
 
     let timeshift_manager = timeshift::start(config.clone(), tuner_manager.clone());
 
-    let epg = epg::start(config.clone(), vec![
-        timeshift_manager.clone().recipient(),
-    ]);
+    let epg = epg::start(config.clone(), vec![timeshift_manager.clone().recipient()]);
 
-    let eit_feeder = eit_feeder::start(
-        config.clone(), tuner_manager.clone(), epg.clone());
+    let eit_feeder = eit_feeder::start(config.clone(), tuner_manager.clone(), epg.clone());
 
     let _job_manager = job::start(
-        config.clone(), tuner_manager.clone(), epg.clone(), eit_feeder.clone());
+        config.clone(),
+        tuner_manager.clone(),
+        epg.clone(),
+        eit_feeder.clone(),
+    );
 
     web::serve(
-        config.clone(), string_table.clone(), tuner_manager.clone(),
-        epg.clone(), timeshift_manager.clone()).await?;
+        config.clone(),
+        string_table.clone(),
+        tuner_manager.clone(),
+        epg.clone(),
+        timeshift_manager.clone(),
+    )
+    .await?;
 
     Ok(())
 }

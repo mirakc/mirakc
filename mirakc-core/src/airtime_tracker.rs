@@ -2,7 +2,7 @@ use actix::prelude::*;
 use chrono::{DateTime, Duration};
 use serde::Deserialize;
 use serde_json;
-use tokio::io::{AsyncRead, AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 
 use crate::command_util;
 use crate::datetime_ext::*;
@@ -36,10 +36,12 @@ where
         priority: (-1).into(),
     };
 
-    let  stream = tuner_manager.send(StartStreamingMessage {
-        channel: channel.clone(),
-        user
-    }).await??;
+    let stream = tuner_manager
+        .send(StartStreamingMessage {
+            channel: channel.clone(),
+            user,
+        })
+        .await??;
 
     let template = mustache::compile_str(command)?;
     let data = mustache::MapBuilder::new()
@@ -48,13 +50,11 @@ where
         .build();
     let cmd = template.render_data_to_string(&data)?;
 
-    let mut pipeline = command_util::spawn_pipeline(
-        vec![cmd], stream.id())?;
+    let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id())?;
 
     let (input, output) = pipeline.take_endpoints().unwrap();
 
-    let stop_trigger = TunerStreamStopTrigger::new(
-        stream.id(), tuner_manager.clone().recipient());
+    let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().recipient());
 
     tokio::spawn(async {
         let _ = stream.pipe(input).await;
@@ -70,11 +70,7 @@ where
     Ok(stop_trigger)
 }
 
-async fn update_airtime<R, E>(
-    quad: EventQuad,
-    output: R,
-    epg: Addr<E>,
-) -> Result<(), Error>
+async fn update_airtime<R, E>(quad: EventQuad, output: R, epg: Addr<E>) -> Result<(), Error>
 where
     R: AsyncRead + Unpin,
     E: Actor,
@@ -98,13 +94,14 @@ where
             }
             Err(err) => {
                 tracing::error!("Failed to parse JSON: {}", err);
-                continue
+                continue;
             }
         };
         epg.send(UpdateAirtimeMessage {
             quad,
             airtime: airtime.into(),
-        }).await?;
+        })
+        .await?;
         json.clear();
     }
     epg.send(RemoveAirtimeMessage { quad }).await?;

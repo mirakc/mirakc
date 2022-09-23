@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+use crate::command_util;
 use crate::config::Config;
 use crate::datetime_ext::*;
-use crate::error::Error;
 use crate::epg::*;
+use crate::error::Error;
 use crate::models::*;
 use crate::tuner::*;
-use crate::command_util;
 
 pub fn start(
     config: Arc<Config>,
@@ -31,12 +31,12 @@ pub struct EitFeeder {
 }
 
 impl EitFeeder {
-    pub fn new(
-        config: Arc<Config>,
-        tuner_manager: Addr<TunerManager>,
-        epg: Addr<Epg>,
-    ) -> Self {
-        EitFeeder { config, tuner_manager, epg }
+    pub fn new(config: Arc<Config>, tuner_manager: Addr<TunerManager>, epg: Addr<Epg>) -> Self {
+        EitFeeder {
+            config,
+            tuner_manager,
+            epg,
+        }
     }
 
     async fn feed_eit_sections(
@@ -48,8 +48,7 @@ impl EitFeeder {
 
         let mut map: HashMap<String, EpgChannel> = HashMap::new();
         for sv in services.iter() {
-            let chid = format!(
-                "{}/{}", sv.channel.channel_type, sv.channel.channel);
+            let chid = format!("{}/{}", sv.channel.channel_type, sv.channel.channel);
             map.entry(chid)
                 .and_modify(|ch| ch.services.push(sv.sid))
                 .or_insert(EpgChannel {
@@ -64,7 +63,8 @@ impl EitFeeder {
         let channels = map.values().cloned().collect();
 
         EitCollector::new(command, channels, tuner_manager, epg)
-            .collect_schedules().await
+            .collect_schedules()
+            .await
     }
 }
 
@@ -95,15 +95,13 @@ impl fmt::Display for FeedEitSectionsMessage {
 impl Handler<FeedEitSectionsMessage> for EitFeeder {
     type Result = ResponseFuture<Result<(), Error>>;
 
-    fn handle(
-        &mut self,
-        msg: FeedEitSectionsMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: FeedEitSectionsMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         Box::pin(Self::feed_eit_sections(
             self.config.jobs.update_schedules.command.clone(),
-            self.tuner_manager.clone(), self.epg.clone()))
+            self.tuner_manager.clone(),
+            self.epg.clone(),
+        ))
     }
 }
 
@@ -129,17 +127,25 @@ impl EitCollector {
         tuner_manager: Addr<TunerManager>,
         epg: Addr<Epg>,
     ) -> Self {
-        EitCollector { command, channels, tuner_manager, epg }
+        EitCollector {
+            command,
+            channels,
+            tuner_manager,
+            epg,
+        }
     }
 
-    pub async fn collect_schedules(
-        self
-    ) -> Result<(), Error> {
+    pub async fn collect_schedules(self) -> Result<(), Error> {
         tracing::info!("Collecting EIT sections...");
         let mut num_sections = 0;
         for channel in self.channels.iter() {
             num_sections += Self::collect_eits_in_channel(
-                &channel, &self.command, &self.tuner_manager, &self.epg).await?;
+                &channel,
+                &self.command,
+                &self.tuner_manager,
+                &self.epg,
+            )
+            .await?;
         }
         tracing::info!("Collected {} EIT sections", num_sections);
         Ok(())
@@ -154,17 +160,21 @@ impl EitCollector {
         tracing::debug!("Collecting EIT sections in {}...", channel.name);
 
         let user = TunerUser {
-            info: TunerUserInfo::Job { name: Self::LABEL.to_string() },
+            info: TunerUserInfo::Job {
+                name: Self::LABEL.to_string(),
+            },
             priority: (-1).into(),
         };
 
-        let stream = tuner_manager.send(StartStreamingMessage {
-            channel: channel.clone(),
-            user
-        }).await??;
+        let stream = tuner_manager
+            .send(StartStreamingMessage {
+                channel: channel.clone(),
+                user,
+            })
+            .await??;
 
-        let stop_trigger = TunerStreamStopTrigger::new(
-            stream.id(), tuner_manager.clone().recipient());
+        let stop_trigger =
+            TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().recipient());
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()
@@ -173,8 +183,7 @@ impl EitCollector {
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let mut pipeline = command_util::spawn_pipeline(
-            vec![cmd], stream.id())?;
+        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id())?;
 
         let (input, output) = pipeline.take_endpoints().unwrap();
 
@@ -214,15 +223,17 @@ impl EitCollector {
             triples: triples.into_iter().collect(),
         });
 
-        tracing::debug!("Collected {} EIT sections in {}",
-                        num_sections, channel.name);
+        tracing::debug!(
+            "Collected {} EIT sections in {}",
+            num_sections,
+            channel.name
+        );
 
         Ok(num_sections)
     }
 }
 
-#[derive(Clone)]
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EitSection {
     pub original_network_id: NetworkId,
@@ -254,14 +265,16 @@ impl EitSection {
     }
 
     pub fn service_triple(&self) -> ServiceTriple {
-        (self.original_network_id,
-         self.transport_stream_id,
-         self.service_id).into()
+        (
+            self.original_network_id,
+            self.transport_stream_id,
+            self.service_id,
+        )
+            .into()
     }
 }
 
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EitEvent {
     pub event_id: EventId,
@@ -283,8 +296,7 @@ impl EitEvent {
     }
 }
 
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(tag = "$type")]
 pub enum EitDescriptor {
     #[serde(rename_all = "camelCase")]
@@ -308,8 +320,7 @@ pub enum EitDescriptor {
     },
 }
 
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComponentDescriptor {
     pub stream_content: u8,
@@ -320,8 +331,7 @@ pub struct ComponentDescriptor {
     pub text: Option<String>,
 }
 
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioComponentDescriptor {
     pub stream_content: u8,
@@ -339,8 +349,7 @@ pub struct AudioComponentDescriptor {
     pub text: Option<String>,
 }
 
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SeriesDescriptor {
     pub series_id: u16,
@@ -354,16 +363,14 @@ pub struct SeriesDescriptor {
     pub series_name: Option<String>,
 }
 
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventGroupDescriptor {
     pub group_type: u8,
     pub events: Vec<EventGroupEvent>,
 }
 
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventGroupEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]

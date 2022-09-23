@@ -8,8 +8,8 @@ use bytes::Bytes;
 use humantime;
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
-use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::Stream;
 use tokio_util::io::ReaderStream;
 
 use crate::tuner::TunerSessionId as BroadcasterId;
@@ -34,12 +34,7 @@ impl Broadcaster {
     // 32 KiB, large enough for 10 ms buffering.
     const CHUNK_SIZE: usize = 4096 * 8;
 
-    pub fn new<R>(
-        id: BroadcasterId,
-        source: R,
-        time_limit: u64,
-        ctx: &mut Context<Self>,
-    ) -> Self
+    pub fn new<R>(id: BroadcasterId, source: R, time_limit: u64, ctx: &mut Context<Self>) -> Self
     where
         R: AsyncRead + Unpin + 'static,
     {
@@ -69,16 +64,26 @@ impl Broadcaster {
         for subscriber in self.subscribers.iter_mut() {
             match subscriber.sender.try_send(chunk.clone()) {
                 Ok(_) => {
-                    tracing::trace!("{}: Sent a chunk of {} bytes to {}",
-                                    self.id, chunk_size, subscriber.id);
-                },
+                    tracing::trace!(
+                        "{}: Sent a chunk of {} bytes to {}",
+                        self.id,
+                        chunk_size,
+                        subscriber.id
+                    );
+                }
                 Err(mpsc::error::TrySendError::Full(_)) => {
-                    tracing::warn!("{}: No space for {}, drop the chunk",
-                                   self.id, subscriber.id);
+                    tracing::warn!(
+                        "{}: No space for {}, drop the chunk",
+                        self.id,
+                        subscriber.id
+                    );
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
-                    tracing::debug!("{}: Closed by {}, wait for unsubscribe",
-                                    self.id, subscriber.id);
+                    tracing::debug!(
+                        "{}: Closed by {}, wait for unsubscribe",
+                        self.id,
+                        subscriber.id
+                    );
                 }
             }
         }
@@ -88,9 +93,12 @@ impl Broadcaster {
 
     fn check_timeout(&mut self, ctx: &mut Context<Self>) {
         let elapsed = self.last_received.elapsed();
-        if  elapsed > self.time_limit {
-            tracing::error!("{}: No packet from the tuner for {}, stop",
-                            self.id, humantime::format_duration(elapsed));
+        if elapsed > self.time_limit {
+            tracing::error!(
+                "{}: No packet from the tuner for {}, stop",
+                self.id,
+                humantime::format_duration(elapsed)
+            );
             ctx.stop();
         }
     }
@@ -114,7 +122,7 @@ impl Actor for Broadcaster {
 #[derive(Message)]
 #[rtype(result = "BroadcasterStream")]
 pub struct SubscribeMessage {
-    pub id: SubscriberId
+    pub id: SubscriberId,
 }
 
 impl fmt::Display for SubscribeMessage {
@@ -126,11 +134,7 @@ impl fmt::Display for SubscribeMessage {
 impl Handler<SubscribeMessage> for Broadcaster {
     type Result = BroadcasterStream;
 
-    fn handle(
-        &mut self,
-        msg: SubscribeMessage,
-        _: &mut Self::Context
-    ) -> Self::Result {
+    fn handle(&mut self, msg: SubscribeMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.subscribe(msg.id)
     }
@@ -141,7 +145,7 @@ impl Handler<SubscribeMessage> for Broadcaster {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct UnsubscribeMessage {
-    pub id: SubscriberId
+    pub id: SubscriberId,
 }
 
 impl fmt::Display for UnsubscribeMessage {
@@ -153,11 +157,7 @@ impl fmt::Display for UnsubscribeMessage {
 impl Handler<UnsubscribeMessage> for Broadcaster {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: UnsubscribeMessage,
-        _: &mut Self::Context
-    ) -> Self::Result {
+    fn handle(&mut self, msg: UnsubscribeMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.unsubscribe(msg.id)
     }
@@ -207,7 +207,7 @@ impl Stream for BroadcasterStream {
 
     fn poll_next(
         mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context
+        cx: &mut std::task::Context,
     ) -> std::task::Poll<Option<Self::Item>> {
         Pin::new(&mut self.0)
             .poll_next(cx)
@@ -219,11 +219,11 @@ impl Stream for BroadcasterStream {
 mod tests {
     use super::*;
     use std::pin::Pin;
-    use std::task::{Poll, Context};
+    use std::task::{Context, Poll};
     use tokio::io::ReadBuf;
     use tokio::sync::mpsc;
-    use tokio_stream::StreamExt;
     use tokio_stream::wrappers::ReceiverStream;
+    use tokio_stream::StreamExt;
 
     #[actix::test]
     async fn test_broadcast() {
@@ -233,13 +233,19 @@ mod tests {
             Broadcaster::new(Default::default(), DataSource::new(rx), 1000, ctx)
         });
 
-        let mut stream1 = broadcaster.send(SubscribeMessage {
-            id: SubscriberId::new(Default::default(), 1)
-        }).await.unwrap();
+        let mut stream1 = broadcaster
+            .send(SubscribeMessage {
+                id: SubscriberId::new(Default::default(), 1),
+            })
+            .await
+            .unwrap();
 
-        let mut stream2 = broadcaster.send(SubscribeMessage {
-            id: SubscriberId::new(Default::default(), 2)
-        }).await.unwrap();
+        let mut stream2 = broadcaster
+            .send(SubscribeMessage {
+                id: SubscriberId::new(Default::default(), 2),
+            })
+            .await
+            .unwrap();
 
         let _ = tx.send(Bytes::from("hello")).await;
 
@@ -258,17 +264,26 @@ mod tests {
             Broadcaster::new(Default::default(), DataSource::new(rx), 1000, ctx)
         });
 
-        let mut stream1 = broadcaster.send(SubscribeMessage {
-            id: SubscriberId::new(Default::default(), 1)
-        }).await.unwrap();
+        let mut stream1 = broadcaster
+            .send(SubscribeMessage {
+                id: SubscriberId::new(Default::default(), 1),
+            })
+            .await
+            .unwrap();
 
-        let mut stream2 = broadcaster.send(SubscribeMessage {
-            id: SubscriberId::new(Default::default(), 2)
-        }).await.unwrap();
+        let mut stream2 = broadcaster
+            .send(SubscribeMessage {
+                id: SubscriberId::new(Default::default(), 2),
+            })
+            .await
+            .unwrap();
 
-        broadcaster.send(UnsubscribeMessage {
-            id: SubscriberId::new(Default::default(), 1)
-        }).await.unwrap();
+        broadcaster
+            .send(UnsubscribeMessage {
+                id: SubscriberId::new(Default::default(), 1),
+            })
+            .await
+            .unwrap();
 
         let _ = tx.send(Bytes::from("hello")).await;
 
@@ -287,9 +302,12 @@ mod tests {
             Broadcaster::new(Default::default(), DataSource::new(rx), 50, ctx)
         });
 
-        let mut stream1 = broadcaster.send(SubscribeMessage {
-            id: SubscriberId::new(Default::default(), 1)
-        }).await.unwrap();
+        let mut stream1 = broadcaster
+            .send(SubscribeMessage {
+                id: SubscriberId::new(Default::default(), 1),
+            })
+            .await
+            .unwrap();
 
         let _ = tx.send(Bytes::from("hello")).await;
 

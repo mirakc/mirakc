@@ -11,7 +11,7 @@ use chrono::{DateTime, Duration, TimeZone};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{Config, ChannelConfig};
+use crate::config::{ChannelConfig, Config};
 use crate::datetime_ext::*;
 use crate::eit_feeder::*;
 use crate::error::Error;
@@ -28,13 +28,15 @@ pub fn start(
     //   * Serialization and deserialization using serde
     //   * Conversions into Mirakurun-compatible models
     //
-    Epg::start_in_arbiter(&Arbiter::new().handle(), |_| Epg::new(config, service_recipients))
+    Epg::start_in_arbiter(&Arbiter::new().handle(), |_| {
+        Epg::new(config, service_recipients)
+    })
 }
 
 pub struct Epg {
     config: Arc<Config>,
     service_recipients: Vec<Recipient<NotifyServicesUpdatedMessage>>,
-    services: IndexMap<ServiceTriple, EpgService>,  // keeps insertion order
+    services: IndexMap<ServiceTriple, EpgService>, // keeps insertion order
     clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
     airtimes: HashMap<EventQuad, Airtime>,
@@ -42,7 +44,7 @@ pub struct Epg {
 
 pub struct Airtime {
     pub start_time: DateTime<Jst>,
-    pub duration: Duration
+    pub duration: Duration,
 }
 
 impl Epg {
@@ -97,17 +99,12 @@ impl Epg {
         }
     }
 
-    fn update_clocks(
-        &mut self,
-        results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>,
-    ) {
+    fn update_clocks(&mut self, results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>) {
         let mut clocks = HashMap::new();
 
         for (channel, result) in results.into_iter() {
             match result {
-                Some(new_clocks) => {
-                    clocks.extend(new_clocks)
-                }
+                Some(new_clocks) => clocks.extend(new_clocks),
                 None => {
                     // Failed to synchronize clocks for some reason.  Reuse old
                     // clocks if exist.
@@ -153,17 +150,19 @@ impl Epg {
                 None => 0,
             };
             if num_programs > 0 {
-                let service = self.services.get(triple)
-                    .expect("Service must exist");
-                tracing::info!("Collected {} programs of {} ({})",
-                               num_programs, service.name, triple);
+                let service = self.services.get(triple).expect("Service must exist");
+                tracing::info!(
+                    "Collected {} programs of {} ({})",
+                    num_programs,
+                    service.name,
+                    triple
+                );
             }
         }
     }
 
     fn prepare_schedules(&mut self, timestamp: DateTime<Jst>) {
-        let mut unused_ids: HashSet<_> =
-            HashSet::from_iter(self.schedules.keys().cloned());
+        let mut unused_ids: HashSet<_> = HashSet::from_iter(self.schedules.keys().cloned());
 
         let midnight = timestamp.date().and_hms(0, 0, 0);
 
@@ -192,7 +191,10 @@ impl Epg {
 
     // Must be called before other load functions.
     fn load_services(&mut self) -> Result<(), Error> {
-        let channels: Vec<EpgChannel> = self.config.channels.iter()
+        let channels: Vec<EpgChannel> = self
+            .config
+            .channels
+            .iter()
             .cloned()
             .map(EpgChannel::from)
             .collect();
@@ -200,8 +202,7 @@ impl Epg {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = PathBuf::from(cache_dir).join("services.json");
-                tracing::debug!("Loading schedules from {}...",
-                                json_path.display());
+                tracing::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
                 let services: IndexMap<ServiceTriple, EpgService> =
                     serde_json::from_reader(reader)?;
@@ -210,13 +211,15 @@ impl Epg {
                 self.services = services
                     .into_iter()
                     .filter(|(_, sv)| {
-                        let not_changed = channels
-                            .iter()
-                            .any(|ch| ch == &sv.channel);
-                        if !not_changed {  // if changed
-                            tracing::debug!("Drop service#{} ({}) due to changes \
+                        let not_changed = channels.iter().any(|ch| ch == &sv.channel);
+                        if !not_changed {
+                            // if changed
+                            tracing::debug!(
+                                "Drop service#{} ({}) due to changes \
                                              of the channel config",
-                                            sv.triple(), sv.name);
+                                sv.triple(),
+                                sv.name
+                            );
                         }
                         not_changed
                     })
@@ -236,8 +239,7 @@ impl Epg {
                 let json_path = PathBuf::from(cache_dir).join("clocks.json");
                 tracing::debug!("Loading clocks from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                let clocks: HashMap<ServiceTriple, Clock> =
-                    serde_json::from_reader(reader)?;
+                let clocks: HashMap<ServiceTriple, Clock> = serde_json::from_reader(reader)?;
                 // Drop a clock if the service triple of the clock is not
                 // contained in `self::services`.
                 self.clocks = clocks
@@ -245,8 +247,7 @@ impl Epg {
                     .filter(|(triple, _)| {
                         let contained = self.services.contains_key(triple);
                         if !contained {
-                            tracing::debug!(
-                                "Drop clock for missing service#{}", triple);
+                            tracing::debug!("Drop clock for missing service#{}", triple);
                         }
                         contained
                     })
@@ -275,8 +276,7 @@ impl Epg {
                     .filter(|(triple, _)| {
                         let contained = self.services.contains_key(triple);
                         if !contained {
-                            tracing::debug!(
-                                "Drop schedule for missing service#{}", triple);
+                            tracing::debug!("Drop schedule for missing service#{}", triple);
                         }
                         contained
                     })
@@ -329,12 +329,10 @@ impl Epg {
                 tracing::debug!("Saving schedules into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 serde_json::to_writer(writer, &self.schedules)?;
-                tracing::info!("Saved schedules for {} services",
-                               self.schedules.len());
+                tracing::info!("Saved schedules for {} services", self.schedules.len());
             }
             None => {
-                tracing::warn!(
-                    "No epg.cache-dir specified, skip to save schedules");
+                tracing::warn!("No epg.cache-dir specified, skip to save schedules");
             }
         }
         Ok(())
@@ -385,26 +383,26 @@ impl fmt::Display for QueryChannelsMessage {
 impl Handler<QueryChannelsMessage> for Epg {
     type Result = Result<Vec<MirakurunChannel>, Error>;
 
-    fn handle(
-        &mut self,
-        msg: QueryChannelsMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: QueryChannelsMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
-        let channels = self.config.channels.iter()
+        let channels = self
+            .config
+            .channels
+            .iter()
             .map(|config| MirakurunChannel {
                 channel_type: config.channel_type,
-                channel:  config.channel.clone(),
+                channel: config.channel.clone(),
                 name: config.name.clone(),
-                services: self.services
+                services: self
+                    .services
                     .values()
                     .filter(|sv| {
-                        sv.channel.channel_type == config.channel_type &&
-                            sv.channel.channel == config.channel
+                        sv.channel.channel_type == config.channel_type
+                            && sv.channel.channel == config.channel
                     })
                     .cloned()
                     .map(|sv| sv.into())
-                    .collect()
+                    .collect(),
             })
             .collect::<Vec<MirakurunChannel>>();
 
@@ -430,17 +428,12 @@ impl fmt::Display for QueryChannelMessage {
 impl Handler<QueryChannelMessage> for Epg {
     type Result = Result<EpgChannel, Error>;
 
-    fn handle(
-        &mut self,
-        msg: QueryChannelMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: QueryChannelMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
-        self.config.channels.iter()
-            .find(|config| {
-                  config.channel_type == msg.channel_type &&
-                    config.channel == msg.channel
-            })
+        self.config
+            .channels
+            .iter()
+            .find(|config| config.channel_type == msg.channel_type && config.channel == msg.channel)
             .cloned()
             .map(EpgChannel::from)
             .ok_or(Error::ChannelNotFound)
@@ -462,17 +455,15 @@ impl fmt::Display for QueryServicesMessage {
 impl Handler<QueryServicesMessage> for Epg {
     type Result = Result<Vec<EpgService>, Error>;
 
-    fn handle(
-        &mut self,
-        msg: QueryServicesMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: QueryServicesMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         // Assumed that `self.services` keeps insertion order.
-        Ok(self.services.values()
-           .filter(|sv| sv.is_exportable())
-           .cloned()
-           .collect())
+        Ok(self
+            .services
+            .values()
+            .filter(|sv| sv.is_exportable())
+            .cloned()
+            .collect())
     }
 }
 
@@ -488,8 +479,9 @@ pub enum QueryServiceMessage {
 impl fmt::Display for QueryServiceMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            QueryServiceMessage::ByNidSid { nid, sid } =>
-                write!(f, "QueryService By ({}, {})", nid, sid),
+            QueryServiceMessage::ByNidSid { nid, sid } => {
+                write!(f, "QueryService By ({}, {})", nid, sid)
+            }
         }
     }
 }
@@ -497,20 +489,15 @@ impl fmt::Display for QueryServiceMessage {
 impl Handler<QueryServiceMessage> for Epg {
     type Result = Result<EpgService, Error>;
 
-    fn handle(
-        &mut self,
-        msg: QueryServiceMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: QueryServiceMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         match msg {
-            QueryServiceMessage::ByNidSid { nid, sid } => {
-                self.services
-                    .values()
-                    .find(|sv| sv.nid == nid && sv.sid == sid)
-                    .cloned()
-                    .ok_or(Error::ServiceNotFound)
-            }
+            QueryServiceMessage::ByNidSid { nid, sid } => self
+                .services
+                .values()
+                .find(|sv| sv.nid == nid && sv.sid == sid)
+                .cloned()
+                .ok_or(Error::ServiceNotFound),
         }
     }
 }
@@ -532,13 +519,12 @@ impl fmt::Display for QueryClockMessage {
 impl Handler<QueryClockMessage> for Epg {
     type Result = Result<Clock, Error>;
 
-    fn handle(
-        &mut self,
-        msg: QueryClockMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: QueryClockMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
-        self.clocks.get(&msg.triple).cloned().ok_or(Error::ClockNotSynced)
+        self.clocks
+            .get(&msg.triple)
+            .cloned()
+            .ok_or(Error::ClockNotSynced)
     }
 }
 
@@ -557,11 +543,7 @@ impl fmt::Display for QueryProgramsMessage {
 impl Handler<QueryProgramsMessage> for Epg {
     type Result = Result<Vec<EpgProgram>, Error>;
 
-    fn handle(
-        &mut self,
-        msg: QueryProgramsMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: QueryProgramsMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         let mut programs = Vec::new();
         for schedule in self.schedules.values() {
@@ -577,14 +559,19 @@ impl Handler<QueryProgramsMessage> for Epg {
 #[rtype(result = "Result<EpgProgram, Error>")]
 pub enum QueryProgramMessage {
     // For Mirakurun-compatible Web API
-    ByNidSidEid { nid: NetworkId, sid: ServiceId, eid: EventId },
+    ByNidSidEid {
+        nid: NetworkId,
+        sid: ServiceId,
+        eid: EventId,
+    },
 }
 
 impl fmt::Display for QueryProgramMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            QueryProgramMessage::ByNidSidEid { nid, sid, eid } =>
-                write!(f, "QueryProgram By ({}, {}, {})", nid, sid, eid),
+            QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
+                write!(f, "QueryProgram By ({}, {}, {})", nid, sid, eid)
+            }
         }
     }
 }
@@ -592,22 +579,21 @@ impl fmt::Display for QueryProgramMessage {
 impl Handler<QueryProgramMessage> for Epg {
     type Result = Result<EpgProgram, Error>;
 
-    fn handle(
-        &mut self,
-        msg: QueryProgramMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: QueryProgramMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         match msg {
             QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
-                let triple = self.services
+                let triple = self
+                    .services
                     .values()
                     .find(|sv| sv.nid == nid && sv.sid == sid)
                     .map(|sv| sv.triple())
                     .ok_or(Error::ProgramNotFound)?;
-                let schedule = self.schedules.get(&triple)
-                    .ok_or(Error::ProgramNotFound)?;
-                schedule.programs.get(&eid).cloned()
+                let schedule = self.schedules.get(&triple).ok_or(Error::ProgramNotFound)?;
+                schedule
+                    .programs
+                    .get(&eid)
+                    .cloned()
                     .map(|mut prog| {
                         if let Some(airtime) = self.airtimes.get(&prog.quad) {
                             prog.start_at = airtime.start_time;
@@ -638,11 +624,7 @@ impl fmt::Display for UpdateServicesMessage {
 impl Handler<UpdateServicesMessage> for Epg {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: UpdateServicesMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: UpdateServicesMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.update_services(msg.results);
     }
@@ -665,11 +647,7 @@ impl fmt::Display for UpdateClocksMessage {
 impl Handler<UpdateClocksMessage> for Epg {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: UpdateClocksMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: UpdateClocksMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.update_clocks(msg.results);
     }
@@ -685,18 +663,18 @@ pub struct UpdateSchedulesMessage {
 
 impl fmt::Display for UpdateSchedulesMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "UpdateSchedules with {} EIT sections", self.sections.len())
+        write!(
+            f,
+            "UpdateSchedules with {} EIT sections",
+            self.sections.len()
+        )
     }
 }
 
 impl Handler<UpdateSchedulesMessage> for Epg {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: UpdateSchedulesMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: UpdateSchedulesMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.update_schedules(msg.sections);
     }
@@ -712,7 +690,8 @@ pub struct FlushSchedulesMessage {
 
 impl fmt::Display for FlushSchedulesMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let triples: Vec<String> = self.triples
+        let triples: Vec<String> = self
+            .triples
             .iter()
             .map(|triple| triple.to_string())
             .collect();
@@ -723,11 +702,7 @@ impl fmt::Display for FlushSchedulesMessage {
 impl Handler<FlushSchedulesMessage> for Epg {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: FlushSchedulesMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: FlushSchedulesMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.flush_schedules(msg.triples);
     }
@@ -748,11 +723,7 @@ impl fmt::Display for SaveSchedulesMessage {
 impl Handler<SaveSchedulesMessage> for Epg {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: SaveSchedulesMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: SaveSchedulesMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         match self.save_schedules() {
             Ok(_) => (),
@@ -779,11 +750,7 @@ impl fmt::Display for UpdateAirtimeMessage {
 impl Handler<UpdateAirtimeMessage> for Epg {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: UpdateAirtimeMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: UpdateAirtimeMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.airtimes.insert(msg.quad, msg.airtime);
     }
@@ -806,11 +773,7 @@ impl fmt::Display for RemoveAirtimeMessage {
 impl Handler<RemoveAirtimeMessage> for Epg {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: RemoveAirtimeMessage,
-        _: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: RemoveAirtimeMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         self.airtimes.remove(&msg.quad);
     }
@@ -872,16 +835,18 @@ impl EpgSchedule {
                 events = table.collect_overnight_events(midnight, events);
             }
         }
-        tracing::debug!("Saved {} overnight events of schedule#{}",
-                        events.len(), self.service_triple);
+        tracing::debug!(
+            "Saved {} overnight events of schedule#{}",
+            events.len(),
+            self.service_triple
+        );
         self.overnight_events = events;
     }
 
     fn collect_programs(&mut self) {
         let mut programs = HashMap::new();
         for event in self.overnight_events.iter() {
-            let quad = EventQuad::from(
-                (self.service_triple, EventId::from(event.event_id)));
+            let quad = EventQuad::from((self.service_triple, EventId::from(event.event_id)));
             programs
                 .entry(event.event_id)
                 .or_insert(EpgProgram::new(quad))
@@ -896,8 +861,7 @@ impl EpgSchedule {
     }
 }
 
-#[derive(Default)]
-#[derive(Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 // A table contains TV program information about 4 days of a TV program
 // schedule.
@@ -918,7 +882,7 @@ impl EpgTable {
     fn collect_overnight_events(
         &self,
         midnight: DateTime<Jst>,
-        mut events: Vec<EitEvent>
+        mut events: Vec<EitEvent>,
     ) -> Vec<EitEvent> {
         for segment in self.segments.iter() {
             events = segment.collect_overnight_events(midnight, events);
@@ -926,18 +890,14 @@ impl EpgTable {
         events
     }
 
-    fn collect_programs(
-        &self,
-        triple: ServiceTriple,
-        programs: &mut HashMap<EventId, EpgProgram>) {
+    fn collect_programs(&self, triple: ServiceTriple, programs: &mut HashMap<EventId, EpgProgram>) {
         for segment in self.segments.iter() {
             segment.collect_programs(triple, programs)
         }
     }
 }
 
-#[derive(Default)]
-#[derive(Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 // A segment contains TV program information about 3 hours of a TV program
 // schedule.
@@ -960,7 +920,7 @@ impl EpgSegment {
     fn collect_overnight_events(
         &self,
         midnight: DateTime<Jst>,
-        events: Vec<EitEvent>
+        events: Vec<EitEvent>,
     ) -> Vec<EitEvent> {
         self.sections
             .iter()
@@ -971,10 +931,7 @@ impl EpgSegment {
             })
     }
 
-    fn collect_programs(
-        &self,
-        triple: ServiceTriple,
-        programs: &mut HashMap<EventId, EpgProgram>) {
+    fn collect_programs(&self, triple: ServiceTriple, programs: &mut HashMap<EventId, EpgProgram>) {
         for section in self.sections.iter() {
             if let Some(section) = section {
                 section.collect_programs(triple, programs)
@@ -995,7 +952,7 @@ impl EpgSection {
     fn collect_overnight_events(
         &self,
         midnight: DateTime<Jst>,
-        mut events: Vec<EitEvent>
+        mut events: Vec<EitEvent>,
     ) -> Vec<EitEvent> {
         for event in self.events.iter() {
             if event.is_overnight_event(midnight) {
@@ -1005,10 +962,7 @@ impl EpgSection {
         events
     }
 
-    fn collect_programs(
-        &self,
-        triple: ServiceTriple,
-        programs: &mut HashMap<EventId, EpgProgram>) {
+    fn collect_programs(&self, triple: ServiceTriple, programs: &mut HashMap<EventId, EpgProgram>) {
         for event in self.events.iter() {
             let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
@@ -1028,8 +982,7 @@ impl From<EitSection> for EpgSection {
     }
 }
 
-#[derive(Clone, PartialEq)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Debug))]
 pub struct EpgChannel {
     pub name: String,
@@ -1107,8 +1060,7 @@ impl Into<MirakurunChannelService> for EpgService {
     }
 }
 
-#[derive(Clone)]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct EpgProgram {
     pub quad: EventQuad,
     #[serde(with = "serde_jst")]
@@ -1120,7 +1072,7 @@ pub struct EpgProgram {
     pub description: Option<String>,
     pub extended: Option<IndexMap<String, String>>,
     pub video: Option<ComponentDescriptor>,
-    pub audios: HashMap<u8, AudioComponentDescriptor>,  // component_tag -> value
+    pub audios: HashMap<u8, AudioComponentDescriptor>, // component_tag -> value
     pub genres: Option<Vec<EpgGenre>>,
     pub series: Option<SeriesDescriptor>,
     pub event_group: Option<EventGroupDescriptor>,
@@ -1137,7 +1089,7 @@ impl EpgProgram {
             description: None,
             extended: None,
             video: None,
-            audios: HashMap::new(),  // assumed that component_tag is unique in the same event
+            audios: HashMap::new(), // assumed that component_tag is unique in the same event
             genres: None,
             series: None,
             event_group: None,
@@ -1172,9 +1124,12 @@ impl EpgProgram {
                         .or_insert_with(|| value.clone());
                 }
                 EitDescriptor::Content { nibbles } => {
-                    self.genres = Some(nibbles.iter()
-                                       .map(|nibble| EpgGenre::new(*nibble))
-                                       .collect());
+                    self.genres = Some(
+                        nibbles
+                            .iter()
+                            .map(|nibble| EpgGenre::new(*nibble))
+                            .collect(),
+                    );
                 }
                 EitDescriptor::Series(value) => {
                     self.series = Some(value.clone());
@@ -1199,9 +1154,7 @@ mod tests {
 
     #[test]
     fn test_update_services() {
-        fn create_service(
-            name: &str, triple: ServiceTriple, channel: EpgChannel
-        ) -> EpgService {
+        fn create_service(name: &str, triple: ServiceTriple, channel: EpgChannel) -> EpgService {
             EpgService {
                 nid: triple.nid(),
                 tsid: triple.tsid(),
@@ -1244,7 +1197,7 @@ mod tests {
         let results = vec![
             (
                 ch1.clone(),
-                Some(indexmap::indexmap!{
+                Some(indexmap::indexmap! {
                     triple1_1 =>
                         create_service("sv1", triple1_1, ch1.clone()),
                     triple1_2 =>
@@ -1253,7 +1206,7 @@ mod tests {
             ),
             (
                 ch2.clone(),
-                Some(indexmap::indexmap!{
+                Some(indexmap::indexmap! {
                     triple2_3 =>
                         create_service("sv3", triple2_3, ch2.clone()),
                     triple2_4 =>
@@ -1273,7 +1226,7 @@ mod tests {
         let results = vec![
             (
                 ch1.clone(),
-                Some(indexmap::indexmap!{
+                Some(indexmap::indexmap! {
                     triple1_1 =>
                         create_service("sv1", triple1_1, ch1.clone()),
                     triple1_2 =>
@@ -1282,7 +1235,7 @@ mod tests {
             ),
             (
                 ch2.clone(),
-                Some(indexmap::indexmap!{
+                Some(indexmap::indexmap! {
                     triple2_3 =>
                         create_service("sv3", triple2_3, ch2.clone()),
                     triple2_4 =>
@@ -1303,7 +1256,7 @@ mod tests {
             (ch1.clone(), None),
             (
                 ch2.clone(),
-                Some(indexmap::indexmap!{
+                Some(indexmap::indexmap! {
                     triple2_3 =>
                         create_service("sv3", triple2_3, ch2.clone()),
                     triple2_4 =>
@@ -1318,13 +1271,12 @@ mod tests {
             assert!(iter.eq(["sv1", "sv2", "sv3", "sv4"].iter()));
         }
 
-
         // update with a new service
 
         let results = vec![
             (
                 ch1.clone(),
-                Some(indexmap::indexmap!{
+                Some(indexmap::indexmap! {
                     triple1_1 =>
                         create_service("sv1.new", triple1_1, ch1.clone()),
                 }),
@@ -1370,13 +1322,15 @@ mod tests {
         let config = Arc::new(Config::default());
 
         let mut epg = Epg::new(config.clone(), vec![]);
-        epg.services.insert(triple, create_epg_service(triple, channel_type));
+        epg.services
+            .insert(triple, create_epg_service(triple, channel_type));
         epg.prepare_schedules(Jst::now());
         assert_eq!(epg.schedules.len(), 1);
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
         let mut epg = Epg::new(config.clone(), vec![]);
-        epg.services.insert(triple, create_epg_service(triple, channel_type));
+        epg.services
+            .insert(triple, create_epg_service(triple, channel_type));
         let sched = create_epg_schedule_with_overnight_events(triple);
         epg.schedules.insert(triple, sched);
 
@@ -1432,8 +1386,7 @@ mod tests {
 
     #[test]
     fn test_epg_schedule_save_overnight_events() {
-        let mut sched = create_epg_schedule_with_overnight_events(
-            ServiceTriple::from((1, 2, 3)));
+        let mut sched = create_epg_schedule_with_overnight_events(ServiceTriple::from((1, 2, 3)));
         sched.save_overnight_events(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
         assert_eq!(sched.overnight_events.len(), 0);
 
@@ -1485,10 +1438,9 @@ mod tests {
 
     #[test]
     fn test_epg_table_collect_overnight_events() {
-        let table = create_epg_table_with_overnight_events(
-            Jst.ymd(2019, 10, 13));
-        let events = table.collect_overnight_events(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
+        let table = create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13));
+        let events =
+            table.collect_overnight_events(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 2.into());
     }
@@ -1528,20 +1480,18 @@ mod tests {
 
     #[test]
     fn test_epg_segment_collect_overnight_events() {
-        let segment = create_epg_segment_with_overnight_events(
-            Jst.ymd(2019, 10, 13));
-        let events = segment.collect_overnight_events(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
+        let segment = create_epg_segment_with_overnight_events(Jst.ymd(2019, 10, 13));
+        let events =
+            segment.collect_overnight_events(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 2.into());
     }
 
     #[test]
     fn test_epg_section_collect_overnight_events() {
-        let section = create_epg_section_with_overnight_events(
-            Jst.ymd(2019, 10, 13));
-        let events = section.collect_overnight_events(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
+        let section = create_epg_section_with_overnight_events(Jst.ymd(2019, 10, 13));
+        let events =
+            section.collect_overnight_events(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 2.into());
     }
@@ -1555,14 +1505,10 @@ mod tests {
             scrambled: false,
             descriptors: Vec::new(),
         };
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
-        assert!(event.is_overnight_event(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
+        assert!(event.is_overnight_event(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
 
         let event = EitEvent {
             event_id: 0.into(),
@@ -1571,14 +1517,10 @@ mod tests {
             scrambled: false,
             descriptors: Vec::new(),
         };
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
 
         let event = EitEvent {
             event_id: 0.into(),
@@ -1587,20 +1529,13 @@ mod tests {
             scrambled: false,
             descriptors: Vec::new(),
         };
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
+        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
     }
 
-    fn create_epg_service(
-        triple: ServiceTriple,
-        channel_type: ChannelType
-    ) -> EpgService {
+    fn create_epg_service(triple: ServiceTriple, channel_type: ChannelType) -> EpgService {
         EpgService {
             nid: triple.nid(),
             tsid: triple.tsid(),
@@ -1616,7 +1551,7 @@ mod tests {
                 extra_args: String::new(),
                 services: Vec::new(),
                 excluded_services: Vec::new(),
-            }
+            },
         }
     }
 
@@ -1624,21 +1559,24 @@ mod tests {
         EpgSchedule::new(triple)
     }
 
-    fn create_epg_schedule_with_overnight_events(
-        triple: ServiceTriple
-    ) -> EpgSchedule {
+    fn create_epg_schedule_with_overnight_events(triple: ServiceTriple) -> EpgSchedule {
         let mut sched = create_epg_schedule(triple);
         sched.updated_at = Jst.ymd(2019, 10, 13).and_hms(0, 0, 0);
-        sched.tables[0] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
-        sched.tables[1] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 17))));
-        sched.tables[8] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
-        sched.tables[16] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
-        sched.tables[24] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
+        sched.tables[0] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.ymd(2019, 10, 13),
+        )));
+        sched.tables[1] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.ymd(2019, 10, 17),
+        )));
+        sched.tables[8] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.ymd(2019, 10, 13),
+        )));
+        sched.tables[16] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.ymd(2019, 10, 13),
+        )));
+        sched.tables[24] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.ymd(2019, 10, 13),
+        )));
         sched
     }
 
@@ -1650,10 +1588,11 @@ mod tests {
 
     fn create_epg_segment_with_overnight_events(date: Date<Jst>) -> EpgSegment {
         let mut segment = EpgSegment::default();
-        segment.sections[0] =
-            Some(EpgSection { version: 1, events: Vec::new() });
-        segment.sections[1] =
-            Some(create_epg_section_with_overnight_events(date));
+        segment.sections[0] = Some(EpgSection {
+            version: 1,
+            events: Vec::new(),
+        });
+        segment.sections[1] = Some(create_epg_section_with_overnight_events(date));
         segment
     }
 
@@ -1675,7 +1614,7 @@ mod tests {
                     scrambled: false,
                     descriptors: Vec::new(),
                 },
-            ]
+            ],
         }
     }
 }

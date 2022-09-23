@@ -19,9 +19,7 @@ pub(in crate::web) struct StaticFileBody {
 }
 
 impl StaticFileBody {
-    pub(in crate::web) async fn new(
-        filepath: impl AsRef<std::path::Path>
-    ) -> io::Result<Self> {
+    pub(in crate::web) async fn new(filepath: impl AsRef<std::path::Path>) -> io::Result<Self> {
         let file = File::open(filepath).await?;
         let len = file.metadata().await?.len();
         Ok(StaticFileBody {

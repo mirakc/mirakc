@@ -1,7 +1,7 @@
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::File;
-use std::ffi::OsStr;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -56,22 +56,23 @@ impl TimeshiftFilesystem {
     fn lookup_recorder(&self, name: &OsStr) -> Option<Ino> {
         name.to_str()
             .and_then(|name| {
-                self.config.timeshift.recorders.keys()
+                self.config
+                    .timeshift
+                    .recorders
+                    .keys()
                     .position(|key| key == &name)
             })
             .map(Ino::create_recorder_ino)
     }
 
-    fn make_recorder_attr(
-        &self,
-        ino: Ino,
-    ) -> Option<fuser::FileAttr> {
+    fn make_recorder_attr(&self, ino: Ino) -> Option<fuser::FileAttr> {
         self.config
             .timeshift
             .recorders
             .get_index(ino.recorder_index())
             .map(|_| {
-                let start_time = self.caches
+                let start_time = self
+                    .caches
                     .get(&ino.recorder_index())
                     .map(|cache| cache.records.values().next())
                     .flatten()
@@ -79,7 +80,8 @@ impl TimeshiftFilesystem {
                     .map(system_time_from_unix_time)
                     .unwrap_or(std::time::UNIX_EPOCH);
 
-                let end_time = self.caches
+                let end_time = self
+                    .caches
                     .get(&ino.recorder_index())
                     .map(|cache| cache.records.values().last())
                     .flatten()
@@ -107,11 +109,7 @@ impl TimeshiftFilesystem {
             })
     }
 
-    fn lookup_record(
-        &self,
-        ino: Ino,
-        name: &OsStr,
-    ) -> Option<Ino> {
+    fn lookup_record(&self, ino: Ino, name: &OsStr) -> Option<Ino> {
         // to_string_lossy() may change <title>, but keeps <id> and the separator.
         let name = name.to_string_lossy();
 
@@ -149,19 +147,15 @@ impl TimeshiftFilesystem {
         //
         // We first extract the record ID encoded in `name`, and then look for a record identified
         // with it.  That means that `<id>.m2ts` is enough.
-        name.split('.')  // <id>.<title>.m2ts
-            .next()  // <id>
+        name.split('.') // <id>.<title>.m2ts
+            .next() // <id>
             .and_then(|s| u32::from_str_radix(s, 16).ok())
             .map(TimeshiftRecordId::from)
-            .map(|record_id| Ino::create_record_ino(
-                ino.recorder_index(), record_id))
+            .map(|record_id| Ino::create_record_ino(ino.recorder_index(), record_id))
             .filter(|&ino| self.get_record(ino).is_some())
     }
 
-    fn get_recorder_config(
-        &self,
-        ino: Ino,
-    ) -> Option<&TimeshiftRecorderConfig> {
+    fn get_recorder_config(&self, ino: Ino) -> Option<&TimeshiftRecorderConfig> {
         self.config
             .timeshift
             .recorders
@@ -176,7 +170,7 @@ impl TimeshiftFilesystem {
         ];
         for (index, name) in self.config.timeshift.recorders.keys().enumerate() {
             let ino = Ino::create_recorder_ino(index);
-            let dirname = sanitize_filename::sanitize(name);  // truncates within 255 bytes
+            let dirname = sanitize_filename::sanitize(name); // truncates within 255 bytes
             entries.push((ino.0, fuser::FileType::Directory, dirname));
         }
         let octx = OpenContext::Dir(entries);
@@ -184,7 +178,8 @@ impl TimeshiftFilesystem {
     }
 
     fn open_recorder_dir(&mut self, ino: Ino) -> u64 {
-        let records = self.caches
+        let records = self
+            .caches
             .get(&ino.recorder_index())
             .map(|cache| cache.records.clone())
             .unwrap_or(Default::default());
@@ -193,13 +188,15 @@ impl TimeshiftFilesystem {
             (1, fuser::FileType::Directory, "..".to_string()),
         ];
         for record in records.values() {
-            let ino = Ino::create_record_ino(
-                ino.recorder_index(), record.id);
-            let title = record.program.name.clone()
+            let ino = Ino::create_record_ino(ino.recorder_index(), record.id);
+            let title = record
+                .program
+                .name
+                .clone()
                 .map(|s| truncate_string_within(s, Self::MAX_TITLE_SIZE))
                 .unwrap_or("".to_string());
-            let filename = sanitize_filename::sanitize(
-                format!("{:08X}.{}.m2ts", record.id.value(), title));
+            let filename =
+                sanitize_filename::sanitize(format!("{:08X}.{}.m2ts", record.id.value(), title));
             debug_assert!(filename.ends_with(".m2ts"));
             entries.push((ino.0, fuser::FileType::RegularFile, filename));
         }
@@ -213,43 +210,43 @@ impl TimeshiftFilesystem {
             .and_then(|cache| cache.records.get(&ino.record_id()))
     }
 
-    fn make_record_attr(
-        &self,
-        ino: Ino,
-    ) -> Option<fuser::FileAttr> {
-        self.get_record(ino)
-            .map(|record| {
-                let start_time = system_time_from_unix_time(record.start.timestamp.timestamp());
-                let end_time = system_time_from_unix_time(record.end.timestamp.timestamp());
-                let file_size = self.config.timeshift.recorders
-                    .get_index(ino.recorder_index())
-                    .unwrap()
-                    .1
-                    .max_file_size();
-                let size = record.get_size(file_size);
+    fn make_record_attr(&self, ino: Ino) -> Option<fuser::FileAttr> {
+        self.get_record(ino).map(|record| {
+            let start_time = system_time_from_unix_time(record.start.timestamp.timestamp());
+            let end_time = system_time_from_unix_time(record.end.timestamp.timestamp());
+            let file_size = self
+                .config
+                .timeshift
+                .recorders
+                .get_index(ino.recorder_index())
+                .unwrap()
+                .1
+                .max_file_size();
+            let size = record.get_size(file_size);
 
-                fuser::FileAttr {
-                    ino: ino.0,
-                    size,
-                    blocks: (size + 511) / 512,
-                    atime: std::time::UNIX_EPOCH,
-                    mtime: end_time.clone(),
-                    ctime: end_time.clone(),
-                    crtime: start_time.clone(),
-                    kind: fuser::FileType::RegularFile,
-                    perm: 0o444,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                    blksize: 512,
-                    flags: 0,
-                }
-            })
+            fuser::FileAttr {
+                ino: ino.0,
+                size,
+                blocks: (size + 511) / 512,
+                atime: std::time::UNIX_EPOCH,
+                mtime: end_time.clone(),
+                ctime: end_time.clone(),
+                crtime: start_time.clone(),
+                kind: fuser::FileType::RegularFile,
+                perm: 0o444,
+                nlink: 1,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                blksize: 512,
+                flags: 0,
+            }
+        })
     }
 
     fn update_cache(&mut self, ino: Ino) {
-        let config = self.config
+        let config = self
+            .config
             .timeshift
             .recorders
             .values()
@@ -260,17 +257,14 @@ impl TimeshiftFilesystem {
             .ok()
             .and_then(|metadata| metadata.modified().ok());
 
-        let cache_mtime = self.caches
+        let cache_mtime = self
+            .caches
             .get(&ino.recorder_index())
             .map(|cache| cache.mtime);
 
         let mtime = match (data_mtime, cache_mtime) {
-            (Some(data_mtime), Some(cache_mtime)) if data_mtime > cache_mtime => {
-                data_mtime
-            }
-            (Some(data_mtime), None) => {
-                data_mtime
-            }
+            (Some(data_mtime), Some(cache_mtime)) if data_mtime > cache_mtime => data_mtime,
+            (Some(data_mtime), None) => data_mtime,
             _ => {
                 tracing::debug!("{}: Reuse cached timeshift data", ino);
                 return;
@@ -278,11 +272,10 @@ impl TimeshiftFilesystem {
         };
 
         tracing::debug!("{}: Load timeshift data", ino);
-        let cache = Self::load_data(config)
-            .map(|data| Cache {
-                mtime,
-                records: data.records,
-            });
+        let cache = Self::load_data(config).map(|data| Cache {
+            mtime,
+            records: data.records,
+        });
 
         match cache {
             Ok(cache) => {
@@ -306,13 +299,14 @@ impl TimeshiftFilesystem {
             // It's guaranteed that the lockfile will be unlocked after the file is closed.
         }
         let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
-        if data.service.triple() == config.service_triple.into() &&
-            data.chunk_size == config.chunk_size &&
-            data.max_chunks == config.max_chunks() {
-                Ok(data)
-            } else {
-                Err(Error::NoContent)
-            }
+        if data.service.triple() == config.service_triple.into()
+            && data.chunk_size == config.chunk_size
+            && data.max_chunks == config.max_chunks()
+        {
+            Ok(data)
+        } else {
+            Err(Error::NoContent)
+        }
     }
 
     fn open_record(&mut self, ino: Ino) -> Result<u64, Error> {
@@ -339,17 +333,15 @@ impl fuser::Filesystem for TimeshiftFilesystem {
     ) {
         let ino = Ino::from(parent);
         let found = if ino.is_root() {
-            self.lookup_recorder(name)
-                .and_then(|ino| {
-                    self.update_cache(ino);
-                    self.make_recorder_attr(ino)
-                })
+            self.lookup_recorder(name).and_then(|ino| {
+                self.update_cache(ino);
+                self.make_recorder_attr(ino)
+            })
         } else if ino.is_recorder() {
-            self.lookup_record(ino, name)
-                .and_then(|ino| {
-                    self.update_cache(ino);
-                    self.make_record_attr(ino)
-                })
+            self.lookup_record(ino, name).and_then(|ino| {
+                self.update_cache(ino);
+                self.make_record_attr(ino)
+            })
         } else {
             unreachable!();
         };
@@ -359,12 +351,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         }
     }
 
-    fn getattr(
-        &mut self,
-        _req: &fuser::Request,
-        ino: u64,
-        reply: fuser::ReplyAttr,
-    ) {
+    fn getattr(&mut self, _req: &fuser::Request, ino: u64, reply: fuser::ReplyAttr) {
         let ino = Ino::from(ino);
         let found = if ino.is_root() {
             Some(fuser::FileAttr {
@@ -399,13 +386,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         }
     }
 
-    fn opendir(
-        &mut self,
-        _req: &fuser::Request,
-        ino: u64,
-        _flags: i32,
-        reply: fuser::ReplyOpen
-    ) {
+    fn opendir(&mut self, _req: &fuser::Request, ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
         let ino = Ino::from(ino);
         if ino.is_root() {
             let handle = self.open_root_dir();
@@ -425,7 +406,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         ino: u64,
         fh: u64,
         _flags: i32,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         let ino = Ino::from(ino);
         if ino.is_root() || ino.is_recorder() {
@@ -465,13 +446,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         }
     }
 
-    fn open(
-        &mut self,
-        _req: &fuser::Request,
-        ino: u64,
-        _flags: i32,
-        reply: fuser::ReplyOpen,
-    ) {
+    fn open(&mut self, _req: &fuser::Request, ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
         let ino = Ino::from(ino);
         if ino.is_record() {
             self.update_cache(ino);
@@ -645,7 +620,7 @@ struct RecordBuffer {
 }
 
 impl RecordBuffer {
-    const INITIAL_BUFSIZE: usize = 4096 * 16;  // 16 pages = 64KiB
+    const INITIAL_BUFSIZE: usize = 4096 * 16; // 16 pages = 64KiB
 
     fn new(ino: Ino, file: File) -> Self {
         RecordBuffer {
@@ -671,7 +646,12 @@ impl RecordBuffer {
                 self.fill1(&range)
             }
             (Some(first), Some(second)) => {
-                tracing::trace!("{}: Read data in {:?} and {:?} successfully", self.ino, first, second);
+                tracing::trace!(
+                    "{}: Read data in {:?} and {:?} successfully",
+                    self.ino,
+                    first,
+                    second
+                );
                 self.fill2(&first, &second)
             }
             _ => unreachable!(),
@@ -684,7 +664,9 @@ impl RecordBuffer {
         let len = (range.end - range.start) as usize;
         self.buf.reserve(len);
         self.file.seek(SeekFrom::Start(range.start))?;
-        let _ = (&mut self.file).take(len as u64).read_to_end(&mut self.buf)?;
+        let _ = (&mut self.file)
+            .take(len as u64)
+            .read_to_end(&mut self.buf)?;
         debug_assert!(self.buf.len() == len);
         Ok(())
     }
@@ -698,10 +680,14 @@ impl RecordBuffer {
         debug_assert!((first_len as u64) + (second_len as u64) <= usize::max_value() as u64);
         self.buf.reserve(first_len + second_len);
         self.file.seek(SeekFrom::Start(first.start))?;
-        let _ = (&mut self.file).take(first_len as u64).read_to_end(&mut self.buf)?;
+        let _ = (&mut self.file)
+            .take(first_len as u64)
+            .read_to_end(&mut self.buf)?;
         debug_assert!(self.buf.len() == first_len);
         self.file.seek(SeekFrom::Start(0))?;
-        let _ = (&mut self.file).take(second_len as u64).read_to_end(&mut self.buf)?;
+        let _ = (&mut self.file)
+            .take(second_len as u64)
+            .read_to_end(&mut self.buf)?;
         debug_assert!(self.buf.len() == first_len + second_len);
         Ok(())
     }
@@ -819,7 +805,10 @@ mod tests {
         assert_eq!(calc_read_ranges(100, 30, 70, 20, 10), (Some(90..100), None));
         assert_eq!(calc_read_ranges(100, 30, 70, 20, 20), (Some(90..100), None));
         assert_eq!(calc_read_ranges(100, 30, 70, 30, 10), (None, None));
-        assert_eq!(calc_read_ranges(100, 30, 80, 10, 20), (Some(90..100), Some(0..10)));
+        assert_eq!(
+            calc_read_ranges(100, 30, 80, 10, 20),
+            (Some(90..100), Some(0..10))
+        );
         assert_eq!(calc_read_ranges(100, 30, 80, 20, 20), (Some(0..10), None));
         assert_eq!(calc_read_ranges(100, 30, 80, 30, 10), (None, None));
     }

@@ -45,7 +45,9 @@ mod tests {
 
     #[test]
     fn test() {
-        assert_eq!("a&lt;a&gt;a&amp;a&#39;a&quot;a",
-                   format!("{}", escape(r#"a<a>a&a'a"a"#)));
+        assert_eq!(
+            "a&lt;a&gt;a&amp;a&#39;a&quot;a",
+            format!("{}", escape(r#"a<a>a&a'a"a"#))
+        );
     }
 }
