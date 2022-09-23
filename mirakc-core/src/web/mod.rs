@@ -1063,10 +1063,10 @@ where
             let _ = stream.pipe(input).await;
         });
 
-        // Use a MPSC channel as a buffer.
+        // Use an MPSC channel as a buffer.
         //
-        // The command pipeline often breaks when reading stops for a few
-        // seconds.
+        // The command pipeline often breaks when the client stops reading for a
+        // few seconds.
         let mut stream = ReaderStream::with_capacity(
             output, config.server.stream_chunk_size);
         let (sender, receiver) = mpsc::channel(config.server.stream_max_chunks);
