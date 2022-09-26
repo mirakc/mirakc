@@ -13,7 +13,7 @@ atty = "0.2.14"
 axum = { git = "https://github.com/tokio-rs/axum", tag = "axum-v0.6.0-rc.2", features = ["headers"] }
 bytes = "1.2.1"
 chrono = { version = "0.4.22", features = ["serde"] }
-cron = "0.11.0"
+cron = "0.12.0"
 fs2 = "0.4.3"
 futures = "0.3.24"
 http-body = "0.4.5"
