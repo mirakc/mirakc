@@ -28,6 +28,7 @@ pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
     });
 
     config.channels = ChannelConfig::normalize(config.channels);
+    config.jobs = JobsConfig::normalize(config.jobs);
 
     config.validate();
 
@@ -567,6 +568,34 @@ impl JobsConfig {
             schedule: "0 21 6,18 * * * *".to_string(),
             disabled: false,
         }
+    }
+
+    fn normalize(mut self) -> Self {
+        if !self.scan_services.disabled {
+            if self.scan_services.command.is_empty() {
+                self.scan_services.command = Self::default_scan_services().command;
+            }
+            if self.scan_services.schedule.is_empty() {
+                self.scan_services.schedule = Self::default_scan_services().schedule;
+            }
+        }
+        if !self.sync_clocks.disabled {
+            if self.sync_clocks.command.is_empty() {
+                self.sync_clocks.command = Self::default_sync_clocks().command;
+            }
+            if self.sync_clocks.schedule.is_empty() {
+                self.sync_clocks.schedule = Self::default_sync_clocks().schedule;
+            }
+        }
+        if !self.update_schedules.disabled {
+            if self.update_schedules.command.is_empty() {
+                self.update_schedules.command = Self::default_update_schedules().command;
+            }
+            if self.update_schedules.schedule.is_empty() {
+                self.update_schedules.schedule = Self::default_update_schedules().schedule;
+            }
+        }
+        self
     }
 
     fn validate(&self) {
@@ -2065,6 +2094,28 @@ mod tests {
         "#,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_jobs_config_normalize() {
+        assert_eq!(
+            serde_yaml::from_str::<JobsConfig>(
+                r#"
+                scan-services:
+                  command: ''
+                  schedule: ''
+                sync-clocks:
+                  command: ''
+                  schedule: ''
+                update-schedules:
+                  command: ''
+                  schedule: ''
+            "#
+            )
+            .unwrap()
+            .normalize(),
+            JobsConfig::default()
+        );
     }
 
     #[test]
