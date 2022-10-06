@@ -1,12 +1,15 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 
 use actix::prelude::*;
-use chrono::{DateTime, Duration};
-use serde::{Deserialize, Serialize};
-use serde_json;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use chrono::DateTime;
+use chrono::Duration;
+use serde::Deserialize;
+use serde::Serialize;
+use tokio::io::AsyncBufReadExt;
+use tokio::io::BufReader;
 
 use crate::command_util;
 use crate::config::Config;
@@ -194,10 +197,20 @@ impl EitCollector {
         let mut triples = HashSet::new();
         while reader.read_line(&mut json).await? > 0 {
             let section = serde_json::from_str::<EitSection>(&json)?;
-            triples.insert(section.service_triple());
-            epg.do_send(UpdateSchedulesMessage { section });
-            json.clear();
-            num_sections += 1;
+            if section.is_valid() {
+                let triple = section.service_triple();
+                if !triples.contains(&triple) {
+                    triples.insert(triple);
+                    epg.do_send(PrepareScheduleMessage {
+                        service_triple: triple,
+                    });
+                }
+                epg.do_send(UpdateScheduleMessage { section });
+                json.clear();
+                num_sections += 1;
+            } else {
+                tracing::warn!(section.table_id, "Invalid table_id");
+            }
         }
 
         drop(stop_trigger);
@@ -210,9 +223,11 @@ impl EitCollector {
         // streaming in the next iteration.
         let _ = handle.await;
 
-        epg.do_send(FlushSchedulesMessage {
-            triples: triples.into_iter().collect(),
-        });
+        for triple in triples.iter() {
+            epg.do_send(FlushScheduleMessage {
+                service_triple: triple.clone(),
+            });
+        }
 
         tracing::debug!(
             "Collected {} EIT sections in {}",
@@ -239,6 +254,21 @@ pub struct EitSection {
 }
 
 impl EitSection {
+    pub fn is_valid(&self) -> bool {
+        match self.table_id {
+            0x50 | 0x51 | 0x58 | 0x59 => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_basic(&self) -> bool {
+        match self.table_id {
+            0x50..=0x57 => true,
+            0x58..=0x5F => false,
+            _ => panic!("Invalid table_id"),
+        }
+    }
+
     pub fn table_index(&self) -> usize {
         self.table_id as usize - 0x50
     }

@@ -1,17 +1,22 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
-use std::iter::FromIterator;
+use std::io::BufReader;
+use std::io::BufWriter;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use actix::prelude::*;
-use chrono::{DateTime, Duration, TimeZone};
+use chrono::Date;
+use chrono::DateTime;
+use chrono::Duration;
+use chrono::TimeZone;
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
-use crate::config::{ChannelConfig, Config};
+use crate::config::ChannelConfig;
+use crate::config::Config;
 use crate::datetime_ext::*;
 use crate::eit_feeder::*;
 use crate::error::Error;
@@ -97,6 +102,10 @@ impl Epg {
             Ok(_) => (),
             Err(err) => tracing::error!("Failed to save services: {}", err),
         }
+
+        // Remove garbage schedules.
+        self.schedules
+            .retain(|triple, _| self.services.contains_key(triple));
     }
 
     fn update_clocks(&mut self, results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>) {
@@ -130,60 +139,39 @@ impl Epg {
         }
     }
 
-    fn update_schedules(&mut self, section: EitSection) {
-        self.prepare_schedules(Jst::now());
+    fn prepare_schedule(&mut self, service_triple: ServiceTriple, today: Date<Jst>) {
+        self.schedules
+            .entry(service_triple)
+            .and_modify(|sched| sched.update_start_index(today))
+            .or_insert(EpgSchedule::new(service_triple));
+    }
+
+    fn update_schedule(&mut self, section: EitSection) {
         let triple = section.service_triple();
         self.schedules.entry(triple).and_modify(move |sched| {
             sched.update(section);
         });
     }
 
-    fn flush_schedules(&mut self, triples: Vec<ServiceTriple>) {
-        for triple in triples.iter() {
-            let num_programs = match self.schedules.get_mut(triple) {
-                Some(schedule) => {
-                    schedule.collect_programs();
-                    schedule.programs.len()
-                }
-                None => 0,
-            };
-            if num_programs > 0 {
-                let service = self.services.get(triple).expect("Service must exist");
-                tracing::info!(
-                    "Collected {} programs of {} ({})",
-                    num_programs,
-                    service.name,
-                    triple
-                );
+    fn flush_schedule(&mut self, service_triple: ServiceTriple) {
+        let num_programs = match self.schedules.get_mut(&service_triple) {
+            Some(schedule) => {
+                schedule.collect_programs();
+                schedule.programs.len()
             }
-        }
-    }
-
-    fn prepare_schedules(&mut self, timestamp: DateTime<Jst>) {
-        let mut unused_ids: HashSet<_> = HashSet::from_iter(self.schedules.keys().cloned());
-
-        let midnight = timestamp.date().and_hms(0, 0, 0);
-
-        for service in self.services.values() {
-            let triple = service.triple();
-            self.schedules
-                .entry(triple)
-                .and_modify(|sched| {
-                    if sched.updated_at < midnight {
-                        // Save overnight events.  The overnight events will be
-                        // lost in `update_tables()`.
-                        sched.save_overnight_events(midnight);
-                    }
-                    sched.updated_at = timestamp;
-                })
-                .or_insert(EpgSchedule::new(triple));
-            unused_ids.remove(&triple);
-        }
-
-        // Removing "garbage" schedules.
-        for id in unused_ids.iter() {
-            self.schedules.remove(&id);
-            tracing::debug!("Removed schedule#{}", id);
+            None => 0,
+        };
+        if num_programs > 0 {
+            let service = self
+                .services
+                .get(&service_triple)
+                .expect("Service must exist");
+            tracing::info!(
+                "Collected {} programs of {} ({})",
+                num_programs,
+                service.name,
+                service_triple,
+            );
         }
     }
 
@@ -260,6 +248,7 @@ impl Epg {
     }
 
     fn load_schedules(&mut self) -> Result<(), Error> {
+        let today = Jst::today();
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = PathBuf::from(cache_dir).join("schedules.json");
@@ -277,6 +266,10 @@ impl Epg {
                             tracing::debug!("Drop schedule for missing service#{}", triple);
                         }
                         contained
+                    })
+                    .map(|(triple, mut sched)| {
+                        sched.update_start_index(today);
+                        (triple, sched)
                     })
                     .collect();
                 tracing::info!("Loaded schedules for {} services", self.schedules.len());
@@ -651,58 +644,62 @@ impl Handler<UpdateClocksMessage> for Epg {
     }
 }
 
-// update schedules
+// prepare schedule
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct UpdateSchedulesMessage {
+pub struct PrepareScheduleMessage {
+    pub service_triple: ServiceTriple,
+}
+
+impl Handler<PrepareScheduleMessage> for Epg {
+    type Result = ();
+
+    fn handle(&mut self, msg: PrepareScheduleMessage, _: &mut Self::Context) -> Self::Result {
+        tracing::debug!(msg.name = "PrepareSchedule", %msg.service_triple);
+        self.prepare_schedule(msg.service_triple, Jst::today());
+    }
+}
+
+// update schedule
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct UpdateScheduleMessage {
     pub section: EitSection,
 }
 
-impl Handler<UpdateSchedulesMessage> for Epg {
+impl Handler<UpdateScheduleMessage> for Epg {
     type Result = ();
 
-    fn handle(&mut self, msg: UpdateSchedulesMessage, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpdateScheduleMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!(
-            msg.name = "UpdateSchedules",
-            msg.section.nid = ?msg.section.original_network_id.value(),
-            msg.section.tsid = ?msg.section.transport_stream_id.value(),
-            msg.section.sid = ?msg.section.service_id.value(),
+            msg.name = "UpdateSchedule",
+            msg.service_triple = %msg.section.service_triple(),
             msg.section.table_id,
             msg.section.section_number,
             msg.section.last_section_number,
             msg.section.segment_last_section_number,
             msg.section.version_number,
         );
-        self.update_schedules(msg.section);
+        self.update_schedule(msg.section);
     }
 }
 
-// flush schedules
+// flush schedule
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct FlushSchedulesMessage {
-    pub triples: Vec<ServiceTriple>,
+pub struct FlushScheduleMessage {
+    pub service_triple: ServiceTriple,
 }
 
-impl fmt::Display for FlushSchedulesMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let triples: Vec<String> = self
-            .triples
-            .iter()
-            .map(|triple| triple.to_string())
-            .collect();
-        write!(f, "FlushSchedules for [{}]", triples.as_slice().join(", "))
-    }
-}
-
-impl Handler<FlushSchedulesMessage> for Epg {
+impl Handler<FlushScheduleMessage> for Epg {
     type Result = ();
 
-    fn handle(&mut self, msg: FlushSchedulesMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
-        self.flush_schedules(msg.triples);
+    fn handle(&mut self, msg: FlushScheduleMessage, _: &mut Self::Context) -> Self::Result {
+        tracing::debug!(msg.name = "FlushSchedule", %msg.service_triple);
+        self.flush_schedule(msg.service_triple);
     }
 }
 
@@ -791,101 +788,92 @@ impl fmt::Display for NotifyServicesUpdatedMessage {
     }
 }
 
+// EpgSchedule holds sections of H-EIT[schedule basic] and H-EIT[schedule extended]
+// for a particular service.  See ARIB TR-B14 for details.
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EpgSchedule {
     service_triple: ServiceTriple,
-    // In Japan, only the following indexes are used:
-    //
-    //    0 | 8 | 16 | 24 => the former 4 days of 8 days schedule
-    //    1 | 9 | 17 | 25 => the later 4 days of 8 days schedule
-    tables: [Option<Box<EpgTable>>; 32],
-    overnight_events: Vec<EitEvent>,
-    #[serde(with = "serde_jst")]
-    updated_at: DateTime<Jst>,
+    // EpgScheduleUnits are stored in chronological order.
+    units: [EpgScheduleUnit; Self::MAX_DAYS],
+    #[serde(skip)]
+    start_index: usize, // used for implementing a ring buffer on `units`.
     #[serde(skip)]
     programs: HashMap<EventId, EpgProgram>,
 }
 
 impl EpgSchedule {
-    fn new(triple: ServiceTriple) -> EpgSchedule {
+    const MAX_DAYS: usize = 9;
+
+    fn new(service_triple: ServiceTriple) -> Self {
         EpgSchedule {
-            service_triple: triple,
-            tables: Default::default(),
-            overnight_events: Vec::new(),
-            updated_at: Jst::now(),
-            programs: HashMap::new(),
+            service_triple,
+            units: Default::default(),
+            start_index: 0,
+            programs: Default::default(),
+        }
+    }
+
+    fn update_start_index(&mut self, today: Date<Jst>) {
+        let result = self
+            .units
+            .iter()
+            .map(|unit| unit.date())
+            .enumerate()
+            .filter_map(|(index, date)| date.map(|date| (index, date)))
+            .min_by_key(|(_, date)| *date);
+
+        match result {
+            Some((index, date)) => {
+                let delta = (today - date).num_days();
+                let delta = delta % (Self::MAX_DAYS as i64);
+                // `delta` may be a negative value.
+                let delta = if delta >= 0 {
+                    delta as usize
+                } else {
+                    (delta + (Self::MAX_DAYS as i64)) as usize
+                };
+                self.start_index = (index + delta) % Self::MAX_DAYS;
+                debug_assert!((0..Self::MAX_DAYS).contains(&self.start_index));
+            }
+            None => self.start_index = 0,
         }
     }
 
     fn update(&mut self, section: EitSection) {
-        let i = section.table_index();
-        if self.tables[i].is_none() {
-            self.tables[i] = Some(Box::new(EpgTable::default()));
-        }
-        self.tables[i].as_mut().unwrap().update(section);
-    }
-
-    fn save_overnight_events(&mut self, midnight: DateTime<Jst>) {
-        let mut events = Vec::new();
-        for table in self.tables.iter() {
-            if let Some(ref table) = table {
-                events = table.collect_overnight_events(midnight, events);
-            }
-        }
-        tracing::debug!(
-            "Saved {} overnight events of schedule#{}",
-            events.len(),
-            self.service_triple
-        );
-        self.overnight_events = events;
+        let i = section.unit_index() + self.start_index;
+        self.units[i].update(section);
     }
 
     fn collect_programs(&mut self) {
-        let mut programs = HashMap::new();
-        for event in self.overnight_events.iter() {
-            let quad = EventQuad::from((self.service_triple, EventId::from(event.event_id)));
-            programs
-                .entry(event.event_id)
-                .or_insert(EpgProgram::new(quad))
-                .update(event);
-        }
-        for table in self.tables.iter() {
-            if let Some(table) = table {
-                table.collect_programs(self.service_triple, &mut programs)
-            }
-        }
-        self.programs = programs;
+        self.programs = self
+            .units
+            .iter()
+            .fold(HashMap::new(), |mut programs, unit| {
+                unit.collect_programs(self.service_triple, &mut programs);
+                programs
+            });
     }
 }
 
+// This type holds TV program information for 1 day.
 #[derive(Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-// A table contains TV program information about 4 days of a TV program
-// schedule.
-struct EpgTable {
-    // Segments are stored in chronological order.
-    //
-    // The first 8 consecutive segments contains TV program information for the
-    // first day.
-    segments: [EpgSegment; 32],
+struct EpgScheduleUnit {
+    // Segments are stored in chronological order starting from the midnight.
+    segments: [EpgSegment; Self::NUM_SEGMENTS],
 }
 
-impl EpgTable {
-    fn update(&mut self, section: EitSection) {
-        let i = section.segment_index();
-        self.segments[i].update(section);
+impl EpgScheduleUnit {
+    // 8 segments are used for 1 day.
+    const NUM_SEGMENTS: usize = 8;
+
+    fn date(&self) -> Option<Date<Jst>> {
+        self.segments.iter().find_map(|segment| segment.date())
     }
 
-    fn collect_overnight_events(
-        &self,
-        midnight: DateTime<Jst>,
-        mut events: Vec<EitEvent>,
-    ) -> Vec<EitEvent> {
-        for segment in self.segments.iter() {
-            events = segment.collect_overnight_events(midnight, events);
-        }
-        events
+    fn update(&mut self, section: EitSection) {
+        let i = section.segment_index_in_unit();
+        self.segments[i].update(section);
     }
 
     fn collect_programs(&self, triple: ServiceTriple, programs: &mut HashMap<EventId, EpgProgram>) {
@@ -895,42 +883,50 @@ impl EpgTable {
     }
 }
 
-#[derive(Default, Deserialize, Serialize)]
+// This type holds TV program information for 3 hours.
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-// A segment contains TV program information about 3 hours of a TV program
-// schedule.
 struct EpgSegment {
-    // Sections are stored in chronological order.
-    sections: [Option<EpgSection>; 8],
+    // Sections of EIT[schedule basic].
+    // table_id in 0x50..=0x57.
+    basic_sections: [Option<EpgSection>; Self::NUM_SECTIONS],
+    // Sections of EIT[schedule extended].
+    // table_id in 0x58..=0x5F.
+    extended_sections: [Option<EpgSection>; Self::NUM_SECTIONS],
 }
 
 impl EpgSegment {
+    const NUM_SECTIONS: usize = 8;
+
+    fn date(&self) -> Option<Date<Jst>> {
+        self.basic_sections
+            .iter()
+            .filter_map(|section| section.as_ref())
+            .find_map(|section| section.date())
+    }
+
     fn update(&mut self, section: EitSection) {
+        let sections = if section.is_basic() {
+            &mut self.basic_sections
+        } else {
+            &mut self.extended_sections
+        };
+
         let n = section.last_section_index() + 1;
-        for i in n..8 {
-            self.sections[i] = None;
+        for i in n..Self::NUM_SECTIONS {
+            sections[i] = None;
         }
 
         let i = section.section_index();
-        self.sections[i] = Some(EpgSection::from(section));
-    }
-
-    fn collect_overnight_events(
-        &self,
-        midnight: DateTime<Jst>,
-        events: Vec<EitEvent>,
-    ) -> Vec<EitEvent> {
-        self.sections
-            .iter()
-            .filter(|section| section.is_some())
-            .map(|section| section.as_ref().unwrap())
-            .fold(events, |events_, section| {
-                section.collect_overnight_events(midnight, events_)
-            })
+        sections[i] = Some(EpgSection::from(section));
     }
 
     fn collect_programs(&self, triple: ServiceTriple, programs: &mut HashMap<EventId, EpgProgram>) {
-        for section in self.sections.iter() {
+        let sections = self
+            .extended_sections
+            .iter()
+            .chain(self.basic_sections.iter());
+        for section in sections {
             if let Some(section) = section {
                 section.collect_programs(triple, programs)
             }
@@ -938,7 +934,7 @@ impl EpgSegment {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EpgSection {
     version: u8,
@@ -947,17 +943,8 @@ struct EpgSection {
 }
 
 impl EpgSection {
-    fn collect_overnight_events(
-        &self,
-        midnight: DateTime<Jst>,
-        mut events: Vec<EitEvent>,
-    ) -> Vec<EitEvent> {
-        for event in self.events.iter() {
-            if event.is_overnight_event(midnight) {
-                events.push(event.clone());
-            }
-        }
-        events
+    fn date(&self) -> Option<Date<Jst>> {
+        self.events.first().map(|event| event.start_time.date())
     }
 
     fn collect_programs(&self, triple: ServiceTriple, programs: &mut HashMap<EventId, EpgProgram>) {
@@ -1145,10 +1132,22 @@ impl EpgProgram {
     }
 }
 
+impl EitSection {
+    fn unit_index(&self) -> usize {
+        // A single table holds TV program information for 4 days.
+        (self.table_id as usize % 8) * 4 + self.segment_index() / EpgScheduleUnit::NUM_SEGMENTS
+    }
+
+    fn segment_index_in_unit(&self) -> usize {
+        self.segment_index() % EpgScheduleUnit::NUM_SEGMENTS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Date, TimeZone};
+    use assert_matches::assert_matches;
+    use chrono::Datelike;
 
     #[test]
     fn test_update_services() {
@@ -1290,6 +1289,24 @@ mod tests {
     }
 
     #[test]
+    fn test_update_services_purge_garbage_schedules() {
+        let mut epg = Epg::new(Arc::new(Default::default()), vec![]);
+        let triple = ServiceTriple::from((1, 2, 3));
+        epg.schedules.insert(triple, EpgSchedule::new(triple));
+        assert!(!epg.schedules.is_empty());
+        let triple = ServiceTriple::from((1, 1, 1));
+        let sv = create_epg_service(triple, ChannelType::GR);
+        let ch = sv.channel.clone();
+        epg.update_services(vec![(
+            ch,
+            Some(indexmap::indexmap! {
+                triple => sv,
+            }),
+        )]);
+        assert!(epg.schedules.is_empty());
+    }
+
+    #[test]
     fn test_epg_service_is_exportable() {
         let triple = ServiceTriple::from((1, 2, 3));
 
@@ -1314,59 +1331,39 @@ mod tests {
     }
 
     #[test]
-    fn test_epg_prepare_schedule() {
+    fn test_epg_schedule_update_start_index() {
         let triple = ServiceTriple::from((1, 2, 3));
-        let channel_type = ChannelType::GR;
-        let config = Arc::new(Config::default());
+        let mut sched = EpgSchedule::new(triple);
+        assert_eq!(sched.start_index, 0);
+        assert!(sched.units.iter().all(|unit| unit.date().is_none()));
 
-        let mut epg = Epg::new(config.clone(), vec![]);
-        epg.services
-            .insert(triple, create_epg_service(triple, channel_type));
-        epg.prepare_schedules(Jst::now());
-        assert_eq!(epg.schedules.len(), 1);
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
+        sched.update_start_index(Jst::today());
+        assert_eq!(sched.start_index, 0);
 
-        let mut epg = Epg::new(config.clone(), vec![]);
-        epg.services
-            .insert(triple, create_epg_service(triple, channel_type));
-        let sched = create_epg_schedule_with_overnight_events(triple);
-        epg.schedules.insert(triple, sched);
+        let mut date = Jst::today();
+        for i in 0..EpgSchedule::MAX_DAYS {
+            sched.units[i].segments[0].basic_sections[0] = Some(create_epg_section(date));
+            assert_matches!(sched.units[i].date(), Some(v) => assert_eq!(v, date));
+            date = date.succ();
+        }
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
+        sched.update_start_index(Jst::today());
+        assert_eq!(sched.start_index, 0);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 4);
+        sched.update_start_index(Jst::today().succ());
+        assert_eq!(sched.start_index, 1);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
+        sched.update_start_index(Jst::today().pred());
+        assert_eq!(sched.start_index, 8);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 16).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
-
-        epg.prepare_schedules(Jst.ymd(2019, 10, 17).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
-
-        epg.prepare_schedules(Jst.ymd(2019, 10, 18).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 1);
-
-        epg.prepare_schedules(Jst.ymd(2019, 10, 19).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
-
-        epg.prepare_schedules(Jst.ymd(2019, 10, 20).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
-
-        epg.prepare_schedules(Jst.ymd(2019, 10, 21).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
-
-        epg.prepare_schedules(Jst.ymd(2019, 10, 22).and_hms(0, 0, 0));
-        assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
+        sched.update_start_index(date); // today + 9 days
+        assert_eq!(sched.start_index, 0);
     }
 
     #[test]
     fn test_epg_schedule_update() {
         let triple = ServiceTriple::from((1, 2, 3));
-        let mut sched = create_epg_schedule(triple);
+        let mut sched = EpgSchedule::new(triple);
 
         sched.update(EitSection {
             original_network_id: triple.nid(),
@@ -1379,68 +1376,7 @@ mod tests {
             version_number: 1,
             events: Vec::new(),
         });
-        assert!(sched.tables[0].is_some());
-    }
-
-    #[test]
-    fn test_epg_schedule_save_overnight_events() {
-        let mut sched = create_epg_schedule_with_overnight_events(ServiceTriple::from((1, 2, 3)));
-        sched.save_overnight_events(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 0);
-
-        sched.save_overnight_events(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 4);
-
-        sched.save_overnight_events(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 0);
-
-        sched.save_overnight_events(Jst.ymd(2019, 10, 16).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 0);
-
-        sched.save_overnight_events(Jst.ymd(2019, 10, 17).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 0);
-
-        sched.save_overnight_events(Jst.ymd(2019, 10, 18).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 1);
-
-        sched.save_overnight_events(Jst.ymd(2019, 10, 19).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 0);
-
-        sched.save_overnight_events(Jst.ymd(2019, 10, 20).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 0);
-
-        sched.save_overnight_events(Jst.ymd(2019, 10, 21).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 0);
-
-        sched.save_overnight_events(Jst.ymd(2019, 10, 22).and_hms(0, 0, 0));
-        assert_eq!(sched.overnight_events.len(), 0);
-    }
-
-    #[test]
-    fn test_epg_table_update() {
-        let mut table: EpgTable = Default::default();
-
-        table.update(EitSection {
-            original_network_id: 1.into(),
-            transport_stream_id: 2.into(),
-            service_id: 3.into(),
-            table_id: 0x50,
-            section_number: 0x00,
-            last_section_number: 0xF8,
-            segment_last_section_number: 0x00,
-            version_number: 1,
-            events: Vec::new(),
-        });
-        assert!(table.segments[0].sections[0].is_some());
-    }
-
-    #[test]
-    fn test_epg_table_collect_overnight_events() {
-        let table = create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13));
-        let events =
-            table.collect_overnight_events(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id, 2.into());
+        assert!(sched.units[0].segments[0].basic_sections[0].is_some());
     }
 
     #[test]
@@ -1458,8 +1394,8 @@ mod tests {
             version_number: 1,
             events: Vec::new(),
         });
-        assert!(segment.sections[0].is_none());
-        assert!(segment.sections[1].is_some());
+        assert!(segment.basic_sections[0].is_none());
+        assert!(segment.basic_sections[1].is_some());
 
         segment.update(EitSection {
             original_network_id: 1.into(),
@@ -1472,65 +1408,8 @@ mod tests {
             version_number: 1,
             events: Vec::new(),
         });
-        assert!(segment.sections[0].is_some());
-        assert!(segment.sections[1].is_none());
-    }
-
-    #[test]
-    fn test_epg_segment_collect_overnight_events() {
-        let segment = create_epg_segment_with_overnight_events(Jst.ymd(2019, 10, 13));
-        let events =
-            segment.collect_overnight_events(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id, 2.into());
-    }
-
-    #[test]
-    fn test_epg_section_collect_overnight_events() {
-        let section = create_epg_section_with_overnight_events(Jst.ymd(2019, 10, 13));
-        let events =
-            section.collect_overnight_events(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id, 2.into());
-    }
-
-    #[test]
-    fn test_eit_event_is_overnight_event() {
-        let event = EitEvent {
-            event_id: 0.into(),
-            start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 59),
-            duration: Duration::seconds(2),
-            scrambled: false,
-            descriptors: Vec::new(),
-        };
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
-        assert!(event.is_overnight_event(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
-
-        let event = EitEvent {
-            event_id: 0.into(),
-            start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 59),
-            duration: Duration::seconds(1),
-            scrambled: false,
-            descriptors: Vec::new(),
-        };
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
-
-        let event = EitEvent {
-            event_id: 0.into(),
-            start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 58),
-            duration: Duration::seconds(1),
-            scrambled: false,
-            descriptors: Vec::new(),
-        };
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
-        assert!(!event.is_overnight_event(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
+        assert!(segment.basic_sections[0].is_some());
+        assert!(segment.basic_sections[1].is_none());
     }
 
     fn create_epg_service(triple: ServiceTriple, channel_type: ChannelType) -> EpgService {
@@ -1553,66 +1432,16 @@ mod tests {
         }
     }
 
-    fn create_epg_schedule(triple: ServiceTriple) -> EpgSchedule {
-        EpgSchedule::new(triple)
-    }
-
-    fn create_epg_schedule_with_overnight_events(triple: ServiceTriple) -> EpgSchedule {
-        let mut sched = create_epg_schedule(triple);
-        sched.updated_at = Jst.ymd(2019, 10, 13).and_hms(0, 0, 0);
-        sched.tables[0] = Some(Box::new(create_epg_table_with_overnight_events(
-            Jst.ymd(2019, 10, 13),
-        )));
-        sched.tables[1] = Some(Box::new(create_epg_table_with_overnight_events(
-            Jst.ymd(2019, 10, 17),
-        )));
-        sched.tables[8] = Some(Box::new(create_epg_table_with_overnight_events(
-            Jst.ymd(2019, 10, 13),
-        )));
-        sched.tables[16] = Some(Box::new(create_epg_table_with_overnight_events(
-            Jst.ymd(2019, 10, 13),
-        )));
-        sched.tables[24] = Some(Box::new(create_epg_table_with_overnight_events(
-            Jst.ymd(2019, 10, 13),
-        )));
-        sched
-    }
-
-    fn create_epg_table_with_overnight_events(date: Date<Jst>) -> EpgTable {
-        let mut table = EpgTable::default();
-        table.segments[7] = create_epg_segment_with_overnight_events(date);
-        table
-    }
-
-    fn create_epg_segment_with_overnight_events(date: Date<Jst>) -> EpgSegment {
-        let mut segment = EpgSegment::default();
-        segment.sections[0] = Some(EpgSection {
-            version: 1,
-            events: Vec::new(),
-        });
-        segment.sections[1] = Some(create_epg_section_with_overnight_events(date));
-        segment
-    }
-
-    fn create_epg_section_with_overnight_events(date: Date<Jst>) -> EpgSection {
+    fn create_epg_section(date: Date<Jst>) -> EpgSection {
         EpgSection {
             version: 1,
-            events: vec![
-                EitEvent {
-                    event_id: 1.into(),
-                    start_time: date.and_hms(23, 0, 0),
-                    duration: Duration::minutes(30),
-                    scrambled: false,
-                    descriptors: Vec::new(),
-                },
-                EitEvent {
-                    event_id: 2.into(),
-                    start_time: date.and_hms(23, 30, 0),
-                    duration: Duration::hours(1),
-                    scrambled: false,
-                    descriptors: Vec::new(),
-                },
-            ],
+            events: vec![EitEvent {
+                event_id: (date.day() as u16).into(),
+                start_time: date.and_hms(0, 0, 0),
+                duration: Duration::minutes(30),
+                scrambled: false,
+                descriptors: Vec::new(),
+            }],
         }
     }
 }
