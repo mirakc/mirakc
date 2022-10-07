@@ -799,7 +799,7 @@ struct EpgSchedule {
     #[serde(skip)]
     start_index: usize, // used for implementing a ring buffer on `units`.
     #[serde(skip)]
-    programs: HashMap<EventId, EpgProgram>,
+    programs: IndexMap<EventId, EpgProgram>,
 }
 
 impl EpgSchedule {
@@ -846,13 +846,13 @@ impl EpgSchedule {
     }
 
     fn collect_programs(&mut self) {
-        self.programs = self
-            .units
-            .iter()
-            .fold(HashMap::new(), |mut programs, unit| {
-                unit.collect_programs(self.service_triple, &mut programs);
-                programs
-            });
+        // Remove all programs, while preserving its capacity in order to reduce reallocations.
+        self.programs.clear();
+        let triple = self.service_triple;
+        for n in 0..Self::MAX_DAYS {
+            let i = (self.start_index + n) % Self::MAX_DAYS;
+            self.units[i].collect_programs(triple, &mut self.programs);
+        }
     }
 }
 
@@ -876,7 +876,7 @@ impl EpgScheduleUnit {
         self.segments[i].update(section);
     }
 
-    fn collect_programs(&self, triple: ServiceTriple, programs: &mut HashMap<EventId, EpgProgram>) {
+    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<EventId, EpgProgram>) {
         for segment in self.segments.iter() {
             segment.collect_programs(triple, programs)
         }
@@ -921,7 +921,7 @@ impl EpgSegment {
         sections[i] = Some(EpgSection::from(section));
     }
 
-    fn collect_programs(&self, triple: ServiceTriple, programs: &mut HashMap<EventId, EpgProgram>) {
+    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<EventId, EpgProgram>) {
         let sections = self
             .extended_sections
             .iter()
@@ -947,7 +947,7 @@ impl EpgSection {
         self.events.first().map(|event| event.start_time.date())
     }
 
-    fn collect_programs(&self, triple: ServiceTriple, programs: &mut HashMap<EventId, EpgProgram>) {
+    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<EventId, EpgProgram>) {
         for event in self.events.iter() {
             let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
