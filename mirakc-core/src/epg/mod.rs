@@ -1,6 +1,7 @@
 mod clock_synchronizer;
 mod eit_feeder;
 mod job;
+mod models;
 mod service_scanner;
 
 use std::collections::HashMap;
@@ -27,13 +28,13 @@ use crate::error::Error;
 use crate::models::*;
 use crate::tuner::TunerManager;
 
-pub use eit_feeder::AudioComponentDescriptor;
-pub use eit_feeder::ComponentDescriptor;
-pub use eit_feeder::EitDescriptor;
-pub use eit_feeder::EitEvent;
-pub use eit_feeder::EitSection;
-pub use eit_feeder::EventGroupDescriptor;
-pub use eit_feeder::SeriesDescriptor;
+pub use models::AudioComponentDescriptor;
+pub use models::ComponentDescriptor;
+pub use models::EitDescriptor;
+pub use models::EitEvent;
+pub use models::EitSection;
+pub use models::EventGroupDescriptor;
+pub use models::SeriesDescriptor;
 
 pub fn start(
     config: Arc<Config>,
