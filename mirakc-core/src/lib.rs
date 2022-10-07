@@ -1,17 +1,13 @@
 pub mod airtime_tracker;
 pub mod broadcaster;
-pub mod clock_synchronizer;
 pub mod command_util;
 pub mod config;
 pub mod datetime_ext;
-pub mod eit_feeder;
 pub mod epg;
 pub mod error;
 pub mod filter;
-pub mod job;
 pub mod models;
 pub mod mpeg_ts_stream;
-pub mod service_scanner;
 pub mod string_table;
 pub mod timeshift;
 pub mod tracing_ext;

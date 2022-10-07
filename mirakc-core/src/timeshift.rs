@@ -25,7 +25,6 @@ use crate::command_util::{
 };
 use crate::config::*;
 use crate::datetime_ext::*;
-use crate::eit_feeder::*;
 use crate::epg::*;
 use crate::error::Error;
 use crate::filter::*;

@@ -41,16 +41,7 @@ async fn main() -> Result<(), Error> {
 
     let timeshift_manager = timeshift::start(config.clone(), tuner_manager.clone());
 
-    let epg = epg::start(config.clone(), vec![timeshift_manager.clone().recipient()]);
-
-    let eit_feeder = eit_feeder::start(config.clone(), tuner_manager.clone(), epg.clone());
-
-    let _job_manager = job::start(
-        config.clone(),
-        tuner_manager.clone(),
-        epg.clone(),
-        eit_feeder.clone(),
-    );
+    let epg = epg::start(config.clone(), tuner_manager.clone(), vec![timeshift_manager.clone().recipient()]);
 
     web::serve(
         config.clone(),

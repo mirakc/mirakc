@@ -11,12 +11,13 @@ use cron;
 use humantime;
 use tokio::sync::Semaphore;
 
-use crate::clock_synchronizer::ClockSynchronizer;
 use crate::config::Config;
 use crate::datetime_ext::*;
-use crate::eit_feeder::*;
 use crate::epg::*;
-use crate::service_scanner::ServiceScanner;
+use crate::epg::clock_synchronizer::ClockSynchronizer;
+use crate::epg::eit_feeder::EitFeeder;
+use crate::epg::eit_feeder::FeedEitSectionsMessage;
+use crate::epg::service_scanner::ServiceScanner;
 use crate::tuner::*;
 
 pub fn start(

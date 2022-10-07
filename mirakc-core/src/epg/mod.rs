@@ -1,3 +1,8 @@
+mod clock_synchronizer;
+mod eit_feeder;
+mod job;
+mod service_scanner;
+
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
@@ -18,24 +23,42 @@ use serde::Serialize;
 use crate::config::ChannelConfig;
 use crate::config::Config;
 use crate::datetime_ext::*;
-use crate::eit_feeder::*;
 use crate::error::Error;
 use crate::models::*;
+use crate::tuner::TunerManager;
+
+pub use eit_feeder::AudioComponentDescriptor;
+pub use eit_feeder::ComponentDescriptor;
+pub use eit_feeder::EitDescriptor;
+pub use eit_feeder::EitEvent;
+pub use eit_feeder::EitSection;
+pub use eit_feeder::EventGroupDescriptor;
+pub use eit_feeder::SeriesDescriptor;
 
 pub fn start(
     config: Arc<Config>,
+    tuner_manager: Addr<TunerManager>,
     service_recipients: Vec<Recipient<NotifyServicesUpdatedMessage>>,
 ) -> Addr<Epg> {
     // Start on a new Arbiter instead of the system Arbiter.
     //
-    // Epg performs several blocking processes like blow:
+    // Epg performs several blocking processes like below:
     //
     //   * Serialization and deserialization using serde
     //   * Conversions into Mirakurun-compatible models
     //
-    Epg::start_in_arbiter(&Arbiter::new().handle(), |_| {
-        Epg::new(config, service_recipients)
-    })
+    let epg = {
+        let config = config.clone();
+        Epg::start_in_arbiter(&Arbiter::new().handle(), move |_| {
+            Epg::new(config, service_recipients)
+        })
+    };
+
+    let eit = eit_feeder::start(config.clone(), tuner_manager.clone(), epg.clone());
+
+    let _job_manager = job::start(config.clone(), tuner_manager.clone(), epg.clone(), eit.clone());
+
+    epg
 }
 
 pub struct Epg {

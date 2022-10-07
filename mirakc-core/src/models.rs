@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::ResourceConfig;
 use crate::datetime_ext::{serde_duration_in_millis, serde_jst, Jst};
-use crate::eit_feeder::SeriesDescriptor;
-use crate::eit_feeder::{AudioComponentDescriptor, ComponentDescriptor};
+use crate::epg::{AudioComponentDescriptor, ComponentDescriptor};
 use crate::epg::{EpgChannel, EpgProgram, EpgService};
+use crate::epg::SeriesDescriptor;
 use crate::tuner::TunerSubscriptionId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
