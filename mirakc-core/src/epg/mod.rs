@@ -89,10 +89,10 @@ impl Epg {
         Epg {
             config,
             service_recipients,
-            services: Arc::new(IndexMap::new()),
-            clocks: HashMap::new(),
-            schedules: HashMap::new(),
-            airtimes: HashMap::new(),
+            services: Default::default(),
+            clocks: Default::default(),
+            schedules: Default::default(),
+            airtimes: Default::default(),
         }
     }
 
