@@ -230,8 +230,7 @@ impl Epg {
                         if !not_changed {
                             // if changed
                             tracing::debug!(
-                                "Drop service#{} ({}) due to changes \
-                                             of the channel config",
+                                "Drop service#{} ({}) due to changes of the channel config",
                                 sv.triple(),
                                 sv.name
                             );
@@ -478,12 +477,7 @@ impl Handler<QueryServicesMessage> for Epg {
     fn handle(&mut self, msg: QueryServicesMessage, _: &mut Self::Context) -> Self::Result {
         tracing::debug!("{}", msg);
         // Assumed that `self.services` keeps insertion order.
-        Ok(self
-            .services
-            .values()
-            .filter(|sv| sv.is_exportable())
-            .cloned()
-            .collect())
+        Ok(self.services.values().cloned().collect())
     }
 }
 
@@ -1066,18 +1060,6 @@ impl EpgService {
     pub fn triple(&self) -> ServiceTriple {
         ServiceTriple::new(self.nid, self.tsid, self.sid)
     }
-
-    fn is_exportable(&self) -> bool {
-        if !self.channel.services.is_empty() {
-            if !self.channel.services.contains(&self.sid) {
-                return false;
-            }
-        }
-        if self.channel.excluded_services.contains(&self.sid) {
-            return false;
-        }
-        true
-    }
 }
 
 impl Into<MirakurunChannelService> for EpgService {
@@ -1351,30 +1333,6 @@ mod tests {
             }),
         )]);
         assert!(epg.schedules.is_empty());
-    }
-
-    #[test]
-    fn test_epg_service_is_exportable() {
-        let triple = ServiceTriple::from((1, 2, 3));
-
-        let service = create_epg_service(triple, ChannelType::GR);
-        assert!(service.is_exportable());
-
-        let mut service = create_epg_service(triple, ChannelType::GR);
-        service.channel.services = vec![3.into()];
-        assert!(service.is_exportable());
-
-        let mut service = create_epg_service(triple, ChannelType::GR);
-        service.channel.services = vec![4.into()];
-        assert!(!service.is_exportable());
-
-        let mut service = create_epg_service(triple, ChannelType::GR);
-        service.channel.excluded_services = vec![3.into()];
-        assert!(!service.is_exportable());
-
-        let mut service = create_epg_service(triple, ChannelType::GR);
-        service.channel.excluded_services = vec![4.into()];
-        assert!(service.is_exportable());
     }
 
     #[test]
