@@ -894,7 +894,7 @@ fn epg_for_test() -> Addr<Epg> {
             };
             Box::<Option<Result<Clock, Error>>>::new(Some(result))
         } else if let Some(_) = msg.downcast_ref::<QueryProgramsMessage>() {
-            Box::<Option<Result<Vec<EpgProgram>, Error>>>::new(Some(Ok(Vec::new())))
+            Box::<Option<Arc<IndexMap<EventId, EpgProgram>>>>::new(Some(Default::default()))
         } else if let Some(msg) = msg.downcast_ref::<QueryProgramMessage>() {
             let result = match msg {
                 QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {

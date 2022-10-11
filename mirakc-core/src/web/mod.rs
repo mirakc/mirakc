@@ -384,17 +384,19 @@ async fn service_logo_gh(
 async fn programs_gh(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<MirakurunProgram>>, Error> {
-    state
-        .epg
-        .send(QueryProgramsMessage)
-        .await?
-        .map(|programs| {
-            programs
-                .into_iter()
-                .map(MirakurunProgram::from)
-                .collect::<Vec<MirakurunProgram>>()
-        })
-        .map(Json::from)
+    let services = state.epg.send(QueryServicesMessage).await?;
+    let mut result = vec![];
+    for triple in services.keys() {
+        let programs = state
+            .epg
+            .send(QueryProgramsMessage {
+                service_triple: triple.clone(),
+            })
+            .await?;
+        result.reserve(programs.len());
+        result.extend(programs.values().cloned().map(MirakurunProgram::from));
+    }
+    Ok(result.into())
 }
 
 async fn program_gh(
@@ -1052,7 +1054,6 @@ async fn do_iptv_epg(
     let start_before = end_after + chrono::Duration::days(query.days as i64);
 
     let services = epg.send(QueryServicesMessage).await?;
-    let programs = epg.send(QueryProgramsMessage).await??;
 
     // TODO: URL scheme
 
@@ -1078,58 +1079,65 @@ async fn do_iptv_epg(
         }
         write!(buf, r#"</channel>"#)?;
     }
-    for pg in programs
-        .iter()
-        .filter(|pg| pg.name.is_some())
-        .filter(|pg| pg.start_at < start_before && pg.end_at() > end_after)
-    {
-        let id = MirakurunServiceId::from(pg.quad);
-        write!(
-            buf,
-            r#"<programme start="{}" stop="{}" channel="{}">"#,
-            pg.start_at.format(DATETIME_FORMAT),
-            pg.end_at().format(DATETIME_FORMAT),
-            id.value()
-        )?;
-        if let Some(name) = pg.name.as_ref() {
-            write!(buf, r#"<title lang="ja">{}</title>"#, escape(&name))?;
-        }
-        if let Some(desc) = pg.description.as_ref() {
-            write!(buf, r#"<desc lang="ja">"#)?;
-            write!(buf, "{}", escape(&desc))?;
-            if let Some(extended) = pg.extended.as_ref() {
-                for (key, value) in extended.iter() {
-                    if key.is_empty() {
-                        write!(buf, "{}", escape(&value))?;
+    for triple in services.keys() {
+        let programs = epg
+            .send(QueryProgramsMessage {
+                service_triple: triple.clone(),
+            })
+            .await?;
+        for pg in programs
+            .values()
+            .filter(|pg| pg.name.is_some())
+            .filter(|pg| pg.start_at < start_before && pg.end_at() > end_after)
+        {
+            let id = MirakurunServiceId::from(pg.quad);
+            write!(
+                buf,
+                r#"<programme start="{}" stop="{}" channel="{}">"#,
+                pg.start_at.format(DATETIME_FORMAT),
+                pg.end_at().format(DATETIME_FORMAT),
+                id.value()
+            )?;
+            if let Some(name) = pg.name.as_ref() {
+                write!(buf, r#"<title lang="ja">{}</title>"#, escape(&name))?;
+            }
+            if let Some(desc) = pg.description.as_ref() {
+                write!(buf, r#"<desc lang="ja">"#)?;
+                write!(buf, "{}", escape(&desc))?;
+                if let Some(extended) = pg.extended.as_ref() {
+                    for (key, value) in extended.iter() {
+                        if key.is_empty() {
+                            write!(buf, "{}", escape(&value))?;
+                        } else {
+                            write!(buf, "\n{}\n{}", escape(&key), escape(&value))?;
+                        }
+                    }
+                }
+                write!(buf, r#"</desc>"#)?;
+            }
+            if let Some(genres) = pg.genres.as_ref() {
+                for genre in genres.iter() {
+                    let genre_str = &string_table.genres[genre.lv1 as usize].genre;
+                    let subgenre_str =
+                        &string_table.genres[genre.lv1 as usize].subgenres[genre.lv2 as usize];
+                    if subgenre_str.is_empty() {
+                        write!(
+                            buf,
+                            r#"<category lang="ja">{}</category>"#,
+                            escape(&genre_str)
+                        )?;
                     } else {
-                        write!(buf, "\n{}\n{}", escape(&key), escape(&value))?;
+                        write!(
+                            buf,
+                            r#"<category lang="ja">{} / {}</category>"#,
+                            escape(&genre_str),
+                            escape(&subgenre_str)
+                        )?;
                     }
                 }
             }
-            write!(buf, r#"</desc>"#)?;
+            write!(buf, r#"</programme>"#)?;
         }
-        if let Some(genres) = pg.genres.as_ref() {
-            for genre in genres.iter() {
-                let genre_str = &string_table.genres[genre.lv1 as usize].genre;
-                let subgenre_str =
-                    &string_table.genres[genre.lv1 as usize].subgenres[genre.lv2 as usize];
-                if subgenre_str.is_empty() {
-                    write!(
-                        buf,
-                        r#"<category lang="ja">{}</category>"#,
-                        escape(&genre_str)
-                    )?;
-                } else {
-                    write!(
-                        buf,
-                        r#"<category lang="ja">{} / {}</category>"#,
-                        escape(&genre_str),
-                        escape(&subgenre_str)
-                    )?;
-                }
-            }
-        }
-        write!(buf, r#"</programme>"#)?;
     }
     write!(buf, r#"</tv>"#)?;
 

@@ -539,25 +539,20 @@ impl Handler<QueryClockMessage> for Epg {
 // query programs
 
 #[derive(Message)]
-#[rtype(result = "Result<Vec<EpgProgram>, Error>")]
-pub struct QueryProgramsMessage;
-
-impl fmt::Display for QueryProgramsMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryPrograms")
-    }
+#[rtype(result = "Arc<IndexMap<EventId, EpgProgram>>")]
+pub struct QueryProgramsMessage {
+    pub service_triple: ServiceTriple,
 }
 
 impl Handler<QueryProgramsMessage> for Epg {
-    type Result = Result<Vec<EpgProgram>, Error>;
+    type Result = Arc<IndexMap<EventId, EpgProgram>>;
 
     fn handle(&mut self, msg: QueryProgramsMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
-        let mut programs = Vec::new();
-        for schedule in self.schedules.values() {
-            programs.extend(schedule.programs.values().cloned())
-        }
-        Ok(programs)
+        tracing::debug!(msg.name = "QueryPrograms", msg.service_triple = %msg.service_triple);
+        self.schedules
+            .get(&msg.service_triple)
+            .map(|sched| sched.programs.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -816,7 +811,7 @@ struct EpgSchedule {
     #[serde(skip)]
     start_index: usize, // used for implementing a ring buffer on `units`.
     #[serde(skip)]
-    programs: IndexMap<EventId, EpgProgram>,
+    programs: Arc<IndexMap<EventId, EpgProgram>>,
 }
 
 impl EpgSchedule {
@@ -863,8 +858,6 @@ impl EpgSchedule {
     }
 
     fn collect_programs(&mut self) {
-        // Remove all programs, while preserving its capacity in order to reduce reallocations.
-        self.programs.clear();
         let triple = self.service_triple;
         // Start from the previous day in order to collect programs in chronological order.
         let start_index = if self.start_index > 0 {
@@ -872,10 +865,14 @@ impl EpgSchedule {
         } else {
             Self::MAX_DAYS - 1
         };
+        // Pre-allocate the buffer with the previous size in order to reduce the number of re-allocations.
+        let mut programs = IndexMap::with_capacity(self.programs.len());
         for n in 0..Self::MAX_DAYS {
             let i = (start_index + n) % Self::MAX_DAYS;
-            self.units[i].collect_programs(triple, &mut self.programs);
+            self.units[i].collect_programs(triple, &mut programs);
         }
+        programs.shrink_to_fit();
+        self.programs = Arc::new(programs);
     }
 }
 
