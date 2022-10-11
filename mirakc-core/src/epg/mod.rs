@@ -57,7 +57,12 @@ pub fn start(
 
     let eit = eit_feeder::start(config.clone(), tuner_manager.clone(), epg.clone());
 
-    let _job_manager = job::start(config.clone(), tuner_manager.clone(), epg.clone(), eit.clone());
+    let _job_manager = job::start(
+        config.clone(),
+        tuner_manager.clone(),
+        epg.clone(),
+        eit.clone(),
+    );
 
     epg
 }
@@ -900,7 +905,11 @@ impl EpgScheduleUnit {
         self.segments[i].update(section);
     }
 
-    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<EventId, EpgProgram>) {
+    fn collect_programs(
+        &self,
+        triple: ServiceTriple,
+        programs: &mut IndexMap<EventId, EpgProgram>,
+    ) {
         for segment in self.segments.iter() {
             segment.collect_programs(triple, programs)
         }
@@ -945,7 +954,11 @@ impl EpgSegment {
         sections[i] = Some(EpgSection::from(section));
     }
 
-    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<EventId, EpgProgram>) {
+    fn collect_programs(
+        &self,
+        triple: ServiceTriple,
+        programs: &mut IndexMap<EventId, EpgProgram>,
+    ) {
         let sections = self
             .extended_sections
             .iter()
@@ -971,7 +984,11 @@ impl EpgSection {
         self.events.first().map(|event| event.start_time.date())
     }
 
-    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<EventId, EpgProgram>) {
+    fn collect_programs(
+        &self,
+        triple: ServiceTriple,
+        programs: &mut IndexMap<EventId, EpgProgram>,
+    ) {
         for event in self.events.iter() {
             let quad = EventQuad::from((triple, EventId::from(event.event_id)));
             programs
