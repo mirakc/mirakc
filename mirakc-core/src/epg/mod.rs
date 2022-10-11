@@ -70,7 +70,7 @@ pub fn start(
 pub struct Epg {
     config: Arc<Config>,
     service_recipients: Vec<Recipient<NotifyServicesUpdatedMessage>>,
-    services: IndexMap<ServiceTriple, EpgService>, // keeps insertion order
+    services: Arc<IndexMap<ServiceTriple, EpgService>>, // keeps insertion order
     clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
     airtimes: HashMap<EventQuad, Airtime>,
@@ -89,7 +89,7 @@ impl Epg {
         Epg {
             config,
             service_recipients,
-            services: IndexMap::new(),
+            services: Arc::new(IndexMap::new()),
             clocks: HashMap::new(),
             schedules: HashMap::new(),
             airtimes: HashMap::new(),
@@ -125,7 +125,7 @@ impl Epg {
             });
         }
 
-        self.services = services;
+        self.services = Arc::new(services);
 
         match self.save_services() {
             Ok(_) => (),
@@ -223,7 +223,7 @@ impl Epg {
                     serde_json::from_reader(reader)?;
                 // Drop a service if the channel of the service has been
                 // changed.
-                self.services = services
+                let services = services
                     .into_iter()
                     .filter(|(_, sv)| {
                         let not_changed = channels.iter().any(|ch| ch == &sv.channel);
@@ -238,6 +238,7 @@ impl Epg {
                         not_changed
                     })
                     .collect();
+                self.services = Arc::new(services);
                 tracing::info!("Loaded {} services", self.services.len());
             }
             None => {
@@ -462,22 +463,15 @@ impl Handler<QueryChannelMessage> for Epg {
 // query services
 
 #[derive(Message)]
-#[rtype(result = "Result<Vec<EpgService>, Error>")]
+#[rtype(result = "Arc<IndexMap<ServiceTriple, EpgService>>")]
 pub struct QueryServicesMessage;
 
-impl fmt::Display for QueryServicesMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryServices")
-    }
-}
-
 impl Handler<QueryServicesMessage> for Epg {
-    type Result = Result<Vec<EpgService>, Error>;
+    type Result = Arc<IndexMap<ServiceTriple, EpgService>>;
 
-    fn handle(&mut self, msg: QueryServicesMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
-        // Assumed that `self.services` keeps insertion order.
-        Ok(self.services.values().cloned().collect())
+    fn handle(&mut self, _msg: QueryServicesMessage, _: &mut Self::Context) -> Self::Result {
+        tracing::debug!(msg.name = "QueryServices");
+        self.services.clone()
     }
 }
 

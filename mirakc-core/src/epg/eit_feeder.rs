@@ -42,10 +42,10 @@ impl EitFeeder {
         tuner_manager: Addr<TunerManager>,
         epg: Addr<Epg>,
     ) -> Result<(), Error> {
-        let services = epg.send(QueryServicesMessage).await??;
+        let services = epg.send(QueryServicesMessage).await?;
 
         let mut map: HashMap<String, EpgChannel> = HashMap::new();
-        for sv in services.iter() {
+        for sv in services.values() {
             let chid = format!("{}/{}", sv.channel.channel_type, sv.channel.channel);
             map.entry(chid)
                 .and_modify(|ch| ch.services.push(sv.sid))

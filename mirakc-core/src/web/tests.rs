@@ -5,6 +5,8 @@ use std::future::Future;
 use assert_matches::assert_matches;
 use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
+use indexmap::indexmap;
+use indexmap::IndexMap;
 use maplit::hashmap;
 
 use crate::broadcaster::BroadcasterStream;
@@ -832,23 +834,27 @@ fn epg_for_test() -> Addr<Epg> {
             };
             Box::<Option<Result<EpgChannel, Error>>>::new(Some(result))
         } else if let Some(_) = msg.downcast_ref::<QueryServicesMessage>() {
-            Box::<Option<Result<Vec<EpgService>, Error>>>::new(Some(Ok(vec![EpgService {
-                nid: 0.into(),
-                tsid: 0.into(),
-                sid: 1.into(),
-                service_type: 1,
-                logo_id: 0,
-                remote_control_key_id: 0,
-                name: "test".to_string(),
-                channel: EpgChannel {
-                    name: "test".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "ch".to_string(),
-                    extra_args: "".to_string(),
-                    services: Vec::new(),
-                    excluded_services: Vec::new(),
+            Box::<Option<Arc<IndexMap<ServiceTriple, EpgService>>>>::new(Some(Arc::new(
+                indexmap! {
+                    (0, 0, 1).into() => EpgService {
+                        nid: 0.into(),
+                        tsid: 0.into(),
+                        sid: 1.into(),
+                        service_type: 1,
+                        logo_id: 0,
+                        remote_control_key_id: 0,
+                        name: "test".to_string(),
+                        channel: EpgChannel {
+                            name: "test".to_string(),
+                            channel_type: ChannelType::GR,
+                            channel: "ch".to_string(),
+                            extra_args: "".to_string(),
+                            services: Vec::new(),
+                            excluded_services: Vec::new(),
+                        },
+                    },
                 },
-            }])))
+            )))
         } else if let Some(msg) = msg.downcast_ref::<QueryServiceMessage>() {
             let result = match msg {
                 QueryServiceMessage::ByNidSid { nid, sid } => {

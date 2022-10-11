@@ -324,21 +324,19 @@ async fn channels_gh(
 async fn services_gh(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<MirakurunService>>, Error> {
-    state
+    Ok(state
         .epg
         .send(QueryServicesMessage)
         .await?
-        .map(|services| {
-            services
-                .into_iter()
-                .map(MirakurunService::from)
-                .map(|mut service| {
-                    service.check_logo_existence(&state.config.resource);
-                    service
-                })
-                .collect::<Vec<MirakurunService>>()
+        .values()
+        .cloned()
+        .map(MirakurunService::from)
+        .map(|mut service| {
+            service.check_logo_existence(&state.config.resource);
+            service
         })
-        .map(Json::from)
+        .collect::<Vec<MirakurunService>>()
+        .into())
 }
 
 async fn service_gh(
@@ -952,13 +950,13 @@ async fn do_iptv_playlist(
     filter_setting.decode = true; // always decode
     let query = serde_qs::to_string(&filter_setting).expect("Never fails");
 
-    let services = epg.send(QueryServicesMessage).await??;
+    let services = epg.send(QueryServicesMessage).await?;
 
     // TODO: URL scheme
 
     let mut buf = String::with_capacity(INITIAL_BUFSIZE);
     write!(buf, "#EXTM3U\n")?;
-    for sv in services.iter() {
+    for sv in services.values() {
         let id = MirakurunServiceId::from(sv.triple());
         let logo_url = format!("http://{}/api/services/{}/logo", host, id.value());
         // The following format is compatible with EPGStation.
@@ -1053,7 +1051,7 @@ async fn do_iptv_epg(
     let end_after = Jst::midnight();
     let start_before = end_after + chrono::Duration::days(query.days as i64);
 
-    let services = epg.send(QueryServicesMessage).await??;
+    let services = epg.send(QueryServicesMessage).await?;
     let programs = epg.send(QueryProgramsMessage).await??;
 
     // TODO: URL scheme
@@ -1066,7 +1064,7 @@ async fn do_iptv_epg(
         r#"<tv generator-info-name="{}">"#,
         escape(&server_name())
     )?;
-    for sv in services.iter() {
+    for sv in services.values() {
         let id = MirakurunServiceId::from(sv.triple());
         let logo_url = format!("http://{}/api/services/{}/logo", host, id.value());
         write!(buf, r#"<channel id="{}">"#, id.value())?;
