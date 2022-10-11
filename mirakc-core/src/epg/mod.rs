@@ -878,8 +878,14 @@ impl EpgSchedule {
         // Remove all programs, while preserving its capacity in order to reduce reallocations.
         self.programs.clear();
         let triple = self.service_triple;
+        // Start from the previous day in order to collect programs in chronological order.
+        let start_index = if self.start_index > 0 {
+            self.start_index - 1
+        } else {
+            Self::MAX_DAYS - 1
+        };
         for n in 0..Self::MAX_DAYS {
-            let i = (self.start_index + n) % Self::MAX_DAYS;
+            let i = (start_index + n) % Self::MAX_DAYS;
             self.units[i].collect_programs(triple, &mut self.programs);
         }
     }
