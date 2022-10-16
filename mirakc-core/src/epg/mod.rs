@@ -853,7 +853,7 @@ impl EpgSchedule {
     }
 
     fn update(&mut self, section: EitSection) {
-        let i = section.unit_index() + self.start_index;
+        let i = (self.start_index + section.unit_index()) % Self::MAX_DAYS;
         self.units[i].update(section);
     }
 
@@ -1359,19 +1359,49 @@ mod tests {
     #[test]
     fn test_epg_schedule_update() {
         let triple = ServiceTriple::from((1, 2, 3));
-        let mut sched = EpgSchedule::new(triple);
 
+        let mut sched = EpgSchedule::new(triple);
         sched.update(EitSection {
             original_network_id: triple.nid(),
             transport_stream_id: triple.tsid(),
             service_id: triple.sid(),
-            table_id: 0x50,
+            table_id: 0x50, // unit-index(0)
             section_number: 0x00,
             last_section_number: 0xF8,
             segment_last_section_number: 0x00,
             version_number: 1,
             events: Vec::new(),
         });
+        assert!(sched.units[0].segments[0].basic_sections[0].is_some());
+
+        let mut sched = EpgSchedule::new(triple);
+        sched.update(EitSection {
+            original_network_id: triple.nid(),
+            transport_stream_id: triple.tsid(),
+            service_id: triple.sid(),
+            table_id: 0x51, // unit-index(4)
+            section_number: 0x00,
+            last_section_number: 0xF8,
+            segment_last_section_number: 0x00,
+            version_number: 1,
+            events: Vec::new(),
+        });
+        assert!(sched.units[4].segments[0].basic_sections[0].is_some());
+
+        let mut sched = EpgSchedule::new(triple);
+        sched.start_index = 5;
+        sched.update(EitSection {
+            original_network_id: triple.nid(),
+            transport_stream_id: triple.tsid(),
+            service_id: triple.sid(),
+            table_id: 0x51, // unit-index(4)
+            section_number: 0x00,
+            last_section_number: 0xF8,
+            segment_last_section_number: 0x00,
+            version_number: 1,
+            events: Vec::new(),
+        });
+        // The unit-index of the section must wrap around to 0.
         assert!(sched.units[0].segments[0].basic_sections[0].is_some());
     }
 
