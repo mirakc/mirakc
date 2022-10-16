@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fmt;
 use std::sync::Arc;
 
 use actix::prelude::*;
@@ -81,25 +80,24 @@ impl Actor for EitFeeder {
 // feed eit sections
 
 #[derive(Message)]
-#[rtype(result = "Result<(), Error>")]
+#[rtype(result = "()")]
 pub struct FeedEitSectionsMessage;
 
-impl fmt::Display for FeedEitSectionsMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "FeedEitSections")
-    }
-}
-
 impl Handler<FeedEitSectionsMessage> for EitFeeder {
-    type Result = ResponseFuture<Result<(), Error>>;
+    type Result = ResponseFuture<()>;
 
-    fn handle(&mut self, msg: FeedEitSectionsMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
-        Box::pin(Self::feed_eit_sections(
+    fn handle(&mut self, _msg: FeedEitSectionsMessage, _ctx: &mut Self::Context) -> Self::Result {
+        tracing::debug!(msg.name = "FeedEitSections");
+        let fut = Self::feed_eit_sections(
             self.config.jobs.update_schedules.command.clone(),
             self.tuner_manager.clone(),
             self.epg.clone(),
-        ))
+        );
+        Box::pin(async move {
+            if let Err(err) = fut.await {
+                tracing::error!("Failed to feed EIT sections: {}", err);
+            }
+        })
     }
 }
 

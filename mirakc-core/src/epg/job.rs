@@ -219,7 +219,7 @@ impl JobManager {
 
         let job = JobKind::UpdateSchedules
             .create(self.semaphore.clone())
-            .perform(async move { eit_feeder.send(FeedEitSectionsMessage).await? });
+            .perform(eit_feeder.send(FeedEitSectionsMessage));
 
         actix::fut::wrap_future::<_, Self>(job)
             .then(|_, act, _| {
