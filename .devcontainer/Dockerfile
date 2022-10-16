@@ -1,32 +1,9 @@
-FROM rust:slim-buster AS buildenv
-ENV DISTRO=debian
-ENV BUILDPLATFORM=linux/amd64
-ENV TARGETPLATFORM=linux/amd64
-ENV DEBIAN_FRONTEND=noninteractive
-COPY ./docker/build-scripts/vars.* /build-scripts/
-COPY ./docker/build-scripts/buildenv.sh /build-scripts/
-RUN sh /build-scripts/buildenv.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
-RUN mkdir -p /build
-WORKDIR /build
-
-FROM buildenv AS recdvb-build
-COPY ./docker/build-scripts/recdvb.sh /build-scripts/
-RUN sh /build-scripts/recdvb.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
-
-FROM buildenv AS recpt1-build
-COPY ./docker/build-scripts/recpt1.sh /build-scripts/
-RUN sh /build-scripts/recpt1.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
-
-FROM buildenv AS mirakc-arib-build
-COPY ./docker/build-scripts/mirakc-arib.sh /build-scripts/
-RUN sh /build-scripts/mirakc-arib.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
+FROM mirakc/tools:debian AS mirakc-tools
 
 FROM mcr.microsoft.com/vscode/devcontainers/rust:1
-COPY --from=recdvb-build /usr/local/bin/recdvb /usr/local/bin/
-COPY --from=recpt1-build /usr/local/bin/recpt1 /usr/local/bin/
-COPY --from=mirakc-arib-build /build/build/bin/mirakc-arib /usr/local/bin/
+COPY --from=mirakc-tools /usr/local/bin /usr/local/bin/
 COPY ./resources/strings.yml /etc/mirakc/strings.yml
-COPY ./resources/mirakurun.openapi.json /etc/mirakurun.openapi.json
+COPY ./resources/mirakurun.openapi.json /etc/mirakc/mirakurun.openapi.json
 RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update \
