@@ -51,9 +51,9 @@ jobs:
           echo "Version: $VERSION"
           echo "Main tag: $MAIN_TAG"
           echo "Tags: $TAGS"
-          echo "::set-output name=version::$VERSION"
-          echo "::set-output name=main-tag::$MAIN_TAG"
-          echo "::set-output name=tags::$TAGS"
+          echo "version=$VERSION" >>$GITHUB_OUTPUT
+          echo "main-tag=$MAIN_TAG" >>$GITHUB_OUTPUT
+          echo "tags=$TAGS" >>$GITHUB_OUTPUT
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v2
       - name: Setup Docker Buildx

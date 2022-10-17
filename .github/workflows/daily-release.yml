@@ -59,4 +59,4 @@ jobs:
         run: |
           NUM_COMMITS=$(git rev-list --count --since '24 hours' $MIRAKC_GA_REF_NAME)
           echo "NUM_COMMITS=$NUM_COMMITS"
-          echo "::set-output name=num-commits::$NUM_COMMITS"
+          echo "num-commits=$NUM_COMMITS" >>$GITHUB_OUTPUT
