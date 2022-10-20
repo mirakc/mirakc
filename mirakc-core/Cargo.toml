@@ -15,7 +15,7 @@ bytes = "1.2.1"
 chrono = { version = "0.4.22", features = ["serde"] }
 cron = "0.12.0"
 fs2 = "0.4.3"
-futures = "0.3.24"
+futures = "0.3.25"
 http-body = "0.4.5"
 humantime = "2.1.0"
 hyper = { version = "0.14.20", features = ["full"] }
