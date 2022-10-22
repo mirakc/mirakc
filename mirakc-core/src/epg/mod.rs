@@ -48,27 +48,14 @@ pub fn start(
     //   * Serialization and deserialization using serde
     //   * Conversions into Mirakurun-compatible models
     //
-    let epg = {
-        let config = config.clone();
-        Epg::start_in_arbiter(&Arbiter::new().handle(), move |_| {
-            Epg::new(config, service_recipients)
-        })
-    };
-
-    let eit = eit_feeder::start(config.clone(), tuner_manager.clone(), epg.clone());
-
-    let _job_manager = job::start(
-        config.clone(),
-        tuner_manager.clone(),
-        epg.clone(),
-        eit.clone(),
-    );
-
-    epg
+    Epg::start_in_arbiter(&Arbiter::new().handle(), move |_| {
+        Epg::new(config, tuner_manager, service_recipients)
+    })
 }
 
 pub struct Epg {
     config: Arc<Config>,
+    tuner_manager: Addr<TunerManager>,
     service_recipients: Vec<Recipient<NotifyServicesUpdatedMessage>>,
     services: Arc<IndexMap<ServiceTriple, EpgService>>, // keeps insertion order
     clocks: HashMap<ServiceTriple, Clock>,
@@ -84,10 +71,12 @@ pub struct Airtime {
 impl Epg {
     fn new(
         config: Arc<Config>,
+        tuner_manager: Addr<TunerManager>,
         service_recipients: Vec<Recipient<NotifyServicesUpdatedMessage>>,
     ) -> Self {
         Epg {
             config,
+            tuner_manager,
             service_recipients,
             services: Default::default(),
             clocks: Default::default(),
@@ -242,7 +231,7 @@ impl Epg {
                 tracing::info!("Loaded {} services", self.services.len());
             }
             None => {
-                tracing::warn!("No epg.cache-dir specified, skip to load services");
+                tracing::warn!("No epg.cache-dir specified, skip to load services.json");
             }
         }
         Ok(())
@@ -270,7 +259,7 @@ impl Epg {
                 tracing::info!("Loaded {} clocks", self.clocks.len());
             }
             None => {
-                tracing::warn!("No epg.cache-dir specified, skip to load clock");
+                tracing::warn!("No epg.cache-dir specified, skip to load clocks.json");
             }
         }
         Ok(())
@@ -304,7 +293,7 @@ impl Epg {
                 tracing::info!("Loaded schedules for {} services", self.schedules.len());
             }
             None => {
-                tracing::warn!("No epg.cache-dir specified, skip to load");
+                tracing::warn!("No epg.cache-dir specified, skip to load schedules.json");
             }
         }
         Ok(())
@@ -368,7 +357,7 @@ impl Epg {
 impl Actor for Epg {
     type Context = Context<Self>;
 
-    fn started(&mut self, _: &mut Self::Context) {
+    fn started(&mut self, ctx: &mut Self::Context) {
         // It's guaranteed that no response is sent before cached EPG data is loaded.
         tracing::debug!("Started");
         if let Err(err) = self.load_services() {
@@ -381,6 +370,19 @@ impl Actor for Epg {
             tracing::warn!("Failed to load schedules: {}", err);
         }
         self.collect_programs();
+
+        let eit = eit_feeder::start(
+            self.config.clone(),
+            self.tuner_manager.clone(),
+            ctx.address().clone(),
+        );
+
+        let _job_manager = job::start(
+            self.config.clone(),
+            self.tuner_manager.clone(),
+            ctx.address().clone(),
+            eit.clone(),
+        );
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {

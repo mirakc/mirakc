@@ -141,7 +141,9 @@ impl JobManager {
 
         let job = JobKind::ScanServices
             .create(self.semaphore.clone())
-            .perform(scanner.scan_services());
+            .perform(async move {
+                scanner.scan_services().await
+            });
 
         actix::fut::wrap_future::<_, Self>(job)
             .then(|results, act, _| {
@@ -180,7 +182,9 @@ impl JobManager {
 
         let job = JobKind::SyncClocks
             .create(self.semaphore.clone())
-            .perform(sync.sync_clocks());
+            .perform(async move {
+                sync.sync_clocks().await
+            });
 
         actix::fut::wrap_future::<_, Self>(job)
             .then(|results, act, _| {
@@ -219,7 +223,9 @@ impl JobManager {
 
         let job = JobKind::UpdateSchedules
             .create(self.semaphore.clone())
-            .perform(eit_feeder.send(FeedEitSectionsMessage));
+            .perform(async move {
+                eit_feeder.send(FeedEitSectionsMessage).await
+            });
 
         actix::fut::wrap_future::<_, Self>(job)
             .then(|_, act, _| {
