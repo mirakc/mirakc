@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use actix::prelude::*;
-use anyhow;
+use actlet::*;
 use serde::Deserialize;
-use serde_json;
 use tokio::io::AsyncReadExt;
 
 #[cfg(test)]
@@ -17,25 +15,23 @@ use crate::epg::*;
 use crate::models::*;
 use crate::tuner::*;
 
-pub struct ClockSynchronizer<A: Actor> {
+pub struct ClockSynchronizer<T> {
     config: Arc<Config>,
-    tuner_manager: Addr<A>,
+    tuner_manager: T,
 }
 
 // TODO: The following implementation has code clones similar to
 //       EitCollector and ServiceScanner.
 
-impl<A> ClockSynchronizer<A>
+impl<T> ClockSynchronizer<T>
 where
-    A: Actor,
-    A: Handler<StartStreamingMessage>,
-    A: Handler<StopStreamingMessage>,
-    A::Context: actix::dev::ToEnvelope<A, StartStreamingMessage>,
-    A::Context: actix::dev::ToEnvelope<A, StopStreamingMessage>,
+    T: Clone,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
 {
     const LABEL: &'static str = "clock-synchronizer";
 
-    pub fn new(config: Arc<Config>, tuner_manager: Addr<A>) -> Self {
+    pub fn new(config: Arc<Config>, tuner_manager: T) -> Self {
         ClockSynchronizer {
             config,
             tuner_manager,
@@ -75,7 +71,7 @@ where
     async fn sync_clocks_in_channel(
         channel: &ChannelConfig,
         command: &str,
-        tuner_manager: &Addr<A>,
+        tuner_manager: &T,
     ) -> anyhow::Result<Vec<SyncClock>> {
         tracing::debug!("Synchronizing clocks in {}...", channel.name);
 
@@ -87,14 +83,13 @@ where
         };
 
         let stream = tuner_manager
-            .send(StartStreamingMessage {
+            .call(StartStreaming {
                 channel: channel.clone().into(),
                 user,
             })
             .await??;
 
-        let stop_trigger =
-            TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().recipient());
+        let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().into());
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()
@@ -145,27 +140,12 @@ struct SyncClock {
 mod tests {
     use super::*;
     use crate::broadcaster::BroadcasterStream;
-    use crate::error::Error;
     use crate::mpeg_ts_stream::MpegTsStream;
     use assert_matches::assert_matches;
 
-    type Mock = actix::actors::mocker::Mocker<TunerManager>;
-
-    #[actix::test]
+    #[tokio::test]
     async fn test_sync_clocks_in_channel() {
-        let mock = Mock::mock(Box::new(|msg, _ctx| {
-            if let Some(_) = msg.downcast_ref::<StartStreamingMessage>() {
-                let (_, stream) = BroadcasterStream::new_for_test();
-                let result: Result<_, Error> =
-                    Ok(MpegTsStream::new(TunerSubscriptionId::default(), stream));
-                Box::new(Some(result))
-            } else if let Some(_) = msg.downcast_ref::<StopStreamingMessage>() {
-                Box::new(Some(()))
-            } else {
-                unimplemented!();
-            }
-        }))
-        .start();
+        let stub = TunerManagerStub;
 
         let expected = vec![SyncClock {
             nid: 1.into(),
@@ -193,7 +173,7 @@ mod tests {
 
         let config = Arc::new(serde_yaml::from_str::<Config>(&config_yml).unwrap());
 
-        let sync = ClockSynchronizer::new(config, mock.clone());
+        let sync = ClockSynchronizer::new(config, stub.clone());
         let results = sync.sync_clocks().await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, Some(v)) => {
@@ -222,9 +202,38 @@ mod tests {
             )
             .unwrap(),
         );
-        let sync = ClockSynchronizer::new(config, mock.clone());
+        let sync = ClockSynchronizer::new(config, stub.clone());
         let results = sync.sync_clocks().await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, None));
+    }
+
+    #[derive(Clone)]
+    struct TunerManagerStub;
+
+    #[async_trait]
+    impl Call<StartStreaming> for TunerManagerStub {
+        async fn call(
+            &self,
+            _msg: StartStreaming,
+        ) -> Result<<StartStreaming as Message>::Reply, actlet::Error> {
+            let (_, stream) = BroadcasterStream::new_for_test();
+            Ok(Ok(MpegTsStream::new(
+                TunerSubscriptionId::default(),
+                stream,
+            )))
+        }
+    }
+
+    #[async_trait]
+    impl Emit<StopStreaming> for TunerManagerStub {
+        async fn emit(&self, _msg: StopStreaming) {}
+        fn fire(&self, _msg: StopStreaming) {}
+    }
+
+    impl Into<Emitter<StopStreaming>> for TunerManagerStub {
+        fn into(self) -> Emitter<StopStreaming> {
+            Emitter::new(self)
+        }
     }
 }

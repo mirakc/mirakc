@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use actix::prelude::*;
+use actlet::*;
+use async_trait::async_trait;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
 
@@ -13,22 +14,24 @@ use crate::error::Error;
 use crate::models::*;
 use crate::tuner::*;
 
-pub fn start(
+pub struct EitFeeder<T, E> {
     config: Arc<Config>,
-    tuner_manager: Addr<TunerManager>,
-    epg: Addr<Epg>,
-) -> Addr<EitFeeder> {
-    EitFeeder::new(config, tuner_manager, epg).start()
+    tuner_manager: T,
+    epg: E,
 }
 
-pub struct EitFeeder {
-    config: Arc<Config>,
-    tuner_manager: Addr<TunerManager>,
-    epg: Addr<Epg>,
-}
-
-impl EitFeeder {
-    pub fn new(config: Arc<Config>, tuner_manager: Addr<TunerManager>, epg: Addr<Epg>) -> Self {
+impl<T, E> EitFeeder<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<QueryServices>,
+    E: Emit<FlushSchedule>,
+    E: Emit<PrepareSchedule>,
+    E: Emit<UpdateSchedule>,
+{
+    pub fn new(config: Arc<Config>, tuner_manager: T, epg: E) -> Self {
         EitFeeder {
             config,
             tuner_manager,
@@ -36,12 +39,8 @@ impl EitFeeder {
         }
     }
 
-    async fn feed_eit_sections(
-        command: String,
-        tuner_manager: Addr<TunerManager>,
-        epg: Addr<Epg>,
-    ) -> Result<(), Error> {
-        let services = epg.send(QueryServicesMessage).await?;
+    async fn feed_eit_sections(&self) -> Result<(), Error> {
+        let services = self.epg.call(QueryServices).await?;
 
         let mut map: HashMap<String, EpgChannel> = HashMap::new();
         for sv in services.values() {
@@ -57,22 +56,36 @@ impl EitFeeder {
                     excluded_services: vec![],
                 });
         }
-        let channels = map.values().cloned().collect();
+        let channels: Vec<EpgChannel> = map.values().cloned().collect();
 
-        EitCollector::new(command, channels, tuner_manager, epg)
-            .collect_schedules()
-            .await
+        EitCollector::new(
+            self.config.jobs.update_schedules.command.clone(),
+            channels,
+            self.tuner_manager.clone(),
+            self.epg.clone(),
+        )
+        .collect_schedules()
+        .await
     }
 }
 
-impl Actor for EitFeeder {
-    type Context = Context<Self>;
-
-    fn started(&mut self, _: &mut Self::Context) {
+#[async_trait]
+impl<T, E> Actor for EitFeeder<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<QueryServices>,
+    E: Emit<FlushSchedule>,
+    E: Emit<PrepareSchedule>,
+    E: Emit<UpdateSchedule>,
+{
+    async fn started(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!("Started");
     }
 
-    fn stopped(&mut self, _: &mut Self::Context) {
+    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!("Stopped");
     }
 }
@@ -80,48 +93,55 @@ impl Actor for EitFeeder {
 // feed eit sections
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct FeedEitSectionsMessage;
+#[reply("Result<(), Error>")]
+pub struct FeedEitSections;
 
-impl Handler<FeedEitSectionsMessage> for EitFeeder {
-    type Result = ResponseFuture<()>;
-
-    fn handle(&mut self, _msg: FeedEitSectionsMessage, _ctx: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl<T, E> Handler<FeedEitSections> for EitFeeder<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<QueryServices>,
+    E: Emit<FlushSchedule>,
+    E: Emit<PrepareSchedule>,
+    E: Emit<UpdateSchedule>,
+{
+    async fn handle(
+        &mut self,
+        _msg: FeedEitSections,
+        _ctx: &mut Context<Self>,
+    ) -> <FeedEitSections as Message>::Reply {
         tracing::debug!(msg.name = "FeedEitSections");
-        let fut = Self::feed_eit_sections(
-            self.config.jobs.update_schedules.command.clone(),
-            self.tuner_manager.clone(),
-            self.epg.clone(),
-        );
-        Box::pin(async move {
-            if let Err(err) = fut.await {
-                tracing::error!("Failed to feed EIT sections: {}", err);
-            }
-        })
+        self.feed_eit_sections().await
     }
 }
 
 // collector
 
-pub struct EitCollector {
+pub struct EitCollector<T, E> {
     command: String,
     channels: Vec<EpgChannel>,
-    tuner_manager: Addr<TunerManager>,
-    epg: Addr<Epg>,
+    tuner_manager: T,
+    epg: E,
 }
 
 // TODO: The following implementation has code clones similar to
 //       ClockSynchronizer and ServiceScanner.
 
-impl EitCollector {
+impl<T, E> EitCollector<T, E>
+where
+    T: Clone,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Emit<FlushSchedule>,
+    E: Emit<PrepareSchedule>,
+    E: Emit<UpdateSchedule>,
+{
     const LABEL: &'static str = "eit-collector";
 
-    pub fn new(
-        command: String,
-        channels: Vec<EpgChannel>,
-        tuner_manager: Addr<TunerManager>,
-        epg: Addr<Epg>,
-    ) -> Self {
+    pub fn new(command: String, channels: Vec<EpgChannel>, tuner_manager: T, epg: E) -> Self {
         EitCollector {
             command,
             channels,
@@ -149,8 +169,8 @@ impl EitCollector {
     async fn collect_eits_in_channel(
         channel: &EpgChannel,
         command: &str,
-        tuner_manager: &Addr<TunerManager>,
-        epg: &Addr<Epg>,
+        tuner_manager: &T,
+        epg: &E,
     ) -> Result<usize, Error> {
         tracing::debug!("Collecting EIT sections in {}...", channel.name);
 
@@ -162,14 +182,13 @@ impl EitCollector {
         };
 
         let stream = tuner_manager
-            .send(StartStreamingMessage {
+            .call(StartStreaming {
                 channel: channel.clone(),
                 user,
             })
             .await??;
 
-        let stop_trigger =
-            TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().recipient());
+        let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().into());
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()
@@ -194,11 +213,12 @@ impl EitCollector {
                 let triple = section.service_triple();
                 if !triples.contains(&triple) {
                     triples.insert(triple);
-                    epg.do_send(PrepareScheduleMessage {
+                    epg.emit(PrepareSchedule {
                         service_triple: triple,
-                    });
+                    })
+                    .await;
                 }
-                epg.do_send(UpdateScheduleMessage { section });
+                epg.emit(UpdateSchedule { section }).await;
                 json.clear();
                 num_sections += 1;
             } else {
@@ -217,9 +237,10 @@ impl EitCollector {
         let _ = handle.await;
 
         for triple in triples.iter() {
-            epg.do_send(FlushScheduleMessage {
+            epg.emit(FlushSchedule {
                 service_triple: triple.clone(),
-            });
+            })
+            .await;
         }
 
         tracing::debug!(

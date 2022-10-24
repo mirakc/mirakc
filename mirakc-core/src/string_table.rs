@@ -2,7 +2,6 @@ use std::fs::File;
 use std::sync::Arc;
 
 use serde::Deserialize;
-use serde_yaml;
 
 pub fn load(path: &str) -> Arc<StringTable> {
     let reader = File::open(path).unwrap_or_else(|err| panic!("Failed to open {}: {}", path, err));

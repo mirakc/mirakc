@@ -7,8 +7,9 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-actix = "0.13.0"
+actlet = { path = "../actlet" }
 anyhow = "1.0.66"
+async-trait = "0.1.57"
 atty = "0.2.14"
 axum = { git = "https://github.com/tokio-rs/axum", tag = "axum-v0.6.0-rc.2", features = ["headers"] }
 bytes = "1.2.1"

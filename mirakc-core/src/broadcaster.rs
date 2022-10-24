@@ -1,15 +1,17 @@
 use std::fmt;
 use std::io;
 use std::pin::Pin;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
-use actix::prelude::*;
+use actlet::*;
+use async_trait::async_trait;
 use bytes::Bytes;
-use humantime;
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
+use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
 
 use crate::tuner::TunerSessionId as BroadcasterId;
@@ -34,18 +36,37 @@ impl Broadcaster {
     // 32 KiB, large enough for 10 ms buffering.
     const CHUNK_SIZE: usize = 4096 * 8;
 
-    pub fn new<R>(id: BroadcasterId, source: R, time_limit: u64, ctx: &mut Context<Self>) -> Self
-    where
-        R: AsyncRead + Unpin + 'static,
-    {
-        let stream = ReaderStream::with_capacity(source, Self::CHUNK_SIZE);
-        let _ = Self::add_stream(stream, ctx);
+    pub fn new(id: BroadcasterId, time_limit: u64) -> Self {
         Self {
             id,
             subscribers: Vec::new(),
             time_limit: Duration::from_millis(time_limit),
             last_received: Instant::now(),
         }
+    }
+
+    fn bind_stream<R>(&self, src: R, ctx: &mut Context<Self>)
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+    {
+        let id = self.id.clone();
+        let addr = ctx.address().clone();
+        ctx.spawn_task(async move {
+            let mut stream = ReaderStream::with_capacity(src, Self::CHUNK_SIZE);
+
+            while let Some(chunk) = stream.next().await {
+                match chunk {
+                    Ok(chunk) => {
+                        addr.emit(Broadcast(chunk)).await;
+                    }
+                    Err(err) => {
+                        tracing::error!("{}: Error, stop: {}", id, err);
+                        addr.emit(Stop).await;
+                        break;
+                    }
+                }
+            }
+        });
     }
 
     fn subscribe(&mut self, id: SubscriberId) -> BroadcasterStream {
@@ -95,46 +116,69 @@ impl Broadcaster {
         let elapsed = self.last_received.elapsed();
         if elapsed > self.time_limit {
             tracing::error!(
-                "{}: No packet from the tuner for {}, stop",
-                self.id,
-                humantime::format_duration(elapsed)
+                "{}: No packet came from the tuner within the time limit, stop",
+                self.id
             );
             ctx.stop();
         }
     }
 }
 
+#[async_trait]
 impl Actor for Broadcaster {
-    type Context = actix::Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.run_interval(self.time_limit, Self::check_timeout);
+    async fn started(&mut self, ctx: &mut Context<Self>) {
+        let addr = ctx.address().clone();
+        let mut interval = tokio::time::interval(self.time_limit);
+        ctx.spawn_task(async move {
+            loop {
+                interval.tick().await;
+                addr.emit(CheckTimeout).await;
+            }
+        });
         tracing::debug!("{}: Started", self.id);
     }
 
-    fn stopped(&mut self, _: &mut Self::Context) {
+    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!("{}: Stopped", self.id);
+    }
+}
+
+// bind stream
+
+#[derive(Message)]
+pub struct BindStream<R: Send>(pub R);
+
+#[async_trait]
+impl<R> Handler<BindStream<R>> for Broadcaster
+where
+    R: AsyncRead + Send + Unpin + 'static,
+{
+    async fn handle(&mut self, msg: BindStream<R>, ctx: &mut Context<Self>) {
+        self.bind_stream(msg.0, ctx);
     }
 }
 
 // subscribe
 
 #[derive(Message)]
-#[rtype(result = "BroadcasterStream")]
-pub struct SubscribeMessage {
+#[reply("BroadcasterStream")]
+pub struct Subscribe {
     pub id: SubscriberId,
 }
 
-impl fmt::Display for SubscribeMessage {
+impl fmt::Display for Subscribe {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Subscribe with {}", self.id)
     }
 }
 
-impl Handler<SubscribeMessage> for Broadcaster {
-    type Result = BroadcasterStream;
-
-    fn handle(&mut self, msg: SubscribeMessage, _: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl Handler<Subscribe> for Broadcaster {
+    async fn handle(
+        &mut self,
+        msg: Subscribe,
+        _ctx: &mut Context<Self>,
+    ) -> <Subscribe as Message>::Reply {
         tracing::debug!("{}", msg);
         self.subscribe(msg.id)
     }
@@ -143,50 +187,53 @@ impl Handler<SubscribeMessage> for Broadcaster {
 // unsubscribe
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct UnsubscribeMessage {
+pub struct Unsubscribe {
     pub id: SubscriberId,
 }
 
-impl fmt::Display for UnsubscribeMessage {
+impl fmt::Display for Unsubscribe {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Unsubscribe with {}", self.id)
     }
 }
 
-impl Handler<UnsubscribeMessage> for Broadcaster {
-    type Result = ();
-
-    fn handle(&mut self, msg: UnsubscribeMessage, _: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl Handler<Unsubscribe> for Broadcaster {
+    async fn handle(&mut self, msg: Unsubscribe, ctx: &mut Context<Self>) {
         tracing::debug!("{}", msg);
-        self.unsubscribe(msg.id)
+        self.unsubscribe(msg.id);
+        if self.subscribers.is_empty() {
+            ctx.stop();
+        }
     }
 }
 
-// stream handler
+// chunk
 
-impl StreamHandler<io::Result<Bytes>> for Broadcaster {
-    fn handle(&mut self, chunk: io::Result<Bytes>, ctx: &mut Context<Self>) {
-        match chunk {
-            Ok(chunk) => {
-                self.broadcast(chunk);
-            }
-            Err(err) => {
-                tracing::error!("{}: Error, stop: {}", self.id, err);
-                ctx.stop();
-            }
-        }
+#[derive(Message)]
+pub struct Broadcast(pub Bytes);
+
+#[async_trait]
+impl Handler<Broadcast> for Broadcaster {
+    async fn handle(&mut self, msg: Broadcast, _ctx: &mut Context<Self>) {
+        tracing::trace!(msg.name = "Broadcast", msg.chunk.bytes = msg.0.len());
+        self.broadcast(msg.0);
     }
+}
 
-    fn finished(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!("{}: EOS reached, stop", self.id);
-        ctx.stop();
+#[derive(Message)]
+struct CheckTimeout;
+
+#[async_trait]
+impl Handler<CheckTimeout> for Broadcaster {
+    async fn handle(&mut self, _msg: CheckTimeout, ctx: &mut Context<Self>) {
+        tracing::trace!(msg.name = "CheckTimeout");
+        self.check_timeout(ctx);
     }
 }
 
 // stream
 
-#[derive(MessageResponse)]
 #[cfg_attr(test, derive(Debug))]
 pub struct BroadcasterStream(ReceiverStream<Bytes>);
 
@@ -218,138 +265,108 @@ impl Stream for BroadcasterStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-    use tokio::io::ReadBuf;
-    use tokio::sync::mpsc;
-    use tokio_stream::wrappers::ReceiverStream;
-    use tokio_stream::StreamExt;
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_broadcast() {
-        let (tx, rx) = mpsc::channel(1);
+        let system = System::new();
+        {
+            let broadcaster = system
+                .spawn_actor(Broadcaster::new(Default::default(), 1000))
+                .await;
 
-        let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(Default::default(), DataSource::new(rx), 1000, ctx)
-        });
+            let mut stream1 = broadcaster
+                .call(Subscribe {
+                    id: SubscriberId::new(Default::default(), 1),
+                })
+                .await
+                .unwrap();
 
-        let mut stream1 = broadcaster
-            .send(SubscribeMessage {
-                id: SubscriberId::new(Default::default(), 1),
-            })
-            .await
-            .unwrap();
+            let mut stream2 = broadcaster
+                .call(Subscribe {
+                    id: SubscriberId::new(Default::default(), 2),
+                })
+                .await
+                .unwrap();
 
-        let mut stream2 = broadcaster
-            .send(SubscribeMessage {
-                id: SubscriberId::new(Default::default(), 2),
-            })
-            .await
-            .unwrap();
+            broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
+            broadcaster.emit(Stop).await;
 
-        let _ = tx.send(Bytes::from("hello")).await;
+            let chunk = stream1.next().await;
+            assert!(chunk.is_some());
 
-        let chunk = stream1.next().await;
-        assert!(chunk.is_some());
-
-        let chunk = stream2.next().await;
-        assert!(chunk.is_some());
+            let chunk = stream2.next().await;
+            assert!(chunk.is_some());
+        }
+        system.stop();
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_unsubscribe() {
-        let (tx, rx) = mpsc::channel(1);
+        let system = System::new();
+        {
+            let broadcaster = system
+                .spawn_actor(Broadcaster::new(Default::default(), 1000))
+                .await;
 
-        let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(Default::default(), DataSource::new(rx), 1000, ctx)
-        });
+            let mut stream1 = broadcaster
+                .call(Subscribe {
+                    id: SubscriberId::new(Default::default(), 1),
+                })
+                .await
+                .unwrap();
 
-        let mut stream1 = broadcaster
-            .send(SubscribeMessage {
-                id: SubscriberId::new(Default::default(), 1),
-            })
-            .await
-            .unwrap();
+            let mut stream2 = broadcaster
+                .call(Subscribe {
+                    id: SubscriberId::new(Default::default(), 2),
+                })
+                .await
+                .unwrap();
 
-        let mut stream2 = broadcaster
-            .send(SubscribeMessage {
-                id: SubscriberId::new(Default::default(), 2),
-            })
-            .await
-            .unwrap();
+            broadcaster
+                .emit(Unsubscribe {
+                    id: SubscriberId::new(Default::default(), 1),
+                })
+                .await;
 
-        broadcaster
-            .send(UnsubscribeMessage {
-                id: SubscriberId::new(Default::default(), 1),
-            })
-            .await
-            .unwrap();
+            broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
+            broadcaster.emit(Stop).await;
 
-        let _ = tx.send(Bytes::from("hello")).await;
+            let chunk = stream1.next().await;
+            assert!(chunk.is_none());
 
-        let chunk = stream1.next().await;
-        assert!(chunk.is_none());
-
-        let chunk = stream2.next().await;
-        assert!(chunk.is_some());
+            let chunk = stream2.next().await;
+            assert!(chunk.is_some());
+        }
+        system.stop();
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_timeout() {
-        let (tx, rx) = mpsc::channel(1);
+        let system = System::new();
+        {
+            let broadcaster = system
+                .spawn_actor(Broadcaster::new(Default::default(), 50))
+                .await;
 
-        let broadcaster = Broadcaster::create(|ctx| {
-            Broadcaster::new(Default::default(), DataSource::new(rx), 50, ctx)
-        });
+            let mut stream1 = broadcaster
+                .call(Subscribe {
+                    id: SubscriberId::new(Default::default(), 1),
+                })
+                .await
+                .unwrap();
 
-        let mut stream1 = broadcaster
-            .send(SubscribeMessage {
-                id: SubscriberId::new(Default::default(), 1),
-            })
-            .await
-            .unwrap();
+            broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
+            broadcaster.emit(Stop).await;
 
-        let _ = tx.send(Bytes::from("hello")).await;
+            let chunk = stream1.next().await;
+            assert!(chunk.is_some());
 
-        let chunk = stream1.next().await;
-        assert!(chunk.is_some());
+            tokio::time::sleep(Duration::from_millis(51)).await;
+            broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
 
-        while broadcaster.connected() {
-            // Yield in order to process messages on the Broadcaster.
-            tokio::task::yield_now().await;
+            let chunk = stream1.next().await;
+            assert!(chunk.is_none());
         }
-
-        let _ = tx.send(Bytes::from("hello")).await;
-
-        let chunk = stream1.next().await;
-        assert!(chunk.is_none());
-    }
-
-    // we can use `futures::stream::repeat(1)` as data source in tests once
-    // actix/actix/pull/363 is release.
-    struct DataSource(ReceiverStream<Bytes>);
-
-    impl DataSource {
-        fn new(rx: mpsc::Receiver<Bytes>) -> Self {
-            DataSource(ReceiverStream::new(rx))
-        }
-    }
-
-    impl AsyncRead for DataSource {
-        fn poll_read(
-            mut self: Pin<&mut Self>,
-            cx: &mut Context,
-            buf: &mut ReadBuf,
-        ) -> Poll<io::Result<()>> {
-            match Pin::new(&mut self.0).poll_next(cx) {
-                Poll::Ready(Some(chunk)) => {
-                    let len = chunk.len().min(buf.remaining());
-                    buf.put_slice(&chunk[..len]);
-                    Poll::Ready(Ok(()))
-                }
-                Poll::Ready(None) => Poll::Ready(Ok(())),
-                Poll::Pending => Poll::Pending,
-            }
-        }
+        system.stop();
     }
 }

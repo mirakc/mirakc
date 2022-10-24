@@ -6,7 +6,6 @@ use assert_matches::assert_matches;
 use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
 use indexmap::indexmap;
-use indexmap::IndexMap;
 use maplit::hashmap;
 
 use crate::broadcaster::BroadcasterStream;
@@ -15,43 +14,43 @@ use crate::config::MountConfig;
 use crate::config::PostFilterConfig;
 use crate::epg::EpgProgram;
 use crate::epg::EpgService;
-use crate::epg::RemoveAirtimeMessage;
+use crate::epg::RemoveAirtime;
 use crate::timeshift::TimeshiftLiveStreamSource;
 use crate::timeshift::TimeshiftRecordStreamSource;
-use crate::tuner::StopStreamingMessage;
+use crate::tuner::StopStreaming;
 use crate::tuner::TunerSubscriptionId;
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_unknown() {
     let res = get("/api/unknown").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_version() {
     let res = get("/api/version").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_status() {
     let res = get("/api/status").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_channels() {
     let res = get("/api/channels").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_services() {
     let res = get("/api/services").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_service() {
     let res = get("/api/services/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -60,7 +59,7 @@ async fn test_get_service() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_service_logo() {
     let res = get("/api/services/1/logo").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -72,7 +71,7 @@ async fn test_get_service_logo() {
     assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_head_service_logo() {
     let res = head("/api/services/1/logo").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -84,13 +83,13 @@ async fn test_head_service_logo() {
     assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_programs() {
     let res = get("/api/programs").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_program() {
     let res = get("/api/programs/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -99,13 +98,13 @@ async fn test_get_program() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_tuners() {
     let res = get("/api/tuners").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_channel_stream() {
     let res = get("/api/channels/GR/ch/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -154,7 +153,7 @@ async fn test_get_channel_stream() {
     });
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_channel_service_stream() {
     let res = get("/api/channels/GR/ch/services/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -212,7 +211,7 @@ async fn test_get_channel_service_stream() {
     });
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_service_stream() {
     let res = get("/api/services/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -257,7 +256,7 @@ async fn test_get_service_stream() {
     });
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_head_service_stream() {
     let res = head("/api/services/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -288,7 +287,7 @@ async fn test_head_service_stream() {
     });
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_program_stream() {
     let res = get("/api/programs/100001/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -333,13 +332,13 @@ async fn test_get_program_stream() {
     });
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_timeshift_recorders() {
     let res = get("/api/timeshift").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_timeshift_recorder() {
     let res = get("/api/timeshift/test").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -348,13 +347,13 @@ async fn test_get_timeshift_recorder() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_timeshift_records() {
     let res = get("/api/timeshift/test/records").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_timeshift_record() {
     let res = get("/api/timeshift/test/records/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -363,7 +362,7 @@ async fn test_get_timeshift_record() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_timeshift_stream() {
     let res = get("/api/timeshift/test/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -376,7 +375,7 @@ async fn test_get_timeshift_stream() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_timeshift_record_stream() {
     let res = get("/api/timeshift/test/records/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -409,12 +408,12 @@ async fn test_get_timeshift_record_stream() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_iptv_playlist() {
     test_get_iptv_playlist_("/api/iptv/playlist").await;
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_iptv_channel_m3u8() {
     test_get_iptv_playlist_("/api/iptv/channel.m3u8").await;
 }
@@ -437,45 +436,45 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
     assert!(playlist.contains("#KODIPROP:mimetype=video/mp4\n"));
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_iptv_epg() {
     let res = get("/api/iptv/epg").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_iptv_xmltv() {
     let res = get("/api/iptv/xmltv").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_get_docs() {
     let res = get("/api/docs").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_access_control_localhost() {
     let addr = "127.0.0.1:10000".parse().unwrap();
     let res = get_with_peer_addr("/api/version", Some(addr)).await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_access_control_uds() {
     let res = get_with_peer_addr("/api/version", None).await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_access_control_denied() {
     let addr = "8.8.8.8:10000".parse().unwrap();
     let res = get_with_peer_addr("/api/version", Some(addr)).await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_do_streaming() {
     let user = user_for_test(0.into());
 
@@ -502,7 +501,7 @@ async fn test_do_streaming() {
     assert_matches!(result, Err(Error::StreamingTimedOut));
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_mount() {
     let res = get("/").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
@@ -517,7 +516,7 @@ async fn test_mount() {
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix::test]
+#[tokio::test]
 async fn test_filter_setting() {
     async fn do_test<H, F>(query: &str, handler: H) -> StatusCode
     where
@@ -728,9 +727,9 @@ fn create_app() -> Router {
     let state = Arc::new(AppState {
         config: config_for_test(),
         string_table: string_table_for_test(),
-        tuner_manager: tuner_manager_for_test(),
-        epg: epg_for_test(),
-        timeshift_manager: timeshift_manager_for_test(),
+        tuner_manager: TunerManagerStub,
+        epg: EpgStub,
+        timeshift_manager: TimeshiftManagerStub,
     });
     build_app(state)
 }
@@ -791,55 +790,132 @@ fn string_table_for_test() -> Arc<StringTable> {
     )
 }
 
-fn tuner_manager_for_test() -> Addr<TunerManager> {
-    TunerManager::mock(Box::new(|msg, _ctx| {
-        if let Some(_) = msg.downcast_ref::<QueryTunersMessage>() {
-            Box::<Option<Result<Vec<MirakurunTuner>, Error>>>::new(Some(Ok(Vec::new())))
-        } else if let Some(msg) = msg.downcast_ref::<StartStreamingMessage>() {
-            if msg.channel.channel == "ch" {
-                let (tx, stream) = BroadcasterStream::new_for_test();
-                let _ = tx.try_send(Bytes::from("hi"));
-                let result = Ok(MpegTsStream::new(TunerSubscriptionId::default(), stream));
-                Box::<Option<Result<_, Error>>>::new(Some(result))
-            } else {
-                let (_, stream) = BroadcasterStream::new_for_test();
-                let result = Ok(MpegTsStream::new(TunerSubscriptionId::default(), stream));
-                Box::<Option<Result<_, Error>>>::new(Some(result))
-            }
-        } else if let Some(_) = msg.downcast_ref::<StopStreamingMessage>() {
-            Box::new(Some(()))
-        } else {
-            unimplemented!();
-        }
-    }))
-    .start()
+#[derive(Clone)]
+struct TunerManagerStub;
+
+#[async_trait]
+impl Call<QueryTuners> for TunerManagerStub {
+    async fn call(
+        &self,
+        _msg: QueryTuners,
+    ) -> Result<<QueryTuners as Message>::Reply, actlet::Error> {
+        Ok(vec![])
+    }
 }
 
-fn epg_for_test() -> Addr<Epg> {
-    Epg::mock(Box::new(|msg, _| {
-        if let Some(_) = msg.downcast_ref::<QueryChannelsMessage>() {
-            Box::<Option<Result<Vec<MirakurunChannel>, Error>>>::new(Some(Ok(Vec::new())))
-        } else if let Some(msg) = msg.downcast_ref::<QueryChannelMessage>() {
-            let result = if msg.channel == "0" {
-                Err(Error::ChannelNotFound)
-            } else {
-                Ok(EpgChannel {
+#[async_trait]
+impl Call<StartStreaming> for TunerManagerStub {
+    async fn call(
+        &self,
+        msg: StartStreaming,
+    ) -> Result<<StartStreaming as Message>::Reply, actlet::Error> {
+        if msg.channel.channel == "ch" {
+            let (tx, stream) = BroadcasterStream::new_for_test();
+            let _ = tx.try_send(Bytes::from("hi"));
+            Ok(Ok(MpegTsStream::new(
+                TunerSubscriptionId::default(),
+                stream,
+            )))
+        } else {
+            let (_, stream) = BroadcasterStream::new_for_test();
+            Ok(Ok(MpegTsStream::new(
+                TunerSubscriptionId::default(),
+                stream,
+            )))
+        }
+    }
+}
+
+#[async_trait]
+impl Emit<StopStreaming> for TunerManagerStub {
+    async fn emit(&self, _msg: StopStreaming) {}
+    fn fire(&self, _msg: StopStreaming) {}
+}
+
+impl Into<Emitter<StopStreaming>> for TunerManagerStub {
+    fn into(self) -> Emitter<StopStreaming> {
+        Emitter::new(self)
+    }
+}
+
+#[derive(Clone)]
+struct EpgStub;
+
+#[async_trait]
+impl Call<QueryChannel> for EpgStub {
+    async fn call(
+        &self,
+        msg: QueryChannel,
+    ) -> Result<<QueryChannel as Message>::Reply, actlet::Error> {
+        if msg.channel == "0" {
+            Ok(Err(Error::ChannelNotFound))
+        } else {
+            Ok(Ok(EpgChannel {
+                name: "test".to_string(),
+                channel_type: msg.channel_type,
+                channel: msg.channel.clone(),
+                extra_args: "".to_string(),
+                services: Vec::new(),
+                excluded_services: Vec::new(),
+            }))
+        }
+    }
+}
+
+#[async_trait]
+impl Call<QueryChannels> for EpgStub {
+    async fn call(
+        &self,
+        _msg: QueryChannels,
+    ) -> Result<<QueryChannels as Message>::Reply, actlet::Error> {
+        Ok(vec![])
+    }
+}
+
+#[async_trait]
+impl Call<QueryServices> for EpgStub {
+    async fn call(
+        &self,
+        _msg: QueryServices,
+    ) -> Result<<QueryServices as Message>::Reply, actlet::Error> {
+        Ok(Arc::new(indexmap! {
+            (0, 0, 1).into() => EpgService {
+                nid: 0.into(),
+                tsid: 0.into(),
+                sid: 1.into(),
+                service_type: 1,
+                logo_id: 0,
+                remote_control_key_id: 0,
+                name: "test".to_string(),
+                channel: EpgChannel {
                     name: "test".to_string(),
-                    channel_type: msg.channel_type,
-                    channel: msg.channel.clone(),
+                    channel_type: ChannelType::GR,
+                    channel: "ch".to_string(),
                     extra_args: "".to_string(),
                     services: Vec::new(),
                     excluded_services: Vec::new(),
-                })
-            };
-            Box::<Option<Result<EpgChannel, Error>>>::new(Some(result))
-        } else if let Some(_) = msg.downcast_ref::<QueryServicesMessage>() {
-            Box::<Option<Arc<IndexMap<ServiceTriple, EpgService>>>>::new(Some(Arc::new(
-                indexmap! {
-                    (0, 0, 1).into() => EpgService {
-                        nid: 0.into(),
+                },
+            },
+        }))
+    }
+}
+
+#[async_trait]
+impl Call<QueryService> for EpgStub {
+    async fn call(
+        &self,
+        msg: QueryService,
+    ) -> Result<<QueryService as Message>::Reply, actlet::Error> {
+        match msg {
+            QueryService::ByNidSid { nid, sid } => {
+                if sid.value() == 0 {
+                    Ok(Err(Error::ServiceNotFound))
+                } else {
+                    let channel = if sid.value() == 1 { "ch" } else { "" };
+                    Ok(Ok(EpgService {
+                        nid,
                         tsid: 0.into(),
-                        sid: 1.into(),
+                        sid,
                         service_type: 1,
                         logo_id: 0,
                         remote_control_key_id: 0,
@@ -847,147 +923,192 @@ fn epg_for_test() -> Addr<Epg> {
                         channel: EpgChannel {
                             name: "test".to_string(),
                             channel_type: ChannelType::GR,
-                            channel: "ch".to_string(),
+                            channel: channel.to_string(),
+                            extra_args: "".to_string(),
+                            services: Vec::new(),
+                            excluded_services: Vec::new(),
+                        },
+                    }))
+                }
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl Call<QueryClock> for EpgStub {
+    async fn call(&self, msg: QueryClock) -> Result<<QueryClock as Message>::Reply, actlet::Error> {
+        match msg.triple.sid().value() {
+            0 => Ok(Err(Error::ClockNotSynced)),
+            _ => Ok(Ok(Clock {
+                pid: 0,
+                pcr: 0,
+                time: 0,
+            })),
+        }
+    }
+}
+
+#[async_trait]
+impl Call<QueryPrograms> for EpgStub {
+    async fn call(
+        &self,
+        _msg: QueryPrograms,
+    ) -> Result<<QueryPrograms as Message>::Reply, actlet::Error> {
+        Ok(Default::default())
+    }
+}
+
+#[async_trait]
+impl Call<QueryProgram> for EpgStub {
+    async fn call(
+        &self,
+        msg: QueryProgram,
+    ) -> Result<<QueryProgram as Message>::Reply, actlet::Error> {
+        match msg {
+            QueryProgram::ByNidSidEid { nid, sid, eid } => {
+                if eid.value() == 0 {
+                    Ok(Err(Error::ProgramNotFound))
+                } else {
+                    Ok(Ok(EpgProgram::new(
+                        (nid.value(), 0, sid.value(), eid.value()).into(),
+                    )))
+                }
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl Call<UpdateAirtime> for EpgStub {
+    async fn call(
+        &self,
+        _msg: UpdateAirtime,
+    ) -> Result<<UpdateAirtime as Message>::Reply, actlet::Error> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Call<RemoveAirtime> for EpgStub {
+    async fn call(
+        &self,
+        _msg: RemoveAirtime,
+    ) -> Result<<RemoveAirtime as Message>::Reply, actlet::Error> {
+        Ok(())
+    }
+}
+
+struct TimeshiftManagerStub;
+
+#[async_trait]
+impl Call<QueryTimeshiftRecorders> for TimeshiftManagerStub {
+    async fn call(
+        &self,
+        _msg: QueryTimeshiftRecorders,
+    ) -> Result<<QueryTimeshiftRecorders as Message>::Reply, actlet::Error> {
+        Ok(Ok(vec![]))
+    }
+}
+
+#[async_trait]
+impl Call<QueryTimeshiftRecorder> for TimeshiftManagerStub {
+    async fn call(
+        &self,
+        msg: QueryTimeshiftRecorder,
+    ) -> Result<<QueryTimeshiftRecorder as Message>::Reply, actlet::Error> {
+        match msg.recorder {
+            TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
+                Ok(Ok(TimeshiftRecorderModel {
+                    index: 0,
+                    name: name.clone(),
+                    service: EpgService {
+                        nid: 1.into(),
+                        tsid: 2.into(),
+                        sid: 3.into(),
+                        service_type: 1,
+                        logo_id: 0,
+                        remote_control_key_id: 0,
+                        name: "test".to_string(),
+                        channel: EpgChannel {
+                            name: "test".to_string(),
+                            channel_type: ChannelType::GR,
+                            channel: "test".to_string(),
                             extra_args: "".to_string(),
                             services: Vec::new(),
                             excluded_services: Vec::new(),
                         },
                     },
-                },
-            )))
-        } else if let Some(msg) = msg.downcast_ref::<QueryServiceMessage>() {
-            let result = match msg {
-                QueryServiceMessage::ByNidSid { nid, sid } => {
-                    if sid.value() == 0 {
-                        Err(Error::ServiceNotFound)
-                    } else {
-                        let channel = if sid.value() == 1 { "ch" } else { "" };
-                        Ok(EpgService {
-                            nid: *nid,
-                            tsid: 0.into(),
-                            sid: *sid,
-                            service_type: 1,
-                            logo_id: 0,
-                            remote_control_key_id: 0,
-                            name: "test".to_string(),
-                            channel: EpgChannel {
-                                name: "test".to_string(),
-                                channel_type: ChannelType::GR,
-                                channel: channel.to_string(),
-                                extra_args: "".to_string(),
-                                services: Vec::new(),
-                                excluded_services: Vec::new(),
-                            },
-                        })
-                    }
-                }
-            };
-            Box::<Option<Result<EpgService, Error>>>::new(Some(result))
-        } else if let Some(msg) = msg.downcast_ref::<QueryClockMessage>() {
-            let result = match msg.triple.sid().value() {
-                0 => Err(Error::ClockNotSynced),
-                _ => Ok(Clock {
-                    pid: 0,
-                    pcr: 0,
-                    time: 0,
-                }),
-            };
-            Box::<Option<Result<Clock, Error>>>::new(Some(result))
-        } else if let Some(_) = msg.downcast_ref::<QueryProgramsMessage>() {
-            Box::<Option<Arc<IndexMap<EventId, EpgProgram>>>>::new(Some(Default::default()))
-        } else if let Some(msg) = msg.downcast_ref::<QueryProgramMessage>() {
-            let result = match msg {
-                QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
-                    if eid.value() == 0 {
-                        Err(Error::ProgramNotFound)
-                    } else {
-                        Ok(EpgProgram::new((*nid, 0.into(), *sid, *eid).into()))
-                    }
-                }
-            };
-            Box::<Option<Result<EpgProgram, Error>>>::new(Some(result))
-        } else if let Some(_) = msg.downcast_ref::<RemoveAirtimeMessage>() {
-            Box::<Option<()>>::new(Some(()))
-        } else {
-            unimplemented!();
-        }
-    }))
-    .start()
-}
-
-fn timeshift_manager_for_test() -> Addr<TimeshiftManager> {
-    TimeshiftManager::mock(Box::new(|msg, _ctx| {
-        if let Some(_) = msg.downcast_ref::<QueryTimeshiftRecordersMessage>() {
-            Box::<Option<Result<Vec<TimeshiftRecorderModel>, Error>>>::new(Some(Ok(Vec::new())))
-        } else if let Some(msg) = msg.downcast_ref::<QueryTimeshiftRecorderMessage>() {
-            let result = match msg.recorder {
-                TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
-                    Ok(TimeshiftRecorderModel {
-                        index: 0,
-                        name: name.clone(),
-                        service: EpgService {
-                            nid: 1.into(),
-                            tsid: 2.into(),
-                            sid: 3.into(),
-                            service_type: 1,
-                            logo_id: 0,
-                            remote_control_key_id: 0,
-                            name: "test".to_string(),
-                            channel: EpgChannel {
-                                name: "test".to_string(),
-                                channel_type: ChannelType::GR,
-                                channel: "test".to_string(),
-                                extra_args: "".to_string(),
-                                services: Vec::new(),
-                                excluded_services: Vec::new(),
-                            },
-                        },
-                        start_time: Jst::now(),
-                        end_time: Jst::now(),
-                        pipeline: vec![],
-                        recording: true,
-                    })
-                }
-                _ => Err(Error::RecordNotFound),
-            };
-            Box::<Option<Result<_, Error>>>::new(Some(result))
-        } else if let Some(_) = msg.downcast_ref::<QueryTimeshiftRecordsMessage>() {
-            Box::<Option<Result<Vec<TimeshiftRecordModel>, Error>>>::new(Some(Ok(Vec::new())))
-        } else if let Some(msg) = msg.downcast_ref::<QueryTimeshiftRecordMessage>() {
-            let result = if msg.record_id == 1u32.into() {
-                Ok(TimeshiftRecordModel {
-                    id: msg.record_id,
-                    program: EpgProgram::new((0, 0, 0, 0).into()),
                     start_time: Jst::now(),
                     end_time: Jst::now(),
-                    size: 0,
+                    pipeline: vec![],
                     recording: true,
-                })
-            } else {
-                Err(Error::RecordNotFound)
-            };
-            Box::<Option<Result<_, Error>>>::new(Some(result))
-        } else if let Some(msg) = msg.downcast_ref::<CreateTimeshiftLiveStreamSourceMessage>() {
-            let result = match msg.recorder {
-                TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
-                    Ok(TimeshiftLiveStreamSource::new_for_test(name))
-                }
-                _ => Err(Error::NoContent),
-            };
-            Box::<Option<Result<_, Error>>>::new(Some(result))
-        } else if let Some(msg) = msg.downcast_ref::<CreateTimeshiftRecordStreamSourceMessage>() {
-            let result = match msg.recorder {
-                TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
-                    Ok(TimeshiftRecordStreamSource::new_for_test(name))
-                }
-                _ => Err(Error::NoContent),
-            };
-            Box::<Option<Result<_, Error>>>::new(Some(result))
-        } else {
-            unimplemented!();
+                }))
+            }
+            _ => Ok(Err(Error::RecordNotFound)),
         }
-    }))
-    .start()
+    }
+}
+
+#[async_trait]
+impl Call<QueryTimeshiftRecords> for TimeshiftManagerStub {
+    async fn call(
+        &self,
+        _msg: QueryTimeshiftRecords,
+    ) -> Result<<QueryTimeshiftRecords as Message>::Reply, actlet::Error> {
+        Ok(Ok(vec![]))
+    }
+}
+
+#[async_trait]
+impl Call<QueryTimeshiftRecord> for TimeshiftManagerStub {
+    async fn call(
+        &self,
+        msg: QueryTimeshiftRecord,
+    ) -> Result<<QueryTimeshiftRecord as Message>::Reply, actlet::Error> {
+        if msg.record_id == 1u32.into() {
+            Ok(Ok(TimeshiftRecordModel {
+                id: msg.record_id,
+                program: EpgProgram::new((0, 0, 0, 0).into()),
+                start_time: Jst::now(),
+                end_time: Jst::now(),
+                size: 0,
+                recording: true,
+            }))
+        } else {
+            Ok(Err(Error::RecordNotFound))
+        }
+    }
+}
+
+#[async_trait]
+impl Call<CreateTimeshiftLiveStreamSource> for TimeshiftManagerStub {
+    async fn call(
+        &self,
+        msg: CreateTimeshiftLiveStreamSource,
+    ) -> Result<<CreateTimeshiftLiveStreamSource as Message>::Reply, actlet::Error> {
+        match msg.recorder {
+            TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
+                Ok(Ok(TimeshiftLiveStreamSource::new_for_test(name)))
+            }
+            _ => Ok(Err(Error::NoContent)),
+        }
+    }
+}
+
+#[async_trait]
+impl Call<CreateTimeshiftRecordStreamSource> for TimeshiftManagerStub {
+    async fn call(
+        &self,
+        msg: CreateTimeshiftRecordStreamSource,
+    ) -> Result<<CreateTimeshiftRecordStreamSource as Message>::Reply, actlet::Error> {
+        match msg.recorder {
+            TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
+                Ok(Ok(TimeshiftRecordStreamSource::new_for_test(name)))
+            }
+            _ => Ok(Err(Error::NoContent)),
+        }
+    }
 }
 
 fn user_for_test(priority: TunerUserPriority) -> TunerUser {

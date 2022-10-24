@@ -1,107 +1,44 @@
 use std::env;
-use std::fmt;
-use std::future::Future;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use actix::prelude::*;
+use actlet::*;
+use async_trait::async_trait;
 use chrono::DateTime;
-use cron;
-use humantime;
-use tokio::sync::Semaphore;
 
 use crate::config::Config;
 use crate::datetime_ext::*;
 use crate::epg::clock_synchronizer::ClockSynchronizer;
-use crate::epg::eit_feeder::EitFeeder;
-use crate::epg::eit_feeder::FeedEitSectionsMessage;
+use crate::epg::eit_feeder::FeedEitSections;
 use crate::epg::service_scanner::ServiceScanner;
 use crate::epg::*;
-use crate::tuner::*;
 
-pub fn start(
+pub struct JobManager<T, E, F> {
     config: Arc<Config>,
-    tuner_manager: Addr<TunerManager>,
-    epg: Addr<Epg>,
-    eit_feeder: Addr<EitFeeder>,
-) -> Addr<JobManager> {
-    JobManager::new(config, tuner_manager, epg, eit_feeder).start()
-}
-
-struct Job {
-    kind: JobKind,
-    semaphore: Arc<Semaphore>,
-}
-
-impl Job {
-    fn new(kind: JobKind, semaphore: Arc<Semaphore>) -> Self {
-        Job { kind, semaphore }
-    }
-
-    async fn perform<T, F>(self, fut: F) -> T
-    where
-        F: Future<Output = T>,
-    {
-        tracing::debug!("{}: acquiring semaphore...", self.kind);
-        let _permit = self.semaphore.acquire().await;
-        tracing::info!("{}: performing...", self.kind);
-        let now = Instant::now();
-        let results = fut.await;
-        let elapsed = now.elapsed();
-        tracing::info!(
-            "{}: Done, {} elapsed",
-            self.kind,
-            humantime::format_duration(elapsed)
-        );
-        results
-    }
-}
-
-enum JobKind {
-    ScanServices,
-    SyncClocks,
-    UpdateSchedules,
-}
-
-impl JobKind {
-    fn create(self, semaphore: Arc<Semaphore>) -> Job {
-        Job::new(self, semaphore)
-    }
-}
-
-impl fmt::Display for JobKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use JobKind::*;
-        match *self {
-            ScanServices => write!(f, "scan-services"),
-            SyncClocks => write!(f, "sync-clocks"),
-            UpdateSchedules => write!(f, "update-schedules"),
-        }
-    }
-}
-
-pub struct JobManager {
-    config: Arc<Config>,
-    semaphore: Arc<Semaphore>, // job concurrency
     scanning_services: bool,
     synchronizing_clocks: bool,
     updating_schedules: bool,
-    tuner_manager: Addr<TunerManager>,
-    epg: Addr<Epg>,
-    eit_feeder: Addr<EitFeeder>,
+    tuner_manager: T,
+    epg: E,
+    eit_feeder: F,
 }
 
-impl JobManager {
-    pub fn new(
-        config: Arc<Config>,
-        tuner_manager: Addr<TunerManager>,
-        epg: Addr<Epg>,
-        eit_feeder: Addr<EitFeeder>,
-    ) -> Self {
+impl<T, E, F> JobManager<T, E, F>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Emit<SaveSchedules>,
+    E: Emit<UpdateClocks>,
+    E: Emit<UpdateServices>,
+    F: Clone + Send + Sync + 'static,
+    F: Call<FeedEitSections>,
+{
+    pub fn new(config: Arc<Config>, tuner_manager: T, epg: E, eit_feeder: F) -> Self {
         JobManager {
             config,
-            semaphore: Arc::new(Semaphore::new(1)),
             scanning_services: false,
             synchronizing_clocks: false,
             updating_schedules: false,
@@ -120,120 +57,115 @@ impl JobManager {
             .unwrap()
     }
 
-    fn scan_services(&mut self, ctx: &mut Context<Self>) {
+    async fn scan_services(&mut self, ctx: &mut Context<Self>) {
         if Self::is_job_disabled_for_debug("scan-services") {
             tracing::debug!("scan-services: disabled for debug");
             return;
         }
-        self.invoke_scan_services(ctx);
+        self.invoke_scan_services(ctx).await;
         self.schedule_scan_services(ctx);
     }
 
-    fn invoke_scan_services(&mut self, ctx: &mut Context<Self>) {
+    async fn invoke_scan_services(&mut self, _ctx: &mut Context<Self>) {
         if self.scanning_services {
             tracing::warn!("scan-services: Already running, skip");
             return;
         }
 
+        tracing::info!("scan-services: performing...");
+        let now = Instant::now();
         self.scanning_services = true;
-
         let scanner = ServiceScanner::new(self.config.clone(), self.tuner_manager.clone());
-
-        let job = JobKind::ScanServices
-            .create(self.semaphore.clone())
-            .perform(async move {
-                scanner.scan_services().await
-            });
-
-        actix::fut::wrap_future::<_, Self>(job)
-            .then(|results, act, _| {
-                act.epg.do_send(UpdateServicesMessage { results });
-                act.scanning_services = false;
-                actix::fut::ready(())
-            })
-            .spawn(ctx);
+        let results = scanner.scan_services().await;
+        self.epg.emit(UpdateServices { results }).await;
+        self.scanning_services = false;
+        let elapsed = now.elapsed();
+        tracing::info!(
+            "scan-services: Done, {} elapsed",
+            humantime::format_duration(elapsed)
+        );
     }
 
     fn schedule_scan_services(&self, ctx: &mut Context<Self>) {
         let datetime = self.calc_next_scheduled_datetime(&self.config.jobs.scan_services.schedule);
         tracing::info!("scan-services: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
-        ctx.run_later(interval, Self::scan_services);
+        let addr = ctx.address().clone();
+        ctx.spawn_task(async move {
+            tokio::time::sleep(interval).await;
+            addr.emit(ScanServices).await;
+        });
     }
 
-    fn sync_clocks(&mut self, ctx: &mut Context<Self>) {
+    async fn sync_clocks(&mut self, ctx: &mut Context<Self>) {
         if Self::is_job_disabled_for_debug("sync-clocks") {
             tracing::debug!("sync-clocks: disabled for debug");
             return;
         }
-        self.invoke_sync_clocks(ctx);
+        self.invoke_sync_clocks(ctx).await;
         self.schedule_sync_clocks(ctx);
     }
 
-    fn invoke_sync_clocks(&mut self, ctx: &mut Context<Self>) {
+    async fn invoke_sync_clocks(&mut self, _ctx: &mut Context<Self>) {
         if self.synchronizing_clocks {
             tracing::warn!("sync-clocks: Already running, skip");
             return;
         }
 
+        tracing::info!("sync-clocks: performing...");
         self.synchronizing_clocks = true;
-
+        let now = Instant::now();
         let sync = ClockSynchronizer::new(self.config.clone(), self.tuner_manager.clone());
-
-        let job = JobKind::SyncClocks
-            .create(self.semaphore.clone())
-            .perform(async move {
-                sync.sync_clocks().await
-            });
-
-        actix::fut::wrap_future::<_, Self>(job)
-            .then(|results, act, _| {
-                act.epg.do_send(UpdateClocksMessage { results });
-                act.synchronizing_clocks = false;
-                actix::fut::ready(())
-            })
-            .spawn(ctx);
+        let results = sync.sync_clocks().await;
+        self.epg.emit(UpdateClocks { results }).await;
+        self.synchronizing_clocks = false;
+        let elapsed = now.elapsed();
+        tracing::info!(
+            "sync-clocks: Done, {} elapsed",
+            humantime::format_duration(elapsed)
+        );
     }
 
     fn schedule_sync_clocks(&self, ctx: &mut Context<Self>) {
         let datetime = self.calc_next_scheduled_datetime(&self.config.jobs.sync_clocks.schedule);
         tracing::info!("sync-clocks: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
-        ctx.run_later(interval, Self::sync_clocks);
+        let addr = ctx.address().clone();
+        ctx.spawn_task(async move {
+            tokio::time::sleep(interval).await;
+            addr.emit(SyncClocks).await;
+        });
     }
 
-    fn update_schedules(&mut self, ctx: &mut Context<Self>) {
+    async fn update_schedules(&mut self, ctx: &mut Context<Self>) {
         if Self::is_job_disabled_for_debug("update-schedules") {
             tracing::debug!("update-schedules: disabled for debug");
             return;
         }
-        self.invoke_update_schedules(ctx);
+        self.invoke_update_schedules(ctx).await;
         self.schedule_update_schedules(ctx);
     }
 
-    fn invoke_update_schedules(&mut self, ctx: &mut Context<Self>) {
+    async fn invoke_update_schedules(&mut self, _ctx: &mut Context<Self>) {
         if self.updating_schedules {
             tracing::warn!("update-schedules: Already running, skip");
             return;
         }
 
+        tracing::info!("update-schedules: performing...");
+        let now = Instant::now();
         self.updating_schedules = true;
-
         let eit_feeder = self.eit_feeder.clone();
-
-        let job = JobKind::UpdateSchedules
-            .create(self.semaphore.clone())
-            .perform(async move {
-                eit_feeder.send(FeedEitSectionsMessage).await
-            });
-
-        actix::fut::wrap_future::<_, Self>(job)
-            .then(|_, act, _| {
-                act.epg.do_send(SaveSchedulesMessage);
-                act.updating_schedules = false;
-                actix::fut::ready(())
-            })
-            .spawn(ctx);
+        match eit_feeder.call(FeedEitSections).await {
+            Ok(_) => self.epg.emit(SaveSchedules).await,
+            Err(err) => tracing::error!("update-schedules: {}", err),
+        }
+        self.updating_schedules = false;
+        let elapsed = now.elapsed();
+        tracing::info!(
+            "update-schedules: Done, {} elapsed",
+            humantime::format_duration(elapsed)
+        );
     }
 
     fn schedule_update_schedules(&mut self, ctx: &mut Context<Self>) {
@@ -241,7 +173,11 @@ impl JobManager {
             self.calc_next_scheduled_datetime(&self.config.jobs.update_schedules.schedule);
         tracing::info!("update-schedules: Scheduled for {}", datetime);
         let interval = (datetime - Jst::now()).to_std().unwrap();
-        ctx.run_later(interval, Self::update_schedules);
+        let addr = ctx.address().clone();
+        ctx.spawn_task(async move {
+            tokio::time::sleep(interval).await;
+            addr.emit(UpdateSchedules).await;
+        });
     }
 
     fn is_job_disabled_for_debug(job: &str) -> bool {
@@ -253,103 +189,184 @@ impl JobManager {
     }
 }
 
-impl Actor for JobManager {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
+#[async_trait]
+impl<T, E, F> Actor for JobManager<T, E, F>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Emit<SaveSchedules>,
+    E: Emit<UpdateClocks>,
+    E: Emit<UpdateServices>,
+    F: Clone + Send + Sync + 'static,
+    F: Call<FeedEitSections>,
+{
+    async fn started(&mut self, ctx: &mut Context<Self>) {
         // It's guaranteed that no response is sent before initial jobs are invoked.
         tracing::debug!("Started");
         if self.config.jobs.scan_services.disabled {
             tracing::warn!("The scan-services job is disabled");
         } else {
-            self.scan_services(ctx);
+            self.scan_services(ctx).await;
         }
         if self.config.jobs.sync_clocks.disabled {
             tracing::warn!("The sync-clocks job is disabled");
         } else {
-            self.sync_clocks(ctx);
+            self.sync_clocks(ctx).await;
         }
         if self.config.jobs.update_schedules.disabled {
             tracing::warn!("The update-schedules job is disabled");
         } else {
-            self.update_schedules(ctx);
+            self.update_schedules(ctx).await;
         }
     }
 
-    fn stopped(&mut self, _: &mut Self::Context) {
+    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!("Stopped");
+    }
+}
+
+// scan services
+
+#[derive(Message)]
+struct ScanServices;
+
+#[async_trait]
+impl<T, E, F> Handler<ScanServices> for JobManager<T, E, F>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Emit<SaveSchedules>,
+    E: Emit<UpdateClocks>,
+    E: Emit<UpdateServices>,
+    F: Clone + Send + Sync + 'static,
+    F: Call<FeedEitSections>,
+{
+    async fn handle(&mut self, _msg: ScanServices, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "ScanServices");
+        self.scan_services(ctx).await;
     }
 }
 
 // invoke scan services
 
-struct InvokeScanServicesMessage;
+#[derive(Message)]
+struct InvokeScanServices;
 
-impl fmt::Display for InvokeScanServicesMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "InvokeScanServices")
+#[async_trait]
+impl<T, E, F> Handler<InvokeScanServices> for JobManager<T, E, F>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Emit<SaveSchedules>,
+    E: Emit<UpdateClocks> + 'static,
+    E: Emit<UpdateServices>,
+    F: Clone + Send + Sync + 'static,
+    F: Call<FeedEitSections>,
+{
+    async fn handle(&mut self, _msg: InvokeScanServices, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "InvokeScanServices");
+        self.invoke_scan_services(ctx).await;
     }
 }
 
-impl Message for InvokeScanServicesMessage {
-    type Result = ();
-}
+// sync clocks
 
-impl Handler<InvokeScanServicesMessage> for JobManager {
-    type Result = ();
+#[derive(Message)]
+struct SyncClocks;
 
-    fn handle(&mut self, msg: InvokeScanServicesMessage, ctx: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
-        self.invoke_scan_services(ctx);
+#[async_trait]
+impl<T, E, F> Handler<SyncClocks> for JobManager<T, E, F>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Emit<SaveSchedules>,
+    E: Emit<UpdateClocks>,
+    E: Emit<UpdateServices>,
+    F: Clone + Send + Sync + 'static,
+    F: Call<FeedEitSections>,
+{
+    async fn handle(&mut self, _msg: SyncClocks, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "SyncClocks");
+        self.sync_clocks(ctx).await;
     }
 }
 
 // invoke sync clocks
 
-struct InvokeSyncClocksMessage;
+#[derive(Message)]
+struct InvokeSyncClocks;
 
-impl fmt::Display for InvokeSyncClocksMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "InvokeSyncClocks")
+#[async_trait]
+impl<T, E, F> Handler<InvokeSyncClocks> for JobManager<T, E, F>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Emit<SaveSchedules>,
+    E: Emit<UpdateClocks>,
+    E: Emit<UpdateServices>,
+    F: Clone + Send + Sync + 'static,
+    F: Call<FeedEitSections>,
+{
+    async fn handle(&mut self, _msg: InvokeSyncClocks, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "InvokeSyncClocks");
+        self.invoke_sync_clocks(ctx).await;
     }
 }
 
-impl Message for InvokeSyncClocksMessage {
-    type Result = ();
-}
+// update schedules
 
-impl Handler<InvokeSyncClocksMessage> for JobManager {
-    type Result = ();
+#[derive(Message)]
+struct UpdateSchedules;
 
-    fn handle(&mut self, msg: InvokeSyncClocksMessage, ctx: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
-        self.invoke_sync_clocks(ctx);
+#[async_trait]
+impl<T, E, F> Handler<UpdateSchedules> for JobManager<T, E, F>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Emit<SaveSchedules>,
+    E: Emit<UpdateClocks>,
+    E: Emit<UpdateServices>,
+    F: Clone + Send + Sync + 'static,
+    F: Call<FeedEitSections>,
+{
+    async fn handle(&mut self, _msg: UpdateSchedules, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "UpdateSchedules");
+        self.update_schedules(ctx).await;
     }
 }
 
 // invoke update schedules
 
-struct InvokeUpdateSchedulesMessage;
+#[derive(Message)]
+struct InvokeUpdateSchedules;
 
-impl fmt::Display for InvokeUpdateSchedulesMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "InvokeUpdateSchedules")
-    }
-}
-
-impl Message for InvokeUpdateSchedulesMessage {
-    type Result = ();
-}
-
-impl Handler<InvokeUpdateSchedulesMessage> for JobManager {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: InvokeUpdateSchedulesMessage,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        tracing::debug!("{}", msg);
-        self.invoke_update_schedules(ctx);
+#[async_trait]
+impl<T, E, F> Handler<InvokeUpdateSchedules> for JobManager<T, E, F>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Emit<SaveSchedules>,
+    E: Emit<UpdateClocks>,
+    E: Emit<UpdateServices>,
+    F: Clone + Send + Sync + 'static,
+    F: Call<FeedEitSections>,
+{
+    async fn handle(&mut self, _msg: InvokeUpdateSchedules, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "InvokeUpdateSchedules");
+        self.invoke_update_schedules(ctx).await;
     }
 }

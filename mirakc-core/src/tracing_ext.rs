@@ -1,8 +1,5 @@
 use std::fmt;
 
-use atty;
-use chrono;
-use tracing_subscriber;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;

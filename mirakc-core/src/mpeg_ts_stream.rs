@@ -3,8 +3,10 @@ use std::io;
 use std::pin::Pin;
 
 use bytes::Bytes;
-use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tokio_stream::{Stream, StreamExt};
+use tokio::io::AsyncWrite;
+use tokio::io::AsyncWriteExt;
+use tokio_stream::Stream;
+use tokio_stream::StreamExt;
 
 use crate::error::Error;
 

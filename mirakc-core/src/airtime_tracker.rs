@@ -1,8 +1,10 @@
-use actix::prelude::*;
-use chrono::{DateTime, Duration};
+use actlet::*;
+use chrono::DateTime;
+use chrono::Duration;
 use serde::Deserialize;
-use serde_json;
-use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
+use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncRead;
+use tokio::io::BufReader;
 
 use crate::command_util;
 use crate::datetime_ext::*;
@@ -16,20 +18,16 @@ pub async fn track_airtime<T, E>(
     channel: &EpgChannel,
     program: &EpgProgram,
     stream_id: TunerSubscriptionId,
-    tuner_manager: Addr<T>,
-    epg: Addr<E>,
+    tuner_manager: T,
+    epg: E,
 ) -> Result<TunerStreamStopTrigger, Error>
 where
-    T: Actor,
-    T: Handler<StartStreamingMessage>,
-    T::Context: actix::dev::ToEnvelope<T, StartStreamingMessage>,
-    T: Handler<StopStreamingMessage>,
-    T::Context: actix::dev::ToEnvelope<T, StopStreamingMessage>,
-    E: Actor,
-    E: Handler<UpdateAirtimeMessage>,
-    E::Context: actix::dev::ToEnvelope<E, UpdateAirtimeMessage>,
-    E: Handler<RemoveAirtimeMessage>,
-    E::Context: actix::dev::ToEnvelope<E, RemoveAirtimeMessage>,
+    T: Clone,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<RemoveAirtime>,
+    E: Call<UpdateAirtime>,
 {
     let user = TunerUser {
         info: TunerUserInfo::Tracker { stream_id },
@@ -37,7 +35,7 @@ where
     };
 
     let stream = tuner_manager
-        .send(StartStreamingMessage {
+        .call(StartStreaming {
             channel: channel.clone(),
             user,
         })
@@ -54,7 +52,7 @@ where
 
     let (input, output) = pipeline.take_endpoints().unwrap();
 
-    let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().recipient());
+    let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().into());
 
     tokio::spawn(async {
         let _ = stream.pipe(input).await;
@@ -70,14 +68,11 @@ where
     Ok(stop_trigger)
 }
 
-async fn update_airtime<R, E>(quad: EventQuad, output: R, epg: Addr<E>) -> Result<(), Error>
+async fn update_airtime<R, E>(quad: EventQuad, output: R, epg: E) -> Result<(), Error>
 where
     R: AsyncRead + Unpin,
-    E: Actor,
-    E: Handler<UpdateAirtimeMessage>,
-    E::Context: actix::dev::ToEnvelope<E, UpdateAirtimeMessage>,
-    E: Handler<RemoveAirtimeMessage>,
-    E::Context: actix::dev::ToEnvelope<E, RemoveAirtimeMessage>,
+    E: Call<RemoveAirtime>,
+    E: Call<UpdateAirtime>,
 {
     tracing::info!("Tracking airtime of {}...", quad);
 
@@ -97,14 +92,14 @@ where
                 continue;
             }
         };
-        epg.send(UpdateAirtimeMessage {
+        epg.call(UpdateAirtime {
             quad,
             airtime: airtime.into(),
         })
         .await?;
         json.clear();
     }
-    epg.send(RemoveAirtimeMessage { quad }).await?;
+    epg.call(RemoveAirtime { quad }).await?;
 
     tracing::info!("Stopped tracking airtime of {}", quad);
 

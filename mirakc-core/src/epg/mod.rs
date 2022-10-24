@@ -12,7 +12,8 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use actix::prelude::*;
+use actlet::*;
+use async_trait::async_trait;
 use chrono::Date;
 use chrono::DateTime;
 use chrono::Duration;
@@ -26,7 +27,10 @@ use crate::config::Config;
 use crate::datetime_ext::*;
 use crate::error::Error;
 use crate::models::*;
-use crate::tuner::TunerManager;
+use crate::tuner::*;
+
+use eit_feeder::EitFeeder;
+use job::JobManager;
 
 pub use models::AudioComponentDescriptor;
 pub use models::ComponentDescriptor;
@@ -36,27 +40,10 @@ pub use models::EitSection;
 pub use models::EventGroupDescriptor;
 pub use models::SeriesDescriptor;
 
-pub fn start(
+pub struct Epg<T> {
     config: Arc<Config>,
-    tuner_manager: Addr<TunerManager>,
-    service_recipients: Vec<Recipient<NotifyServicesUpdatedMessage>>,
-) -> Addr<Epg> {
-    // Start on a new Arbiter instead of the system Arbiter.
-    //
-    // Epg performs several blocking processes like below:
-    //
-    //   * Serialization and deserialization using serde
-    //   * Conversions into Mirakurun-compatible models
-    //
-    Epg::start_in_arbiter(&Arbiter::new().handle(), move |_| {
-        Epg::new(config, tuner_manager, service_recipients)
-    })
-}
-
-pub struct Epg {
-    config: Arc<Config>,
-    tuner_manager: Addr<TunerManager>,
-    service_recipients: Vec<Recipient<NotifyServicesUpdatedMessage>>,
+    tuner_manager: T,
+    service_recipients: Vec<Emitter<NotifyServicesUpdated>>,
     services: Arc<IndexMap<ServiceTriple, EpgService>>, // keeps insertion order
     clocks: HashMap<ServiceTriple, Clock>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
@@ -68,11 +55,11 @@ pub struct Airtime {
     pub duration: Duration,
 }
 
-impl Epg {
-    fn new(
+impl<T> Epg<T> {
+    pub fn new(
         config: Arc<Config>,
-        tuner_manager: Addr<TunerManager>,
-        service_recipients: Vec<Recipient<NotifyServicesUpdatedMessage>>,
+        tuner_manager: T,
+        service_recipients: Vec<Emitter<NotifyServicesUpdated>>,
     ) -> Self {
         Epg {
             config,
@@ -85,7 +72,7 @@ impl Epg {
         }
     }
 
-    fn update_services(
+    async fn update_services(
         &mut self,
         results: Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)>,
     ) {
@@ -109,9 +96,11 @@ impl Epg {
         }
 
         for recipient in self.service_recipients.iter() {
-            recipient.do_send(NotifyServicesUpdatedMessage {
-                services: services.clone(),
-            });
+            recipient
+                .emit(NotifyServicesUpdated {
+                    services: services.clone(),
+                })
+                .await;
         }
 
         self.services = Arc::new(services);
@@ -354,10 +343,14 @@ impl Epg {
     }
 }
 
-impl Actor for Epg {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
+#[async_trait]
+impl<T> Actor for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn started(&mut self, ctx: &mut Context<Self>) {
         // It's guaranteed that no response is sent before cached EPG data is loaded.
         tracing::debug!("Started");
         if let Err(err) = self.load_services() {
@@ -371,21 +364,25 @@ impl Actor for Epg {
         }
         self.collect_programs();
 
-        let eit = eit_feeder::start(
-            self.config.clone(),
-            self.tuner_manager.clone(),
-            ctx.address().clone(),
-        );
+        let eit_feeder = ctx
+            .spawn_actor(EitFeeder::new(
+                self.config.clone(),
+                self.tuner_manager.clone(),
+                ctx.address().clone(),
+            ))
+            .await;
 
-        let _job_manager = job::start(
-            self.config.clone(),
-            self.tuner_manager.clone(),
-            ctx.address().clone(),
-            eit.clone(),
-        );
+        let _ = ctx
+            .spawn_actor(JobManager::new(
+                self.config.clone(),
+                self.tuner_manager.clone(),
+                ctx.address().clone(),
+                eit_feeder,
+            ))
+            .await;
     }
 
-    fn stopped(&mut self, _: &mut Self::Context) {
+    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!("Stopped");
     }
 }
@@ -393,22 +390,23 @@ impl Actor for Epg {
 // query channels
 
 #[derive(Message)]
-#[rtype(result = "Result<Vec<MirakurunChannel>, Error>")]
-pub struct QueryChannelsMessage;
+#[reply("Vec<MirakurunChannel>")]
+pub struct QueryChannels;
 
-impl fmt::Display for QueryChannelsMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryChannels")
-    }
-}
-
-impl Handler<QueryChannelsMessage> for Epg {
-    type Result = Result<Vec<MirakurunChannel>, Error>;
-
-    fn handle(&mut self, msg: QueryChannelsMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
-        let channels = self
-            .config
+#[async_trait]
+impl<T> Handler<QueryChannels> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        _msg: QueryChannels,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryChannels as Message>::Reply {
+        tracing::debug!(msg.name = "QueryChannels");
+        self.config
             .channels
             .iter()
             .map(|config| MirakurunChannel {
@@ -426,32 +424,35 @@ impl Handler<QueryChannelsMessage> for Epg {
                     .map(|sv| sv.into())
                     .collect(),
             })
-            .collect::<Vec<MirakurunChannel>>();
-
-        Ok(channels)
+            .collect()
     }
 }
 
 // query channel
 
 #[derive(Message)]
-#[rtype(result = "Result<EpgChannel, Error>")]
-pub struct QueryChannelMessage {
+#[reply("Result<EpgChannel, Error>")]
+pub struct QueryChannel {
     pub channel_type: ChannelType,
     pub channel: String,
 }
 
-impl fmt::Display for QueryChannelMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryChannel by {}/{}", self.channel_type, self.channel)
-    }
-}
-
-impl Handler<QueryChannelMessage> for Epg {
-    type Result = Result<EpgChannel, Error>;
-
-    fn handle(&mut self, msg: QueryChannelMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
+#[async_trait]
+impl<T> Handler<QueryChannel> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        msg: QueryChannel,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryChannel as Message>::Reply {
+        tracing::debug!(
+            msg.name = "QueryChannel",
+            msg.channel = format!("{}/{}", msg.channel_type, msg.channel),
+        );
         self.config
             .channels
             .iter()
@@ -465,13 +466,21 @@ impl Handler<QueryChannelMessage> for Epg {
 // query services
 
 #[derive(Message)]
-#[rtype(result = "Arc<IndexMap<ServiceTriple, EpgService>>")]
-pub struct QueryServicesMessage;
+#[reply("Arc<IndexMap<ServiceTriple, EpgService>>")]
+pub struct QueryServices;
 
-impl Handler<QueryServicesMessage> for Epg {
-    type Result = Arc<IndexMap<ServiceTriple, EpgService>>;
-
-    fn handle(&mut self, _msg: QueryServicesMessage, _: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl<T> Handler<QueryServices> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        _msg: QueryServices,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryServices as Message>::Reply {
         tracing::debug!(msg.name = "QueryServices");
         self.services.clone()
     }
@@ -480,29 +489,27 @@ impl Handler<QueryServicesMessage> for Epg {
 // query service
 
 #[derive(Message)]
-#[rtype(result = "Result<EpgService, Error>")]
-pub enum QueryServiceMessage {
+#[reply("Result<EpgService, Error>")]
+pub enum QueryService {
     // For Mirakurun-compatible Web API
     ByNidSid { nid: NetworkId, sid: ServiceId },
 }
 
-impl fmt::Display for QueryServiceMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            QueryServiceMessage::ByNidSid { nid, sid } => {
-                write!(f, "QueryService By ({}, {})", nid, sid)
-            }
-        }
-    }
-}
-
-impl Handler<QueryServiceMessage> for Epg {
-    type Result = Result<EpgService, Error>;
-
-    fn handle(&mut self, msg: QueryServiceMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
+#[async_trait]
+impl<T> Handler<QueryService> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        msg: QueryService,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryService as Message>::Reply {
+        tracing::debug!(msg.name = "QueryService");
         match msg {
-            QueryServiceMessage::ByNidSid { nid, sid } => self
+            QueryService::ByNidSid { nid, sid } => self
                 .services
                 .values()
                 .find(|sv| sv.nid == nid && sv.sid == sid)
@@ -515,22 +522,24 @@ impl Handler<QueryServiceMessage> for Epg {
 // query clock
 
 #[derive(Message)]
-#[rtype(result = "Result<Clock, Error>")]
-pub struct QueryClockMessage {
+#[reply("Result<Clock, Error>")]
+pub struct QueryClock {
     pub triple: ServiceTriple,
 }
 
-impl fmt::Display for QueryClockMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryClock by {}", self.triple)
-    }
-}
-
-impl Handler<QueryClockMessage> for Epg {
-    type Result = Result<Clock, Error>;
-
-    fn handle(&mut self, msg: QueryClockMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
+#[async_trait]
+impl<T> Handler<QueryClock> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        msg: QueryClock,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryClock as Message>::Reply {
+        tracing::debug!(msg.name = "QueryClock", %msg.triple);
         self.clocks
             .get(&msg.triple)
             .cloned()
@@ -541,16 +550,24 @@ impl Handler<QueryClockMessage> for Epg {
 // query programs
 
 #[derive(Message)]
-#[rtype(result = "Arc<IndexMap<EventId, EpgProgram>>")]
-pub struct QueryProgramsMessage {
+#[reply("Arc<IndexMap<EventId, EpgProgram>>")]
+pub struct QueryPrograms {
     pub service_triple: ServiceTriple,
 }
 
-impl Handler<QueryProgramsMessage> for Epg {
-    type Result = Arc<IndexMap<EventId, EpgProgram>>;
-
-    fn handle(&mut self, msg: QueryProgramsMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!(msg.name = "QueryPrograms", msg.service_triple = %msg.service_triple);
+#[async_trait]
+impl<T> Handler<QueryPrograms> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        msg: QueryPrograms,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryPrograms as Message>::Reply {
+        tracing::debug!(msg.name = "QueryPrograms", %msg.service_triple);
         self.schedules
             .get(&msg.service_triple)
             .map(|sched| sched.programs.clone())
@@ -561,8 +578,8 @@ impl Handler<QueryProgramsMessage> for Epg {
 // query program
 
 #[derive(Message)]
-#[rtype(result = "Result<EpgProgram, Error>")]
-pub enum QueryProgramMessage {
+#[reply("Result<EpgProgram, Error>")]
+pub enum QueryProgram {
     // For Mirakurun-compatible Web API
     ByNidSidEid {
         nid: NetworkId,
@@ -571,23 +588,31 @@ pub enum QueryProgramMessage {
     },
 }
 
-impl fmt::Display for QueryProgramMessage {
+impl fmt::Display for QueryProgram {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
+            QueryProgram::ByNidSidEid { nid, sid, eid } => {
                 write!(f, "QueryProgram By ({}, {}, {})", nid, sid, eid)
             }
         }
     }
 }
 
-impl Handler<QueryProgramMessage> for Epg {
-    type Result = Result<EpgProgram, Error>;
-
-    fn handle(&mut self, msg: QueryProgramMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
+#[async_trait]
+impl<T> Handler<QueryProgram> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        msg: QueryProgram,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryProgram as Message>::Reply {
+        tracing::debug!(msg.name = "QueryProgram");
         match msg {
-            QueryProgramMessage::ByNidSidEid { nid, sid, eid } => {
+            QueryProgram::ByNidSidEid { nid, sid, eid } => {
                 let triple = self
                     .services
                     .values()
@@ -615,45 +640,39 @@ impl Handler<QueryProgramMessage> for Epg {
 // update services
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct UpdateServicesMessage {
+pub struct UpdateServices {
     pub results: Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)>,
 }
 
-impl fmt::Display for UpdateServicesMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "UpdateServices")
-    }
-}
-
-impl Handler<UpdateServicesMessage> for Epg {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateServicesMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
-        self.update_services(msg.results);
+#[async_trait]
+impl<T> Handler<UpdateServices> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(&mut self, msg: UpdateServices, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "UpdateServices");
+        self.update_services(msg.results).await;
     }
 }
 
 // update clocks
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct UpdateClocksMessage {
+pub struct UpdateClocks {
     pub results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>,
 }
 
-impl fmt::Display for UpdateClocksMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "UpdateClocks")
-    }
-}
-
-impl Handler<UpdateClocksMessage> for Epg {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateClocksMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
+#[async_trait]
+impl<T> Handler<UpdateClocks> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(&mut self, msg: UpdateClocks, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "UpdateClocks");
         self.update_clocks(msg.results);
     }
 }
@@ -661,15 +680,18 @@ impl Handler<UpdateClocksMessage> for Epg {
 // prepare schedule
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct PrepareScheduleMessage {
+pub struct PrepareSchedule {
     pub service_triple: ServiceTriple,
 }
 
-impl Handler<PrepareScheduleMessage> for Epg {
-    type Result = ();
-
-    fn handle(&mut self, msg: PrepareScheduleMessage, _: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl<T> Handler<PrepareSchedule> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(&mut self, msg: PrepareSchedule, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "PrepareSchedule", %msg.service_triple);
         self.prepare_schedule(msg.service_triple, Jst::today());
     }
@@ -678,15 +700,18 @@ impl Handler<PrepareScheduleMessage> for Epg {
 // update schedule
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct UpdateScheduleMessage {
+pub struct UpdateSchedule {
     pub section: EitSection,
 }
 
-impl Handler<UpdateScheduleMessage> for Epg {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateScheduleMessage, _: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl<T> Handler<UpdateSchedule> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(&mut self, msg: UpdateSchedule, _ctx: &mut Context<Self>) {
         tracing::debug!(
             msg.name = "UpdateSchedule",
             msg.service_triple = %msg.section.service_triple(),
@@ -703,15 +728,18 @@ impl Handler<UpdateScheduleMessage> for Epg {
 // flush schedule
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct FlushScheduleMessage {
+pub struct FlushSchedule {
     pub service_triple: ServiceTriple,
 }
 
-impl Handler<FlushScheduleMessage> for Epg {
-    type Result = ();
-
-    fn handle(&mut self, msg: FlushScheduleMessage, _: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl<T> Handler<FlushSchedule> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(&mut self, msg: FlushSchedule, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "FlushSchedule", %msg.service_triple);
         self.flush_schedule(msg.service_triple);
     }
@@ -720,20 +748,17 @@ impl Handler<FlushScheduleMessage> for Epg {
 // save schedules
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct SaveSchedulesMessage;
+pub struct SaveSchedules;
 
-impl fmt::Display for SaveSchedulesMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SaveSchedules")
-    }
-}
-
-impl Handler<SaveSchedulesMessage> for Epg {
-    type Result = ();
-
-    fn handle(&mut self, msg: SaveSchedulesMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
+#[async_trait]
+impl<T> Handler<SaveSchedules> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(&mut self, _msg: SaveSchedules, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "SaveSchedules");
         match self.save_schedules() {
             Ok(_) => (),
             Err(err) => tracing::error!("Failed to save schedules: {}", err),
@@ -744,23 +769,30 @@ impl Handler<SaveSchedulesMessage> for Epg {
 // update airtime
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct UpdateAirtimeMessage {
+#[reply("()")]
+pub struct UpdateAirtime {
     pub quad: EventQuad,
     pub airtime: Airtime,
 }
 
-impl fmt::Display for UpdateAirtimeMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "UpdateAirtime of {}", self.quad)
-    }
-}
-
-impl Handler<UpdateAirtimeMessage> for Epg {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateAirtimeMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
+#[async_trait]
+impl<T> Handler<UpdateAirtime> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        msg: UpdateAirtime,
+        _ctx: &mut Context<Self>,
+    ) -> <UpdateAirtime as Message>::Reply {
+        tracing::debug!(
+            msg.name = "UpdateAirtime",
+            %msg.quad,
+            %msg.airtime.start_time,
+            %msg.airtime.duration,
+        );
         self.airtimes.insert(msg.quad, msg.airtime);
     }
 }
@@ -768,22 +800,24 @@ impl Handler<UpdateAirtimeMessage> for Epg {
 // remove airtime
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct RemoveAirtimeMessage {
+#[reply("()")]
+pub struct RemoveAirtime {
     pub quad: EventQuad,
 }
 
-impl fmt::Display for RemoveAirtimeMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RemoveAirtime of {}", self.quad)
-    }
-}
-
-impl Handler<RemoveAirtimeMessage> for Epg {
-    type Result = ();
-
-    fn handle(&mut self, msg: RemoveAirtimeMessage, _: &mut Self::Context) -> Self::Result {
-        tracing::debug!("{}", msg);
+#[async_trait]
+impl<T> Handler<RemoveAirtime> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        msg: RemoveAirtime,
+        _ctx: &mut Context<Self>,
+    ) -> <RemoveAirtime as Message>::Reply {
+        tracing::debug!(msg.name = "RemoveAirtime", %msg.quad);
         self.airtimes.remove(&msg.quad);
     }
 }
@@ -791,15 +825,8 @@ impl Handler<RemoveAirtimeMessage> for Epg {
 // notify services updated
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct NotifyServicesUpdatedMessage {
+pub struct NotifyServicesUpdated {
     pub services: IndexMap<ServiceTriple, EpgService>,
-}
-
-impl fmt::Display for NotifyServicesUpdatedMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "NotifyServicesUpdated")
-    }
 }
 
 // EpgSchedule holds sections of H-EIT[schedule basic] and H-EIT[schedule extended]
@@ -1171,8 +1198,8 @@ mod tests {
     use assert_matches::assert_matches;
     use chrono::Datelike;
 
-    #[test]
-    fn test_update_services() {
+    #[tokio::test]
+    async fn test_update_services() {
         fn create_service(name: &str, triple: ServiceTriple, channel: EpgChannel) -> EpgService {
             EpgService {
                 nid: triple.nid(),
@@ -1186,7 +1213,7 @@ mod tests {
             }
         }
 
-        let mut epg = Epg::new(Arc::new(Default::default()), vec![]);
+        let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub, vec![]);
 
         let ch1 = EpgChannel {
             name: "ch1".to_string(),
@@ -1234,7 +1261,7 @@ mod tests {
             ),
         ];
 
-        epg.update_services(results);
+        epg.update_services(results).await;
         {
             let iter = epg.services.values().map(|sv| &sv.name);
             assert!(iter.eq(["sv1", "sv2", "sv3", "sv4"].iter()));
@@ -1263,7 +1290,7 @@ mod tests {
             ),
         ];
 
-        epg.update_services(results);
+        epg.update_services(results).await;
         {
             let iter = epg.services.values().map(|sv| &sv.name);
             assert!(iter.eq(["sv1", "sv2", "sv3", "sv4"].iter()));
@@ -1284,7 +1311,7 @@ mod tests {
             ),
         ];
 
-        epg.update_services(results);
+        epg.update_services(results).await;
         {
             let iter = epg.services.values().map(|sv| &sv.name);
             assert!(iter.eq(["sv1", "sv2", "sv3", "sv4"].iter()));
@@ -1303,16 +1330,16 @@ mod tests {
             (ch2.clone(), None),
         ];
 
-        epg.update_services(results);
+        epg.update_services(results).await;
         {
             let iter = epg.services.values().map(|sv| &sv.name);
             assert!(iter.eq(["sv1.new", "sv3", "sv4"].iter()));
         }
     }
 
-    #[test]
-    fn test_update_services_purge_garbage_schedules() {
-        let mut epg = Epg::new(Arc::new(Default::default()), vec![]);
+    #[tokio::test]
+    async fn test_update_services_purge_garbage_schedules() {
+        let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub, vec![]);
         let triple = ServiceTriple::from((1, 2, 3));
         epg.schedules.insert(triple, EpgSchedule::new(triple));
         assert!(!epg.schedules.is_empty());
@@ -1324,7 +1351,8 @@ mod tests {
             Some(indexmap::indexmap! {
                 triple => sv,
             }),
-        )]);
+        )])
+        .await;
         assert!(epg.schedules.is_empty());
     }
 
@@ -1472,4 +1500,7 @@ mod tests {
             }],
         }
     }
+
+    #[derive(Clone)]
+    struct TunerManagerStub;
 }

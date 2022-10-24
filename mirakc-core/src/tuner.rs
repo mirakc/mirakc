@@ -1,22 +1,22 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use actix::prelude::*;
-use mustache;
+use actlet::*;
+use async_trait::async_trait;
 
 use crate::broadcaster::*;
-use crate::command_util::{spawn_pipeline, CommandPipeline};
-use crate::config::{Config, FilterConfig, TunerConfig};
+use crate::command_util::spawn_pipeline;
+use crate::command_util::CommandPipeline;
+use crate::config::Config;
+use crate::config::FilterConfig;
+use crate::config::TunerConfig;
 use crate::epg::EpgChannel;
 use crate::error::Error;
 use crate::models::*;
 use crate::mpeg_ts_stream::MpegTsStream;
-
-pub fn start(config: Arc<Config>) -> Addr<TunerManager> {
-    TunerManager::new(config).start()
-}
 
 // identifiers
 
@@ -77,12 +77,12 @@ pub struct TunerManager {
 
 struct TunerSubscription {
     id: TunerSubscriptionId,
-    broadcaster: Addr<Broadcaster>,
+    broadcaster: Address<Broadcaster>,
     decoded: bool,
 }
 
 impl TunerSubscription {
-    fn new(id: TunerSubscriptionId, broadcaster: Addr<Broadcaster>) -> Self {
+    fn new(id: TunerSubscriptionId, broadcaster: Address<Broadcaster>) -> Self {
         Self {
             id,
             broadcaster,
@@ -113,11 +113,15 @@ impl TunerManager {
         self.tuners = tuners;
     }
 
-    fn activate_tuner(
+    async fn activate_tuner<C>(
         &mut self,
         channel: EpgChannel,
         user: TunerUser,
-    ) -> Result<TunerSubscription, Error> {
+        ctx: &C,
+    ) -> Result<TunerSubscription, Error>
+    where
+        C: Spawn,
+    {
         if let TunerUserInfo::Tracker { stream_id } = user.info {
             let tuner = &mut self.tuners[stream_id.session_id.tuner_index];
             if tuner.is_active() {
@@ -150,7 +154,7 @@ impl TunerManager {
             tracing::info!("tuner#{}: Activate for {}", tuner.index, channel);
             let filters =
                 Self::make_filter_commands(&tuner, &channel, &config.filters.tuner_filter)?;
-            tuner.activate(channel, filters)?;
+            tuner.activate(channel, filters, ctx).await?;
             return Ok(tuner.subscribe(user));
         }
 
@@ -170,7 +174,7 @@ impl TunerManager {
             let filters =
                 Self::make_filter_commands(&tuner, &channel, &config.filters.tuner_filter)?;
             tuner.deactivate();
-            tuner.activate(channel, filters)?;
+            tuner.activate(channel, filters, ctx).await?;
             return Ok(tuner.subscribe(user));
         }
 
@@ -183,9 +187,11 @@ impl TunerManager {
         self.tuners[id.session_id.tuner_index].deactivate();
     }
 
-    fn stop_streaming(&mut self, id: TunerSubscriptionId) {
+    async fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<(), Error> {
         tracing::info!("{}: Stop streaming", id);
-        let _ = self.tuners[id.session_id.tuner_index].stop_streaming(id);
+        self.tuners[id.session_id.tuner_index]
+            .stop_streaming(id)
+            .await
     }
 
     fn make_filter_commands(
@@ -218,16 +224,15 @@ impl TunerManager {
     }
 }
 
+#[async_trait]
 impl Actor for TunerManager {
-    type Context = actix::Context<Self>;
-
-    fn started(&mut self, _: &mut Self::Context) {
+    async fn started(&mut self, _ctx: &mut Context<Self>) {
         // It's guaranteed that no response is sent before tuners are loaded.
         tracing::debug!("Started");
         self.load_tuners();
     }
 
-    fn stopped(&mut self, _: &mut Self::Context) {
+    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         for tuner in self.tuners.iter_mut() {
             tuner.deactivate();
         }
@@ -238,102 +243,103 @@ impl Actor for TunerManager {
 // query tuners
 
 #[derive(Message)]
-#[rtype(result = "Result<Vec<MirakurunTuner>, Error>")]
-pub struct QueryTunersMessage;
+#[reply("Vec<MirakurunTuner>")]
+pub struct QueryTuners;
 
-impl fmt::Display for QueryTunersMessage {
+impl fmt::Display for QueryTuners {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "QueryTuners")
     }
 }
 
-impl Handler<QueryTunersMessage> for TunerManager {
-    type Result = Result<Vec<MirakurunTuner>, Error>;
-
-    fn handle(&mut self, msg: QueryTunersMessage, _: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl Handler<QueryTuners> for TunerManager {
+    async fn handle(
+        &mut self,
+        msg: QueryTuners,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryTuners as Message>::Reply {
         tracing::debug!("{}", msg);
-        let tuners: Vec<MirakurunTuner> = self
-            .tuners
+        self.tuners
             .iter()
             .map(|tuner| tuner.get_mirakurun_model())
-            .collect();
-        Ok(tuners)
+            .collect()
     }
 }
 
 // start streaming
 
 #[derive(Message)]
-#[rtype(result = "Result<TunerStream, Error>")]
-pub struct StartStreamingMessage {
+#[reply("Result<TunerStream, Error>")]
+pub struct StartStreaming {
     pub channel: EpgChannel,
     pub user: TunerUser,
 }
 
-impl fmt::Display for StartStreamingMessage {
+impl fmt::Display for StartStreaming {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StartStreaming {} to {}", self.channel, self.user)
     }
 }
 
-impl Handler<StartStreamingMessage> for TunerManager {
-    type Result = ActorResponse<Self, Result<TunerStream, Error>>;
-
-    fn handle(&mut self, msg: StartStreamingMessage, _: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl Handler<StartStreaming> for TunerManager {
+    async fn handle(
+        &mut self,
+        msg: StartStreaming,
+        ctx: &mut Context<Self>,
+    ) -> <StartStreaming as Message>::Reply {
         tracing::debug!("{}", msg);
 
-        let subscription = match self.activate_tuner(msg.channel, msg.user) {
-            Ok(subscription) => subscription,
-            Err(err) => return ActorResponse::reply(Err(Error::from(err))),
-        };
+        let subscription = self.activate_tuner(msg.channel, msg.user, ctx).await?;
 
-        let fut =
-            actix::fut::wrap_future::<_, Self>(subscription.broadcaster.send(SubscribeMessage {
+        let result = subscription
+            .broadcaster
+            .call(Subscribe {
                 id: subscription.id,
-            }))
-            .map(move |result, act, _ctx| {
-                if result.is_ok() {
-                    tracing::info!("{}: Started streaming", subscription.id);
+            })
+            .await;
+        match result {
+            Ok(stream) => {
+                tracing::info!("{}: Started streaming", subscription.id);
+                let stream = MpegTsStream::new(subscription.id, stream);
+                let stream = if subscription.decoded {
+                    stream.decoded()
                 } else {
-                    tracing::error!("{}: Broadcaster may have stopped", subscription.id);
-                    act.deactivate_tuner(subscription.id);
-                }
-                result
-                    .map(|stream| MpegTsStream::new(subscription.id, stream))
-                    .map(|stream| {
-                        if subscription.decoded {
-                            stream.decoded()
-                        } else {
-                            stream
-                        }
-                    })
-                    .map_err(Error::from)
-            });
-
-        ActorResponse::r#async(fut)
+                    stream
+                };
+                Ok(stream)
+            }
+            Err(err) => {
+                tracing::error!("{}: Broadcaster may have stopped", subscription.id);
+                self.deactivate_tuner(subscription.id);
+                Err(Error::from(err))
+            }
+        }
     }
 }
 
 // stop streaming
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct StopStreamingMessage {
+pub struct StopStreaming {
     pub id: TunerSubscriptionId,
 }
 
-impl fmt::Display for StopStreamingMessage {
+impl fmt::Display for StopStreaming {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "StopStreaming {}", self.id)
     }
 }
 
-impl Handler<StopStreamingMessage> for TunerManager {
-    type Result = ();
-
-    fn handle(&mut self, msg: StopStreamingMessage, _: &mut Self::Context) -> Self::Result {
+#[async_trait]
+impl Handler<StopStreaming> for TunerManager {
+    async fn handle(&mut self, msg: StopStreaming, _ctx: &mut Context<Self>) {
         tracing::debug!("{}", msg);
-        self.stop_streaming(msg.id)
+        match self.stop_streaming(msg.id).await {
+            Ok(_) => (),
+            Err(err) => tracing::error!("{}", err),
+        }
     }
 }
 
@@ -386,10 +392,19 @@ impl Tuner {
         priority.is_grab() || self.activity.can_grab(priority)
     }
 
-    fn activate(&mut self, channel: EpgChannel, filters: Vec<String>) -> Result<(), Error> {
+    async fn activate<C>(
+        &mut self,
+        channel: EpgChannel,
+        filters: Vec<String>,
+        ctx: &C,
+    ) -> Result<(), Error>
+    where
+        C: Spawn,
+    {
         let command = self.make_command(&channel)?;
         self.activity
-            .activate(self.index, channel, command, filters, self.time_limit)
+            .activate(self.index, channel, command, filters, self.time_limit, ctx)
+            .await
     }
 
     fn deactivate(&mut self) {
@@ -402,8 +417,8 @@ impl Tuner {
         subscription
     }
 
-    fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<(), Error> {
-        let num_users = self.activity.stop_streaming(id)?;
+    async fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<(), Error> {
+        let num_users = self.activity.stop_streaming(id).await?;
         if num_users == 0 {
             self.deactivate();
         }
@@ -448,18 +463,23 @@ enum TunerActivity {
 }
 
 impl TunerActivity {
-    fn activate(
+    async fn activate<C>(
         &mut self,
         tuner_index: usize,
         channel: EpgChannel,
         command: String,
         filters: Vec<String>,
         time_limit: u64,
-    ) -> Result<(), Error> {
+        ctx: &C,
+    ) -> Result<(), Error>
+    where
+        C: Spawn,
+    {
         match self {
             Self::Inactive => {
                 let session =
-                    TunerSession::new(tuner_index, channel, command, filters, time_limit)?;
+                    TunerSession::new(tuner_index, channel, command, filters, time_limit, ctx)
+                        .await?;
                 *self = Self::Active(session);
                 Ok(())
             }
@@ -496,10 +516,10 @@ impl TunerActivity {
         }
     }
 
-    fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<usize, Error> {
+    async fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<usize, Error> {
         match self {
             Self::Inactive => Err(Error::SessionNotFound),
-            Self::Active(session) => session.stop_streaming(id),
+            Self::Active(session) => session.stop_streaming(id).await,
         }
     }
 
@@ -526,26 +546,32 @@ struct TunerSession {
     command: String,
     // Used for closing the tuner in order to take over the right to use it.
     pipeline: CommandPipeline<TunerSessionId>,
-    broadcaster: Addr<Broadcaster>,
+    broadcaster: Address<Broadcaster>,
     subscribers: HashMap<u32, TunerUser>,
     next_serial_number: u32,
 }
 
 impl TunerSession {
-    fn new(
+    async fn new<C>(
         tuner_index: usize,
         channel: EpgChannel,
         command: String,
         mut filters: Vec<String>,
         time_limit: u64,
-    ) -> Result<TunerSession, Error> {
+        ctx: &C,
+    ) -> Result<TunerSession, Error>
+    where
+        C: Spawn,
+    {
         let mut commands = vec![command.clone()];
         commands.append(&mut filters);
         let id = TunerSessionId::new(tuner_index);
         let mut pipeline = spawn_pipeline(commands, id)?;
         let (_, output) = pipeline.take_endpoints()?;
-        let broadcaster =
-            Broadcaster::create(|ctx| Broadcaster::new(id.clone(), output, time_limit, ctx));
+        let broadcaster = ctx
+            .spawn_actor(Broadcaster::new(id.clone(), time_limit))
+            .await;
+        broadcaster.emit(BindStream(output)).await;
 
         tracing::info!("{}: Activated with {}", id, channel);
 
@@ -581,7 +607,7 @@ impl TunerSession {
             .all(|user| priority > user.priority)
     }
 
-    fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<usize, Error> {
+    async fn stop_streaming(&mut self, id: TunerSubscriptionId) -> Result<usize, Error> {
         if self.id != id.session_id {
             tracing::warn!(
                 "Session ID unmatched, {} was probably deactivated",
@@ -593,7 +619,7 @@ impl TunerSession {
             Some(user) => tracing::info!("{}: Unsubscribed: {}", id, user),
             None => tracing::warn!("{}: Not subscribed", id),
         }
-        self.broadcaster.do_send(UnsubscribeMessage { id });
+        self.broadcaster.emit(Unsubscribe { id }).await;
         Ok(self.subscribers.len())
     }
 
@@ -617,19 +643,24 @@ impl Drop for TunerSession {
 
 pub struct TunerStreamStopTrigger {
     id: TunerSubscriptionId,
-    recipient: Recipient<StopStreamingMessage>,
+    emitter: Option<Emitter<StopStreaming>>,
 }
 
 impl TunerStreamStopTrigger {
-    pub fn new(id: TunerSubscriptionId, recipient: Recipient<StopStreamingMessage>) -> Self {
-        Self { id, recipient }
+    pub fn new(id: TunerSubscriptionId, emitter: Emitter<StopStreaming>) -> Self {
+        Self {
+            id,
+            emitter: Some(emitter),
+        }
     }
 }
 
 impl Drop for TunerStreamStopTrigger {
     fn drop(&mut self) {
         tracing::debug!("{}: Closing...", self.id);
-        let _ = self.recipient.do_send(StopStreamingMessage { id: self.id });
+        if let Some(emitter) = self.emitter.take() {
+            emitter.fire(StopStreaming { id: self.id });
+        }
     }
 }
 
@@ -639,96 +670,100 @@ mod tests {
     use crate::command_util::Error as CommandUtilError;
     use assert_matches::assert_matches;
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_start_streaming() {
-        let config: Arc<Config> = Arc::new(
-            serde_yaml::from_str(
-                r#"
-            tuners:
-              - name: bs
-                types: [BS]
-                command: >-
-                  true
-              - name: gr
-                types: [GR]
-                command: >-
-                  true
-        "#,
-            )
-            .unwrap(),
-        );
+        let system = System::new();
 
-        let manager = start(config);
+        {
+            let config: Arc<Config> = Arc::new(
+                serde_yaml::from_str(
+                    r#"
+                tuners:
+                  - name: bs
+                    types: [BS]
+                    command: >-
+                      true
+                  - name: gr
+                    types: [GR]
+                    command: >-
+                      true
+                "#,
+                )
+                .unwrap(),
+            );
 
-        let result = manager
-            .send(StartStreamingMessage {
-                channel: create_channel("0"),
-                user: create_user(0.into()),
-            })
-            .await;
-        let stream1 = assert_matches!(result, Ok(Ok(stream)) => {
-            assert_eq!(stream.id().session_id.tuner_index, 1);
-            stream
-        });
+            let manager = system.spawn_actor(TunerManager::new(config)).await;
 
-        // Reuse the tuner
-        let result = manager
-            .send(StartStreamingMessage {
-                channel: create_channel("0"),
-                user: create_user(1.into()),
-            })
-            .await;
-        assert_matches!(result, Ok(Ok(stream)) => {
-            assert_eq!(stream.id().session_id, stream1.id().session_id);
-            assert_ne!(stream.id(), stream1.id());
-        });
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()),
+                })
+                .await;
+            let stream1 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 1);
+                stream
+            });
 
-        // Lower and same priority user cannot grab the tuner
-        let result = manager
-            .send(StartStreamingMessage {
-                channel: create_channel("1"),
-                user: create_user(1.into()),
-            })
-            .await;
-        assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
+            // Reuse the tuner
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(1.into()),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id, stream1.id().session_id);
+                assert_ne!(stream.id(), stream1.id());
+            });
 
-        // Higher priority user can grab the tuner
-        let result = manager
-            .send(StartStreamingMessage {
-                channel: create_channel("1"),
-                user: create_user(2.into()),
-            })
-            .await;
-        assert_matches!(result, Ok(Ok(stream)) => {
-            assert_eq!(stream.id().session_id.tuner_index, 1);
-            assert_ne!(stream.id().session_id, stream1.id().session_id);
-        });
+            // Lower and same priority user cannot grab the tuner
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("1"),
+                    user: create_user(1.into()),
+                })
+                .await;
+            assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
+
+            // Higher priority user can grab the tuner
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("1"),
+                    user: create_user(2.into()),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 1);
+                assert_ne!(stream.id().session_id, stream1.id().session_id);
+            });
+        }
+        system.stop();
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_tuner_is_active() {
-        let config = create_config("true".to_string());
-        let mut tuner = Tuner::new(0, &config);
-
-        assert!(!tuner.is_active());
-
-        let result = tuner.activate(create_channel("1"), vec![]);
-        assert!(result.is_ok());
-        assert!(tuner.is_active());
-
-        // Workaround for actix/actix/issues/372.
-        //
-        // See masnagam/rust-case-studies/tree/master/actix-started-in-drop for
-        // details.
-        tokio::task::yield_now().await;
-    }
-
-    #[actix::test]
-    async fn test_tuner_activate() {
+        let system = System::new();
         {
             let config = create_config("true".to_string());
             let mut tuner = Tuner::new(0, &config);
-            let result = tuner.activate(create_channel("1"), vec![]);
+
+            assert!(!tuner.is_active());
+
+            let result = tuner.activate(create_channel("1"), vec![], &system).await;
+            assert!(result.is_ok());
+            assert!(tuner.is_active());
+        }
+        system.stop();
+    }
+
+    #[tokio::test]
+    async fn test_tuner_activate() {
+        let system = System::new();
+        {
+            let config = create_config("true".to_string());
+            let mut tuner = Tuner::new(0, &config);
+            let result = tuner.activate(create_channel("1"), vec![], &system).await;
             assert!(result.is_ok());
             tokio::task::yield_now().await;
         }
@@ -736,7 +771,7 @@ mod tests {
         {
             let config = create_config("cmd '".to_string());
             let mut tuner = Tuner::new(0, &config);
-            let result = tuner.activate(create_channel("1"), vec![]);
+            let result = tuner.activate(create_channel("1"), vec![], &system).await;
             assert_matches!(
                 result,
                 Err(Error::CommandFailed(CommandUtilError::UnableToParse(_)))
@@ -747,85 +782,104 @@ mod tests {
         {
             let config = create_config("no-such-command".to_string());
             let mut tuner = Tuner::new(0, &config);
-            let result = tuner.activate(create_channel("1"), vec![]);
+            let result = tuner.activate(create_channel("1"), vec![], &system).await;
             assert_matches!(
                 result,
                 Err(Error::CommandFailed(CommandUtilError::UnableToSpawn(..)))
             );
             tokio::task::yield_now().await;
         }
+        system.stop();
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_tuner_stop_streaming() {
-        let config = create_config("true".to_string());
-        let mut tuner = Tuner::new(1, &config);
-        let result = tuner.stop_streaming(Default::default());
-        assert_matches!(result, Err(Error::SessionNotFound));
+        let system = System::new();
+        {
+            let config = create_config("true".to_string());
+            let mut tuner = Tuner::new(1, &config);
+            let result = tuner.stop_streaming(Default::default()).await;
+            assert_matches!(result, Err(Error::SessionNotFound));
 
-        let result = tuner.activate(create_channel("1"), vec![]);
-        assert!(result.is_ok());
-        let subscription = tuner.subscribe(TunerUser {
-            info: TunerUserInfo::Web {
-                id: "".to_string(),
-                agent: None,
-            },
-            priority: 0.into(),
-        });
+            let result = tuner.activate(create_channel("1"), vec![], &system).await;
+            assert!(result.is_ok());
+            let subscription = tuner.subscribe(TunerUser {
+                info: TunerUserInfo::Web {
+                    id: "".to_string(),
+                    agent: None,
+                },
+                priority: 0.into(),
+            });
 
-        let result = tuner.stop_streaming(Default::default());
-        assert_matches!(result, Err(Error::SessionNotFound));
+            let result = tuner.stop_streaming(Default::default()).await;
+            assert_matches!(result, Err(Error::SessionNotFound));
 
-        let result = tuner.stop_streaming(subscription.id);
-        assert_matches!(result, Ok(()));
+            let result = tuner.stop_streaming(subscription.id).await;
+            assert_matches!(result, Ok(()));
 
-        tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+        }
+        system.stop();
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_tuner_can_grab() {
-        let config = create_config("true".to_string());
-        let mut tuner = Tuner::new(0, &config);
-        assert!(tuner.can_grab(0.into()));
+        let system = System::new();
+        {
+            let config = create_config("true".to_string());
+            let mut tuner = Tuner::new(0, &config);
+            assert!(tuner.can_grab(0.into()));
 
-        tuner.activate(create_channel("1"), vec![]).unwrap();
-        tuner.subscribe(create_user(0.into()));
+            tuner
+                .activate(create_channel("1"), vec![], &system)
+                .await
+                .unwrap();
+            tuner.subscribe(create_user(0.into()));
 
-        assert!(!tuner.can_grab(0.into()));
-        assert!(tuner.can_grab(1.into()));
-        assert!(tuner.can_grab(2.into()));
-        assert!(tuner.can_grab(TunerUserPriority::GRAB));
+            assert!(!tuner.can_grab(0.into()));
+            assert!(tuner.can_grab(1.into()));
+            assert!(tuner.can_grab(2.into()));
+            assert!(tuner.can_grab(TunerUserPriority::GRAB));
 
-        tuner.subscribe(create_user(1.into()));
+            tuner.subscribe(create_user(1.into()));
 
-        assert!(!tuner.can_grab(0.into()));
-        assert!(!tuner.can_grab(1.into()));
-        assert!(tuner.can_grab(2.into()));
-        assert!(tuner.can_grab(TunerUserPriority::GRAB));
+            assert!(!tuner.can_grab(0.into()));
+            assert!(!tuner.can_grab(1.into()));
+            assert!(tuner.can_grab(2.into()));
+            assert!(tuner.can_grab(TunerUserPriority::GRAB));
 
-        tuner.subscribe(create_user(TunerUserPriority::GRAB));
+            tuner.subscribe(create_user(TunerUserPriority::GRAB));
 
-        assert!(!tuner.can_grab(0.into()));
-        assert!(!tuner.can_grab(1.into()));
-        assert!(!tuner.can_grab(2.into()));
-        assert!(tuner.can_grab(TunerUserPriority::GRAB));
+            assert!(!tuner.can_grab(0.into()));
+            assert!(!tuner.can_grab(1.into()));
+            assert!(!tuner.can_grab(2.into()));
+            assert!(tuner.can_grab(TunerUserPriority::GRAB));
 
-        tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+        }
+        system.stop();
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_tuner_reactivate() {
-        let config = create_config("true".to_string());
-        let mut tuner = Tuner::new(0, &config);
-        tuner.activate(create_channel("1"), vec![]).ok();
+        let system = System::new();
+        {
+            let config = create_config("true".to_string());
+            let mut tuner = Tuner::new(0, &config);
+            tuner
+                .activate(create_channel("1"), vec![], &system)
+                .await
+                .ok();
 
-        tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
 
-        tuner.deactivate();
-        let result = tuner.activate(create_channel("2"), vec![]);
-        assert!(result.is_ok());
+            tuner.deactivate();
+            let result = tuner.activate(create_channel("2"), vec![], &system).await;
+            assert!(result.is_ok());
 
-        tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+        }
+        system.stop();
     }
 
     fn create_config(command: String) -> TunerConfig {

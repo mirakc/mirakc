@@ -17,7 +17,7 @@ use std::ops::Bound;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use actix::prelude::*;
+use actlet::*;
 use axum::async_trait;
 use axum::body::StreamBody;
 use axum::extract::FromRequestParts;
@@ -53,7 +53,6 @@ use futures::stream::Stream;
 use futures::stream::StreamExt;
 use serde::Deserialize;
 use serde::Serialize;
-use tokio;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
@@ -69,13 +68,15 @@ use crate::datetime_ext::serde_duration_in_millis;
 use crate::datetime_ext::serde_jst;
 use crate::datetime_ext::Jst;
 use crate::epg::EpgChannel;
-use crate::epg::QueryChannelMessage;
-use crate::epg::QueryChannelsMessage;
-use crate::epg::QueryClockMessage;
-use crate::epg::QueryProgramMessage;
-use crate::epg::QueryProgramsMessage;
-use crate::epg::QueryServiceMessage;
-use crate::epg::QueryServicesMessage;
+use crate::epg::QueryChannel;
+use crate::epg::QueryChannels;
+use crate::epg::QueryClock;
+use crate::epg::QueryProgram;
+use crate::epg::QueryPrograms;
+use crate::epg::QueryService;
+use crate::epg::QueryServices;
+use crate::epg::RemoveAirtime;
+use crate::epg::UpdateAirtime;
 use crate::error::Error;
 use crate::filter::FilterPipelineBuilder;
 use crate::models::*;
@@ -83,17 +84,18 @@ use crate::mpeg_ts_stream::MpegTsStream;
 use crate::mpeg_ts_stream::MpegTsStreamRange;
 use crate::mpeg_ts_stream::MpegTsStreamTerminator;
 use crate::string_table::StringTable;
-use crate::timeshift::CreateTimeshiftLiveStreamSourceMessage;
-use crate::timeshift::CreateTimeshiftRecordStreamSourceMessage;
-use crate::timeshift::QueryTimeshiftRecordMessage;
-use crate::timeshift::QueryTimeshiftRecorderMessage;
-use crate::timeshift::QueryTimeshiftRecordersMessage;
-use crate::timeshift::QueryTimeshiftRecordsMessage;
+use crate::timeshift::CreateTimeshiftLiveStreamSource;
+use crate::timeshift::CreateTimeshiftRecordStreamSource;
+use crate::timeshift::QueryTimeshiftRecord;
+use crate::timeshift::QueryTimeshiftRecorder;
+use crate::timeshift::QueryTimeshiftRecorders;
+use crate::timeshift::QueryTimeshiftRecords;
 use crate::timeshift::TimeshiftRecordModel;
 use crate::timeshift::TimeshiftRecorderModel;
 use crate::timeshift::TimeshiftRecorderQuery;
-use crate::tuner::QueryTunersMessage;
-use crate::tuner::StartStreamingMessage;
+use crate::tuner::QueryTuners;
+use crate::tuner::StartStreaming;
+use crate::tuner::StopStreaming;
 use crate::tuner::TunerStreamStopTrigger;
 use crate::web::access_control::AccessControlLayer;
 use crate::web::body::SeekableStreamBody;
@@ -103,28 +105,36 @@ use crate::web::escape::escape;
 use crate::web::qs::Qs;
 use crate::web::uds::UdsListener;
 
-#[cfg(not(test))]
-type TunerManager = crate::tuner::TunerManager;
-#[cfg(test)]
-type TunerManager = actix::actors::mocker::Mocker<crate::tuner::TunerManager>;
-
-#[cfg(not(test))]
-type Epg = crate::epg::Epg;
-#[cfg(test)]
-type Epg = actix::actors::mocker::Mocker<crate::epg::Epg>;
-
-#[cfg(not(test))]
-type TimeshiftManager = crate::timeshift::TimeshiftManager;
-#[cfg(test)]
-type TimeshiftManager = actix::actors::mocker::Mocker<crate::timeshift::TimeshiftManager>;
-
-pub async fn serve(
+pub async fn serve<T, E, R>(
     config: Arc<Config>,
     string_table: Arc<StringTable>,
-    tuner_manager: Addr<TunerManager>,
-    epg: Addr<Epg>,
-    timeshift_manager: Addr<TimeshiftManager>,
-) -> Result<(), Error> {
+    tuner_manager: T,
+    epg: E,
+    timeshift_manager: R,
+) -> Result<(), Error>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<QueryTuners>,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<QueryChannel>,
+    E: Call<QueryChannels>,
+    E: Call<QueryClock>,
+    E: Call<QueryProgram>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<QueryServices>,
+    E: Call<RemoveAirtime>,
+    E: Call<UpdateAirtime>,
+    R: Send + Sync + 'static,
+    R: Call<CreateTimeshiftLiveStreamSource>,
+    R: Call<CreateTimeshiftRecordStreamSource>,
+    R: Call<QueryTimeshiftRecord>,
+    R: Call<QueryTimeshiftRecords>,
+    R: Call<QueryTimeshiftRecorder>,
+    R: Call<QueryTimeshiftRecorders>,
+{
     let app = build_app(Arc::new(AppState {
         config: config.clone(),
         string_table,
@@ -189,7 +199,30 @@ const X_MIRAKURUN_TUNER_USER_ID: &'static str = "x-mirakurun-tuner-user-id";
 
 // endpoints
 
-fn build_app(state: Arc<AppState>) -> Router {
+fn build_app<T, E, R>(state: Arc<AppState<T, E, R>>) -> Router
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<QueryTuners>,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<QueryChannel>,
+    E: Call<QueryChannels>,
+    E: Call<QueryClock>,
+    E: Call<QueryProgram>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<QueryServices>,
+    E: Call<RemoveAirtime>,
+    E: Call<UpdateAirtime>,
+    R: Send + Sync + 'static,
+    R: Call<CreateTimeshiftLiveStreamSource>,
+    R: Call<CreateTimeshiftRecordStreamSource>,
+    R: Call<QueryTimeshiftRecord>,
+    R: Call<QueryTimeshiftRecords>,
+    R: Call<QueryTimeshiftRecorder>,
+    R: Call<QueryTimeshiftRecorders>,
+{
     let api_routes = build_api(state.clone());
 
     let mut router = Router::new().nest("/api", api_routes);
@@ -231,7 +264,30 @@ fn build_app(state: Arc<AppState>) -> Router {
     router
 }
 
-fn build_api(state: Arc<AppState>) -> Router<Arc<AppState>> {
+fn build_api<T, E, R>(state: Arc<AppState<T, E, R>>) -> Router<Arc<AppState<T, E, R>>>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<QueryTuners>,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<QueryChannel>,
+    E: Call<QueryChannels>,
+    E: Call<QueryClock>,
+    E: Call<QueryProgram>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<QueryServices>,
+    E: Call<RemoveAirtime>,
+    E: Call<UpdateAirtime>,
+    R: Send + Sync + 'static,
+    R: Call<CreateTimeshiftLiveStreamSource>,
+    R: Call<CreateTimeshiftRecordStreamSource>,
+    R: Call<QueryTimeshiftRecord>,
+    R: Call<QueryTimeshiftRecords>,
+    R: Call<QueryTimeshiftRecorder>,
+    R: Call<QueryTimeshiftRecorders>,
+{
     let mut default_headers = HeaderMap::new();
     default_headers.append(CACHE_CONTROL, header_value!("no-store"));
 
@@ -315,18 +371,29 @@ async fn status_gh() -> impl IntoResponse {
     Json(Status {})
 }
 
-async fn channels_gh(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<MirakurunChannel>>, Error> {
-    state.epg.send(QueryChannelsMessage).await?.map(Json::from)
+async fn channels_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
+) -> Result<Json<Vec<MirakurunChannel>>, Error>
+where
+    E: Call<QueryChannels>,
+{
+    state
+        .epg
+        .call(QueryChannels)
+        .await
+        .map(Json::from)
+        .map_err(Error::from)
 }
 
-async fn services_gh(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<MirakurunService>>, Error> {
+async fn services_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
+) -> Result<Json<Vec<MirakurunService>>, Error>
+where
+    E: Call<QueryServices>,
+{
     Ok(state
         .epg
-        .send(QueryServicesMessage)
+        .call(QueryServices)
         .await?
         .values()
         .cloned()
@@ -339,17 +406,20 @@ async fn services_gh(
         .into())
 }
 
-async fn service_gh(
-    State(state): State<Arc<AppState>>,
+async fn service_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(id): Path<MirakurunServiceId>,
-) -> Result<Json<MirakurunService>, Error> {
-    let msg = QueryServiceMessage::ByNidSid {
+) -> Result<Json<MirakurunService>, Error>
+where
+    E: Call<QueryService>,
+{
+    let msg = QueryService::ByNidSid {
         nid: id.nid(),
         sid: id.sid(),
     };
     state
         .epg
-        .send(msg)
+        .call(msg)
         .await?
         .map(MirakurunService::from)
         .map(|mut service| {
@@ -358,13 +428,16 @@ async fn service_gh(
         })
 }
 
-async fn service_logo_gh(
-    State(state): State<Arc<AppState>>,
+async fn service_logo_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(id): Path<MirakurunServiceId>,
-) -> Result<Response<StaticFileBody>, Error> {
+) -> Result<Response<StaticFileBody>, Error>
+where
+    E: Call<QueryService>,
+{
     let service = state
         .epg
-        .send(QueryServiceMessage::ByNidSid {
+        .call(QueryService::ByNidSid {
             nid: id.nid(),
             sid: id.sid(),
         })
@@ -381,15 +454,19 @@ async fn service_logo_gh(
     }
 }
 
-async fn programs_gh(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<MirakurunProgram>>, Error> {
-    let services = state.epg.send(QueryServicesMessage).await?;
+async fn programs_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
+) -> Result<Json<Vec<MirakurunProgram>>, Error>
+where
+    E: Call<QueryPrograms>,
+    E: Call<QueryServices>,
+{
+    let services = state.epg.call(QueryServices).await?;
     let mut result = vec![];
     for triple in services.keys() {
         let programs = state
             .epg
-            .send(QueryProgramsMessage {
+            .call(QueryPrograms {
                 service_triple: triple.clone(),
             })
             .await?;
@@ -399,40 +476,55 @@ async fn programs_gh(
     Ok(result.into())
 }
 
-async fn program_gh(
-    State(state): State<Arc<AppState>>,
+async fn program_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(id): Path<MirakurunProgramId>,
-) -> Result<Json<MirakurunProgram>, Error> {
-    let msg = QueryProgramMessage::ByNidSidEid {
+) -> Result<Json<MirakurunProgram>, Error>
+where
+    E: Call<QueryProgram>,
+{
+    let msg = QueryProgram::ByNidSidEid {
         nid: id.nid(),
         sid: id.sid(),
         eid: id.eid(),
     };
     state
         .epg
-        .send(msg)
+        .call(msg)
         .await?
         .map(MirakurunProgram::from)
         .map(Json::from)
 }
 
-async fn tuners_gh(State(state): State<Arc<AppState>>) -> Result<Json<Vec<MirakurunTuner>>, Error> {
+async fn tuners_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
+) -> Result<Json<Vec<MirakurunTuner>>, Error>
+where
+    T: Call<QueryTuners>,
+{
     state
         .tuner_manager
-        .send(QueryTunersMessage)
-        .await?
+        .call(QueryTuners)
+        .await
         .map(Json::from)
+        .map_err(Error::from)
 }
 
-async fn channel_stream_g(
-    State(state): State<Arc<AppState>>,
+async fn channel_stream_g<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(path): Path<ChannelPath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error> {
+) -> Result<Response, Error>
+where
+    T: Clone,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Call<QueryChannel>,
+{
     let channel = state
         .epg
-        .send(QueryChannelMessage {
+        .call(QueryChannel {
             channel_type: path.channel_type,
             channel: path.channel,
         })
@@ -440,7 +532,7 @@ async fn channel_stream_g(
 
     let stream = state
         .tuner_manager
-        .send(StartStreamingMessage {
+        .call(StartStreaming {
             channel: channel.clone(),
             user: user.clone(),
         })
@@ -448,8 +540,7 @@ async fn channel_stream_g(
 
     // stop_trigger must be created here in order to stop streaming when an
     // error occurs.
-    let stop_trigger =
-        TunerStreamStopTrigger::new(stream.id(), state.tuner_manager.clone().recipient());
+    let stop_trigger = TunerStreamStopTrigger::new(stream.id(), state.tuner_manager.clone().into());
 
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &channel.name)
@@ -476,15 +567,18 @@ async fn channel_stream_g(
     .await
 }
 
-async fn channel_stream_h(
-    State(state): State<Arc<AppState>>,
+async fn channel_stream_h<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(path): Path<ChannelPath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    E: Call<QueryChannel>,
+{
     let _channel = state
         .epg
-        .send(QueryChannelMessage {
+        .call(QueryChannel {
             channel_type: path.channel_type,
             channel: path.channel,
         })
@@ -496,15 +590,21 @@ async fn channel_stream_h(
     do_stream_h(&state.config, &user, &filter_setting)
 }
 
-async fn channel_service_stream_g(
-    State(state): State<Arc<AppState>>,
+async fn channel_service_stream_g<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(path): Path<ChannelServicePath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error> {
+) -> Result<Response, Error>
+where
+    T: Clone,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Call<QueryChannel>,
+{
     let channel = state
         .epg
-        .send(QueryChannelMessage {
+        .call(QueryChannel {
             channel_type: path.channel_type,
             channel: path.channel,
         })
@@ -521,15 +621,18 @@ async fn channel_service_stream_g(
     .await
 }
 
-async fn channel_service_stream_h(
-    State(state): State<Arc<AppState>>,
+async fn channel_service_stream_h<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(path): Path<ChannelServicePath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    E: Call<QueryChannel>,
+{
     let _channel = state
         .epg
-        .send(QueryChannelMessage {
+        .call(QueryChannel {
             channel_type: path.channel_type,
             channel: path.channel,
         })
@@ -541,15 +644,21 @@ async fn channel_service_stream_h(
     do_stream_h(&state.config, &user, &filter_setting)
 }
 
-async fn service_stream_g(
-    State(state): State<Arc<AppState>>,
+async fn service_stream_g<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(id): Path<MirakurunServiceId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error> {
+) -> Result<Response, Error>
+where
+    T: Clone,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Call<QueryService>,
+{
     let service = state
         .epg
-        .send(QueryServiceMessage::ByNidSid {
+        .call(QueryService::ByNidSid {
             nid: id.nid(),
             sid: id.sid(),
         })
@@ -567,15 +676,18 @@ async fn service_stream_g(
 }
 
 // IPTV Simple Client in Kodi sends a HEAD request before streaming.
-async fn service_stream_h(
-    State(state): State<Arc<AppState>>,
+async fn service_stream_h<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(id): Path<MirakurunServiceId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    E: Call<QueryService>,
+{
     let _service = state
         .epg
-        .send(QueryServiceMessage::ByNidSid {
+        .call(QueryService::ByNidSid {
             nid: id.nid(),
             sid: id.sid(),
         })
@@ -587,15 +699,26 @@ async fn service_stream_h(
     do_stream_h(&state.config, &user, &filter_setting)
 }
 
-async fn program_stream_g(
-    State(state): State<Arc<AppState>>,
+async fn program_stream_g<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(id): Path<MirakurunProgramId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error> {
+) -> Result<Response, Error>
+where
+    T: Clone,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<QueryProgram>,
+    E: Call<QueryService>,
+    E: Call<QueryClock>,
+    E: Call<RemoveAirtime>,
+    E: Call<UpdateAirtime>,
+{
     let program = state
         .epg
-        .send(QueryProgramMessage::ByNidSidEid {
+        .call(QueryProgram::ByNidSidEid {
             nid: id.nid(),
             sid: id.sid(),
             eid: id.eid(),
@@ -604,7 +727,7 @@ async fn program_stream_g(
 
     let service = state
         .epg
-        .send(QueryServiceMessage::ByNidSid {
+        .call(QueryService::ByNidSid {
             nid: id.nid(),
             sid: id.sid(),
         })
@@ -612,14 +735,14 @@ async fn program_stream_g(
 
     let clock = state
         .epg
-        .send(QueryClockMessage {
+        .call(QueryClock {
             triple: service.triple(),
         })
         .await??;
 
     let stream = state
         .tuner_manager
-        .send(StartStreamingMessage {
+        .call(StartStreaming {
             channel: service.channel.clone(),
             user: user.clone(),
         })
@@ -628,7 +751,7 @@ async fn program_stream_g(
     // stream_stop_trigger must be created here in order to stop streaming when
     // an error occurs.
     let stream_stop_trigger =
-        TunerStreamStopTrigger::new(stream.id(), state.tuner_manager.clone().recipient());
+        TunerStreamStopTrigger::new(stream.id(), state.tuner_manager.clone().into());
 
     let video_tags: Vec<u8> = program
         .video
@@ -696,15 +819,20 @@ async fn program_stream_g(
     result
 }
 
-async fn program_stream_h(
-    State(state): State<Arc<AppState>>,
+async fn program_stream_h<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(id): Path<MirakurunProgramId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    E: Call<QueryClock>,
+    E: Call<QueryProgram>,
+    E: Call<QueryService>,
+{
     let _program = state
         .epg
-        .send(QueryProgramMessage::ByNidSidEid {
+        .call(QueryProgram::ByNidSidEid {
             nid: id.nid(),
             sid: id.sid(),
             eid: id.eid(),
@@ -713,7 +841,7 @@ async fn program_stream_h(
 
     let service = state
         .epg
-        .send(QueryServiceMessage::ByNidSid {
+        .call(QueryService::ByNidSid {
             nid: id.nid(),
             sid: id.sid(),
         })
@@ -721,7 +849,7 @@ async fn program_stream_h(
 
     let _clock = state
         .epg
-        .send(QueryClockMessage {
+        .call(QueryClock {
             triple: service.triple(),
         })
         .await??;
@@ -732,12 +860,15 @@ async fn program_stream_h(
     do_stream_h(&state.config, &user, &filter_setting)
 }
 
-async fn timeshift_recorders_gh(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<WebTimeshiftRecorder>>, Error> {
+async fn timeshift_recorders_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
+) -> Result<Json<Vec<WebTimeshiftRecorder>>, Error>
+where
+    R: Call<QueryTimeshiftRecorders>,
+{
     state
         .timeshift_manager
-        .send(QueryTimeshiftRecordersMessage)
+        .call(QueryTimeshiftRecorders)
         .await?
         .map(|recorders| {
             recorders
@@ -748,31 +879,37 @@ async fn timeshift_recorders_gh(
         .map(Json::from)
 }
 
-async fn timeshift_recorder_gh(
-    State(state): State<Arc<AppState>>,
+async fn timeshift_recorder_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(recorder): Path<String>,
-) -> Result<Json<WebTimeshiftRecorder>, Error> {
-    let msg = QueryTimeshiftRecorderMessage {
+) -> Result<Json<WebTimeshiftRecorder>, Error>
+where
+    R: Call<QueryTimeshiftRecorder>,
+{
+    let msg = QueryTimeshiftRecorder {
         recorder: TimeshiftRecorderQuery::ByName(recorder),
     };
     state
         .timeshift_manager
-        .send(msg)
+        .call(msg)
         .await?
         .map(WebTimeshiftRecorder::from)
         .map(Json::from)
 }
 
-async fn timeshift_records_gh(
-    State(state): State<Arc<AppState>>,
+async fn timeshift_records_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(recorder): Path<String>,
-) -> Result<Json<Vec<WebTimeshiftRecord>>, Error> {
-    let msg = QueryTimeshiftRecordsMessage {
+) -> Result<Json<Vec<WebTimeshiftRecord>>, Error>
+where
+    R: Call<QueryTimeshiftRecords>,
+{
+    let msg = QueryTimeshiftRecords {
         recorder: TimeshiftRecorderQuery::ByName(recorder),
     };
     state
         .timeshift_manager
-        .send(msg)
+        .call(msg)
         .await?
         .map(|records| {
             records
@@ -783,39 +920,46 @@ async fn timeshift_records_gh(
         .map(Json::from)
 }
 
-async fn timeshift_record_gh(
-    State(state): State<Arc<AppState>>,
+async fn timeshift_record_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(path): Path<TimeshiftRecordPath>,
-) -> Result<Json<WebTimeshiftRecord>, Error> {
-    let msg = QueryTimeshiftRecordMessage {
+) -> Result<Json<WebTimeshiftRecord>, Error>
+where
+    R: Call<QueryTimeshiftRecord>,
+{
+    let msg = QueryTimeshiftRecord {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder),
         record_id: path.id,
     };
     state
         .timeshift_manager
-        .send(msg)
+        .call(msg)
         .await?
         .map(WebTimeshiftRecord::from)
         .map(Json::from)
 }
 
-async fn timeshift_stream_gh(
-    State(state): State<Arc<AppState>>,
+async fn timeshift_stream_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(recorder_id): Path<String>,
     record_id: Option<Query<TimeshiftRecordId>>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error> {
-    let msg = QueryTimeshiftRecorderMessage {
+) -> Result<Response, Error>
+where
+    R: Call<CreateTimeshiftLiveStreamSource>,
+    R: Call<QueryTimeshiftRecorder>,
+{
+    let msg = QueryTimeshiftRecorder {
         recorder: TimeshiftRecorderQuery::ByName(recorder_id.clone()),
     };
-    let recorder = state.timeshift_manager.send(msg).await??;
+    let recorder = state.timeshift_manager.call(msg).await??;
 
-    let msg = CreateTimeshiftLiveStreamSourceMessage {
+    let msg = CreateTimeshiftLiveStreamSource {
         recorder: TimeshiftRecorderQuery::ByName(recorder_id.clone()),
         record_id: record_id.map(|Query(id)| id),
     };
-    let src = state.timeshift_manager.send(msg).await??;
+    let src = state.timeshift_manager.call(msg).await??;
 
     let (stream, stop_trigger) = src.create_stream().await?;
 
@@ -843,23 +987,28 @@ async fn timeshift_stream_gh(
     .await
 }
 
-async fn timeshift_record_stream_gh(
-    State(state): State<Arc<AppState>>,
+async fn timeshift_record_stream_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Path(path): Path<TimeshiftRecordPath>,
     ranges: Option<TypedHeader<axum::headers::Range>>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error> {
-    let msg = QueryTimeshiftRecorderMessage {
+) -> Result<Response, Error>
+where
+    R: Call<CreateTimeshiftRecordStreamSource>,
+    R: Call<QueryTimeshiftRecord>,
+    R: Call<QueryTimeshiftRecorder>,
+{
+    let msg = QueryTimeshiftRecorder {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
     };
-    let recorder = state.timeshift_manager.send(msg).await??;
+    let recorder = state.timeshift_manager.call(msg).await??;
 
-    let msg = QueryTimeshiftRecordMessage {
+    let msg = QueryTimeshiftRecord {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
         record_id: path.id.clone(),
     };
-    let record = state.timeshift_manager.send(msg).await??;
+    let record = state.timeshift_manager.call(msg).await??;
 
     let start_pos = if let Some(TypedHeader(ranges)) = ranges {
         ranges
@@ -875,12 +1024,12 @@ async fn timeshift_record_stream_gh(
         None
     };
 
-    let msg = CreateTimeshiftRecordStreamSourceMessage {
+    let msg = CreateTimeshiftRecordStreamSource {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
         record_id: path.id.clone(),
         start_pos,
     };
-    let src = state.timeshift_manager.send(msg).await??;
+    let src = state.timeshift_manager.call(msg).await??;
 
     // We assume that pre-filters don't change TS packets.
     let seekable = filter_setting.post_filters.is_empty();
@@ -933,26 +1082,32 @@ async fn timeshift_record_stream_gh(
     .await
 }
 
-async fn iptv_playlist_gh(
-    State(state): State<Arc<AppState>>,
+async fn iptv_playlist_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Host(host): Host,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    E: Call<QueryServices>,
+{
     do_iptv_playlist(&state.config, &state.epg, &host, filter_setting).await
 }
 
-async fn do_iptv_playlist(
+async fn do_iptv_playlist<E>(
     config: &Config,
-    epg: &Addr<Epg>,
+    epg: &E,
     host: &str,
     mut filter_setting: FilterSetting,
-) -> Result<Response<String>, Error> {
+) -> Result<Response<String>, Error>
+where
+    E: Call<QueryServices>,
+{
     const INITIAL_BUFSIZE: usize = 8 * 1024; // 8KB
 
     filter_setting.decode = true; // always decode
     let query = serde_qs::to_string(&filter_setting).expect("Never fails");
 
-    let services = epg.send(QueryServicesMessage).await?;
+    let services = epg.call(QueryServices).await?;
 
     // TODO: URL scheme
 
@@ -1024,36 +1179,51 @@ async fn do_iptv_playlist(
         .body(buf)?)
 }
 
-async fn iptv_epg_gh(
-    State(state): State<Arc<AppState>>,
+async fn iptv_epg_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
     Host(host): Host,
     Query(query): Query<IptvEpgQuery>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    E: Call<QueryPrograms>,
+    E: Call<QueryServices>,
+{
     do_iptv_epg(&state.config, &state.string_table, &state.epg, &host, query).await
 }
 
 // For compatibility with Mirakurun
-async fn iptv_xmltv_gh(State(state): State<Arc<AppState>>, Host(host): Host) -> impl IntoResponse {
+async fn iptv_xmltv_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
+    Host(host): Host,
+) -> impl IntoResponse
+where
+    E: Call<QueryPrograms>,
+    E: Call<QueryServices>,
+{
     // Mirakurun doesn't support the days query parameter and returns all
     // programs.
     let query = IptvEpgQuery { days: 10 };
     do_iptv_epg(&state.config, &state.string_table, &state.epg, &host, query).await
 }
 
-async fn do_iptv_epg(
+async fn do_iptv_epg<E>(
     config: &Config,
     string_table: &StringTable,
-    epg: &Addr<Epg>,
+    epg: &E,
     host: &str,
     query: IptvEpgQuery,
-) -> Result<Response<String>, Error> {
+) -> Result<Response<String>, Error>
+where
+    E: Call<QueryPrograms>,
+    E: Call<QueryServices>,
+{
     const INITIAL_BUFSIZE: usize = 8 * 1024 * 1024; // 8MB
     const DATETIME_FORMAT: &'static str = "%Y%m%d%H%M%S %z";
 
     let end_after = Jst::midnight();
     let start_before = end_after + chrono::Duration::days(query.days as i64);
 
-    let services = epg.send(QueryServicesMessage).await?;
+    let services = epg.call(QueryServices).await?;
 
     // TODO: URL scheme
 
@@ -1081,7 +1251,7 @@ async fn do_iptv_epg(
     }
     for triple in services.keys() {
         let programs = epg
-            .send(QueryProgramsMessage {
+            .call(QueryPrograms {
                 service_triple: triple.clone(),
             })
             .await?;
@@ -1146,22 +1316,29 @@ async fn do_iptv_epg(
         .body(buf)?)
 }
 
-async fn docs_gh(State(state): State<Arc<AppState>>) -> Result<Response<StaticFileBody>, Error> {
+async fn docs_gh<T, E, R>(
+    State(state): State<Arc<AppState<T, E, R>>>,
+) -> Result<Response<StaticFileBody>, Error> {
     Ok(Response::builder()
         .header(CONTENT_TYPE, "application/json")
         .body(StaticFileBody::new(&state.config.mirakurun.openapi_json).await?)?)
 }
 
-async fn do_service_stream(
+async fn do_service_stream<T>(
     config: &Config,
-    tuner_manager: &Addr<TunerManager>,
+    tuner_manager: &T,
     channel: EpgChannel,
     sid: ServiceId,
     user: TunerUser,
     filter_setting: FilterSetting,
-) -> Result<Response, Error> {
+) -> Result<Response, Error>
+where
+    T: Clone,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
     let stream = tuner_manager
-        .send(StartStreamingMessage {
+        .call(StartStreaming {
             channel: channel.clone(),
             user: user.clone(),
         })
@@ -1169,7 +1346,7 @@ async fn do_service_stream(
 
     // stop_trigger must be created here in order to stop streaming when an
     // error occurs.
-    let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().recipient());
+    let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().into());
 
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &channel.name)
@@ -1377,13 +1554,12 @@ fn server_name() -> String {
 
 // state
 
-#[derive(Clone)]
-struct AppState {
+struct AppState<T, E, R> {
     config: Arc<Config>,
     string_table: Arc<StringTable>,
-    tuner_manager: Addr<TunerManager>,
-    epg: Addr<Epg>,
-    timeshift_manager: Addr<TimeshiftManager>,
+    tuner_manager: T,
+    epg: E,
+    timeshift_manager: R,
 }
 
 // extractors

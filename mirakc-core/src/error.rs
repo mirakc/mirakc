@@ -2,14 +2,6 @@ use std::env;
 use std::fmt;
 use std::io;
 
-use actix;
-use anyhow;
-use hyper;
-use mustache;
-use serde_json;
-use serde_yaml;
-use thiserror;
-
 use crate::command_util;
 
 #[derive(Debug, thiserror::Error)]
@@ -50,8 +42,6 @@ pub enum Error {
     YamlError(serde_yaml::Error),
     #[error("Querystring error: {0}")]
     QuerystringError(serde_qs::Error),
-    #[error("Mailbox error: {0}")]
-    MailboxError(actix::MailboxError),
     #[error("Mustache error: {0}")]
     MustacheError(mustache::Error),
     #[error("std::env error: {0}")]
@@ -62,6 +52,8 @@ pub enum Error {
     HyperError(hyper::Error),
     #[error("axum::http error: {0:?}")]
     AxumHttpError(axum::http::Error),
+    #[error("actlet error: {0}")]
+    ActletError(actlet::Error),
     #[error(transparent)]
     AnyhowError(#[from] anyhow::Error),
 }
@@ -102,12 +94,6 @@ impl From<serde_qs::Error> for Error {
     }
 }
 
-impl From<actix::MailboxError> for Error {
-    fn from(err: actix::MailboxError) -> Self {
-        Self::MailboxError(err)
-    }
-}
-
 impl From<mustache::Error> for Error {
     fn from(err: mustache::Error) -> Self {
         Self::MustacheError(err)
@@ -141,5 +127,11 @@ impl From<hyper::Error> for Error {
 impl From<axum::http::Error> for Error {
     fn from(err: axum::http::Error) -> Self {
         Self::AxumHttpError(err)
+    }
+}
+
+impl From<actlet::Error> for Error {
+    fn from(err: actlet::Error) -> Self {
+        Self::ActletError(err)
     }
 }
