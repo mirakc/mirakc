@@ -115,7 +115,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --no-fail-fast --lib
+          # Compiling actlet-derive fails due to the following error:
+          #
+          #   error: the linked panic runtime `panic_unwind` is not compiled with this crate's panic strategy `abort`
+          #
+          # So, we excludes it from the coverage.
+          args: --all-features --no-fail-fast --lib --workspace --exclude=actlet-derive
         env:
           # See https://github.com/mozilla/grcov#usage
           RUSTC_BOOTSTRAP: 1
