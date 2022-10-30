@@ -25,11 +25,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
-          target: ${{ matrix.target }}
-          override: true
+          targets: ${{ matrix.target }}
       - name: Build
         uses: actions-rs/cargo@v1
         with:

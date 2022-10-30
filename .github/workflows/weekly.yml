@@ -17,10 +17,7 @@ jobs:
           # Fetch all history for all tags and branches so that `git describe`
           # works properly.
           fetch-depth: 0
-      - uses: actions-rs/toolchain@v1  # required for scripts/bump-version
-        with:
-          toolchain: stable
-          override: true
+      - uses: dtolnay/rust-toolchain@stable  # required for scripts/bump-version
       - name: git config
         run: |
           # https://github.com/actions/checkout#push-a-commit-using-the-built-in-token
