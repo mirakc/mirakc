@@ -36,12 +36,8 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -v --release
+        run: |
+          cargo build -v --release
       - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -v --release
+        run: |
+          cargo test -v --release
