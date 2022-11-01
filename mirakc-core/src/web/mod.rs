@@ -765,7 +765,8 @@ where
         .map(|audio| audio.component_tag)
         .collect();
 
-    let data = mustache::MapBuilder::new()
+    let mut builder = mustache::MapBuilder::new();
+    builder = builder
         .insert_str("channel_name", &service.channel.name)
         .insert("channel_type", &service.channel.channel_type)?
         .insert_str("channel", &service.channel.channel)
@@ -775,8 +776,17 @@ where
         .insert("clock_pcr", &clock.pcr)?
         .insert("clock_time", &clock.time)?
         .insert("video_tags", &video_tags)?
-        .insert("audio_tags", &audio_tags)?
-        .build();
+        .insert("audio_tags", &audio_tags)?;
+    if let Some(max_start_delay) = state.config.recorder.max_start_delay {
+        // Round off the fractional (nanosecond) part of the duration.
+        //
+        // The value can be safely converted into i64 because the value is less
+        // than 24h.
+        let duration = Duration::seconds(max_start_delay.as_secs() as i64);
+        let wait_until = program.start_at + duration;
+        builder = builder.insert("wait_until", &wait_until.timestamp_millis())?;
+    }
+    let data = builder.build();
 
     let mut builder = FilterPipelineBuilder::new(data);
     builder.add_pre_filters(&state.config.pre_filters, &filter_setting.pre_filters)?;

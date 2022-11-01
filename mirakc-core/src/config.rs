@@ -6,14 +6,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::SystemTime;
 
-use cron;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use num_cpus;
 use serde::Deserialize;
-use serde_yaml;
 
 use crate::models::*;
 
@@ -454,6 +452,7 @@ impl FiltersConfig {
                       --clock-time={{{clock_time}}} --end-margin=2000\
                       {{#video_tags}} --video-tag={{{.}}}{{/video_tags}}\
                       {{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}\
+                      {{#wait_until}} --wait-until={{{.}}}{{/wait_until}}\
                       "
             .to_string(),
         }
@@ -647,6 +646,42 @@ impl JobConfig {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
+pub struct RecorderConfig {
+    #[serde(default = "RecorderConfig::default_track_airtime_command")]
+    pub track_airtime_command: String,
+    #[serde(default, with = "humantime_serde")]
+    pub max_start_delay: Option<Duration>,
+}
+
+impl RecorderConfig {
+    fn validate(&self) {
+        assert!(
+            !self.track_airtime_command.is_empty(),
+            "config.recorder: `track-airtime-command` must be a non-empty string"
+        );
+        if let Some(max_start_delay) = self.max_start_delay {
+            assert!(max_start_delay < Duration::from_secs(24 * 3600),
+                    "config.recorder: `max-start-delay` must not be less than 24h");
+        }
+    }
+
+    fn default_track_airtime_command() -> String {
+        "mirakc-arib track-airtime --sid={{{sid}}} --eid={{{eid}}}".to_string()
+    }
+}
+
+impl Default for RecorderConfig {
+    fn default() -> Self {
+        RecorderConfig {
+            track_airtime_command: Self::default_track_airtime_command(),
+            max_start_delay: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
 pub struct TimeshiftConfig {
     #[serde(default = "TimeshiftConfig::default_command")]
     pub command: String,
@@ -801,32 +836,6 @@ impl TimeshiftRecorderConfig {
 
     fn default_priority() -> i32 {
         TunerUserPriority::MAX
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-#[serde(deny_unknown_fields)]
-pub struct RecorderConfig {
-    pub track_airtime_command: String,
-}
-
-impl RecorderConfig {
-    fn validate(&self) {
-        assert!(
-            !self.track_airtime_command.is_empty(),
-            "config.recorder: `track-airtime-command` must be a non-empty string"
-        );
-    }
-}
-
-impl Default for RecorderConfig {
-    fn default() -> Self {
-        RecorderConfig {
-            track_airtime_command: "mirakc-arib track-airtime \
-                                    --sid={{{sid}}} --eid={{{eid}}}"
-                .to_string(),
-        }
     }
 }
 
@@ -2220,6 +2229,44 @@ mod tests {
             disabled: true,
         };
         config.validate("test");
+    }
+
+    #[test]
+    fn test_recorder_config() {
+        assert_eq!(
+            serde_yaml::from_str::<RecorderConfig>("{}").unwrap(),
+            Default::default());
+
+        assert_eq!(
+            serde_yaml::from_str::<RecorderConfig>(r#"
+                max-start-delay: 1h
+            "#).unwrap(),
+            RecorderConfig {
+                max_start_delay: Some(Duration::from_secs(3600)),
+                ..Default::default()
+            });
+    }
+
+    #[test]
+    fn test_recorder_config_validate_max_start_delay() {
+        let config = serde_yaml::from_str::<RecorderConfig>(r#"
+            max-start-delay: 1h
+        "#).unwrap();
+        config.validate();
+
+        let config = serde_yaml::from_str::<RecorderConfig>(r#"
+            max-start-delay: 23h 59m 59s
+        "#).unwrap();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_recorder_config_validate_max_start_delay_less_than_24h() {
+        let config = serde_yaml::from_str::<RecorderConfig>(r#"
+            max-start-delay: 24h
+        "#).unwrap();
+        config.validate();
     }
 
     #[test]

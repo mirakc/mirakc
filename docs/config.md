@@ -31,7 +31,7 @@ suitable for your environment.
 | [filters.tuner-filter.command]           | `''`                              |
 | [filters.service-filter.command]         | `mirakc-arib filter-service --sid={{{sid}}}` |
 | [filters.decode-filter.command]          | `''`                              |
-| [filters.program-filter.command]         | `mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} --clock-time={{{clock_time}}} --end-margin=2000{{#video_tags}} --video-tag={{{.}}}{{/video_tags}}{{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}` |
+| [filters.program-filter.command]         | `mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} --clock-time={{{clock_time}}} --end-margin=2000{{#video_tags}} --video-tag={{{.}}}{{/video_tags}}{{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}{{#if wait_until}} --wait-until={{{wait_until}}}{{/if}}` |
 | [pre-filters]                            | `{}`                              |
 | [post-filters]                           | `{}`                              |
 | [jobs.scan-services.command]             | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
@@ -43,6 +43,7 @@ suitable for your environment.
 | [jobs.update-schedules.command]          | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.update-schedules.schedule]         | `'0 21 6,18 * * * *'` (execute at 06:21 and 18:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
+| [recorder.max-start-delay]               | `None`                            |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
 | [timeshift.recorders\[\].service-triple] |                                   |
 | [timeshift.recorders\[\].ts-file]        |                                   |
@@ -90,6 +91,7 @@ suitable for your environment.
 [jobs.update-schedules.command]: #jobsupdate-schedules
 [jobs.update-schedules.schedule]: #jobsupdate-schedules
 [jobs.update-schedules.disabled]: #jobsupdate-schedules
+[recorder.max-start-delay]: #recordermax-start-delay
 [timeshift.command]: #timeshift
 [timeshift.recorders\[\].service-triple]: #timeshiftrecorders
 [timeshift.recorders\[\].ts-file]: #timeshiftrecorders
@@ -608,6 +610,23 @@ Command template variables:
   * A list of SIDs which must be included
 * xsids
   * A list of SIDs which must be excluded
+
+## recorder.max-start-delay
+
+`recorder.max-start-delay` can be used to specify a maximum delay for the start
+time of a TV program in [a human-friendly format](https://github.com/tailhook/humantime).
+
+```yaml
+recorder:
+  max-start-delay: 3h
+```
+
+The value must be less than `24h`.  The value will be converted into the number
+of whole seconds and its fractional part will be ignored.
+
+`mirakc-arib filter-program` will wait the start of a TV program for an amount
+of time specified with `recorder.max-start-delay` if it's specified.  In the
+meantime, `mirakc-arib filter-program` keeps a tuner device open.
 
 ## timeshift
 
