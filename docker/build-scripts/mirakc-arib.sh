@@ -7,7 +7,7 @@ TARGETPLATFORM=$3
 
 . $BASEDIR/vars.sh
 
-MIRAKC_ARIB_VERSION="0.17.2"
+MIRAKC_ARIB_VERSION="0.17.3"
 MIRAKC_ARIB_GIT_URL='https://github.com/mirakc/mirakc-arib.git'
 
 git clone --recursive --depth=1 --branch=$MIRAKC_ARIB_VERSION $MIRAKC_ARIB_GIT_URL .
