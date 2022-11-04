@@ -229,6 +229,7 @@ where
     }
 }
 
+// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,3 +295,4 @@ mod tests {
         }
     }
 }
+// </coverage:exclude>

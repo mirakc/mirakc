@@ -1,3 +1,4 @@
+// <coverage:exclude>
 use super::*;
 
 use std::future::Future;
@@ -5,20 +6,15 @@ use std::future::Future;
 use assert_matches::assert_matches;
 use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
-use indexmap::indexmap;
 use maplit::hashmap;
 
-use crate::broadcaster::BroadcasterStream;
 use crate::config::FilterConfig;
 use crate::config::MountConfig;
 use crate::config::PostFilterConfig;
-use crate::epg::EpgProgram;
-use crate::epg::EpgService;
-use crate::epg::RemoveAirtime;
-use crate::timeshift::TimeshiftLiveStreamSource;
-use crate::timeshift::TimeshiftRecordStreamSource;
-use crate::tuner::StopStreaming;
-use crate::tuner::TunerSubscriptionId;
+use crate::epg::stub::EpgStub;
+use crate::recording::stub::RecordingManagerStub;
+use crate::timeshift::stub::TimeshiftManagerStub;
+use crate::tuner::stub::TunerManagerStub;
 
 #[tokio::test]
 async fn test_get_unknown() {
@@ -333,6 +329,154 @@ async fn test_get_program_stream() {
 }
 
 #[tokio::test]
+async fn test_get_recording_schedules() {
+    let res = get("/api/recording/schedules").await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_create_recording_schedule() {
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 0, 1).into(),
+        content_path: "program.m2ts".into(),
+        priority: 1,
+        pre_filters: vec![],
+        post_filters: vec![],
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/schedules", input).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 0, 0).into(),
+        content_path: "program.m2ts".into(),
+        priority: 1,
+        pre_filters: vec![],
+        post_filters: vec![],
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/schedules", input).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_get_recording_schedule() {
+    let res = get("/api/recording/schedules/1").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = get("/api/recording/schedules/0").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_delete_recording_schedule() {
+    let res = delete("/api/recording/schedules/1").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = delete("/api/recording/schedules/0").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_delete_recording_schedules() {
+    let res = delete("/api/recording/schedules").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = delete("/api/recording/schedules?target=tag").await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_get_recording_recorders() {
+    let res = get("/api/recording/recorders").await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_create_recording_recorder() {
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 0, 1).into(),
+        content_path: "program.m2ts".into(),
+        priority: 1,
+        pre_filters: vec![],
+        post_filters: vec![],
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/recorders", input).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 0, 0).into(),
+        content_path: "program.m2ts".into(),
+        priority: 1,
+        pre_filters: vec![],
+        post_filters: vec![],
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/recorders", input).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_get_recording_recorder() {
+    let res = get("/api/recording/recorders/1").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = get("/api/recording/recorders/0").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_delete_recording_recorder() {
+    let res = delete("/api/recording/recorders/1").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = delete("/api/recording/recorders/0").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_get_recording_records() {
+    let res = get("/api/recording/records").await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_get_recording_record() {
+    let res = get("/api/recording/records/1").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = get("/api/recording/records/0").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_delete_recording_record() {
+    let res = delete("/api/recording/records/1").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = delete("/api/recording/records/0").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let res = delete("/api/recording/records/remove_content?content=remove").await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_get_recording_record_stream() {
+    let res = get("/api/recording/records/1/stream").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert!(res.headers().contains_key("content-range"));
+    assert!(res.headers().contains_key("content-length"));
+
+    let res = get("/api/recording/records/0/stream").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_get_timeshift_recorders() {
     let res = get("/api/timeshift").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -525,7 +669,11 @@ async fn test_filter_setting() {
     {
         let url = format!("/?{}", query);
         let app = Router::new().route("/", routing::get(handler));
-        TestClient::new(app.into_service()).get(&url).send().await.status()
+        TestClient::new(app.into_service())
+            .get(&url)
+            .send()
+            .await
+            .status()
     }
 
     assert_eq!(
@@ -723,12 +871,30 @@ async fn head(url: &str) -> TestResponse {
     TestClient::new(app.into_service()).head(url).send().await
 }
 
+async fn post<T>(url: &str, data: T) -> TestResponse
+where
+    T: serde::Serialize,
+{
+    let app = create_app();
+    TestClient::new(app.into_service())
+        .post(url)
+        .json(&data)
+        .send()
+        .await
+}
+
+async fn delete(url: &str) -> TestResponse {
+    let app = create_app();
+    TestClient::new(app.into_service()).delete(url).send().await
+}
+
 fn create_app() -> Router {
     let state = Arc::new(AppState {
         config: config_for_test(),
         string_table: string_table_for_test(),
         tuner_manager: TunerManagerStub,
         epg: EpgStub,
+        recording_manager: RecordingManagerStub,
         timeshift_manager: TimeshiftManagerStub,
     });
     build_app(state)
@@ -771,6 +937,8 @@ fn config_for_test() -> Arc<Config> {
             content_type: Some("video/mp4".to_string()),
         },
     );
+    // Enable endpoints for recording
+    config.recorder.record_dir = Some("/tmp".into());
     // Disable tracking airtime
     config.recorder.track_airtime_command = "true".to_string();
     // logo for SID#1
@@ -788,327 +956,6 @@ fn string_table_for_test() -> Arc<StringTable> {
     crate::string_table::load(
         format!("{}/../resources/strings.yml", env!("CARGO_MANIFEST_DIR")).as_str(),
     )
-}
-
-#[derive(Clone)]
-struct TunerManagerStub;
-
-#[async_trait]
-impl Call<QueryTuners> for TunerManagerStub {
-    async fn call(
-        &self,
-        _msg: QueryTuners,
-    ) -> Result<<QueryTuners as Message>::Reply, actlet::Error> {
-        Ok(vec![])
-    }
-}
-
-#[async_trait]
-impl Call<StartStreaming> for TunerManagerStub {
-    async fn call(
-        &self,
-        msg: StartStreaming,
-    ) -> Result<<StartStreaming as Message>::Reply, actlet::Error> {
-        if msg.channel.channel == "ch" {
-            let (tx, stream) = BroadcasterStream::new_for_test();
-            let _ = tx.try_send(Bytes::from("hi"));
-            Ok(Ok(MpegTsStream::new(
-                TunerSubscriptionId::default(),
-                stream,
-            )))
-        } else {
-            let (_, stream) = BroadcasterStream::new_for_test();
-            Ok(Ok(MpegTsStream::new(
-                TunerSubscriptionId::default(),
-                stream,
-            )))
-        }
-    }
-}
-
-#[async_trait]
-impl Emit<StopStreaming> for TunerManagerStub {
-    async fn emit(&self, _msg: StopStreaming) {}
-    fn fire(&self, _msg: StopStreaming) {}
-}
-
-impl Into<Emitter<StopStreaming>> for TunerManagerStub {
-    fn into(self) -> Emitter<StopStreaming> {
-        Emitter::new(self)
-    }
-}
-
-#[derive(Clone)]
-struct EpgStub;
-
-#[async_trait]
-impl Call<QueryChannel> for EpgStub {
-    async fn call(
-        &self,
-        msg: QueryChannel,
-    ) -> Result<<QueryChannel as Message>::Reply, actlet::Error> {
-        if msg.channel == "0" {
-            Ok(Err(Error::ChannelNotFound))
-        } else {
-            Ok(Ok(EpgChannel {
-                name: "test".to_string(),
-                channel_type: msg.channel_type,
-                channel: msg.channel.clone(),
-                extra_args: "".to_string(),
-                services: Vec::new(),
-                excluded_services: Vec::new(),
-            }))
-        }
-    }
-}
-
-#[async_trait]
-impl Call<QueryChannels> for EpgStub {
-    async fn call(
-        &self,
-        _msg: QueryChannels,
-    ) -> Result<<QueryChannels as Message>::Reply, actlet::Error> {
-        Ok(vec![])
-    }
-}
-
-#[async_trait]
-impl Call<QueryServices> for EpgStub {
-    async fn call(
-        &self,
-        _msg: QueryServices,
-    ) -> Result<<QueryServices as Message>::Reply, actlet::Error> {
-        Ok(Arc::new(indexmap! {
-            (0, 0, 1).into() => EpgService {
-                nid: 0.into(),
-                tsid: 0.into(),
-                sid: 1.into(),
-                service_type: 1,
-                logo_id: 0,
-                remote_control_key_id: 0,
-                name: "test".to_string(),
-                channel: EpgChannel {
-                    name: "test".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "ch".to_string(),
-                    extra_args: "".to_string(),
-                    services: Vec::new(),
-                    excluded_services: Vec::new(),
-                },
-            },
-        }))
-    }
-}
-
-#[async_trait]
-impl Call<QueryService> for EpgStub {
-    async fn call(
-        &self,
-        msg: QueryService,
-    ) -> Result<<QueryService as Message>::Reply, actlet::Error> {
-        match msg {
-            QueryService::ByNidSid { nid, sid } => {
-                if sid.value() == 0 {
-                    Ok(Err(Error::ServiceNotFound))
-                } else {
-                    let channel = if sid.value() == 1 { "ch" } else { "" };
-                    Ok(Ok(EpgService {
-                        nid,
-                        tsid: 0.into(),
-                        sid,
-                        service_type: 1,
-                        logo_id: 0,
-                        remote_control_key_id: 0,
-                        name: "test".to_string(),
-                        channel: EpgChannel {
-                            name: "test".to_string(),
-                            channel_type: ChannelType::GR,
-                            channel: channel.to_string(),
-                            extra_args: "".to_string(),
-                            services: Vec::new(),
-                            excluded_services: Vec::new(),
-                        },
-                    }))
-                }
-            }
-        }
-    }
-}
-
-#[async_trait]
-impl Call<QueryClock> for EpgStub {
-    async fn call(&self, msg: QueryClock) -> Result<<QueryClock as Message>::Reply, actlet::Error> {
-        match msg.triple.sid().value() {
-            0 => Ok(Err(Error::ClockNotSynced)),
-            _ => Ok(Ok(Clock {
-                pid: 0,
-                pcr: 0,
-                time: 0,
-            })),
-        }
-    }
-}
-
-#[async_trait]
-impl Call<QueryPrograms> for EpgStub {
-    async fn call(
-        &self,
-        _msg: QueryPrograms,
-    ) -> Result<<QueryPrograms as Message>::Reply, actlet::Error> {
-        Ok(Default::default())
-    }
-}
-
-#[async_trait]
-impl Call<QueryProgram> for EpgStub {
-    async fn call(
-        &self,
-        msg: QueryProgram,
-    ) -> Result<<QueryProgram as Message>::Reply, actlet::Error> {
-        match msg {
-            QueryProgram::ByNidSidEid { nid, sid, eid } => {
-                if eid.value() == 0 {
-                    Ok(Err(Error::ProgramNotFound))
-                } else {
-                    Ok(Ok(EpgProgram::new(
-                        (nid.value(), 0, sid.value(), eid.value()).into(),
-                    )))
-                }
-            }
-        }
-    }
-}
-
-#[async_trait]
-impl Call<UpdateAirtime> for EpgStub {
-    async fn call(
-        &self,
-        _msg: UpdateAirtime,
-    ) -> Result<<UpdateAirtime as Message>::Reply, actlet::Error> {
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl Call<RemoveAirtime> for EpgStub {
-    async fn call(
-        &self,
-        _msg: RemoveAirtime,
-    ) -> Result<<RemoveAirtime as Message>::Reply, actlet::Error> {
-        Ok(())
-    }
-}
-
-struct TimeshiftManagerStub;
-
-#[async_trait]
-impl Call<QueryTimeshiftRecorders> for TimeshiftManagerStub {
-    async fn call(
-        &self,
-        _msg: QueryTimeshiftRecorders,
-    ) -> Result<<QueryTimeshiftRecorders as Message>::Reply, actlet::Error> {
-        Ok(Ok(vec![]))
-    }
-}
-
-#[async_trait]
-impl Call<QueryTimeshiftRecorder> for TimeshiftManagerStub {
-    async fn call(
-        &self,
-        msg: QueryTimeshiftRecorder,
-    ) -> Result<<QueryTimeshiftRecorder as Message>::Reply, actlet::Error> {
-        match msg.recorder {
-            TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
-                Ok(Ok(TimeshiftRecorderModel {
-                    index: 0,
-                    name: name.clone(),
-                    service: EpgService {
-                        nid: 1.into(),
-                        tsid: 2.into(),
-                        sid: 3.into(),
-                        service_type: 1,
-                        logo_id: 0,
-                        remote_control_key_id: 0,
-                        name: "test".to_string(),
-                        channel: EpgChannel {
-                            name: "test".to_string(),
-                            channel_type: ChannelType::GR,
-                            channel: "test".to_string(),
-                            extra_args: "".to_string(),
-                            services: Vec::new(),
-                            excluded_services: Vec::new(),
-                        },
-                    },
-                    start_time: Jst::now(),
-                    end_time: Jst::now(),
-                    pipeline: vec![],
-                    recording: true,
-                }))
-            }
-            _ => Ok(Err(Error::RecordNotFound)),
-        }
-    }
-}
-
-#[async_trait]
-impl Call<QueryTimeshiftRecords> for TimeshiftManagerStub {
-    async fn call(
-        &self,
-        _msg: QueryTimeshiftRecords,
-    ) -> Result<<QueryTimeshiftRecords as Message>::Reply, actlet::Error> {
-        Ok(Ok(vec![]))
-    }
-}
-
-#[async_trait]
-impl Call<QueryTimeshiftRecord> for TimeshiftManagerStub {
-    async fn call(
-        &self,
-        msg: QueryTimeshiftRecord,
-    ) -> Result<<QueryTimeshiftRecord as Message>::Reply, actlet::Error> {
-        if msg.record_id == 1u32.into() {
-            Ok(Ok(TimeshiftRecordModel {
-                id: msg.record_id,
-                program: EpgProgram::new((0, 0, 0, 0).into()),
-                start_time: Jst::now(),
-                end_time: Jst::now(),
-                size: 0,
-                recording: true,
-            }))
-        } else {
-            Ok(Err(Error::RecordNotFound))
-        }
-    }
-}
-
-#[async_trait]
-impl Call<CreateTimeshiftLiveStreamSource> for TimeshiftManagerStub {
-    async fn call(
-        &self,
-        msg: CreateTimeshiftLiveStreamSource,
-    ) -> Result<<CreateTimeshiftLiveStreamSource as Message>::Reply, actlet::Error> {
-        match msg.recorder {
-            TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
-                Ok(Ok(TimeshiftLiveStreamSource::new_for_test(name)))
-            }
-            _ => Ok(Err(Error::NoContent)),
-        }
-    }
-}
-
-#[async_trait]
-impl Call<CreateTimeshiftRecordStreamSource> for TimeshiftManagerStub {
-    async fn call(
-        &self,
-        msg: CreateTimeshiftRecordStreamSource,
-    ) -> Result<<CreateTimeshiftRecordStreamSource as Message>::Reply, actlet::Error> {
-        match msg.recorder {
-            TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
-                Ok(Ok(TimeshiftRecordStreamSource::new_for_test(name)))
-            }
-            _ => Ok(Err(Error::NoContent)),
-        }
-    }
 }
 
 fn user_for_test(priority: TunerUserPriority) -> TunerUser {
@@ -1188,3 +1035,4 @@ mod helper {
         }
     }
 }
+// </coverage:exclude>

@@ -22,6 +22,10 @@ pub enum Error {
     RecordNotFound,
     #[error("Session not found")]
     SessionNotFound,
+    #[error("Schedule not found")]
+    ScheduleNotFound,
+    #[error("Recorder not found")]
+    RecorderNotFound,
     #[error("Out of range")]
     OutOfRange,
     #[error("No content")]
@@ -30,6 +34,8 @@ pub enum Error {
     NoLogoData,
     #[error("Access denied")]
     AccessDenied,
+    #[error("Already exists")]
+    AlreadyExists,
     #[error("Command failed: {0}")]
     CommandFailed(command_util::Error),
     #[error("std::fmt::error: {0}")]

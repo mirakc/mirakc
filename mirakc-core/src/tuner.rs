@@ -643,24 +643,19 @@ impl Drop for TunerSession {
 
 pub struct TunerStreamStopTrigger {
     id: TunerSubscriptionId,
-    emitter: Option<Emitter<StopStreaming>>,
+    emitter: Emitter<StopStreaming>,
 }
 
 impl TunerStreamStopTrigger {
     pub fn new(id: TunerSubscriptionId, emitter: Emitter<StopStreaming>) -> Self {
-        Self {
-            id,
-            emitter: Some(emitter),
-        }
+        Self { id, emitter }
     }
 }
 
 impl Drop for TunerStreamStopTrigger {
     fn drop(&mut self) {
         tracing::debug!("{}: Closing...", self.id);
-        if let Some(emitter) = self.emitter.take() {
-            emitter.fire(StopStreaming { id: self.id });
-        }
+        self.emitter.fire(StopStreaming { id: self.id });
     }
 }
 
@@ -913,3 +908,59 @@ mod tests {
         }
     }
 }
+
+// <coverage:exclude>
+#[cfg(test)]
+pub(crate) mod stub {
+    use super::*;
+    use bytes::Bytes;
+
+    #[derive(Clone)]
+    pub(crate) struct TunerManagerStub;
+
+    #[async_trait]
+    impl Call<QueryTuners> for TunerManagerStub {
+        async fn call(
+            &self,
+            _msg: QueryTuners,
+        ) -> Result<<QueryTuners as Message>::Reply, actlet::Error> {
+            Ok(vec![])
+        }
+    }
+
+    #[async_trait]
+    impl Call<StartStreaming> for TunerManagerStub {
+        async fn call(
+            &self,
+            msg: StartStreaming,
+        ) -> Result<<StartStreaming as Message>::Reply, actlet::Error> {
+            if msg.channel.channel == "ch" {
+                let (tx, stream) = BroadcasterStream::new_for_test();
+                let _ = tx.try_send(Bytes::from("hi"));
+                Ok(Ok(MpegTsStream::new(
+                    TunerSubscriptionId::default(),
+                    stream,
+                )))
+            } else {
+                let (_, stream) = BroadcasterStream::new_for_test();
+                Ok(Ok(MpegTsStream::new(
+                    TunerSubscriptionId::default(),
+                    stream,
+                )))
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Emit<StopStreaming> for TunerManagerStub {
+        async fn emit(&self, _msg: StopStreaming) {}
+        fn fire(&self, _msg: StopStreaming) {}
+    }
+
+    impl Into<Emitter<StopStreaming>> for TunerManagerStub {
+        fn into(self) -> Emitter<StopStreaming> {
+            Emitter::new(self)
+        }
+    }
+}
+// </coverage:exclude>

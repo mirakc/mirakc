@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use mustache;
-
 use crate::config::*;
 use crate::error::Error;
 

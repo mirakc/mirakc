@@ -136,11 +136,11 @@ struct SyncClock {
     clock: Clock,
 }
 
+// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::broadcaster::BroadcasterStream;
-    use crate::mpeg_ts_stream::MpegTsStream;
+    use crate::tuner::stub::TunerManagerStub;
     use assert_matches::assert_matches;
 
     #[tokio::test]
@@ -207,33 +207,5 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, None));
     }
-
-    #[derive(Clone)]
-    struct TunerManagerStub;
-
-    #[async_trait]
-    impl Call<StartStreaming> for TunerManagerStub {
-        async fn call(
-            &self,
-            _msg: StartStreaming,
-        ) -> Result<<StartStreaming as Message>::Reply, actlet::Error> {
-            let (_, stream) = BroadcasterStream::new_for_test();
-            Ok(Ok(MpegTsStream::new(
-                TunerSubscriptionId::default(),
-                stream,
-            )))
-        }
-    }
-
-    #[async_trait]
-    impl Emit<StopStreaming> for TunerManagerStub {
-        async fn emit(&self, _msg: StopStreaming) {}
-        fn fire(&self, _msg: StopStreaming) {}
-    }
-
-    impl Into<Emitter<StopStreaming>> for TunerManagerStub {
-        fn into(self) -> Emitter<StopStreaming> {
-            Emitter::new(self)
-        }
-    }
 }
+// </coverage:exclude>

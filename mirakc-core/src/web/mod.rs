@@ -8,12 +8,16 @@ mod uds;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fmt;
 use std::fmt::Write as _;
 use std::io;
+use std::io::SeekFrom;
 use std::net::SocketAddr;
 use std::ops::Bound;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -53,6 +57,7 @@ use futures::stream::Stream;
 use futures::stream::StreamExt;
 use serde::Deserialize;
 use serde::Serialize;
+use tokio::io::AsyncSeekExt;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
@@ -83,6 +88,20 @@ use crate::models::*;
 use crate::mpeg_ts_stream::MpegTsStream;
 use crate::mpeg_ts_stream::MpegTsStreamRange;
 use crate::mpeg_ts_stream::MpegTsStreamTerminator;
+use crate::recording::AddRecordingSchedule;
+use crate::recording::QueryRecordingRecord;
+use crate::recording::QueryRecordingRecorder;
+use crate::recording::QueryRecordingRecorders;
+use crate::recording::QueryRecordingRecords;
+use crate::recording::QueryRecordingSchedule;
+use crate::recording::QueryRecordingSchedules;
+use crate::recording::Record;
+use crate::recording::RemoveRecordingRecord;
+use crate::recording::RemoveRecordingSchedule;
+use crate::recording::RemoveRecordingSchedules;
+use crate::recording::Schedule;
+use crate::recording::StartRecording;
+use crate::recording::StopRecording;
 use crate::string_table::StringTable;
 use crate::timeshift::CreateTimeshiftLiveStreamSource;
 use crate::timeshift::CreateTimeshiftRecordStreamSource;
@@ -105,12 +124,13 @@ use crate::web::escape::escape;
 use crate::web::qs::Qs;
 use crate::web::uds::UdsListener;
 
-pub async fn serve<T, E, R>(
+pub async fn serve<T, E, R, S>(
     config: Arc<Config>,
     string_table: Arc<StringTable>,
     tuner_manager: T,
     epg: E,
-    timeshift_manager: R,
+    recording_manager: R,
+    timeshift_manager: S,
 ) -> Result<(), Error>
 where
     T: Clone + Send + Sync + 'static,
@@ -128,18 +148,32 @@ where
     E: Call<RemoveAirtime>,
     E: Call<UpdateAirtime>,
     R: Send + Sync + 'static,
-    R: Call<CreateTimeshiftLiveStreamSource>,
-    R: Call<CreateTimeshiftRecordStreamSource>,
-    R: Call<QueryTimeshiftRecord>,
-    R: Call<QueryTimeshiftRecords>,
-    R: Call<QueryTimeshiftRecorder>,
-    R: Call<QueryTimeshiftRecorders>,
+    R: Call<AddRecordingSchedule>,
+    R: Call<QueryRecordingRecord>,
+    R: Call<QueryRecordingRecorder>,
+    R: Call<QueryRecordingRecorders>,
+    R: Call<QueryRecordingRecords>,
+    R: Call<QueryRecordingSchedule>,
+    R: Call<QueryRecordingSchedules>,
+    R: Call<RemoveRecordingRecord>,
+    R: Call<RemoveRecordingSchedule>,
+    R: Call<RemoveRecordingSchedules>,
+    R: Call<StartRecording>,
+    R: Call<StopRecording>,
+    S: Send + Sync + 'static,
+    S: Call<CreateTimeshiftLiveStreamSource>,
+    S: Call<CreateTimeshiftRecordStreamSource>,
+    S: Call<QueryTimeshiftRecord>,
+    S: Call<QueryTimeshiftRecords>,
+    S: Call<QueryTimeshiftRecorder>,
+    S: Call<QueryTimeshiftRecorders>,
 {
     let app = build_app(Arc::new(AppState {
         config: config.clone(),
         string_table,
         tuner_manager,
         epg,
+        recording_manager,
         timeshift_manager,
     }));
 
@@ -199,7 +233,7 @@ const X_MIRAKURUN_TUNER_USER_ID: &'static str = "x-mirakurun-tuner-user-id";
 
 // endpoints
 
-fn build_app<T, E, R>(state: Arc<AppState<T, E, R>>) -> Router
+fn build_app<T, E, R, S>(state: Arc<AppState<T, E, R, S>>) -> Router
 where
     T: Clone + Send + Sync + 'static,
     T: Call<QueryTuners>,
@@ -216,12 +250,25 @@ where
     E: Call<RemoveAirtime>,
     E: Call<UpdateAirtime>,
     R: Send + Sync + 'static,
-    R: Call<CreateTimeshiftLiveStreamSource>,
-    R: Call<CreateTimeshiftRecordStreamSource>,
-    R: Call<QueryTimeshiftRecord>,
-    R: Call<QueryTimeshiftRecords>,
-    R: Call<QueryTimeshiftRecorder>,
-    R: Call<QueryTimeshiftRecorders>,
+    R: Call<AddRecordingSchedule>,
+    R: Call<QueryRecordingRecord>,
+    R: Call<QueryRecordingRecorder>,
+    R: Call<QueryRecordingRecorders>,
+    R: Call<QueryRecordingRecords>,
+    R: Call<QueryRecordingSchedule>,
+    R: Call<QueryRecordingSchedules>,
+    R: Call<RemoveRecordingRecord>,
+    R: Call<RemoveRecordingSchedule>,
+    R: Call<RemoveRecordingSchedules>,
+    R: Call<StartRecording>,
+    R: Call<StopRecording>,
+    S: Send + Sync + 'static,
+    S: Call<CreateTimeshiftLiveStreamSource>,
+    S: Call<CreateTimeshiftRecordStreamSource>,
+    S: Call<QueryTimeshiftRecord>,
+    S: Call<QueryTimeshiftRecords>,
+    S: Call<QueryTimeshiftRecorder>,
+    S: Call<QueryTimeshiftRecorders>,
 {
     let api_routes = build_api(state.clone());
 
@@ -264,7 +311,7 @@ where
     router
 }
 
-fn build_api<T, E, R>(state: Arc<AppState<T, E, R>>) -> Router<Arc<AppState<T, E, R>>>
+fn build_api<T, E, R, S>(state: Arc<AppState<T, E, R, S>>) -> Router<Arc<AppState<T, E, R, S>>>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<QueryTuners>,
@@ -281,12 +328,25 @@ where
     E: Call<RemoveAirtime>,
     E: Call<UpdateAirtime>,
     R: Send + Sync + 'static,
-    R: Call<CreateTimeshiftLiveStreamSource>,
-    R: Call<CreateTimeshiftRecordStreamSource>,
-    R: Call<QueryTimeshiftRecord>,
-    R: Call<QueryTimeshiftRecords>,
-    R: Call<QueryTimeshiftRecorder>,
-    R: Call<QueryTimeshiftRecorders>,
+    R: Call<AddRecordingSchedule>,
+    R: Call<QueryRecordingRecord>,
+    R: Call<QueryRecordingRecorder>,
+    R: Call<QueryRecordingRecorders>,
+    R: Call<QueryRecordingRecords>,
+    R: Call<QueryRecordingSchedule>,
+    R: Call<QueryRecordingSchedules>,
+    R: Call<RemoveRecordingRecord>,
+    R: Call<RemoveRecordingSchedule>,
+    R: Call<RemoveRecordingSchedules>,
+    R: Call<StartRecording>,
+    R: Call<StopRecording>,
+    S: Send + Sync + 'static,
+    S: Call<CreateTimeshiftLiveStreamSource>,
+    S: Call<CreateTimeshiftRecordStreamSource>,
+    S: Call<QueryTimeshiftRecord>,
+    S: Call<QueryTimeshiftRecords>,
+    S: Call<QueryTimeshiftRecorder>,
+    S: Call<QueryTimeshiftRecorders>,
 {
     let mut default_headers = HeaderMap::new();
     default_headers.append(CACHE_CONTROL, header_value!("no-store"));
@@ -296,7 +356,7 @@ where
     //
     // We implement a HEAD request handler for each streaming endpoint so that
     // we don't allocate a tuner for the request.
-    Router::with_state(state.clone())
+    let mut router = Router::with_state(state.clone())
         .route("/version", routing::get(version_gh))
         .route("/status", routing::get(status_gh))
         .route("/channels", routing::get(channels_gh))
@@ -349,7 +409,60 @@ where
         .route("/iptv/xmltv", routing::get(iptv_xmltv_gh))
         .route("/docs", routing::get(docs_gh))
         // Disable caching.
-        .layer(DefaultHeadersLayer::new(default_headers))
+        .layer(DefaultHeadersLayer::new(default_headers));
+
+    if state.config.recorder.record_dir.is_some() {
+        tracing::info!("Enable endpoints for recording");
+        router = router
+            .route(
+                "/recording/schedules",
+                routing::get(get_recording_schedules),
+            )
+            .route(
+                "/recording/schedules",
+                routing::post(create_recording_schedule),
+            )
+            .route(
+                "/recording/schedules",
+                routing::delete(delete_recording_schedules),
+            )
+            .route(
+                "/recording/schedules/:id",
+                routing::get(get_recording_schedule),
+            )
+            .route(
+                "/recording/schedules/:id",
+                routing::delete(delete_recording_schedule),
+            )
+            .route(
+                "/recording/recorders",
+                routing::get(get_recording_recorders),
+            )
+            .route(
+                "/recording/recorders",
+                routing::post(create_recording_recorder),
+            )
+            .route(
+                "/recording/recorders/:id",
+                routing::get(get_recording_recorder),
+            )
+            .route(
+                "/recording/recorders/:id",
+                routing::delete(delete_recording_recorder),
+            )
+            .route("/recording/records", routing::get(get_recording_records))
+            .route("/recording/records/:id", routing::get(get_recording_record))
+            .route(
+                "/recording/records/:id",
+                routing::delete(delete_recording_record),
+            )
+            .route(
+                "/recording/records/:id/stream",
+                routing::get(get_recording_record_stream),
+            );
+    };
+
+    router
 }
 
 // Request Handlers
@@ -371,8 +484,8 @@ async fn status_gh() -> impl IntoResponse {
     Json(Status {})
 }
 
-async fn channels_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn channels_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Json<Vec<MirakurunChannel>>, Error>
 where
     E: Call<QueryChannels>,
@@ -385,8 +498,8 @@ where
         .map_err(Error::from)
 }
 
-async fn services_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn services_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Json<Vec<MirakurunService>>, Error>
 where
     E: Call<QueryServices>,
@@ -406,20 +519,16 @@ where
         .into())
 }
 
-async fn service_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn service_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunServiceId>,
 ) -> Result<Json<MirakurunService>, Error>
 where
     E: Call<QueryService>,
 {
-    let msg = QueryService::ByNidSid {
-        nid: id.nid(),
-        sid: id.sid(),
-    };
     state
         .epg
-        .call(msg)
+        .call(QueryService::ByMirakurunServiceId(id))
         .await?
         .map(MirakurunService::from)
         .map(|mut service| {
@@ -428,8 +537,8 @@ where
         })
 }
 
-async fn service_logo_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn service_logo_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunServiceId>,
 ) -> Result<Response<StaticFileBody>, Error>
 where
@@ -437,10 +546,7 @@ where
 {
     let service = state
         .epg
-        .call(QueryService::ByNidSid {
-            nid: id.nid(),
-            sid: id.sid(),
-        })
+        .call(QueryService::ByMirakurunServiceId(id))
         .await??;
 
     match state.config.resource.logos.get(&service.triple()) {
@@ -454,8 +560,8 @@ where
     }
 }
 
-async fn programs_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn programs_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Json<Vec<MirakurunProgram>>, Error>
 where
     E: Call<QueryPrograms>,
@@ -476,28 +582,23 @@ where
     Ok(result.into())
 }
 
-async fn program_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn program_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunProgramId>,
 ) -> Result<Json<MirakurunProgram>, Error>
 where
     E: Call<QueryProgram>,
 {
-    let msg = QueryProgram::ByNidSidEid {
-        nid: id.nid(),
-        sid: id.sid(),
-        eid: id.eid(),
-    };
     state
         .epg
-        .call(msg)
+        .call(QueryProgram::ByMirakurunProgramId(id))
         .await?
         .map(MirakurunProgram::from)
         .map(Json::from)
 }
 
-async fn tuners_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn tuners_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Json<Vec<MirakurunTuner>>, Error>
 where
     T: Call<QueryTuners>,
@@ -510,8 +611,8 @@ where
         .map_err(Error::from)
 }
 
-async fn channel_stream_g<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn channel_stream_g<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(path): Path<ChannelPath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -567,8 +668,8 @@ where
     .await
 }
 
-async fn channel_stream_h<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn channel_stream_h<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(path): Path<ChannelPath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -590,8 +691,8 @@ where
     do_stream_h(&state.config, &user, &filter_setting)
 }
 
-async fn channel_service_stream_g<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn channel_service_stream_g<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(path): Path<ChannelServicePath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -621,8 +722,8 @@ where
     .await
 }
 
-async fn channel_service_stream_h<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn channel_service_stream_h<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(path): Path<ChannelServicePath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -644,8 +745,8 @@ where
     do_stream_h(&state.config, &user, &filter_setting)
 }
 
-async fn service_stream_g<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn service_stream_g<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunServiceId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -658,10 +759,7 @@ where
 {
     let service = state
         .epg
-        .call(QueryService::ByNidSid {
-            nid: id.nid(),
-            sid: id.sid(),
-        })
+        .call(QueryService::ByMirakurunServiceId(id))
         .await??;
 
     do_service_stream(
@@ -676,8 +774,8 @@ where
 }
 
 // IPTV Simple Client in Kodi sends a HEAD request before streaming.
-async fn service_stream_h<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn service_stream_h<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunServiceId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -687,10 +785,7 @@ where
 {
     let _service = state
         .epg
-        .call(QueryService::ByNidSid {
-            nid: id.nid(),
-            sid: id.sid(),
-        })
+        .call(QueryService::ByMirakurunServiceId(id))
         .await??;
 
     // This endpoint returns a positive response even when no tuner is available
@@ -699,8 +794,8 @@ where
     do_stream_h(&state.config, &user, &filter_setting)
 }
 
-async fn program_stream_g<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn program_stream_g<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunProgramId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -718,19 +813,12 @@ where
 {
     let program = state
         .epg
-        .call(QueryProgram::ByNidSidEid {
-            nid: id.nid(),
-            sid: id.sid(),
-            eid: id.eid(),
-        })
+        .call(QueryProgram::ByMirakurunProgramId(id))
         .await??;
 
     let service = state
         .epg
-        .call(QueryService::ByNidSid {
-            nid: id.nid(),
-            sid: id.sid(),
-        })
+        .call(QueryService::ByMirakurunServiceId(id.into()))
         .await??;
 
     let clock = state
@@ -829,8 +917,8 @@ where
     result
 }
 
-async fn program_stream_h<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn program_stream_h<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunProgramId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -842,19 +930,12 @@ where
 {
     let _program = state
         .epg
-        .call(QueryProgram::ByNidSidEid {
-            nid: id.nid(),
-            sid: id.sid(),
-            eid: id.eid(),
-        })
+        .call(QueryProgram::ByMirakurunProgramId(id))
         .await??;
 
     let service = state
         .epg
-        .call(QueryService::ByNidSid {
-            nid: id.nid(),
-            sid: id.sid(),
-        })
+        .call(QueryService::ByMirakurunServiceId(id.into()))
         .await??;
 
     let _clock = state
@@ -870,11 +951,359 @@ where
     do_stream_h(&state.config, &user, &filter_setting)
 }
 
-async fn timeshift_recorders_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn get_recording_schedules<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+) -> Result<Json<Vec<WebRecordingSchedule>>, Error>
+where
+    E: Call<QueryProgram>,
+    R: Call<QueryRecordingSchedules>,
+{
+    let mut results = vec![];
+    let schedules = state
+        .recording_manager
+        .call(QueryRecordingSchedules)
+        .await?;
+    for schedule in schedules.into_iter() {
+        let program = state
+            .epg
+            .call(QueryProgram::ByMirakurunProgramId(schedule.program_id))
+            .await??;
+        results.push(WebRecordingSchedule {
+            program: program.into(),
+            content_path: schedule.content_path.clone(),
+            priority: schedule.priority,
+            pre_filters: schedule.pre_filters.clone(),
+            post_filters: schedule.post_filters.clone(),
+            tags: schedule.tags.clone(),
+        });
+    }
+
+    Ok(Json(results))
+}
+
+async fn get_recording_schedule<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Path(program_id): Path<MirakurunProgramId>,
+) -> Result<Json<WebRecordingSchedule>, Error>
+where
+    E: Call<QueryProgram>,
+    R: Call<QueryRecordingSchedule>,
+{
+    let program = state
+        .epg
+        .call(QueryProgram::ByMirakurunProgramId(program_id))
+        .await??;
+    let schedule = state
+        .recording_manager
+        .call(QueryRecordingSchedule { program_id })
+        .await??;
+    Ok(Json(WebRecordingSchedule {
+        program: program.into(),
+        content_path: schedule.content_path.clone(),
+        priority: schedule.priority,
+        pre_filters: schedule.pre_filters.clone(),
+        post_filters: schedule.post_filters.clone(),
+        tags: schedule.tags.clone(),
+    }))
+}
+
+async fn create_recording_schedule<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Json(input): Json<WebRecordingScheduleInput>,
+) -> Result<(StatusCode, Json<WebRecordingSchedule>), Error>
+where
+    E: Call<QueryProgram>,
+    R: Call<AddRecordingSchedule>,
+    R: Call<QueryRecordingSchedule>,
+{
+    let program = state
+        .epg
+        .call(QueryProgram::ByMirakurunProgramId(input.program_id))
+        .await??;
+    let schedule = Schedule {
+        program_id: input.program_id,
+        content_path: input.content_path,
+        priority: input.priority,
+        pre_filters: input.pre_filters,
+        post_filters: input.post_filters,
+        tags: input.tags,
+        start_at: program.start_at,
+    };
+    let schedule = state
+        .recording_manager
+        .call(AddRecordingSchedule { schedule })
+        .await??;
+    Ok((
+        StatusCode::CREATED,
+        Json(WebRecordingSchedule {
+            program: program.into(),
+            content_path: schedule.content_path.clone(),
+            priority: schedule.priority,
+            pre_filters: schedule.pre_filters.clone(),
+            post_filters: schedule.post_filters.clone(),
+            tags: schedule.tags.clone(),
+        }),
+    ))
+}
+
+async fn delete_recording_schedule<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Path(program_id): Path<MirakurunProgramId>,
+) -> Result<(), Error>
+where
+    R: Call<RemoveRecordingSchedule>,
+{
+    state
+        .recording_manager
+        .call(RemoveRecordingSchedule { program_id })
+        .await??;
+    Ok(())
+}
+
+async fn delete_recording_schedules<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<(), Error>
+where
+    R: Call<RemoveRecordingSchedules>,
+{
+    let target = match query.get("target") {
+        Some(tag) => crate::recording::RemoveTarget::Tag(tag.clone()),
+        None => crate::recording::RemoveTarget::All,
+    };
+    state
+        .recording_manager
+        .call(RemoveRecordingSchedules { target })
+        .await?;
+    Ok(())
+}
+
+async fn get_recording_recorders<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+) -> Result<Json<Vec<WebRecordingRecorder>>, Error>
+where
+    E: Call<QueryProgram>,
+    R: Call<QueryRecordingRecorders>,
+{
+    let mut results = vec![];
+    let recorders = state
+        .recording_manager
+        .call(QueryRecordingRecorders)
+        .await?;
+    for recorder in recorders.into_iter() {
+        let program = state
+            .epg
+            .call(QueryProgram::ByMirakurunProgramId(
+                recorder.schedule.program_id,
+            ))
+            .await??;
+        results.push(WebRecordingRecorder {
+            program: program.into(),
+            content_path: recorder.schedule.content_path.clone(),
+            priority: recorder.schedule.priority,
+            pipeline: recorder
+                .pipeline
+                .into_iter()
+                .map(WebProcessModel::from)
+                .collect(),
+            tags: recorder.schedule.tags.clone(),
+            start_time: recorder.start_time,
+        });
+    }
+    Ok(Json(results))
+}
+
+async fn get_recording_recorder<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Path(program_id): Path<MirakurunProgramId>,
+) -> Result<Json<WebRecordingRecorder>, Error>
+where
+    E: Call<QueryProgram>,
+    R: Call<QueryRecordingRecorder>,
+{
+    let program = state
+        .epg
+        .call(QueryProgram::ByMirakurunProgramId(program_id))
+        .await??;
+    let recorder = state
+        .recording_manager
+        .call(QueryRecordingRecorder { program_id })
+        .await??;
+    Ok(Json(WebRecordingRecorder {
+        program: program.into(),
+        content_path: recorder.schedule.content_path.clone(),
+        priority: recorder.schedule.priority,
+        pipeline: recorder
+            .pipeline
+            .into_iter()
+            .map(WebProcessModel::from)
+            .collect(),
+        tags: recorder.schedule.tags.clone(),
+        start_time: recorder.start_time,
+    }))
+}
+
+async fn create_recording_recorder<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Json(input): Json<WebRecordingScheduleInput>,
+) -> Result<(StatusCode, Json<WebRecordingRecorder>), Error>
+where
+    E: Call<QueryProgram>,
+    R: Call<StartRecording>,
+{
+    let program = state
+        .epg
+        .call(QueryProgram::ByMirakurunProgramId(input.program_id))
+        .await??;
+    let schedule = Arc::new(Schedule {
+        program_id: input.program_id,
+        content_path: input.content_path,
+        priority: input.priority,
+        pre_filters: input.pre_filters,
+        post_filters: input.post_filters,
+        tags: input.tags,
+        start_at: program.start_at,
+    });
+    let recorder = state
+        .recording_manager
+        .call(StartRecording { schedule })
+        .await??;
+    Ok((
+        StatusCode::CREATED,
+        Json(WebRecordingRecorder {
+            program: program.into(),
+            content_path: recorder.schedule.content_path.clone(),
+            priority: recorder.schedule.priority,
+            pipeline: recorder
+                .pipeline
+                .into_iter()
+                .map(WebProcessModel::from)
+                .collect(),
+            tags: recorder.schedule.tags.clone(),
+            start_time: recorder.start_time,
+        }),
+    ))
+}
+
+async fn delete_recording_recorder<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Path(program_id): Path<MirakurunProgramId>,
+) -> Result<(), Error>
+where
+    R: Call<StopRecording>,
+{
+    state
+        .recording_manager
+        .call(StopRecording { program_id })
+        .await??;
+    Ok(())
+}
+
+async fn get_recording_records<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+) -> Result<Json<Vec<WebRecordingRecord>>, Error>
+where
+    R: Call<QueryRecordingRecords>,
+{
+    let records: Vec<WebRecordingRecord> = state
+        .recording_manager
+        .call(QueryRecordingRecords)
+        .await??
+        .into_iter()
+        .map(WebRecordingRecord::from)
+        .collect();
+    Ok(Json(records))
+}
+
+async fn get_recording_record<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Path(id): Path<String>,
+) -> Result<Json<WebRecordingRecord>, Error>
+where
+    R: Call<QueryRecordingRecord>,
+{
+    state
+        .recording_manager
+        .call(QueryRecordingRecord { id })
+        .await?
+        .map(WebRecordingRecord::from)
+        .map(Json::from)
+}
+
+async fn delete_recording_record<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Path(id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<(), Error>
+where
+    R: Call<RemoveRecordingRecord>,
+{
+    let remove_content = match query.get("content") {
+        Some(content) if content == "remove" => true,
+        _ => false,
+    };
+    state
+        .recording_manager
+        .call(RemoveRecordingRecord { id, remove_content })
+        .await?
+}
+
+async fn get_recording_record_stream<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Path(id): Path<String>,
+    ranges: Option<TypedHeader<axum::headers::Range>>,
+) -> Result<Response, Error>
+where
+    R: Call<QueryRecordingRecord>,
+{
+    // Use only the first start position for the seek support.
+    let start = ranges
+        .map(|TypedHeader(ranges)| {
+            ranges
+                .iter()
+                .next()
+                .map(|(start, _)| match start {
+                    Bound::Included(n) => Some(n),
+                    Bound::Excluded(n) => Some(n + 1),
+                    _ => None,
+                })
+                .flatten()
+        })
+        .flatten()
+        .unwrap_or(0);
+
+    let record = state
+        .recording_manager
+        .call(QueryRecordingRecord { id })
+        .await??;
+
+    let mut file = tokio::fs::File::open(record.content_path).await?;
+    if start > 0 {
+        file.seek(SeekFrom::Start(start)).await?;
+    }
+    let size = file.metadata().await?.len();
+
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, header_value!(record.content_type));
+    headers.insert(ACCEPT_RANGES, header_value!("bytes"));
+    headers.insert(CONTENT_RANGE, header_value!(format!("{}-", start)));
+
+    let stream = ReaderStream::new(file);
+    let body = StreamBody::new(stream);
+    let body = SeekableStreamBody::new(body, size - start);
+
+    if start > 0 {
+        Ok((StatusCode::PARTIAL_CONTENT, headers, body).into_response())
+    } else {
+        Ok((headers, body).into_response())
+    }
+}
+
+async fn timeshift_recorders_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Json<Vec<WebTimeshiftRecorder>>, Error>
 where
-    R: Call<QueryTimeshiftRecorders>,
+    S: Call<QueryTimeshiftRecorders>,
 {
     state
         .timeshift_manager
@@ -889,12 +1318,12 @@ where
         .map(Json::from)
 }
 
-async fn timeshift_recorder_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn timeshift_recorder_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(recorder): Path<String>,
 ) -> Result<Json<WebTimeshiftRecorder>, Error>
 where
-    R: Call<QueryTimeshiftRecorder>,
+    S: Call<QueryTimeshiftRecorder>,
 {
     let msg = QueryTimeshiftRecorder {
         recorder: TimeshiftRecorderQuery::ByName(recorder),
@@ -907,12 +1336,12 @@ where
         .map(Json::from)
 }
 
-async fn timeshift_records_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn timeshift_records_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(recorder): Path<String>,
 ) -> Result<Json<Vec<WebTimeshiftRecord>>, Error>
 where
-    R: Call<QueryTimeshiftRecords>,
+    S: Call<QueryTimeshiftRecords>,
 {
     let msg = QueryTimeshiftRecords {
         recorder: TimeshiftRecorderQuery::ByName(recorder),
@@ -930,12 +1359,12 @@ where
         .map(Json::from)
 }
 
-async fn timeshift_record_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn timeshift_record_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(path): Path<TimeshiftRecordPath>,
 ) -> Result<Json<WebTimeshiftRecord>, Error>
 where
-    R: Call<QueryTimeshiftRecord>,
+    S: Call<QueryTimeshiftRecord>,
 {
     let msg = QueryTimeshiftRecord {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder),
@@ -949,16 +1378,16 @@ where
         .map(Json::from)
 }
 
-async fn timeshift_stream_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn timeshift_stream_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(recorder_id): Path<String>,
     record_id: Option<Query<TimeshiftRecordId>>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error>
 where
-    R: Call<CreateTimeshiftLiveStreamSource>,
-    R: Call<QueryTimeshiftRecorder>,
+    S: Call<CreateTimeshiftLiveStreamSource>,
+    S: Call<QueryTimeshiftRecorder>,
 {
     let msg = QueryTimeshiftRecorder {
         recorder: TimeshiftRecorderQuery::ByName(recorder_id.clone()),
@@ -997,17 +1426,17 @@ where
     .await
 }
 
-async fn timeshift_record_stream_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn timeshift_record_stream_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(path): Path<TimeshiftRecordPath>,
     ranges: Option<TypedHeader<axum::headers::Range>>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error>
 where
-    R: Call<CreateTimeshiftRecordStreamSource>,
-    R: Call<QueryTimeshiftRecord>,
-    R: Call<QueryTimeshiftRecorder>,
+    S: Call<CreateTimeshiftRecordStreamSource>,
+    S: Call<QueryTimeshiftRecord>,
+    S: Call<QueryTimeshiftRecorder>,
 {
     let msg = QueryTimeshiftRecorder {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
@@ -1092,8 +1521,8 @@ where
     .await
 }
 
-async fn iptv_playlist_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn iptv_playlist_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Host(host): Host,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> impl IntoResponse
@@ -1189,8 +1618,8 @@ where
         .body(buf)?)
 }
 
-async fn iptv_epg_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn iptv_epg_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Host(host): Host,
     Query(query): Query<IptvEpgQuery>,
 ) -> impl IntoResponse
@@ -1202,8 +1631,8 @@ where
 }
 
 // For compatibility with Mirakurun
-async fn iptv_xmltv_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn iptv_xmltv_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
     Host(host): Host,
 ) -> impl IntoResponse
 where
@@ -1326,8 +1755,8 @@ where
         .body(buf)?)
 }
 
-async fn docs_gh<T, E, R>(
-    State(state): State<Arc<AppState<T, E, R>>>,
+async fn docs_gh<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Response<StaticFileBody>, Error> {
     Ok(Response::builder()
         .header(CONTENT_TYPE, "application/json")
@@ -1409,7 +1838,7 @@ where
         let (input, output) = pipeline.take_endpoints()?;
 
         let stream_id = stream.id();
-        tokio::spawn(async {
+        tokio::spawn(async move {
             let _ = stream.pipe(input).await;
         });
 
@@ -1564,12 +1993,13 @@ fn server_name() -> String {
 
 // state
 
-struct AppState<T, E, R> {
+struct AppState<T, E, R, S> {
     config: Arc<Config>,
     string_table: Arc<StringTable>,
     tuner_manager: T,
     epg: E,
-    timeshift_manager: R,
+    recording_manager: R,
+    timeshift_manager: S,
 }
 
 // extractors
@@ -1699,6 +2129,92 @@ struct Status {}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WebRecordingSchedule {
+    program: MirakurunProgram,
+    content_path: PathBuf,
+    priority: i32,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pre_filters: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    post_filters: Vec<String>,
+    #[serde(skip_serializing_if = "HashSet::is_empty")]
+    tags: HashSet<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebRecordingScheduleInput {
+    program_id: MirakurunProgramId,
+    content_path: PathBuf,
+    #[serde(default)]
+    priority: i32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pre_filters: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    post_filters: Vec<String>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    tags: HashSet<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebRecordingRecorder {
+    program: MirakurunProgram,
+    content_path: PathBuf,
+    priority: i32,
+    pipeline: Vec<WebProcessModel>,
+    #[serde(skip_serializing_if = "HashSet::is_empty")]
+    tags: HashSet<String>,
+    #[serde(with = "serde_jst")]
+    start_time: DateTime<Jst>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebRecordingRecord {
+    id: String,
+    program: MirakurunProgram,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pre_filters: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    post_filters: Vec<String>,
+    #[serde(skip_serializing_if = "HashSet::is_empty")]
+    tags: HashSet<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_size: Option<u64>,
+}
+
+impl From<Record> for WebRecordingRecord {
+    fn from(record: Record) -> Self {
+        let content_size = record
+            .content_path
+            .metadata()
+            .ok()
+            .map(|metadata| metadata.len());
+        let (content_path, content_type) = if record.content_path.exists() {
+            (Some(record.content_path), Some(record.content_type))
+        } else {
+            (None, None)
+        };
+        WebRecordingRecord {
+            id: record.program.record_id(),
+            program: record.program.into(),
+            pre_filters: record.pre_filters,
+            post_filters: record.post_filters,
+            tags: record.tags,
+            content_path,
+            content_type,
+            content_size,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WebTimeshiftRecorder {
     name: String,
     service: MirakurunService,
@@ -1812,6 +2328,8 @@ impl IntoResponse for Error {
             Error::ServiceNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::ProgramNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::RecordNotFound => error_response!(StatusCode::NOT_FOUND),
+            Error::ScheduleNotFound => error_response!(StatusCode::NOT_FOUND),
+            Error::RecorderNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::OutOfRange => error_response!(StatusCode::RANGE_NOT_SATISFIABLE),
             Error::NoContent => error_response!(StatusCode::NO_CONTENT),
             Error::NoLogoData => {

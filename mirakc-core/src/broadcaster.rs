@@ -262,6 +262,7 @@ impl Stream for BroadcasterStream {
     }
 }
 
+// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,3 +371,4 @@ mod tests {
         system.stop();
     }
 }
+// </coverage:exclude>

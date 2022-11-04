@@ -67,6 +67,8 @@ pub struct Config {
     #[serde(default)]
     pub timeshift: TimeshiftConfig,
     #[serde(default)]
+    pub event_handlers: EventHandlersConfig,
+    #[serde(default)]
     pub resource: ResourceConfig,
     #[serde(default)]
     pub mirakurun: MirakurunConfig,
@@ -647,6 +649,7 @@ impl JobConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct RecorderConfig {
+    pub record_dir: Option<PathBuf>,
     #[serde(default = "RecorderConfig::default_track_airtime_command")]
     pub track_airtime_command: String,
     #[serde(default, with = "humantime_serde")]
@@ -655,13 +658,25 @@ pub struct RecorderConfig {
 
 impl RecorderConfig {
     fn validate(&self) {
+        if let Some(ref record_dir) = self.record_dir {
+            assert!(
+                record_dir.is_absolute(),
+                "config.recorder: `record_dir` must be an absolute path"
+            );
+            assert!(
+                record_dir.is_dir(),
+                "config.recorder: `record_dir` must be a path to an existing directory"
+            );
+        }
         assert!(
             !self.track_airtime_command.is_empty(),
             "config.recorder: `track-airtime-command` must be a non-empty string"
         );
         if let Some(max_start_delay) = self.max_start_delay {
-            assert!(max_start_delay < Duration::from_secs(24 * 3600),
-                    "config.recorder: `max-start-delay` must not be less than 24h");
+            assert!(
+                max_start_delay < Duration::from_secs(24 * 3600),
+                "config.recorder: `max-start-delay` must not be less than 24h"
+            );
         }
     }
 
@@ -673,6 +688,7 @@ impl RecorderConfig {
 impl Default for RecorderConfig {
     fn default() -> Self {
         RecorderConfig {
+            record_dir: None,
             track_airtime_command: Self::default_track_airtime_command(),
             max_start_delay: Default::default(),
         }
@@ -839,6 +855,15 @@ impl TimeshiftRecorderConfig {
     }
 }
 
+#[derive(Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
+pub struct EventHandlersConfig {
+    #[serde(default)]
+    pub epg_programs_updated: String,
+}
+
 #[derive(Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
@@ -934,6 +959,7 @@ impl Default for MirakurunConfig {
     }
 }
 
+// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2235,37 +2261,99 @@ mod tests {
     fn test_recorder_config() {
         assert_eq!(
             serde_yaml::from_str::<RecorderConfig>("{}").unwrap(),
-            Default::default());
+            Default::default()
+        );
 
         assert_eq!(
-            serde_yaml::from_str::<RecorderConfig>(r#"
+            serde_yaml::from_str::<RecorderConfig>(
+                r#"
+                record-dir: /tmp
+            "#
+            )
+            .unwrap(),
+            RecorderConfig {
+                record_dir: Some("/tmp".into()),
+                ..Default::default()
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<RecorderConfig>(
+                r#"
                 max-start-delay: 1h
-            "#).unwrap(),
+            "#
+            )
+            .unwrap(),
             RecorderConfig {
                 max_start_delay: Some(Duration::from_secs(3600)),
                 ..Default::default()
-            });
+            }
+        );
+    }
+
+    #[test]
+    fn test_recorder_config_validate_record_path() {
+        let config = serde_yaml::from_str::<RecorderConfig>(
+            r#"
+            record-dir: /tmp
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_recorder_config_validate_record_path_relative() {
+        let config = serde_yaml::from_str::<RecorderConfig>(
+            r#"
+            record-dir: relative/dir
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_recorder_config_validate_record_path_not_existing() {
+        let config = serde_yaml::from_str::<RecorderConfig>(
+            r#"
+            record-dir: /no/such/dir
+        "#,
+        )
+        .unwrap();
+        config.validate();
     }
 
     #[test]
     fn test_recorder_config_validate_max_start_delay() {
-        let config = serde_yaml::from_str::<RecorderConfig>(r#"
+        let config = serde_yaml::from_str::<RecorderConfig>(
+            r#"
             max-start-delay: 1h
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         config.validate();
 
-        let config = serde_yaml::from_str::<RecorderConfig>(r#"
+        let config = serde_yaml::from_str::<RecorderConfig>(
+            r#"
             max-start-delay: 23h 59m 59s
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         config.validate();
     }
 
     #[test]
     #[should_panic]
     fn test_recorder_config_validate_max_start_delay_less_than_24h() {
-        let config = serde_yaml::from_str::<RecorderConfig>(r#"
+        let config = serde_yaml::from_str::<RecorderConfig>(
+            r#"
             max-start-delay: 24h
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         config.validate();
     }
 
@@ -2719,3 +2807,4 @@ mod tests {
         config.validate();
     }
 }
+// </coverage:exclude>

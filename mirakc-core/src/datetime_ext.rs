@@ -1,8 +1,22 @@
 use std::fmt;
 
-use chrono::{
-    Date, DateTime, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset, TimeZone, Utc,
-};
+#[cfg(test)]
+use std::cell::Cell;
+#[cfg(test)]
+use std::sync::Mutex;
+
+use chrono::Date;
+use chrono::DateTime;
+use chrono::FixedOffset;
+use chrono::LocalResult;
+use chrono::NaiveDate;
+use chrono::NaiveDateTime;
+use chrono::Offset;
+use chrono::TimeZone;
+use chrono::Utc;
+
+#[cfg(test)]
+use once_cell::sync::Lazy;
 
 // The following implementation is based on chrono::offset::Utc.
 //
@@ -12,8 +26,18 @@ use chrono::{
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Jst;
 
+#[cfg(test)]
+static FREEZED: Lazy<Mutex<Cell<Option<DateTime<Jst>>>>> =
+    Lazy::new(|| Mutex::new(Cell::new(None)));
+
 impl Jst {
     pub fn now() -> DateTime<Jst> {
+        // <coverage:exclude>
+        #[cfg(test)]
+        if let Some(ref freezed) = FREEZED.lock().unwrap().get() {
+            return freezed.clone();
+        }
+        // <coverage:exclude>
         Utc::now().with_timezone(&Jst)
     }
 
@@ -24,6 +48,13 @@ impl Jst {
     pub fn midnight() -> DateTime<Jst> {
         Jst::today().and_hms(0, 0, 0)
     }
+
+    // <coverage:exclude>
+    #[cfg(test)]
+    pub fn freeze(freezed: DateTime<Jst>) {
+        FREEZED.lock().unwrap().set(Some(freezed));
+    }
+    // </coverage:exclude>
 }
 
 impl TimeZone for Jst {
@@ -68,6 +99,7 @@ impl fmt::Debug for Jst {
     }
 }
 
+// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +127,7 @@ mod tests {
         assert_eq!(jst.timestamp(), UNIX_TIME);
     }
 }
+// </coverage:exclude>
 
 // The `serde_jst` module provides serde implementaion for
 // chrono::DateTime<Jst>, which can be applied with the `with` field attribute.
@@ -131,6 +164,7 @@ pub mod serde_jst {
         Ok(ts_milliseconds::deserialize(d)?.with_timezone(&Jst))
     }
 
+    // <coverage:exclude>
     #[cfg(test)]
     mod tests {
         use chrono::{DateTime, TimeZone, Utc};
@@ -169,6 +203,7 @@ pub mod serde_jst {
             assert_eq!(JSON, serde_json::to_string(&Data::new(UNIX_TIME)).unwrap());
         }
     }
+    // </coverage:exclude>
 }
 
 // The `serde_duration_in_millis` module provides serde implementaion for
@@ -221,6 +256,7 @@ pub mod serde_duration_in_millis {
         }
     }
 
+    // <coverage:exclude>
     #[cfg(test)]
     mod tests {
         use chrono::Duration;
@@ -265,4 +301,5 @@ pub mod serde_duration_in_millis {
             assert_eq!(JSON, serde_json::to_string(&Data::new(DURATION)).unwrap());
         }
     }
+    // </coverage:exclude>
 }

@@ -1,10 +1,10 @@
 use std::any::type_name;
 use std::future::Future;
+use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "derive")]
@@ -58,17 +58,19 @@ impl Spawn for System {
             .expect("Promoter died?")
     }
 
-    fn spawn_task<F>(&self, fut: F) -> JoinHandle<()>
+    fn spawn_task<F>(&self, fut: F) -> CancellationToken
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        let stop_token = self.stop_token.clone();
+        let stop_token = self.stop_token.child_token();
+        let token = stop_token.clone();
         tokio::spawn(async move {
             tokio::select! {
                 _ = fut => (),
                 _ = stop_token.cancelled() => (),
             }
-        })
+        });
+        token
     }
 }
 
@@ -115,17 +117,19 @@ impl<A> Spawn for Context<A> {
             .expect("Promoter died?")
     }
 
-    fn spawn_task<F>(&self, fut: F) -> JoinHandle<()>
+    fn spawn_task<F>(&self, fut: F) -> CancellationToken
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        let stop_token = self.stop_token.clone();
+        let stop_token = self.stop_token.child_token();
+        let token = stop_token.clone();
         tokio::spawn(async move {
             tokio::select! {
                 _ = fut => (),
                 _ = stop_token.cancelled() => (),
             }
-        })
+        });
+        token
     }
 }
 
@@ -141,6 +145,22 @@ impl<A> Address<A> {
         let (sender, receiver) = mpsc::channel(Self::MAX_MESSAGES);
         let addr = Address { sender };
         (addr, receiver)
+    }
+}
+
+impl<A: Actor> Address<A> {
+    /// Inspect an actor.
+    pub async fn inspect<F>(&self, inspect: F) -> Result<()>
+    where
+        F: FnOnce(&A) + Send,
+        // The function will be sent to a task.
+        F: 'static,
+    {
+        let msg = Inspect {
+            inspect,
+            _phantom: PhantomData,
+        };
+        self.call(msg).await
     }
 }
 
@@ -352,7 +372,7 @@ pub trait Spawn: Sized {
         A: Actor;
 
     /// Spawns a new asynchronous task dedicated for a `Future`.
-    fn spawn_task<F>(&self, fut: F) -> JoinHandle<()>
+    fn spawn_task<F>(&self, fut: F) -> CancellationToken
     where
         F: Future<Output = ()> + Send + 'static;
 }
@@ -520,6 +540,38 @@ where
     async fn dispatch(mut self: Box<Self>, actor: &mut A, ctx: &mut Context<A>) {
         let message = self.message.take().unwrap();
         actor.handle(message, ctx).await;
+    }
+}
+
+/// An internal message to inspect an actor.
+struct Inspect<A, F> {
+    inspect: F,
+    _phantom: PhantomData<A>,
+}
+
+impl<A, F> Message for Inspect<A, F>
+where
+    A: Actor,
+    F: FnOnce(&A) + Send,
+{
+    type Reply = ();
+}
+
+impl<A, F> Action for Inspect<A, F>
+where
+    A: Actor,
+    F: FnOnce(&A) + Send,
+{
+}
+
+#[async_trait]
+impl<A, F> Handler<Inspect<A, F>> for A
+where
+    A: Actor,
+    F: FnOnce(&A) + Send + 'static,
+{
+    async fn handle(&mut self, msg: Inspect<A, F>, _ctx: &mut Context<Self>) {
+        (msg.inspect)(self);
     }
 }
 

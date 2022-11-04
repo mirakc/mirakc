@@ -8,6 +8,8 @@ pub mod error;
 pub mod filter;
 pub mod models;
 pub mod mpeg_ts_stream;
+pub mod recording;
+pub mod script_runner;
 pub mod string_table;
 pub mod timeshift;
 pub mod tracing_ext;

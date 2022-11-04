@@ -70,6 +70,13 @@ impl TestClient {
     }
 
     #[allow(dead_code)]
+    pub fn delete(&self, url: &str) -> RequestBuilder {
+        RequestBuilder {
+            builder: self.client.delete(format!("http://{}{}", self.addr, url)),
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn patch(&self, url: &str) -> RequestBuilder {
         RequestBuilder {
             builder: self.client.patch(format!("http://{}{}", self.addr, url)),

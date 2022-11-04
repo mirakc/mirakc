@@ -41,9 +41,10 @@ use crate::tuner::*;
 type TimeshiftLiveStream = MpegTsStream<String, ReaderStream<TimeshiftFileReader>>;
 type TimeshiftRecordStream = MpegTsStream<String, ReaderStream<Take<TimeshiftFileReader>>>;
 
-pub struct TimeshiftManager<T> {
+pub struct TimeshiftManager<T, E> {
     config: Arc<Config>,
     tuner_manager: T,
+    epg: E,
     recorders: IndexMap<String, TimeshiftManagerRecorderHolder>,
 }
 
@@ -53,25 +54,35 @@ struct TimeshiftManagerRecorderHolder {
     addr: Address<TimeshiftRecorder>,
 }
 
-impl<T> TimeshiftManager<T> {
-    pub fn new(config: Arc<Config>, tuner_manager: T) -> Self {
+impl<T, E> TimeshiftManager<T, E> {
+    pub fn new(config: Arc<Config>, tuner_manager: T, epg: E) -> Self {
         TimeshiftManager {
             config,
             tuner_manager,
+            epg,
             recorders: IndexMap::new(),
         }
     }
 }
 
 #[async_trait]
-impl<T> Actor for TimeshiftManager<T>
+impl<T, E> Actor for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<RegisterEmitter>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
+
+        self.epg
+            .call(RegisterEmitter::ServicesUpdated(
+                ctx.address().clone().into(),
+            ))
+            .await
+            .expect("Failed to register the emitter");
 
         let mut recorders = IndexMap::new();
         for (index, name) in self.config.timeshift.recorders.keys().enumerate() {
@@ -105,11 +116,13 @@ where
 pub struct QueryTimeshiftRecorders;
 
 #[async_trait]
-impl<T> Handler<QueryTimeshiftRecorders> for TimeshiftManager<T>
+impl<T, E> Handler<QueryTimeshiftRecorders> for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -134,11 +147,13 @@ where
 macro_rules! impl_proxy_handler {
     ($msg:ty) => {
         #[async_trait]
-        impl<T> Handler<$msg> for TimeshiftManager<T>
+        impl<T, E> Handler<$msg> for TimeshiftManager<T, E>
         where
             T: Clone + Send + Sync + 'static,
             T: Call<StartStreaming>,
             T: Into<Emitter<StopStreaming>>,
+            E: Send + Sync + 'static,
+            E: Call<RegisterEmitter>,
         {
             async fn handle(
                 &mut self,
@@ -288,14 +303,16 @@ impl fmt::Display for CreateTimeshiftRecordStreamSource {
 impl_proxy_handler!(CreateTimeshiftRecordStreamSource);
 
 #[async_trait]
-impl<T> Handler<NotifyServicesUpdated> for TimeshiftManager<T>
+impl<T, E> Handler<ServicesUpdated> for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<RegisterEmitter>,
 {
-    async fn handle(&mut self, msg: NotifyServicesUpdated, _ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "NotifyServicesUpdated");
+    async fn handle(&mut self, msg: ServicesUpdated, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "ServicesUpdated");
         for (name, config) in self.config.clone().timeshift.recorders.iter() {
             let triple = ServiceTriple::from(config.service_triple.clone());
             if msg.services.contains_key(&triple) {
@@ -329,11 +346,13 @@ pub struct ReactivateTimeshiftRecorder {
 }
 
 #[async_trait]
-impl<T> Handler<ReactivateTimeshiftRecorder> for TimeshiftManager<T>
+impl<T, E> Handler<ReactivateTimeshiftRecorder> for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<RegisterEmitter>,
 {
     async fn handle(&mut self, msg: ReactivateTimeshiftRecorder, _ctx: &mut Context<Self>) {
         const MAX_REACTIVATION_COUNT: usize = 5;
@@ -660,7 +679,7 @@ impl TimeshiftRecorder {
         assert!(self.points.len() <= self.config().max_chunks());
     }
 
-    fn handle_event_start(&mut self, quad: EventQuad, event: EitEvent, point: TimeshiftPoint) {
+    fn handle_event_start(&mut self, quad: ProgramQuad, event: EitEvent, point: TimeshiftPoint) {
         // Multiple records for the same TV program may be created when the timeshift recording
         // restarts.  Therefore, we use the recording start time instead of the start time in
         // the EPG data.
@@ -678,13 +697,13 @@ impl TimeshiftRecorder {
             .insert(id, TimeshiftRecord::new(id, program, point));
     }
 
-    fn handle_event_update(&mut self, quad: EventQuad, event: EitEvent, point: TimeshiftPoint) {
+    fn handle_event_update(&mut self, quad: ProgramQuad, event: EitEvent, point: TimeshiftPoint) {
         let mut program = EpgProgram::new(quad);
         program.update(&event);
         self.update_last_record(program, point, false);
     }
 
-    fn handle_event_end(&mut self, quad: EventQuad, event: EitEvent, point: TimeshiftPoint) {
+    fn handle_event_end(&mut self, quad: ProgramQuad, event: EitEvent, point: TimeshiftPoint) {
         let mut program = EpgProgram::new(quad);
         program.update(&event);
         self.update_last_record(program, point, true);
@@ -854,13 +873,13 @@ struct TimeshiftRecorderDataForSave<'a> {
 }
 
 #[derive(Message)]
-struct NotifyServiceUpdated {
+struct ServiceUpdated {
     service: EpgService,
 }
 
 #[async_trait]
-impl Handler<NotifyServiceUpdated> for TimeshiftRecorder {
-    async fn handle(&mut self, msg: NotifyServiceUpdated, _ctx: &mut Context<Self>) {
+impl Handler<ServiceUpdated> for TimeshiftRecorder {
+    async fn handle(&mut self, msg: ServiceUpdated, _ctx: &mut Context<Self>) {
         self.service = msg.service;
     }
 }
@@ -1031,7 +1050,7 @@ impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
                 self.handle_chunk(msg.chunk);
             }
             TimeshiftRecorderMessage::EventStart(msg) => {
-                let quad = EventQuad::new(
+                let quad = ProgramQuad::new(
                     msg.original_network_id,
                     msg.transport_stream_id,
                     msg.service_id,
@@ -1040,7 +1059,7 @@ impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
                 self.handle_event_start(quad, msg.event, msg.record);
             }
             TimeshiftRecorderMessage::EventUpdate(msg) => {
-                let quad = EventQuad::new(
+                let quad = ProgramQuad::new(
                     msg.original_network_id,
                     msg.transport_stream_id,
                     msg.service_id,
@@ -1049,7 +1068,7 @@ impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
                 self.handle_event_update(quad, msg.event, msg.record);
             }
             TimeshiftRecorderMessage::EventEnd(msg) => {
-                let quad = EventQuad::new(
+                let quad = ProgramQuad::new(
                     msg.original_network_id,
                     msg.transport_stream_id,
                     msg.service_id,
@@ -1764,6 +1783,123 @@ mod tests {
             _ctx: &mut Context<Self>,
         ) -> <QueryTimeshiftRecorderState as Message>::Reply {
             self.session.is_some()
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod stub {
+    use super::*;
+
+    pub(crate) struct TimeshiftManagerStub;
+
+    #[async_trait]
+    impl Call<QueryTimeshiftRecorders> for TimeshiftManagerStub {
+        async fn call(
+            &self,
+            _msg: QueryTimeshiftRecorders,
+        ) -> Result<<QueryTimeshiftRecorders as Message>::Reply, actlet::Error> {
+            Ok(Ok(vec![]))
+        }
+    }
+
+    #[async_trait]
+    impl Call<QueryTimeshiftRecorder> for TimeshiftManagerStub {
+        async fn call(
+            &self,
+            msg: QueryTimeshiftRecorder,
+        ) -> Result<<QueryTimeshiftRecorder as Message>::Reply, actlet::Error> {
+            match msg.recorder {
+                TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
+                    Ok(Ok(TimeshiftRecorderModel {
+                        index: 0,
+                        name: name.clone(),
+                        service: EpgService {
+                            nid: 1.into(),
+                            tsid: 2.into(),
+                            sid: 3.into(),
+                            service_type: 1,
+                            logo_id: 0,
+                            remote_control_key_id: 0,
+                            name: "test".to_string(),
+                            channel: EpgChannel {
+                                name: "test".to_string(),
+                                channel_type: ChannelType::GR,
+                                channel: "test".to_string(),
+                                extra_args: "".to_string(),
+                                services: Vec::new(),
+                                excluded_services: Vec::new(),
+                            },
+                        },
+                        start_time: Jst::now(),
+                        end_time: Jst::now(),
+                        pipeline: vec![],
+                        recording: true,
+                    }))
+                }
+                _ => Ok(Err(Error::RecordNotFound)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Call<QueryTimeshiftRecords> for TimeshiftManagerStub {
+        async fn call(
+            &self,
+            _msg: QueryTimeshiftRecords,
+        ) -> Result<<QueryTimeshiftRecords as Message>::Reply, actlet::Error> {
+            Ok(Ok(vec![]))
+        }
+    }
+
+    #[async_trait]
+    impl Call<QueryTimeshiftRecord> for TimeshiftManagerStub {
+        async fn call(
+            &self,
+            msg: QueryTimeshiftRecord,
+        ) -> Result<<QueryTimeshiftRecord as Message>::Reply, actlet::Error> {
+            if msg.record_id == 1u32.into() {
+                Ok(Ok(TimeshiftRecordModel {
+                    id: msg.record_id,
+                    program: EpgProgram::new((0, 0, 0, 0).into()),
+                    start_time: Jst::now(),
+                    end_time: Jst::now(),
+                    size: 0,
+                    recording: true,
+                }))
+            } else {
+                Ok(Err(Error::RecordNotFound))
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Call<CreateTimeshiftLiveStreamSource> for TimeshiftManagerStub {
+        async fn call(
+            &self,
+            msg: CreateTimeshiftLiveStreamSource,
+        ) -> Result<<CreateTimeshiftLiveStreamSource as Message>::Reply, actlet::Error> {
+            match msg.recorder {
+                TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
+                    Ok(Ok(TimeshiftLiveStreamSource::new_for_test(name)))
+                }
+                _ => Ok(Err(Error::NoContent)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Call<CreateTimeshiftRecordStreamSource> for TimeshiftManagerStub {
+        async fn call(
+            &self,
+            msg: CreateTimeshiftRecordStreamSource,
+        ) -> Result<<CreateTimeshiftRecordStreamSource as Message>::Reply, actlet::Error> {
+            match msg.recorder {
+                TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
+                    Ok(Ok(TimeshiftRecordStreamSource::new_for_test(name)))
+                }
+                _ => Ok(Err(Error::NoContent)),
+            }
         }
     }
 }

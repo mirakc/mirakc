@@ -45,18 +45,30 @@ async fn main() -> Result<(), Error> {
         .spawn_actor(tuner::TunerManager::new(config.clone()))
         .await;
 
+    let epg = system
+        .spawn_actor(epg::Epg::new(config.clone(), tuner_manager.clone()))
+        .await;
+
+    let recording_manager = system
+        .spawn_actor(recording::RecordingManager::new(
+            config.clone(),
+            tuner_manager.clone(),
+            epg.clone(),
+        ))
+        .await;
+
     let timeshift_manager = system
         .spawn_actor(timeshift::TimeshiftManager::new(
             config.clone(),
             tuner_manager.clone(),
+            epg.clone(),
         ))
         .await;
 
-    let epg = system
-        .spawn_actor(epg::Epg::new(
+    let _script_runner = system
+        .spawn_actor(script_runner::ScriptRunner::new(
             config.clone(),
-            tuner_manager.clone(),
-            vec![timeshift_manager.clone().into()],
+            epg.clone(),
         ))
         .await;
 
@@ -64,7 +76,7 @@ async fn main() -> Result<(), Error> {
     let mut sigterm = signal(SignalKind::terminate())?;
 
     tokio::select! {
-        result = web::serve(config, string_table, tuner_manager, epg, timeshift_manager) => result?,
+        result = web::serve(config, string_table, tuner_manager, epg, recording_manager, timeshift_manager) => result?,
         _ = sigint.recv() => {
             tracing::info!("SIGINT received");
         }

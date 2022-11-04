@@ -4,15 +4,21 @@ use std::fmt;
 use std::io;
 use std::pin::Pin;
 use std::process::Stdio;
-use std::task::{Context, Poll};
+use std::task::Context;
+use std::task::Poll;
 use std::thread::sleep;
 use std::time::Duration;
 
-use humantime;
 use once_cell::sync::Lazy;
-use thiserror;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader, ReadBuf};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
+use tokio::io::BufReader;
+use tokio::io::ReadBuf;
+use tokio::process::Child;
+use tokio::process::ChildStdin;
+use tokio::process::ChildStdout;
+use tokio::process::Command;
 use tokio::sync::broadcast;
 
 const COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT: Duration = Duration::from_nanos(100_000); // 100us
@@ -35,7 +41,11 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
     nanos
 });
 
-pub fn spawn_process(command: &str, input: Stdio) -> Result<Child, Error> {
+pub fn spawn_process<I, O>(command: &str, input: I, output: O) -> Result<Child, Error>
+where
+    I: Into<Stdio>,
+    O: Into<Stdio>,
+{
     let words = match shell_words::split(command) {
         Ok(words) => words,
         Err(_) => return Err(Error::UnableToParse(command.to_string())),
@@ -51,8 +61,9 @@ pub fn spawn_process(command: &str, input: Stdio) -> Result<Child, Error> {
     let mut child = Command::new(prog)
         .args(args)
         .stdin(input)
-        .stdout(Stdio::piped())
+        .stdout(output)
         .stderr(stderr)
+        .kill_on_drop(true)
         .spawn()
         .map_err(|err| Error::UnableToSpawn(command.to_string(), err))?;
     if cfg!(not(test)) {
@@ -151,7 +162,7 @@ where
             self.stdout.take().unwrap().try_into()?
         };
 
-        let mut process = spawn_process(&command, input)?;
+        let mut process = spawn_process(&command, input, Stdio::piped())?;
         tracing::debug!(
             "{}: Spawned {}: `{}`",
             self.id,
@@ -176,6 +187,10 @@ where
                 pid: data.process.id(),
             })
             .collect()
+    }
+
+    pub fn id(&self) -> &T {
+        &self.id
     }
 
     pub fn pids(&self) -> Vec<Option<u32>> {
@@ -212,7 +227,7 @@ where
         }
         tracing::debug!("{}: Wait for the command pipeline termination...", self.id);
         for data in self.commands.iter_mut() {
-            // Send a SIGKILL to the process regardless of life or dead.
+            // Always send a SIGKILL to the process.
             let _ = data.process.start_kill();
 
             // It's necessary to wait for the process termination because the process may
@@ -349,6 +364,7 @@ where
     }
 }
 
+// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,15 +373,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_process() {
-        let result = spawn_process("sh -c 'exit 0;'", Stdio::null());
+        let result = spawn_process("sh -c 'exit 0;'", Stdio::null(), Stdio::piped());
         assert!(result.is_ok());
-        let _ = result.unwrap().wait();
+        let _ = result.unwrap().wait().await;
 
-        let result = spawn_process("'", Stdio::null());
+        let result = spawn_process("'", Stdio::null(), Stdio::piped());
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "Unable to parse: '");
 
-        let result = spawn_process("command-not-found", Stdio::null());
+        let result = spawn_process("command-not-found", Stdio::null(), Stdio::piped());
         assert!(result.is_err());
         assert_matches!(
             result.unwrap_err(),
@@ -556,3 +572,4 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+// </coverage:exclude>

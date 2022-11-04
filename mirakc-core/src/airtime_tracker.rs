@@ -68,7 +68,7 @@ where
     Ok(stop_trigger)
 }
 
-async fn update_airtime<R, E>(quad: EventQuad, output: R, epg: E) -> Result<(), Error>
+async fn update_airtime<R, E>(quad: ProgramQuad, output: R, epg: E) -> Result<(), Error>
 where
     R: AsyncRead + Unpin,
     E: Call<RemoveAirtime>,

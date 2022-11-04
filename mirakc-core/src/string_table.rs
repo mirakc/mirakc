@@ -27,6 +27,7 @@ pub struct EpgGenreStringTable {
     pub subgenres: [String; 16],
 }
 
+// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,3 +85,4 @@ mod tests {
         );
     }
 }
+// </coverage:exclude>

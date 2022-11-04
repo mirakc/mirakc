@@ -4,6 +4,9 @@ mod job;
 mod models;
 mod service_scanner;
 
+#[cfg(test)]
+pub(crate) mod stub;
+
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
@@ -43,11 +46,13 @@ pub use models::SeriesDescriptor;
 pub struct Epg<T> {
     config: Arc<Config>,
     tuner_manager: T,
-    service_recipients: Vec<Emitter<NotifyServicesUpdated>>,
+    services_emitters: Vec<Emitter<ServicesUpdated>>,
+    clocks_emitters: Vec<Emitter<ClocksUpdated>>,
+    programs_emitters: Vec<Emitter<ProgramsUpdated>>,
     services: Arc<IndexMap<ServiceTriple, EpgService>>, // keeps insertion order
-    clocks: HashMap<ServiceTriple, Clock>,
+    clocks: Arc<HashMap<ServiceTriple, Clock>>,
     schedules: HashMap<ServiceTriple, EpgSchedule>,
-    airtimes: HashMap<EventQuad, Airtime>,
+    airtimes: HashMap<ProgramQuad, Airtime>,
 }
 
 pub struct Airtime {
@@ -56,15 +61,13 @@ pub struct Airtime {
 }
 
 impl<T> Epg<T> {
-    pub fn new(
-        config: Arc<Config>,
-        tuner_manager: T,
-        service_recipients: Vec<Emitter<NotifyServicesUpdated>>,
-    ) -> Self {
+    pub fn new(config: Arc<Config>, tuner_manager: T) -> Self {
         Epg {
             config,
             tuner_manager,
-            service_recipients,
+            services_emitters: Default::default(),
+            clocks_emitters: Default::default(),
+            programs_emitters: Default::default(),
             services: Default::default(),
             clocks: Default::default(),
             schedules: Default::default(),
@@ -95,27 +98,31 @@ impl<T> Epg<T> {
             }
         }
 
-        for recipient in self.service_recipients.iter() {
-            recipient
-                .emit(NotifyServicesUpdated {
-                    services: services.clone(),
+        self.services = Arc::new(services);
+
+        for emitter in self.services_emitters.iter() {
+            emitter
+                .emit(ServicesUpdated {
+                    services: self.services.clone(),
                 })
                 .await;
         }
-
-        self.services = Arc::new(services);
 
         match self.save_services() {
             Ok(_) => (),
             Err(err) => tracing::error!("Failed to save services: {}", err),
         }
 
-        // Remove garbage schedules.
+        // Remove garbage.
+        // clocks will be updated in update_clocks().
         self.schedules
             .retain(|triple, _| self.services.contains_key(triple));
     }
 
-    fn update_clocks(&mut self, results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>) {
+    async fn update_clocks(
+        &mut self,
+        results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>,
+    ) {
         let mut clocks = HashMap::new();
 
         for (channel, result) in results.into_iter() {
@@ -138,7 +145,15 @@ impl<T> Epg<T> {
             }
         }
 
-        self.clocks = clocks;
+        self.clocks = Arc::new(clocks);
+
+        for emitter in self.clocks_emitters.iter() {
+            emitter
+                .emit(ClocksUpdated {
+                    clocks: self.clocks.clone(),
+                })
+                .await;
+        }
 
         match self.save_clocks() {
             Ok(_) => (),
@@ -160,7 +175,7 @@ impl<T> Epg<T> {
         });
     }
 
-    fn flush_schedule(&mut self, service_triple: ServiceTriple) {
+    async fn flush_schedule(&mut self, service_triple: ServiceTriple) {
         let num_programs = match self.schedules.get_mut(&service_triple) {
             Some(schedule) => {
                 schedule.collect_programs();
@@ -168,17 +183,34 @@ impl<T> Epg<T> {
             }
             None => 0,
         };
+
+        let service = self
+            .services
+            .get(&service_triple)
+            .expect("Service must exist");
+
         if num_programs > 0 {
-            let service = self
-                .services
-                .get(&service_triple)
-                .expect("Service must exist");
             tracing::info!(
                 "Collected {} programs of {} ({})",
                 num_programs,
                 service.name,
                 service_triple,
             );
+        }
+
+        let programs = self
+            .schedules
+            .get(&service_triple)
+            .unwrap()
+            .programs
+            .clone();
+        for emitter in self.programs_emitters.iter() {
+            emitter
+                .emit(ProgramsUpdated {
+                    service_triple,
+                    programs: programs.clone(),
+                })
+                .await;
         }
     }
 
@@ -235,7 +267,7 @@ impl<T> Epg<T> {
                 let clocks: HashMap<ServiceTriple, Clock> = serde_json::from_reader(reader)?;
                 // Drop a clock if the service triple of the clock is not
                 // contained in `self::services`.
-                self.clocks = clocks
+                let clocks = clocks
                     .into_iter()
                     .filter(|(triple, _)| {
                         let contained = self.services.contains_key(triple);
@@ -245,6 +277,7 @@ impl<T> Epg<T> {
                         contained
                     })
                     .collect();
+                self.clocks = Arc::new(clocks);
                 tracing::info!("Loaded {} clocks", self.clocks.len());
             }
             None => {
@@ -491,8 +524,8 @@ where
 #[derive(Message)]
 #[reply("Result<EpgService, Error>")]
 pub enum QueryService {
-    // For Mirakurun-compatible Web API
-    ByNidSid { nid: NetworkId, sid: ServiceId },
+    ByMirakurunServiceId(MirakurunServiceId), // For Mirakurun-compatible Web API
+    ByServiceTriple(ServiceTriple),
 }
 
 #[async_trait]
@@ -508,14 +541,15 @@ where
         _ctx: &mut Context<Self>,
     ) -> <QueryService as Message>::Reply {
         tracing::debug!(msg.name = "QueryService");
-        match msg {
-            QueryService::ByNidSid { nid, sid } => self
-                .services
-                .values()
-                .find(|sv| sv.nid == nid && sv.sid == sid)
-                .cloned()
-                .ok_or(Error::ServiceNotFound),
-        }
+        let (nid, sid) = match msg {
+            QueryService::ByMirakurunServiceId(id) => id.into(),
+            QueryService::ByServiceTriple(triple) => triple.into(),
+        };
+        self.services
+            .values()
+            .find(|sv| sv.nid == nid && sv.sid == sid)
+            .cloned()
+            .ok_or(Error::ServiceNotFound)
     }
 }
 
@@ -580,22 +614,8 @@ where
 #[derive(Message)]
 #[reply("Result<EpgProgram, Error>")]
 pub enum QueryProgram {
-    // For Mirakurun-compatible Web API
-    ByNidSidEid {
-        nid: NetworkId,
-        sid: ServiceId,
-        eid: EventId,
-    },
-}
-
-impl fmt::Display for QueryProgram {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            QueryProgram::ByNidSidEid { nid, sid, eid } => {
-                write!(f, "QueryProgram By ({}, {}, {})", nid, sid, eid)
-            }
-        }
-    }
+    ByMirakurunProgramId(MirakurunProgramId), // For Mirakurun-compatible Web API
+    ByProgramQuad(ProgramQuad),
 }
 
 #[async_trait]
@@ -611,29 +631,29 @@ where
         _ctx: &mut Context<Self>,
     ) -> <QueryProgram as Message>::Reply {
         tracing::debug!(msg.name = "QueryProgram");
-        match msg {
-            QueryProgram::ByNidSidEid { nid, sid, eid } => {
-                let triple = self
-                    .services
-                    .values()
-                    .find(|sv| sv.nid == nid && sv.sid == sid)
-                    .map(|sv| sv.triple())
-                    .ok_or(Error::ProgramNotFound)?;
-                let schedule = self.schedules.get(&triple).ok_or(Error::ProgramNotFound)?;
-                schedule
-                    .programs
-                    .get(&eid)
-                    .cloned()
-                    .map(|mut prog| {
-                        if let Some(airtime) = self.airtimes.get(&prog.quad) {
-                            prog.start_at = airtime.start_time;
-                            prog.duration = airtime.duration;
-                        }
-                        prog
-                    })
-                    .ok_or(Error::ProgramNotFound)
-            }
-        }
+        let (nid, sid, eid) = match msg {
+            QueryProgram::ByMirakurunProgramId(id) => id.into(),
+            QueryProgram::ByProgramQuad(quad) => quad.into(),
+        };
+        let triple = self
+            .services
+            .values()
+            .find(|sv| sv.nid == nid && sv.sid == sid)
+            .map(|sv| sv.triple())
+            .ok_or(Error::ProgramNotFound)?;
+        let schedule = self.schedules.get(&triple).ok_or(Error::ProgramNotFound)?;
+        schedule
+            .programs
+            .get(&eid)
+            .cloned()
+            .map(|mut prog| {
+                if let Some(airtime) = self.airtimes.get(&prog.quad) {
+                    prog.start_at = airtime.start_time;
+                    prog.duration = airtime.duration;
+                }
+                prog
+            })
+            .ok_or(Error::ProgramNotFound)
     }
 }
 
@@ -673,7 +693,7 @@ where
 {
     async fn handle(&mut self, msg: UpdateClocks, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "UpdateClocks");
-        self.update_clocks(msg.results);
+        self.update_clocks(msg.results).await;
     }
 }
 
@@ -741,7 +761,7 @@ where
 {
     async fn handle(&mut self, msg: FlushSchedule, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "FlushSchedule", %msg.service_triple);
-        self.flush_schedule(msg.service_triple);
+        self.flush_schedule(msg.service_triple).await;
     }
 }
 
@@ -771,7 +791,7 @@ where
 #[derive(Message)]
 #[reply("()")]
 pub struct UpdateAirtime {
-    pub quad: EventQuad,
+    pub quad: ProgramQuad,
     pub airtime: Airtime,
 }
 
@@ -802,7 +822,7 @@ where
 #[derive(Message)]
 #[reply("()")]
 pub struct RemoveAirtime {
-    pub quad: EventQuad,
+    pub quad: ProgramQuad,
 }
 
 #[async_trait]
@@ -822,11 +842,52 @@ where
     }
 }
 
-// notify services updated
+// register emitter
 
 #[derive(Message)]
-pub struct NotifyServicesUpdated {
-    pub services: IndexMap<ServiceTriple, EpgService>,
+#[reply("()")]
+pub enum RegisterEmitter {
+    ServicesUpdated(Emitter<ServicesUpdated>),
+    ClocksUpdated(Emitter<ClocksUpdated>),
+    ProgramsUpdated(Emitter<ProgramsUpdated>),
+}
+
+#[async_trait]
+impl<T> Handler<RegisterEmitter> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(
+        &mut self,
+        msg: RegisterEmitter,
+        _ctx: &mut Context<Self>,
+    ) -> <RegisterEmitter as Message>::Reply {
+        match msg {
+            RegisterEmitter::ServicesUpdated(emitter) => self.services_emitters.push(emitter),
+            RegisterEmitter::ClocksUpdated(emitter) => self.clocks_emitters.push(emitter),
+            RegisterEmitter::ProgramsUpdated(emitter) => self.programs_emitters.push(emitter),
+        }
+    }
+}
+
+// notifications
+
+#[derive(Message)]
+pub struct ServicesUpdated {
+    pub services: Arc<IndexMap<ServiceTriple, EpgService>>,
+}
+
+#[derive(Message)]
+pub struct ClocksUpdated {
+    pub clocks: Arc<HashMap<ServiceTriple, Clock>>,
+}
+
+#[derive(Message)]
+pub struct ProgramsUpdated {
+    pub service_triple: ServiceTriple,
+    pub programs: Arc<IndexMap<EventId, EpgProgram>>,
 }
 
 // EpgSchedule holds sections of H-EIT[schedule basic] and H-EIT[schedule extended]
@@ -1010,7 +1071,7 @@ impl EpgSection {
         programs: &mut IndexMap<EventId, EpgProgram>,
     ) {
         for event in self.events.iter() {
-            let quad = EventQuad::from((triple, EventId::from(event.event_id)));
+            let quad = ProgramQuad::from((triple, EventId::from(event.event_id)));
             programs
                 .entry(event.event_id)
                 .or_insert(EpgProgram::new(quad))
@@ -1096,7 +1157,7 @@ impl Into<MirakurunChannelService> for EpgService {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct EpgProgram {
-    pub quad: EventQuad,
+    pub quad: ProgramQuad,
     #[serde(with = "serde_jst")]
     pub start_at: DateTime<Jst>,
     #[serde(with = "serde_duration_in_millis")]
@@ -1113,9 +1174,9 @@ pub struct EpgProgram {
 }
 
 impl EpgProgram {
-    pub fn new(quad: EventQuad) -> Self {
+    pub fn new(quad: ProgramQuad) -> Self {
         Self {
-            quad: quad,
+            quad,
             start_at: Jst.timestamp(0, 0),
             duration: Duration::minutes(0),
             scrambled: false,
@@ -1192,6 +1253,7 @@ impl EitSection {
     }
 }
 
+// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1213,7 +1275,7 @@ mod tests {
             }
         }
 
-        let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub, vec![]);
+        let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub);
 
         let ch1 = EpgChannel {
             name: "ch1".to_string(),
@@ -1339,7 +1401,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_services_purge_garbage_schedules() {
-        let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub, vec![]);
+        let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub);
         let triple = ServiceTriple::from((1, 2, 3));
         epg.schedules.insert(triple, EpgSchedule::new(triple));
         assert!(!epg.schedules.is_empty());
@@ -1504,3 +1566,4 @@ mod tests {
     #[derive(Clone)]
     struct TunerManagerStub;
 }
+// </coverage:exclude>

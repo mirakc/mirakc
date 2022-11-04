@@ -1,14 +1,22 @@
 use std::fmt;
 
-use chrono::{DateTime, Duration};
+use chrono::DateTime;
+use chrono::Duration;
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
+use smallstr::SmallString;
 
 use crate::config::ResourceConfig;
-use crate::datetime_ext::{serde_duration_in_millis, serde_jst, Jst};
+use crate::datetime_ext::serde_duration_in_millis;
+use crate::datetime_ext::serde_jst;
+use crate::datetime_ext::Jst;
+use crate::epg::AudioComponentDescriptor;
+use crate::epg::ComponentDescriptor;
+use crate::epg::EpgChannel;
+use crate::epg::EpgProgram;
+use crate::epg::EpgService;
 use crate::epg::SeriesDescriptor;
-use crate::epg::{AudioComponentDescriptor, ComponentDescriptor};
-use crate::epg::{EpgChannel, EpgProgram, EpgService};
 use crate::tuner::TunerSubscriptionId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
@@ -154,27 +162,29 @@ impl From<(NetworkId, TransportStreamId, ServiceId)> for ServiceTriple {
     }
 }
 
-impl From<EventQuad> for ServiceTriple {
-    fn from(quad: EventQuad) -> Self {
+impl From<ProgramQuad> for ServiceTriple {
+    fn from(quad: ProgramQuad) -> Self {
         ServiceTriple::new(quad.nid(), quad.tsid(), quad.sid())
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-pub struct EventQuad(u64);
+impl Into<(NetworkId, ServiceId)> for ServiceTriple {
+    fn into(self) -> (NetworkId, ServiceId) {
+        (self.nid(), self.sid())
+    }
+}
 
-impl EventQuad {
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct ProgramQuad(u64);
+
+impl ProgramQuad {
     pub fn new(nid: NetworkId, tsid: TransportStreamId, sid: ServiceId, eid: EventId) -> Self {
-        EventQuad(
+        ProgramQuad(
             (nid.value() as u64) << 48
                 | (tsid.value() as u64) << 32
                 | (sid.value() as u64) << 16
                 | (eid.value() as u64),
         )
-    }
-
-    pub fn value(&self) -> u64 {
-        self.0
     }
 
     pub fn nid(&self) -> NetworkId {
@@ -192,23 +202,33 @@ impl EventQuad {
     pub fn eid(&self) -> EventId {
         EventId((self.value() & 0xFFFF) as u16)
     }
+
+    fn value(&self) -> u64 {
+        self.0
+    }
 }
 
-impl fmt::Display for EventQuad {
+impl fmt::Display for ProgramQuad {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016X}", self.value())
     }
 }
 
-impl From<(ServiceTriple, EventId)> for EventQuad {
-    fn from(tuple: (ServiceTriple, EventId)) -> EventQuad {
-        EventQuad::new(tuple.0.nid(), tuple.0.tsid(), tuple.0.sid(), tuple.1)
+impl From<(ServiceTriple, EventId)> for ProgramQuad {
+    fn from(tuple: (ServiceTriple, EventId)) -> ProgramQuad {
+        ProgramQuad::new(tuple.0.nid(), tuple.0.tsid(), tuple.0.sid(), tuple.1)
     }
 }
 
-impl From<(NetworkId, TransportStreamId, ServiceId, EventId)> for EventQuad {
-    fn from(quad: (NetworkId, TransportStreamId, ServiceId, EventId)) -> EventQuad {
-        EventQuad::new(quad.0, quad.1, quad.2, quad.3)
+impl From<(NetworkId, TransportStreamId, ServiceId, EventId)> for ProgramQuad {
+    fn from(quad: (NetworkId, TransportStreamId, ServiceId, EventId)) -> ProgramQuad {
+        ProgramQuad::new(quad.0, quad.1, quad.2, quad.3)
+    }
+}
+
+impl Into<(NetworkId, ServiceId, EventId)> for ProgramQuad {
+    fn into(self) -> (NetworkId, ServiceId, EventId) {
+        (self.nid(), self.sid(), self.eid())
     }
 }
 
@@ -396,8 +416,8 @@ impl From<ServiceTriple> for MirakurunServiceId {
     }
 }
 
-impl From<EventQuad> for MirakurunServiceId {
-    fn from(quad: EventQuad) -> Self {
+impl From<ProgramQuad> for MirakurunServiceId {
+    fn from(quad: ProgramQuad) -> Self {
         Self::new(quad.nid(), quad.sid())
     }
 }
@@ -405,6 +425,12 @@ impl From<EventQuad> for MirakurunServiceId {
 impl From<MirakurunProgramId> for MirakurunServiceId {
     fn from(id: MirakurunProgramId) -> Self {
         Self::new(id.nid(), id.sid())
+    }
+}
+
+impl Into<(NetworkId, ServiceId)> for MirakurunServiceId {
+    fn into(self) -> (NetworkId, ServiceId) {
+        (self.nid(), self.sid())
     }
 }
 
@@ -439,20 +465,19 @@ impl MirakurunProgramId {
 
 impl fmt::Display for MirakurunProgramId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} ({} {} {})",
-            self.0,
-            self.nid(),
-            self.sid(),
-            self.eid()
-        )
+        write!(f, "{}", self.0)
     }
 }
 
-impl From<EventQuad> for MirakurunProgramId {
-    fn from(quad: EventQuad) -> Self {
+impl From<ProgramQuad> for MirakurunProgramId {
+    fn from(quad: ProgramQuad) -> Self {
         MirakurunProgramId::new(quad.nid(), quad.sid(), quad.eid())
+    }
+}
+
+impl Into<(NetworkId, ServiceId, EventId)> for MirakurunProgramId {
+    fn into(self) -> (NetworkId, ServiceId, EventId) {
+        (self.nid(), self.sid(), self.eid())
     }
 }
 
@@ -562,6 +587,8 @@ impl From<EpgChannel> for MirakurunServiceChannel {
     }
 }
 
+// Don't use MirakurunProgram for saving information.
+// See MirakurunProgramRelatedItem::get_type().
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgram {
@@ -733,9 +760,9 @@ impl MirakurunProgramAudio {
 
 impl From<AudioComponentDescriptor> for MirakurunProgramAudio {
     fn from(audio: AudioComponentDescriptor) -> Self {
-        let mut langs = vec![MirakurunLangCode(audio.language_code)];
+        let mut langs = vec![audio.language_code.into()];
         if let Some(lang) = audio.language_code2 {
-            langs.push(MirakurunLangCode(lang));
+            langs.push(lang.into());
         }
         Self::new(
             audio.component_type,
@@ -786,29 +813,28 @@ impl MirakurunProgramRelatedItem {
     fn get_type(group_type: u8) -> &'static str {
         match group_type {
             1 => "shared",
+            // Don't use MirakurunProgram for saving information.
+            // Information is lost as you can see below.
             2 | 4 => "relay",
             _ => "movement",
         }
     }
 }
 
-#[derive(Clone, Debug)]
-struct MirakurunLangCode(u32);
+#[derive(Clone, Debug, Serialize)]
+struct MirakurunLangCode(SmallString<[u8; 3]>); // ISO 639-3 language code
 
-// See LanguageCodeToText() in LibISDB.
-impl Serialize for MirakurunLangCode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::ser::Serializer,
-    {
-        match self.0 {
-            0 => serializer.serialize_str(""),
-            _ => {
-                let char0 = (((self.0 >> 16) & 0xFF) as u8) as char;
-                let char1 = (((self.0 >> 8) & 0xFF) as u8) as char;
-                let char2 = (((self.0 >> 0) & 0xFF) as u8) as char;
-                let lang: String = [char0, char1, char2].iter().collect();
-                serializer.serialize_str(&lang)
+impl From<u32> for MirakurunLangCode {
+    fn from(value: u32) -> Self {
+        // See LanguageCodeToText() in LibISDB.
+        let c0 = ((value >> 16) & 0xFF) as u8;
+        let c1 = ((value >> 8) & 0xFF) as u8;
+        let c2 = ((value >> 0) & 0xFF) as u8;
+        match SmallString::from_buf([c0, c1, c2]) {
+            Ok(lang) => MirakurunLangCode(lang),
+            Err(_) => {
+                tracing::warn!("Invalid lang code, replace it with `und`");
+                MirakurunLangCode(SmallString::from_str("und"))
             }
         }
     }
@@ -827,9 +853,15 @@ mod test_helper {
         }
     }
 
-    impl From<(u16, u16, u16, u16)> for EventQuad {
-        fn from(quad: (u16, u16, u16, u16)) -> EventQuad {
-            EventQuad::new(quad.0.into(), quad.1.into(), quad.2.into(), quad.3.into())
+    impl From<(u16, u16, u16, u16)> for ProgramQuad {
+        fn from(quad: (u16, u16, u16, u16)) -> ProgramQuad {
+            ProgramQuad::new(quad.0.into(), quad.1.into(), quad.2.into(), quad.3.into())
+        }
+    }
+
+    impl From<(u16, u16, u16)> for MirakurunProgramId {
+        fn from(triple: (u16, u16, u16)) -> Self {
+            MirakurunProgramId::new(triple.0.into(), triple.1.into(), triple.2.into())
         }
     }
 }
