@@ -85,8 +85,8 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.6.0-rc.2"
-source = "git+https://github.com/tokio-rs/axum?tag=axum-v0.6.0-rc.2#54d8439e35f05c346c7f30b9c974b18fa9becb68"
+version = "0.6.0-rc.4"
+source = "git+https://github.com/tokio-rs/axum?tag=axum-v0.6.0-rc.4#74bbe80f8ae17f712f0870623804d86b06cbbd6f"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -105,6 +105,7 @@ dependencies = [
  "pin-project-lite",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
@@ -116,8 +117,8 @@ dependencies = [
 
 [[package]]
 name = "axum-core"
-version = "0.3.0-rc.2"
-source = "git+https://github.com/tokio-rs/axum?tag=axum-v0.6.0-rc.2#54d8439e35f05c346c7f30b9c974b18fa9becb68"
+version = "0.3.0-rc.3"
+source = "git+https://github.com/tokio-rs/axum?tag=axum-v0.6.0-rc.4#74bbe80f8ae17f712f0870623804d86b06cbbd6f"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1100,6 +1101,15 @@ dependencies = [
  "indexmap",
  "itoa",
  "ryu",
+ "serde",
+]
+
+[[package]]
+name = "serde_path_to_error"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "184c643044780f7ceb59104cef98a5a6f12cb2288a7bc701ab93a362b49fd47d"
+dependencies = [
  "serde",
 ]
 
