@@ -9,6 +9,7 @@ use futures::future::BoxFuture;
 use tower::Layer;
 use tower::Service;
 
+#[derive(Clone)]
 pub(super) struct DefaultHeadersLayer(HeaderMap);
 
 impl DefaultHeadersLayer {

@@ -525,7 +525,7 @@ async fn test_filter_setting() {
     {
         let url = format!("/?{}", query);
         let app = Router::new().route("/", routing::get(handler));
-        TestClient::new(app).get(&url).send().await.status()
+        TestClient::new(app.into_service()).get(&url).send().await.status()
     }
 
     assert_eq!(
@@ -710,17 +710,17 @@ async fn test_filter_setting() {
 
 async fn get_with_peer_addr(url: &str, addr: Option<SocketAddr>) -> TestResponse {
     let app = create_app().layer(helper::ReplaceConnectInfoLayer::new(addr));
-    TestClient::new(app).get(url).send().await
+    TestClient::new(app.into_service()).get(url).send().await
 }
 
 async fn get(url: &str) -> TestResponse {
     let app = create_app();
-    TestClient::new(app).get(url).send().await
+    TestClient::new(app.into_service()).get(url).send().await
 }
 
 async fn head(url: &str) -> TestResponse {
     let app = create_app();
-    TestClient::new(app).head(url).send().await
+    TestClient::new(app.into_service()).head(url).send().await
 }
 
 fn create_app() -> Router {
@@ -1134,6 +1134,7 @@ mod helper {
     use tower::Layer;
     use tower::Service;
 
+    #[derive(Clone)]
     pub(super) struct ReplaceConnectInfoLayer(Option<SocketAddr>);
 
     impl ReplaceConnectInfoLayer {

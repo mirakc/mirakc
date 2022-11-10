@@ -11,7 +11,7 @@ actlet = { path = "../actlet" }
 anyhow = "1.0.66"
 async-trait = "0.1.58"
 atty = "0.2.14"
-axum = { git = "https://github.com/tokio-rs/axum", tag = "axum-v0.6.0-rc.2", features = ["headers"] }
+axum = { version = "0.6.0-rc.4", features = ["headers"] }
 bytes = "1.2.1"
 chrono = { version = "0.4.22", features = ["serde"] }
 cron = "0.12.0"

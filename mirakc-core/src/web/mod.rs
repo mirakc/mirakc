@@ -234,7 +234,7 @@ where
     for (mount_point, mount) in state.config.server.mounts.iter() {
         let path = std::path::Path::new(&mount.path);
         router = if path.is_dir() {
-            router.nest(
+            router.nest_service(
                 &mount_point,
                 routing::get_service(ServeDir::new(&path)).handle_error(convert_error),
             )

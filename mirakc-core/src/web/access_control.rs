@@ -17,6 +17,7 @@ use tracing;
 
 use crate::error::Error;
 
+#[derive(Clone)]
 pub(super) struct AccessControlLayer;
 
 impl<S> Layer<S> for AccessControlLayer {
