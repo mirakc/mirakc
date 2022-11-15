@@ -17,9 +17,9 @@ use std::sync::Arc;
 
 use actlet::*;
 use async_trait::async_trait;
-use chrono::Date;
 use chrono::DateTime;
 use chrono::Duration;
+use chrono::NaiveDate;
 use chrono::TimeZone;
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -161,7 +161,7 @@ impl<T> Epg<T> {
         }
     }
 
-    fn prepare_schedule(&mut self, service_triple: ServiceTriple, today: Date<Jst>) {
+    fn prepare_schedule(&mut self, service_triple: ServiceTriple, today: NaiveDate) {
         self.schedules
             .entry(service_triple)
             .and_modify(|sched| sched.update_start_index(today))
@@ -916,7 +916,7 @@ impl EpgSchedule {
         }
     }
 
-    fn update_start_index(&mut self, today: Date<Jst>) {
+    fn update_start_index(&mut self, today: NaiveDate) {
         let result = self
             .units
             .iter()
@@ -977,7 +977,7 @@ impl EpgScheduleUnit {
     // 8 segments are used for 1 day.
     const NUM_SEGMENTS: usize = 8;
 
-    fn date(&self) -> Option<Date<Jst>> {
+    fn date(&self) -> Option<NaiveDate> {
         self.segments.iter().find_map(|segment| segment.date())
     }
 
@@ -1012,7 +1012,7 @@ struct EpgSegment {
 impl EpgSegment {
     const NUM_SECTIONS: usize = 8;
 
-    fn date(&self) -> Option<Date<Jst>> {
+    fn date(&self) -> Option<NaiveDate> {
         self.basic_sections
             .iter()
             .filter_map(|section| section.as_ref())
@@ -1061,8 +1061,10 @@ struct EpgSection {
 }
 
 impl EpgSection {
-    fn date(&self) -> Option<Date<Jst>> {
-        self.events.first().map(|event| event.start_time.date())
+    fn date(&self) -> Option<NaiveDate> {
+        self.events
+            .first()
+            .map(|event| event.start_time.date_naive())
     }
 
     fn collect_programs(
@@ -1177,7 +1179,7 @@ impl EpgProgram {
     pub fn new(quad: ProgramQuad) -> Self {
         Self {
             quad,
-            start_at: Jst.timestamp(0, 0),
+            start_at: Jst.timestamp_opt(0, 0).unwrap(),
             duration: Duration::minutes(0),
             scrambled: false,
             name: None,
@@ -1432,16 +1434,16 @@ mod tests {
         for i in 0..EpgSchedule::MAX_DAYS {
             sched.units[i].segments[0].basic_sections[0] = Some(create_epg_section(date));
             assert_matches!(sched.units[i].date(), Some(v) => assert_eq!(v, date));
-            date = date.succ();
+            date = date.succ_opt().unwrap();
         }
 
         sched.update_start_index(Jst::today());
         assert_eq!(sched.start_index, 0);
 
-        sched.update_start_index(Jst::today().succ());
+        sched.update_start_index(Jst::today().succ_opt().unwrap());
         assert_eq!(sched.start_index, 1);
 
-        sched.update_start_index(Jst::today().pred());
+        sched.update_start_index(Jst::today().pred_opt().unwrap());
         assert_eq!(sched.start_index, 8);
 
         sched.update_start_index(date); // today + 9 days
@@ -1550,12 +1552,16 @@ mod tests {
         }
     }
 
-    fn create_epg_section(date: Date<Jst>) -> EpgSection {
+    fn create_epg_section(date: NaiveDate) -> EpgSection {
         EpgSection {
             version: 1,
             events: vec![EitEvent {
                 event_id: (date.day() as u16).into(),
-                start_time: date.and_hms(0, 0, 0),
+                start_time: date
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap()
+                    .and_local_timezone(Jst)
+                    .unwrap(),
                 duration: Duration::minutes(30),
                 scrambled: false,
                 descriptors: Vec::new(),
