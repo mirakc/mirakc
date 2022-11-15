@@ -1,6 +1,7 @@
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -9,6 +10,7 @@ use async_trait::async_trait;
 use chrono::DateTime;
 use chrono::Duration;
 use indexmap::IndexMap;
+use itertools::Itertools;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::BufWriter;
@@ -347,6 +349,7 @@ where
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
+        self.load_schedules();
         self.epg
             .call(RegisterEmitter::ServicesUpdated(
                 ctx.address().clone().into(),
@@ -357,6 +360,58 @@ where
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!("Stopped");
+    }
+}
+
+impl<T, E> RecordingManager<T, E> {
+    fn load_schedules(&mut self) {
+        fn do_load(path: &Path) -> Result<Vec<Schedule>, Error> {
+            let file = std::fs::File::open(path)?;
+            Ok(serde_json::from_reader(file)?)
+        }
+
+        let record_dir = match self.config.recorder.record_dir {
+            Some(ref record_dir) => record_dir,
+            None => return,
+        };
+
+        let path = record_dir.join("schedules.json");
+        if !path.exists() {
+            return;
+        }
+
+        match do_load(&path) {
+            Ok(schedules) => {
+                tracing::info!(?path, "Loaded");
+                for schedule in schedules.into_iter() {
+                    let _ = self.add_schedule(schedule);
+                }
+            }
+            Err(err) => {
+                tracing::warn!(%err, ?path, "Failed to load");
+            }
+        }
+    }
+
+    fn save_schedules(&self) {
+        fn do_save(schedules: Vec<&Arc<Schedule>>, path: &Path) -> Result<(), Error> {
+            let file = std::fs::File::create(path)?;
+            serde_json::to_writer(file, &schedules)?;
+            Ok(())
+        }
+
+        let record_dir = match self.config.recorder.record_dir {
+            Some(ref record_dir) => record_dir,
+            None => return,
+        };
+
+        let path = record_dir.join("schedules.json");
+        let schedules = self.schedule_map.values().collect_vec();
+
+        match do_save(schedules, &path) {
+            Ok(_) => tracing::info!(?path, "Saved"),
+            Err(err) => tracing::error!(%err, ?path, "Failed to save"),
+        }
     }
 }
 
@@ -463,6 +518,7 @@ where
         );
         let program_id = msg.schedule.program_id;
         self.add_schedule(msg.schedule)?;
+        self.save_schedules();
         self.set_timer(ctx);
         self.get_schedule(program_id)
     }
@@ -514,6 +570,7 @@ where
         match self.schedule_map.remove(&msg.program_id) {
             Some(schedule) => {
                 self.sync_schedules();
+                self.save_schedules();
                 self.set_timer(ctx);
                 Ok(schedule)
             }
@@ -568,6 +625,7 @@ where
     ) -> <RemoveRecordingSchedules as Message>::Reply {
         tracing::debug!(msg.name = "RemoveRecordingSchedules", ?msg.target);
         self.remove_schedules(msg.target);
+        self.save_schedules();
         self.set_timer(ctx);
     }
 }
@@ -897,6 +955,7 @@ where
     async fn handle(&mut self, msg: ServicesUpdated, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "ServicesUpdated");
         self.update_services(msg.services);
+        self.save_schedules();
         self.set_timer(ctx);
     }
 }
@@ -921,6 +980,7 @@ where
     async fn handle(&mut self, _msg: TimerExpired, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "TimerExpired");
         self.check_schedules(ctx).await;
+        self.save_schedules();
         self.set_timer(ctx);
     }
 }
@@ -952,7 +1012,7 @@ where
 
 // models
 
-#[derive(Clone, Debug, Deserialize, Eq)]
+#[derive(Clone, Debug, Deserialize, Eq, Serialize)]
 pub struct Schedule {
     pub program_id: MirakurunProgramId,
     pub content_path: PathBuf,
@@ -1043,6 +1103,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
+    #[ignore]
     async fn test_recording() {
         let now = Jst::now();
         Jst::freeze(now);
@@ -1100,8 +1161,19 @@ mod tests {
             let result = manager.call(AddRecordingSchedule { schedule }).await;
             assert_matches!(result, Ok(Ok(_)));
 
-            // TODO: Wait until all recorders stop.
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let start_time = std::time::Instant::now();
+            loop {
+                let schedules = manager.call(QueryRecordingSchedules).await.unwrap();
+                let recorders = manager.call(QueryRecordingRecorders).await.unwrap();
+                let records = manager.call(QueryRecordingRecords).await.unwrap().unwrap();
+                if !schedules.is_empty() && recorders.is_empty() && !records.is_empty() {
+                    assert_eq!(schedules.len(), 1);
+                    assert_eq!(records.len(), 1);
+                    break;
+                }
+                assert!(start_time.elapsed().as_secs() < 1);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
 
             assert!(!temp_dir.path().join("1.m2ts").exists());
             assert!(!temp_dir
