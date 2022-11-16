@@ -22,6 +22,7 @@ use chrono::Duration;
 use chrono::NaiveDate;
 use chrono::TimeZone;
 use indexmap::IndexMap;
+use itertools::Itertools;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -51,7 +52,9 @@ pub struct Epg<T> {
     programs_emitters: Vec<Emitter<ProgramsUpdated>>,
     services: Arc<IndexMap<ServiceTriple, EpgService>>, // keeps insertion order
     clocks: Arc<HashMap<ServiceTriple, Clock>>,
-    schedules: HashMap<ServiceTriple, EpgSchedule>,
+    // Allocate EpgSchedule in the heap in order to avoid stack overflow in
+    // serialization using serde_json.
+    schedules: HashMap<ServiceTriple, Box<EpgSchedule>>,
     airtimes: HashMap<ProgramQuad, Airtime>,
 }
 
@@ -165,7 +168,7 @@ impl<T> Epg<T> {
         self.schedules
             .entry(service_triple)
             .and_modify(|sched| sched.update_start_index(today))
-            .or_insert(EpgSchedule::new(service_triple));
+            .or_insert(Box::new(EpgSchedule::new(service_triple)));
     }
 
     fn update_schedule(&mut self, section: EitSection) {
@@ -229,26 +232,22 @@ impl<T> Epg<T> {
                 let json_path = PathBuf::from(cache_dir).join("services.json");
                 tracing::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                let services: IndexMap<ServiceTriple, EpgService> =
-                    serde_json::from_reader(reader)?;
+                let services: Vec<(ServiceTriple, EpgService)> = serde_json::from_reader(reader)?;
                 // Drop a service if the channel of the service has been
                 // changed.
-                let services = services
-                    .into_iter()
-                    .filter(|(_, sv)| {
-                        let not_changed = channels.iter().any(|ch| ch == &sv.channel);
-                        if !not_changed {
-                            // if changed
-                            tracing::debug!(
-                                "Drop service#{} ({}) due to changes of the channel config",
-                                sv.triple(),
-                                sv.name
-                            );
-                        }
-                        not_changed
-                    })
-                    .collect();
-                self.services = Arc::new(services);
+                let iter = services.into_iter().filter(|(_, sv)| {
+                    let not_changed = channels.iter().any(|ch| ch == &sv.channel);
+                    if !not_changed {
+                        // if changed
+                        tracing::debug!(
+                            "Drop service#{} ({}) due to changes of the channel config",
+                            sv.triple(),
+                            sv.name
+                        );
+                    }
+                    not_changed
+                });
+                self.services = Arc::new(IndexMap::from_iter(iter));
                 tracing::info!("Loaded {} services", self.services.len());
             }
             None => {
@@ -264,20 +263,17 @@ impl<T> Epg<T> {
                 let json_path = PathBuf::from(cache_dir).join("clocks.json");
                 tracing::debug!("Loading clocks from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                let clocks: HashMap<ServiceTriple, Clock> = serde_json::from_reader(reader)?;
+                let clocks: Vec<(ServiceTriple, Clock)> = serde_json::from_reader(reader)?;
                 // Drop a clock if the service triple of the clock is not
                 // contained in `self::services`.
-                let clocks = clocks
-                    .into_iter()
-                    .filter(|(triple, _)| {
-                        let contained = self.services.contains_key(triple);
-                        if !contained {
-                            tracing::debug!("Drop clock for missing service#{}", triple);
-                        }
-                        contained
-                    })
-                    .collect();
-                self.clocks = Arc::new(clocks);
+                let iter = clocks.into_iter().filter(|(triple, _)| {
+                    let contained = self.services.contains_key(triple);
+                    if !contained {
+                        tracing::debug!("Drop clock for missing service#{}", triple);
+                    }
+                    contained
+                });
+                self.clocks = Arc::new(HashMap::from_iter(iter));
                 tracing::info!("Loaded {} clocks", self.clocks.len());
             }
             None => {
@@ -294,11 +290,11 @@ impl<T> Epg<T> {
                 let json_path = PathBuf::from(cache_dir).join("schedules.json");
                 tracing::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                let schedules: HashMap<ServiceTriple, EpgSchedule> =
+                let schedules: Vec<(ServiceTriple, Box<EpgSchedule>)> =
                     serde_json::from_reader(reader)?;
                 // Drop a clock if the service triple of the clock is not
                 // contained in `self::services`.
-                self.schedules = schedules
+                let iter = schedules
                     .into_iter()
                     .filter(|(triple, _)| {
                         let contained = self.services.contains_key(triple);
@@ -310,8 +306,8 @@ impl<T> Epg<T> {
                     .map(|(triple, mut sched)| {
                         sched.update_start_index(today);
                         (triple, sched)
-                    })
-                    .collect();
+                    });
+                self.schedules = HashMap::from_iter(iter);
                 tracing::info!("Loaded schedules for {} services", self.schedules.len());
             }
             None => {
@@ -327,7 +323,14 @@ impl<T> Epg<T> {
                 let json_path = PathBuf::from(cache_dir).join("services.json");
                 tracing::debug!("Saving services into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
-                serde_json::to_writer(writer, &self.services)?;
+                // Serialize as a list of tuples in order to avoid failures in
+                // serialization to JSON.
+                //
+                // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
+                // but we simply create `Vec<(&K, &V)>` in order to reduce
+                // maintenance cost.
+                let services = self.services.iter().collect_vec();
+                serde_json::to_writer(writer, &services)?;
                 tracing::info!("Saved {} services", self.services.len());
             }
             None => {
@@ -343,7 +346,14 @@ impl<T> Epg<T> {
                 let json_path = PathBuf::from(cache_dir).join("clocks.json");
                 tracing::debug!("Saving clocks into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
-                serde_json::to_writer(writer, &self.clocks)?;
+                // Serialize as a list of tuples in order to avoid failures in
+                // serialization to JSON.
+                //
+                // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
+                // but we simply create `Vec<(&K, &V)>` in order to reduce
+                // maintenance cost.
+                let clocks = self.clocks.iter().collect_vec();
+                serde_json::to_writer(writer, &clocks)?;
                 tracing::info!("Saved {} clocks", self.clocks.len());
             }
             None => {
@@ -359,7 +369,14 @@ impl<T> Epg<T> {
                 let json_path = PathBuf::from(cache_dir).join("schedules.json");
                 tracing::debug!("Saving schedules into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
-                serde_json::to_writer(writer, &self.schedules)?;
+                // Serialize as a list of tuples in order to avoid failures in
+                // serialization to JSON.
+                //
+                // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
+                // but we simply create `Vec<(&K, &V)>` in order to reduce
+                // maintenance cost.
+                let schedules = self.schedules.iter().collect_vec();
+                serde_json::to_writer(writer, &schedules)?;
                 tracing::info!("Saved schedules for {} services", self.schedules.len());
             }
             None => {
@@ -1405,7 +1422,8 @@ mod tests {
     async fn test_update_services_purge_garbage_schedules() {
         let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub);
         let triple = ServiceTriple::from((1, 2, 3));
-        epg.schedules.insert(triple, EpgSchedule::new(triple));
+        epg.schedules
+            .insert(triple, Box::new(EpgSchedule::new(triple)));
         assert!(!epg.schedules.is_empty());
         let triple = ServiceTriple::from((1, 1, 1));
         let sv = create_epg_service(triple, ChannelType::GR);

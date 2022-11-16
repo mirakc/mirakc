@@ -122,31 +122,46 @@ impl From<u16> for EventId {
     }
 }
 
+// Historical Note
+// ---------------
+// Initially, ServiceTriple and ProgramQuad types wrap an u64 value and its
+// value is serialized as a Number in JSON.  However, this causes problems when
+// parsing a serialized JSON with tools such as jq which uses `double` (C++) in
+// representation of a Number.  As a result, a value outside -2^53..2^53 cannot
+// be represented properly.
+//
+// * https://github.com/stedolan/jq/issues/369
+// * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_SAFE_INTEGER
+//
+// Afterward, we changed definitions of those types in order to avoid the
+// problems.
+
 #[derive(Clone, Copy, Eq, Hash, PartialEq, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Debug))]
-pub struct ServiceTriple(u64);
+pub struct ServiceTriple(NetworkId, TransportStreamId, ServiceId);
 
 impl ServiceTriple {
     pub fn new(nid: NetworkId, tsid: TransportStreamId, sid: ServiceId) -> Self {
-        ServiceTriple(
-            (nid.value() as u64) << 48 | (tsid.value() as u64) << 32 | (sid.value() as u64) << 16,
-        )
-    }
-
-    pub fn value(&self) -> u64 {
-        self.0
+        ServiceTriple(nid, tsid, sid)
     }
 
     pub fn nid(&self) -> NetworkId {
-        NetworkId(((self.value() >> 48) & 0xFFFF) as u16)
+        self.0
     }
 
     pub fn tsid(&self) -> TransportStreamId {
-        TransportStreamId(((self.value() >> 32) & 0xFFFF) as u16)
+        self.1
     }
 
     pub fn sid(&self) -> ServiceId {
-        ServiceId(((self.value() >> 16) & 0xFFFF) as u16)
+        self.2
+    }
+
+    fn value(&self) -> u64 {
+        // The least 16 bits are reserved for eid.
+        (self.0.value() as u64) << 48
+            | (self.1.value() as u64) << 32
+            | (self.2.value() as u64) << 16
     }
 }
 
@@ -175,36 +190,34 @@ impl Into<(NetworkId, ServiceId)> for ServiceTriple {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-pub struct ProgramQuad(u64);
+pub struct ProgramQuad(NetworkId, TransportStreamId, ServiceId, EventId);
 
 impl ProgramQuad {
     pub fn new(nid: NetworkId, tsid: TransportStreamId, sid: ServiceId, eid: EventId) -> Self {
-        ProgramQuad(
-            (nid.value() as u64) << 48
-                | (tsid.value() as u64) << 32
-                | (sid.value() as u64) << 16
-                | (eid.value() as u64),
-        )
+        ProgramQuad(nid, tsid, sid, eid)
     }
 
     pub fn nid(&self) -> NetworkId {
-        NetworkId(((self.value() >> 48) & 0xFFFF) as u16)
+        self.0
     }
 
     pub fn tsid(&self) -> TransportStreamId {
-        TransportStreamId(((self.value() >> 32) & 0xFFFF) as u16)
+        self.1
     }
 
     pub fn sid(&self) -> ServiceId {
-        ServiceId(((self.value() >> 16) & 0xFFFF) as u16)
+        self.2
     }
 
     pub fn eid(&self) -> EventId {
-        EventId((self.value() & 0xFFFF) as u16)
+        self.3
     }
 
     fn value(&self) -> u64 {
-        self.0
+        (self.0.value() as u64) << 48
+            | (self.1.value() as u64) << 32
+            | (self.2.value() as u64) << 16
+            | (self.3.value() as u64)
     }
 }
 
