@@ -727,10 +727,9 @@ let program_id = MirakurunProgramId::new(
     NetworkId::from(1), ServiceId::from(2), EventId::from(3));
 
 // bytes written to the content file.
-let result = RecordingStoppedResult::Ok(123);
+let result = RecordingStoppedResult::Ok(123); // {"ok":123}
 
-// or an error message when something failed.
-//let result = RecordingStoppedResult::Err("message".to_string());
+// or an error like `{"err":"message"}` when something failed.
 
 println!("{}", serde_json::to_string(&program_id)?);
 println!("{}", serde_json::to_string(&result)?);
