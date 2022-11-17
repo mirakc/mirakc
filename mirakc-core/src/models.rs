@@ -872,6 +872,12 @@ mod test_helper {
         }
     }
 
+    impl From<(u16, u16)> for MirakurunServiceId {
+        fn from(tuple: (u16, u16)) -> Self {
+            MirakurunServiceId::new(tuple.0.into(), tuple.1.into())
+        }
+    }
+
     impl From<(u16, u16, u16)> for MirakurunProgramId {
         fn from(triple: (u16, u16, u16)) -> Self {
             MirakurunProgramId::new(triple.0.into(), triple.1.into(), triple.2.into())

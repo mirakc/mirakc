@@ -67,7 +67,7 @@ pub struct Config {
     #[serde(default)]
     pub timeshift: TimeshiftConfig,
     #[serde(default)]
-    pub event_handlers: EventHandlersConfig,
+    pub scripts: ScriptsConfig,
     #[serde(default)]
     pub resource: ResourceConfig,
     #[serde(default)]
@@ -859,9 +859,13 @@ impl TimeshiftRecorderConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(Debug))]
-pub struct EventHandlersConfig {
+pub struct ScriptsConfig {
     #[serde(default)]
     pub epg_programs_updated: String,
+    #[serde(default)]
+    pub recording_started: String,
+    #[serde(default)]
+    pub recording_stopped: String,
 }
 
 #[derive(Clone, Deserialize, PartialEq)]

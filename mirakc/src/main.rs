@@ -69,6 +69,7 @@ async fn main() -> Result<(), Error> {
         .spawn_actor(script_runner::ScriptRunner::new(
             config.clone(),
             epg.clone(),
+            recording_manager.clone(),
         ))
         .await;
 

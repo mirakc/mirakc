@@ -23,12 +23,12 @@ use crate::command_util::CommandPipelineProcessModel;
 use crate::config::Config;
 use crate::datetime_ext::serde_jst;
 use crate::datetime_ext::Jst;
+use crate::epg;
 use crate::epg::EpgProgram;
 use crate::epg::EpgService;
 use crate::epg::QueryClock;
 use crate::epg::QueryProgram;
 use crate::epg::QueryService;
-use crate::epg::RegisterEmitter;
 use crate::epg::ServicesUpdated;
 use crate::error::Error;
 use crate::filter::FilterPipelineBuilder;
@@ -50,6 +50,8 @@ pub struct RecordingManager<T, E> {
     schedule_map: HashMap<MirakurunProgramId, Arc<Schedule>>,
     recorders: HashMap<MirakurunProgramId, Recorder>,
     timer_token: Option<CancellationToken>,
+    recording_started_emitters: Vec<Emitter<RecordingStarted>>,
+    recording_stopped_emitters: Vec<Emitter<RecordingStopped>>,
 }
 
 const PREP_SECS: i64 = 15;
@@ -63,7 +65,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     pub fn new(config: Arc<Config>, tuner_manager: T, epg: E) -> Self {
         RecordingManager {
@@ -74,6 +76,8 @@ where
             schedule_map: Default::default(),
             recorders: Default::default(),
             timer_token: None,
+            recording_started_emitters: Default::default(),
+            recording_stopped_emitters: Default::default(),
         }
     }
 
@@ -255,29 +259,26 @@ where
         )?;
         tracing::info!(%program_id, ?metadata_path, "Saved metadata");
 
-        // TODO: use Stdio
-        let fut = {
+        // Inner future in order to capture the result in an outer future.
+        let inner_fut = {
             let content_path = content_path.clone();
-            let addr = ctx.address().clone();
             async move {
-                match tokio::fs::File::create(&content_path).await {
-                    Ok(record) => {
-                        tracing::info!(%program_id, "Recording...");
-                        let mut writer = BufWriter::new(record);
-                        match tokio::io::copy(&mut output, &mut writer).await {
-                            Ok(nwritten) => {
-                                tracing::info!(%program_id, nwritten, "Stopped recording")
-                            }
-                            Err(err) => tracing::error!(%program_id, %err),
-                        }
-                    }
-                    Err(err) => tracing::error!(%err),
-                }
-                addr.emit(RecordingStopped { program_id }).await;
+                let record = tokio::fs::File::create(&content_path).await?;
+                let mut writer = BufWriter::new(record);
+                // TODO: use Stdio
+                Ok::<_, Error>(tokio::io::copy(&mut output, &mut writer).await?)
             }
         };
-        let fut = fut.instrument(tracing::info_span!("writer", ?content_path));
-        ctx.spawn_task(fut);
+        // Outer future emits messages to observers.
+        let outer_fut = {
+            let addr = ctx.address().clone();
+            async move {
+                addr.emit(RecordingStarted { program_id }).await;
+                let result = inner_fut.await.map_err(|err| format!("{}", err));
+                addr.emit(RecordingStopped { program_id, result }).await;
+            }
+        };
+        let fut = outer_fut.instrument(tracing::info_span!("writer", ?content_path));
 
         let recorder = Recorder {
             schedule,
@@ -287,6 +288,10 @@ where
         };
         let model = recorder.get_model();
         self.recorders.insert(program_id, recorder);
+
+        // Spawn the following task after the recorder is inserted so that
+        // actors receiving RecordingStarted messages can access the recorder.
+        ctx.spawn_task(fut);
 
         Ok(model)
     }
@@ -345,13 +350,13 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
         self.load_schedules();
         self.epg
-            .call(RegisterEmitter::ServicesUpdated(
+            .call(epg::RegisterEmitter::ServicesUpdated(
                 ctx.address().clone().into(),
             ))
             .await
@@ -431,7 +436,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -461,7 +466,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -500,7 +505,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -559,7 +564,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -616,7 +621,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -667,7 +672,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -700,7 +705,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -733,7 +738,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -770,7 +775,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -798,7 +803,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -850,7 +855,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -898,7 +903,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -950,7 +955,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: ServicesUpdated, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "ServicesUpdated");
@@ -975,7 +980,7 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(&mut self, _msg: TimerExpired, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "TimerExpired");
@@ -985,11 +990,76 @@ where
     }
 }
 
-// recording stopped
+// register emitter
 
 #[derive(Message)]
-struct RecordingStopped {
-    program_id: MirakurunProgramId,
+#[reply("()")]
+pub enum RegisterEmitter {
+    RecordingStarted(Emitter<RecordingStarted>),
+    RecordingStopped(Emitter<RecordingStopped>),
+}
+
+#[async_trait]
+impl<T, E> Handler<RegisterEmitter> for RecordingManager<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryProgram>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: RegisterEmitter,
+        _ctx: &mut Context<Self>,
+    ) -> <RegisterEmitter as Message>::Reply {
+        match msg {
+            RegisterEmitter::RecordingStarted(emitter) => {
+                self.recording_started_emitters.push(emitter)
+            }
+            RegisterEmitter::RecordingStopped(emitter) => {
+                self.recording_stopped_emitters.push(emitter)
+            }
+        }
+    }
+}
+
+// recording started
+
+#[derive(Clone, Message)]
+pub struct RecordingStarted {
+    pub program_id: MirakurunProgramId,
+}
+
+#[async_trait]
+impl<T, E> Handler<RecordingStarted> for RecordingManager<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryProgram>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: RecordingStarted, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "RecordingStarted", %msg.program_id);
+        for emitter in self.recording_started_emitters.iter() {
+            emitter.emit(msg.clone()).await;
+        }
+    }
+}
+
+// recording stopped
+
+#[derive(Clone, Message)]
+pub struct RecordingStopped {
+    pub program_id: MirakurunProgramId,
+    pub result: Result<u64, String>,
 }
 
 #[async_trait]
@@ -1002,11 +1072,14 @@ where
     E: Call<QueryClock>,
     E: Call<QueryProgram>,
     E: Call<QueryService>,
-    E: Call<RegisterEmitter>,
+    E: Call<epg::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: RecordingStopped, _ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingStopped", %msg.program_id);
+        tracing::debug!(msg.name = "RecordingStopped", %msg.program_id, ?msg.result);
         self.recorders.remove(&msg.program_id);
+        for emitter in self.recording_stopped_emitters.iter() {
+            emitter.emit(msg.clone()).await;
+        }
     }
 }
 
