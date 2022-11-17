@@ -38,6 +38,8 @@ jobs:
           --excl-line '<coverage:exclude/>|unimplemented!|unreachable!'
           --excl-start '<coverage:exclude>'
           --excl-stop '</coverage:exclude>'
+          --excl-br-start '<coverage:exclude>'
+          --excl-br-stop '</coverage:exclude>'
           -t lcov -o lcov.info
       - name: Update to codecov.io
         uses: codecov/codecov-action@v3

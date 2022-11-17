@@ -128,7 +128,7 @@ jobs:
           cargo binstall --no-confirm grcov
       - name: Generate coverage data
         run: >-
-          grcov target/debug --branch --llvm --ignore-not-existing -s . --ignore '*/src/main.rs' --ignore 'mirakc-core/src/error.rs' --ignore 'mirakc-core/src/tracing_ext.rs' --excl-line '<coverage:exclude/>|unimplemented!|unreachable!' --excl-start '<coverage:exclude>' --excl-stop '</coverage:exclude>' -t lcov -o lcov.info
+          grcov target/debug --branch --llvm --ignore-not-existing -s . --ignore '*/src/main.rs' --ignore 'mirakc-core/src/error.rs' --ignore 'mirakc-core/src/tracing_ext.rs' --excl-line '<coverage:exclude/>|unimplemented!|unreachable!' --excl-start '<coverage:exclude>' --excl-stop '</coverage:exclude>' --excl-br-start '<coverage:exclude>' --excl-br-stop '</coverage:exclude>' -t lcov -o lcov.info
       - name: Update to codecov.io
         uses: codecov/codecov-action@v3
         with:
