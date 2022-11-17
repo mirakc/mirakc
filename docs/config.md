@@ -52,6 +52,9 @@ suitable for your environment.
 | [timeshift.recorders\[\].num-chunks]     |                                   |
 | [timeshift.recorders\[\].num-reserves]   | `1`                               |
 | [timeshift.recorders\[\].priority]       | `128`                             |
+| [scripts.epg-programs-updated]           | `''`                              |
+| [scripts.recording-started]              | `''`                              |
+| [scripts.recording-stopped]              | `''`                              |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
 | [mirakurun.openapi-json]                 | `/etc/mirakc/mirakurun.openapi.json` |
@@ -100,6 +103,9 @@ suitable for your environment.
 [timeshift.recorders\[\].num-chunks]: #timeshiftrecorders
 [timeshift.recorders\[\].num-reserves]: #timeshiftrecorders
 [timeshift.recorders\[\].priority]: #timeshiftrecorders
+[scripts.epg-programs-updated]: #scriptsepg-programs-updated
+[scripts.recording-started]: #scriptsrecording-started
+[scripts.recording-stopped]: #scriptsrecording-stopped
 [resource.strings-yaml]: #resourcestrings-yaml
 [resource.logos]: #resourcelogos
 [mirakurun.openapi-json]: #mirakurunopenapi-json
@@ -675,6 +681,60 @@ Definitions of timeshift recorders.
 * priority
   * The priority of streaming
   * Should be larger than 0
+
+## scripts
+
+Definitions for scripts to be executed when a particular event occurs.
+
+### scripts.epg-programs-updated
+
+A script to be executed when EPG programs in a service are updated.
+
+Output from the following rust code is piped to the script:
+
+```rust
+let service_id = MirakurunServiceId::new(
+    NetworkId::from(1), ServiceId::from(2));
+let programs: Vec<MirakurunProgram> = vec![...];
+
+println!("{}", serde_json::to_string(&service_id)?);
+for program in programs.iter() {
+    println!("{}", serde_json::to_string(program)?);
+}
+```
+
+### scripts.recording-started
+
+A script to be executed when recording for a program is started.
+
+Output from the following rust code is piped to the script:
+
+```rust
+let program_id = MirakurunProgramId::new(
+    NetworkId::from(1), ServiceId::from(2), EventId::from(3));
+
+println!("{}", serde_json::to_string(&program_id)?);
+```
+
+### scripts.recording-stopped
+
+A script to be executed when recording for a program is stopped.
+
+Output from the following rust code is piped to the script:
+
+```rust
+let program_id = MirakurunProgramId::new(
+    NetworkId::from(1), ServiceId::from(2), EventId::from(3));
+
+// bytes written to the content file.
+let result = RecordingStoppedResult::Ok(123);
+
+// or an error message when something failed.
+//let result = RecordingStoppedResult::Err("message".to_string());
+
+println!("{}", serde_json::to_string(&program_id)?);
+println!("{}", serde_json::to_string(&result)?);
+```
 
 ## resource.strings-yaml
 
