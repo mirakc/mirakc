@@ -20,6 +20,9 @@ use tokio::process::ChildStdin;
 use tokio::process::ChildStdout;
 use tokio::process::Command;
 use tokio::sync::broadcast;
+use tracing::Instrument;
+use tracing::Span;
+use tracing::instrument;
 
 const COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT: Duration = Duration::from_nanos(100_000); // 100us
 
@@ -44,7 +47,6 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
 pub struct CommandBuilder<'a> {
     inner: Command,
     command: &'a str,
-    words: Vec<String>,
     stderr_set: bool,
 }
 
@@ -63,7 +65,6 @@ impl<'a> CommandBuilder<'a> {
         Ok(CommandBuilder {
             inner,
             command,
-            words,
             stderr_set: false,
         })
     }
@@ -103,11 +104,14 @@ impl<'a> CommandBuilder<'a> {
             .spawn()
             .map_err(|err| Error::UnableToSpawn(self.command.to_string(), err))?;
 
+        let pid = child.id().unwrap();
+        let command = &self.command;
+
+        let span = tracing::debug_span!("child", pid, command);
+        let _enter = span.enter();
+
         if let Some(stderr) = child.stderr.take() {
-            let (prog, _) = self.words.split_first().unwrap();
-            let prog = prog.to_string();
-            let pid = child.id().unwrap();
-            tokio::spawn(async move {
+            let fut = async move {
                 let mut reader = BufReader::new(stderr);
                 let mut data = Vec::with_capacity(4096);
                 // BufReader::read_line() gets stuck if an invalid character
@@ -118,17 +122,16 @@ impl<'a> CommandBuilder<'a> {
                         // EOF
                         break;
                     }
-                    tracing::debug!(
-                        pid,
-                        prog,
-                        "{}",
-                        // data may contain non-utf8 sequence.
-                        String::from_utf8_lossy(&data).trim_end()
-                    );
+                    // data may contain non-utf8 sequence.
+                    tracing::debug!("{}", String::from_utf8_lossy(&data).trim_end());
                     data.clear();
                 }
-            });
+            };
+            let fut = fut.instrument(span.clone());
+            tokio::spawn(fut);
         }
+
+        tracing::debug!("Spawned");
         Ok(child)
     }
 }
@@ -136,6 +139,7 @@ impl<'a> CommandBuilder<'a> {
 // Spawn processes for input commands and build a pipeline, then returns it.
 // Input and output endpoints can be took from the pipeline only once
 // respectively.
+#[instrument(name = "pipeline", level = "debug", skip_all, fields(%id))]
 pub fn spawn_pipeline<T>(commands: Vec<String>, id: T) -> Result<CommandPipeline<T>, Error>
 where
     T: fmt::Display + Clone + Unpin,
@@ -163,13 +167,14 @@ pub enum Error {
 
 pub struct CommandPipeline<T>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: Clone + Unpin,
 {
     id: T,
     sender: broadcast::Sender<()>,
     stdin: Option<ChildStdin>,
     stdout: Option<ChildStdout>,
     commands: Vec<CommandData>,
+    span: Span,
 }
 
 struct CommandData {
@@ -179,7 +184,7 @@ struct CommandData {
 
 impl<T> CommandPipeline<T>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: Clone + Unpin,
 {
     fn new(id: T) -> Self {
         let (sender, _) = broadcast::channel(1);
@@ -189,6 +194,7 @@ where
             stdin: None,
             stdout: None,
             commands: Vec::new(),
+            span: Span::current(),
         }
     }
 
@@ -203,12 +209,6 @@ where
             .stdin(input)
             .stdout(Stdio::piped())
             .spawn()?;
-        tracing::debug!(
-            id = %self.id,
-            pid = process.id().unwrap(),
-            command,
-            "Spawned",
-        );
 
         if self.stdin.is_none() {
             self.stdin = process.stdin.take();
@@ -240,6 +240,7 @@ where
     pub fn take_endpoints(
         &mut self,
     ) -> Result<(CommandPipelineInput<T>, CommandPipelineOutput<T>), Error> {
+        let _enter = self.span.enter();
         let input = CommandPipelineInput::new(
             self.stdin.take().unwrap().try_into().unwrap(),
             self.id.clone(),
@@ -256,18 +257,18 @@ where
 
 impl<T> Drop for CommandPipeline<T>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: Clone + Unpin,
 {
     fn drop(&mut self) {
-        let id = &self.id;
+        let _enter = self.span.enter();
         for data in self.commands.iter() {
             let command = &data.command;
             match data.process.id() {
-                Some(pid) => tracing::debug!(%id, pid, command, "Kill"),
-                None => tracing::debug!(%id, command, "Already terminated"),
+                Some(pid) => tracing::debug!(pid, command, "Kill"),
+                None => tracing::debug!(command, "Already terminated"),
             }
         }
-        tracing::debug!(%id, "Wait for the command pipeline termination...");
+        tracing::debug!("Wait for the command pipeline termination...");
         for data in self.commands.iter_mut() {
             // Always send a SIGKILL to the process.
             let _ = data.process.start_kill();
@@ -285,7 +286,7 @@ where
                 sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
             }
         }
-        tracing::debug!(%id, "The command pipeline has terminated");
+        tracing::debug!("The command pipeline has terminated");
     }
 }
 
@@ -298,7 +299,7 @@ pub struct CommandPipelineProcessModel {
 
 pub struct CommandPipelineInput<T>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: Unpin,
 {
     inner: ChildStdin,
     _pipeline_id: T,
@@ -307,7 +308,7 @@ where
 
 impl<T> CommandPipelineInput<T>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: Unpin,
 {
     fn new(inner: ChildStdin, pipeline_id: T, receiver: broadcast::Receiver<()>) -> Self {
         Self {
@@ -327,7 +328,7 @@ where
 
 impl<T> AsyncWrite for CommandPipelineInput<T>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: Unpin,
 {
     fn poll_write(
         mut self: Pin<&mut Self>,
@@ -362,7 +363,7 @@ where
 
 pub struct CommandPipelineOutput<T>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: Unpin,
 {
     inner: ChildStdout,
     _pipeline_id: T,
@@ -371,7 +372,7 @@ where
 
 impl<T> CommandPipelineOutput<T>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: Unpin,
 {
     fn new(inner: ChildStdout, pipeline_id: T, receiver: broadcast::Receiver<()>) -> Self {
         Self {
@@ -391,7 +392,7 @@ where
 
 impl<T> AsyncRead for CommandPipelineOutput<T>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: Unpin,
 {
     fn poll_read(
         mut self: Pin<&mut Self>,
