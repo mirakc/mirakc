@@ -12,7 +12,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Child;
 use tracing::Instrument;
 
-use crate::command_util::spawn_process;
+use crate::command_util::CommandBuilder;
 use crate::config::Config;
 use crate::datetime_ext::Jst;
 use crate::epg;
@@ -284,7 +284,10 @@ fn wrap(fut: impl Future<Output = Result<ExitStatus, Error>>) -> impl Future<Out
 // FrowRawFd::from_raw_fd() is an unsafe function.  In addition, the
 // RawFd may be closed twice on drop.
 fn spawn_command(command: &str) -> Result<Child, Error> {
-    Ok(spawn_process(command, Stdio::piped(), Stdio::null())?)
+    Ok(CommandBuilder::new(command)?
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()?)
 }
 
 async fn write_line<W, T>(write: &mut W, data: &T) -> Result<(), Error>
@@ -363,7 +366,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.epg_programs_updated = "command_not_found".to_string();
+        config.scripts.epg_programs_updated = "command-not-found".to_string();
         let config = Arc::new(config);
         let result =
             TestTarget::run_epg_programs_updated_script(config, service_id, programs.clone()).await;
@@ -394,7 +397,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording_started = "command_not_found".to_string();
+        config.scripts.recording_started = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_started_script(config, program_id).await;
         assert_matches!(result, Err(_));
@@ -447,7 +450,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording_stopped = "command_not_found".to_string();
+        config.scripts.recording_stopped = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_stopped_script(config, program_id, Ok(0)).await;
         assert_matches!(result, Err(_));

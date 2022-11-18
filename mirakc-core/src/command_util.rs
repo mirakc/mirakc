@@ -41,59 +41,93 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
     nanos
 });
 
-pub fn spawn_process<I, O>(command: &str, input: I, output: O) -> Result<Child, Error>
-where
-    I: Into<Stdio>,
-    O: Into<Stdio>,
-{
-    let words = match shell_words::split(command) {
-        Ok(words) => words,
-        Err(_) => return Err(Error::UnableToParse(command.to_string())),
-    };
-    let words: Vec<&str> = words.iter().map(|word| &word[..]).collect();
-    let (prog, args) = words.split_first().unwrap();
-    let debug_child_process = env::var_os("MIRAKC_DEBUG_CHILD_PROCESS").is_some();
-    let stderr = if debug_child_process {
-        Stdio::piped()
-    } else {
-        Stdio::null()
-    };
-    let mut child = Command::new(prog)
-        .args(args)
-        .stdin(input)
-        .stdout(output)
-        .stderr(stderr)
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|err| Error::UnableToSpawn(command.to_string(), err))?;
-    if cfg!(not(test)) {
-        if let Some(stderr) = child.stderr.take() {
-            let prog = prog.to_string();
-            let child_id = child.id().unwrap();
-            tokio::spawn(async move {
-                let mut reader = BufReader::new(stderr);
-                let mut data = Vec::with_capacity(4096);
-                // BufReader::read_line() gets stuck if an invalid character
-                // sequence is found.  Therefore, we use BufReader::read_until()
-                // here in order to avoid such a situation.
-                while let Ok(n) = reader.read_until(0x0A, &mut data).await {
-                    if n == 0 {
-                        // EOF
-                        break;
-                    }
-                    tracing::debug!(
-                        "{}#{}: {}",
-                        prog,
-                        child_id,
-                        // data may contain non-utf8 sequence.
-                        String::from_utf8_lossy(&data).trim_end()
-                    );
-                    data.clear();
-                }
-            });
-        }
+pub struct CommandBuilder<'a> {
+    inner: Command,
+    command: &'a str,
+    words: Vec<String>,
+    stderr_set: bool,
+}
+
+impl<'a> CommandBuilder<'a> {
+    pub fn new(command: &'a str) -> Result<Self, Error> {
+        let words = match shell_words::split(command) {
+            Ok(words) => words,
+            Err(_) => return Err(Error::UnableToParse(command.to_string())),
+        };
+
+        let (prog, args) = words.split_first().unwrap();
+
+        let mut inner = Command::new(prog);
+        inner.args(args);
+
+        Ok(CommandBuilder {
+            inner,
+            command,
+            words,
+            stderr_set: false,
+        })
     }
-    Ok(child)
+
+    pub fn stdin<T: Into<Stdio>>(&mut self, io: T) -> &mut Self {
+        self.inner.stdin(io);
+        self
+    }
+
+    pub fn stdout<T: Into<Stdio>>(&mut self, io: T) -> &mut Self {
+        self.inner.stdout(io);
+        self
+    }
+
+    pub fn stderr<T: Into<Stdio>>(&mut self, io: T) -> &mut Self {
+        self.inner.stderr(io);
+        self.stderr_set = true;
+        self
+    }
+
+    pub fn spawn(&mut self) -> Result<Child, Error> {
+        let debug_child_process = env::var_os("MIRAKC_DEBUG_CHILD_PROCESS").is_some();
+        if !self.stderr_set && debug_child_process {
+            self.inner.stderr(Stdio::piped());
+        } else {
+            self.inner.stderr(Stdio::null());
+        }
+
+        let mut child = self
+            .inner
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|err| Error::UnableToSpawn(self.command.to_string(), err))?;
+
+        if cfg!(not(test)) {
+            if let Some(stderr) = child.stderr.take() {
+                let (prog, _) = self.words.split_first().unwrap();
+                let prog = prog.to_string();
+                let pid = child.id().unwrap();
+                tokio::spawn(async move {
+                    let mut reader = BufReader::new(stderr);
+                    let mut data = Vec::with_capacity(4096);
+                    // BufReader::read_line() gets stuck if an invalid character
+                    // sequence is found.  Therefore, we use BufReader::read_until()
+                    // here in order to avoid such a situation.
+                    while let Ok(n) = reader.read_until(0x0A, &mut data).await {
+                        if n == 0 {
+                            // EOF
+                            break;
+                        }
+                        tracing::debug!(
+                            pid,
+                            prog,
+                            "{}",
+                            // data may contain non-utf8 sequence.
+                            String::from_utf8_lossy(&data).trim_end()
+                        );
+                        data.clear();
+                    }
+                });
+            }
+        }
+        Ok(child)
+    }
 }
 
 // Spawn processes for input commands and build a pipeline, then returns it.
@@ -162,12 +196,15 @@ where
             self.stdout.take().unwrap().try_into()?
         };
 
-        let mut process = spawn_process(&command, input, Stdio::piped())?;
+        let mut process = CommandBuilder::new(&command)?
+            .stdin(input)
+            .stdout(Stdio::piped())
+            .spawn()?;
         tracing::debug!(
-            "{}: Spawned {}: `{}`",
-            self.id,
-            process.id().unwrap(),
-            command
+            id = %self.id,
+            pid = process.id().unwrap(),
+            command,
+            "Spawned",
         );
 
         if self.stdin.is_none() {
@@ -219,13 +256,15 @@ where
     T: fmt::Display + Clone + Unpin,
 {
     fn drop(&mut self) {
+        let id = &self.id;
         for data in self.commands.iter() {
+            let command = &data.command;
             match data.process.id() {
-                Some(pid) => tracing::debug!("{}: Kill {}: `{}`", self.id, pid, data.command),
-                None => tracing::debug!("{}: Already terminated: {}", self.id, data.command),
+                Some(pid) => tracing::debug!(%id, pid, command, "Kill"),
+                None => tracing::debug!(%id, command, "Already terminated"),
             }
         }
-        tracing::debug!("{}: Wait for the command pipeline termination...", self.id);
+        tracing::debug!(%id, "Wait for the command pipeline termination...");
         for data in self.commands.iter_mut() {
             // Always send a SIGKILL to the process.
             let _ = data.process.start_kill();
@@ -243,7 +282,7 @@ where
                 sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
             }
         }
-        tracing::debug!("{}: The command pipeline has terminated", self.id);
+        tracing::debug!(%id, "The command pipeline has terminated");
     }
 }
 
@@ -372,16 +411,19 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test]
-    async fn test_spawn_process() {
-        let result = spawn_process("sh -c 'exit 0;'", Stdio::null(), Stdio::piped());
+    async fn test_command_builder() {
+        let result = CommandBuilder::new("true")
+            .and_then(|mut builder| builder.stdin(Stdio::null()).stdout(Stdio::piped()).spawn());
         assert!(result.is_ok());
         let _ = result.unwrap().wait().await;
 
-        let result = spawn_process("'", Stdio::null(), Stdio::piped());
+        let result = CommandBuilder::new("'")
+            .and_then(|mut builder| builder.stdin(Stdio::null()).stdout(Stdio::piped()).spawn());
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "Unable to parse: '");
 
-        let result = spawn_process("command-not-found", Stdio::null(), Stdio::piped());
+        let result = CommandBuilder::new("command-not-found")
+            .and_then(|mut builder| builder.stdin(Stdio::null()).stdout(Stdio::piped()).spawn());
         assert!(result.is_err());
         assert_matches!(
             result.unwrap_err(),
