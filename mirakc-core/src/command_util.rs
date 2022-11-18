@@ -85,7 +85,12 @@ impl<'a> CommandBuilder<'a> {
     }
 
     pub fn spawn(&mut self) -> Result<Child, Error> {
-        let debug_child_process = env::var_os("MIRAKC_DEBUG_CHILD_PROCESS").is_some();
+        let env_name = if cfg!(test) {
+            "MIRAKC_DEBUG_CHILD_PROCESS_FOR_TEST"
+        } else {
+            "MIRAKC_DEBUG_CHILD_PROCESS"
+        };
+        let debug_child_process = env::var_os(env_name).is_some();
         if !self.stderr_set && debug_child_process {
             self.inner.stderr(Stdio::piped());
         } else {
@@ -98,33 +103,31 @@ impl<'a> CommandBuilder<'a> {
             .spawn()
             .map_err(|err| Error::UnableToSpawn(self.command.to_string(), err))?;
 
-        if cfg!(not(test)) {
-            if let Some(stderr) = child.stderr.take() {
-                let (prog, _) = self.words.split_first().unwrap();
-                let prog = prog.to_string();
-                let pid = child.id().unwrap();
-                tokio::spawn(async move {
-                    let mut reader = BufReader::new(stderr);
-                    let mut data = Vec::with_capacity(4096);
-                    // BufReader::read_line() gets stuck if an invalid character
-                    // sequence is found.  Therefore, we use BufReader::read_until()
-                    // here in order to avoid such a situation.
-                    while let Ok(n) = reader.read_until(0x0A, &mut data).await {
-                        if n == 0 {
-                            // EOF
-                            break;
-                        }
-                        tracing::debug!(
-                            pid,
-                            prog,
-                            "{}",
-                            // data may contain non-utf8 sequence.
-                            String::from_utf8_lossy(&data).trim_end()
-                        );
-                        data.clear();
+        if let Some(stderr) = child.stderr.take() {
+            let (prog, _) = self.words.split_first().unwrap();
+            let prog = prog.to_string();
+            let pid = child.id().unwrap();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stderr);
+                let mut data = Vec::with_capacity(4096);
+                // BufReader::read_line() gets stuck if an invalid character
+                // sequence is found.  Therefore, we use BufReader::read_until()
+                // here in order to avoid such a situation.
+                while let Ok(n) = reader.read_until(0x0A, &mut data).await {
+                    if n == 0 {
+                        // EOF
+                        break;
                     }
-                });
-            }
+                    tracing::debug!(
+                        pid,
+                        prog,
+                        "{}",
+                        // data may contain non-utf8 sequence.
+                        String::from_utf8_lossy(&data).trim_end()
+                    );
+                    data.clear();
+                }
+            });
         }
         Ok(child)
     }
