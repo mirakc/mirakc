@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 fuser = { version = "0.11.1", default-features = false, features = ["abi-7-31"] }
-indexmap = { version = "1.9.1", features = ["serde-1"] }
+indexmap = { version = "1.9.2", features = ["serde-1"] }
 libc = "0.2.137"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.4.0"
