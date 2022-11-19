@@ -221,15 +221,6 @@ where
         builder.add_post_filters(&self.config.post_filters, &schedule.post_filters)?;
         let (filters, content_type) = builder.build();
 
-        let mut pipeline = spawn_pipeline(filters, stream.id())?;
-        let (input, mut output) = pipeline.take_endpoints()?;
-
-        let fut = async move {
-            let _ = stream.pipe(input).await;
-        };
-        let fut = fut.instrument(tracing::info_span!("pipeline", id = %pipeline.id()));
-        ctx.spawn_task(fut);
-
         let record_dir = self.config.recorder.record_dir.as_ref().unwrap();
 
         let content_path = if schedule.content_path.is_absolute() {
@@ -242,6 +233,15 @@ where
             // Create missing directories if they don't exist.
             tokio::fs::create_dir_all(dir).await?;
         }
+
+        let mut pipeline = spawn_pipeline(filters, stream.id())?;
+        let (input, mut output) = pipeline.take_endpoints()?;
+
+        let fut = async move {
+            let _ = stream.pipe(input).await;
+        };
+        let fut = fut.instrument(tracing::info_span!("pipeline", id = %pipeline.id()));
+        ctx.spawn_task(fut);
 
         // Metadata file is always saved in the `record_dir` and no additional
         // sub-directories are created.

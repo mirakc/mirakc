@@ -10,19 +10,18 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use once_cell::sync::Lazy;
-use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
-use tokio::io::BufReader;
 use tokio::io::ReadBuf;
 use tokio::process::Child;
 use tokio::process::ChildStdin;
 use tokio::process::ChildStdout;
 use tokio::process::Command;
 use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
+use tracing::instrument;
 use tracing::Instrument;
 use tracing::Span;
-use tracing::instrument;
 
 const COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT: Duration = Duration::from_nanos(100_000); // 100us
 
@@ -44,98 +43,6 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
     nanos
 });
 
-pub struct CommandBuilder<'a> {
-    inner: Command,
-    command: &'a str,
-    stderr_set: bool,
-}
-
-impl<'a> CommandBuilder<'a> {
-    pub fn new(command: &'a str) -> Result<Self, Error> {
-        let words = match shell_words::split(command) {
-            Ok(words) => words,
-            Err(_) => return Err(Error::UnableToParse(command.to_string())),
-        };
-
-        let (prog, args) = words.split_first().unwrap();
-
-        let mut inner = Command::new(prog);
-        inner.args(args);
-
-        Ok(CommandBuilder {
-            inner,
-            command,
-            stderr_set: false,
-        })
-    }
-
-    pub fn stdin<T: Into<Stdio>>(&mut self, io: T) -> &mut Self {
-        self.inner.stdin(io);
-        self
-    }
-
-    pub fn stdout<T: Into<Stdio>>(&mut self, io: T) -> &mut Self {
-        self.inner.stdout(io);
-        self
-    }
-
-    pub fn stderr<T: Into<Stdio>>(&mut self, io: T) -> &mut Self {
-        self.inner.stderr(io);
-        self.stderr_set = true;
-        self
-    }
-
-    pub fn spawn(&mut self) -> Result<Child, Error> {
-        let env_name = if cfg!(test) {
-            "MIRAKC_DEBUG_CHILD_PROCESS_FOR_TEST"
-        } else {
-            "MIRAKC_DEBUG_CHILD_PROCESS"
-        };
-        let debug_child_process = env::var_os(env_name).is_some();
-        if !self.stderr_set && debug_child_process {
-            self.inner.stderr(Stdio::piped());
-        } else {
-            self.inner.stderr(Stdio::null());
-        }
-
-        let mut child = self
-            .inner
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|err| Error::UnableToSpawn(self.command.to_string(), err))?;
-
-        let pid = child.id().unwrap();
-        let command = &self.command;
-
-        let span = tracing::debug_span!("child", pid, command);
-        let _enter = span.enter();
-
-        if let Some(stderr) = child.stderr.take() {
-            let fut = async move {
-                let mut reader = BufReader::new(stderr);
-                let mut data = Vec::with_capacity(4096);
-                // BufReader::read_line() gets stuck if an invalid character
-                // sequence is found.  Therefore, we use BufReader::read_until()
-                // here in order to avoid such a situation.
-                while let Ok(n) = reader.read_until(0x0A, &mut data).await {
-                    if n == 0 {
-                        // EOF
-                        break;
-                    }
-                    // data may contain non-utf8 sequence.
-                    tracing::debug!("{}", String::from_utf8_lossy(&data).trim_end());
-                    data.clear();
-                }
-            };
-            let fut = fut.instrument(span.clone());
-            tokio::spawn(fut);
-        }
-
-        tracing::debug!("Spawned");
-        Ok(child)
-    }
-}
-
 // Spawn processes for input commands and build a pipeline, then returns it.
 // Input and output endpoints can be took from the pipeline only once
 // respectively.
@@ -148,6 +55,7 @@ where
     for command in commands.into_iter() {
         pipeline.spawn(command)?;
     }
+    pipeline.log_to_console();
     Ok(pipeline)
 }
 
@@ -252,6 +160,23 @@ where
             self.sender.subscribe(),
         );
         Ok((input, output))
+    }
+
+    fn log_to_console(&mut self) {
+        let streams = self
+            .commands
+            .iter_mut()
+            .filter_map(|data| data.process.stderr.take())
+            .map(logging::new_stream);
+        let mut stream = futures::stream::select_all(streams);
+        let fut = async move {
+            while let Some(Ok(raw)) = stream.next().await {
+                // data may contain non-utf8 sequence.
+                tracing::debug!("{}", String::from_utf8_lossy(&raw).trim_end());
+            }
+        };
+        let fut = fut.instrument(self.span.clone());
+        tokio::spawn(fut);
     }
 }
 
@@ -404,6 +329,131 @@ where
         } else {
             Pin::new(&mut self.inner).poll_read(cx, buf)
         }
+    }
+}
+
+pub struct CommandBuilder<'a> {
+    inner: Command,
+    command: &'a str,
+    logging: CommandLogging,
+}
+
+impl<'a> CommandBuilder<'a> {
+    pub fn new(command: &'a str) -> Result<Self, Error> {
+        let words = match shell_words::split(command) {
+            Ok(words) => words,
+            Err(_) => return Err(Error::UnableToParse(command.to_string())),
+        };
+
+        let (prog, args) = words.split_first().unwrap();
+
+        let mut inner = Command::new(prog);
+        inner.args(args);
+
+        Ok(CommandBuilder {
+            inner,
+            command,
+            logging: CommandLogging::Default,
+        })
+    }
+
+    pub fn stdin<T: Into<Stdio>>(&mut self, io: T) -> &mut Self {
+        self.inner.stdin(io);
+        self
+    }
+
+    pub fn stdout<T: Into<Stdio>>(&mut self, io: T) -> &mut Self {
+        self.inner.stdout(io);
+        self
+    }
+
+    pub fn enable_logging(&mut self) -> &mut Self {
+        self.logging = CommandLogging::Enabled;
+        self
+    }
+
+    pub fn spawn(&mut self) -> Result<Child, Error> {
+        if self.logging.is_enabled() {
+            self.inner.stderr(Stdio::piped());
+        } else {
+            self.inner.stderr(Stdio::null());
+        }
+
+        let mut child = self
+            .inner
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|err| Error::UnableToSpawn(self.command.to_string(), err))?;
+
+        let pid = child.id().unwrap();
+        let command = &self.command;
+
+        let span = tracing::debug_span!("child", pid, command);
+        let _enter = span.enter();
+
+        if self.logging.is_default() {
+            if let Some(stderr) = child.stderr.take() {
+                let fut = async move {
+                    let mut stream = logging::new_stream(stderr);
+                    while let Some(Ok(raw)) = stream.next().await {
+                        // data may contain non-utf8 sequence.
+                        tracing::debug!("{}", String::from_utf8_lossy(&raw).trim_end());
+                    }
+                };
+                let fut = fut.instrument(span.clone());
+                tokio::spawn(fut);
+            }
+        }
+
+        tracing::debug!("Spawned");
+        Ok(child)
+    }
+}
+
+enum CommandLogging {
+    Default,
+    Enabled,
+}
+
+impl CommandLogging {
+    const ENV_NAME: &'static str = if cfg!(test) {
+        "MIRAKC_DEBUG_CHILD_PROCESS_FOR_TEST"
+    } else {
+        "MIRAKC_DEBUG_CHILD_PROCESS"
+    };
+
+    fn is_default(&self) -> bool {
+        match self {
+            Self::Default => true,
+            _ => false,
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        match self {
+            Self::Default => env::var_os(Self::ENV_NAME).is_some(),
+            Self::Enabled => true,
+        }
+    }
+}
+
+mod logging {
+    use tokio::io::AsyncRead;
+    use tokio_util::codec::AnyDelimiterCodec;
+    use tokio_util::codec::FramedRead;
+
+    pub const DELIM: u8 = b'\n';
+    const BUFSIZE: usize = 4096;
+
+    // BufReader::read_line() gets stuck if an invalid character sequence is
+    // found.  Therefore, we use AnyDelimiterCodec here in order to avoid
+    // such a situation.
+    fn new_codec() -> AnyDelimiterCodec {
+        AnyDelimiterCodec::new_with_max_length(vec![DELIM], vec![DELIM], BUFSIZE)
+    }
+
+    pub fn new_stream<R: AsyncRead>(read: R) -> FramedRead<R, AnyDelimiterCodec> {
+        FramedRead::new(read, new_codec())
     }
 }
 

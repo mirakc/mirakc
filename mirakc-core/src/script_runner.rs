@@ -108,11 +108,7 @@ impl<E, R> ScriptRunner<E, R> {
             service_triple.into(),
             programs,
         ))
-        .instrument(tracing::info_span!(
-            "epg-program-updated-script",
-            command = self.config.scripts.epg_programs_updated,
-            %service_triple,
-        ))
+        .instrument(tracing::info_span!("epg-program-updated-script", %service_triple))
     }
 
     async fn run_epg_programs_updated_script(
@@ -168,11 +164,7 @@ impl<E, R> ScriptRunner<E, R> {
             self.config.clone(),
             program_id,
         ))
-        .instrument(tracing::info_span!(
-            "recording-started-script",
-            command = self.config.scripts.recording_started,
-            %program_id,
-        ))
+        .instrument(tracing::info_span!("recording-started-script", %program_id))
     }
 
     async fn run_recording_started_script(
@@ -220,10 +212,7 @@ impl<E, R> ScriptRunner<E, R> {
             program_id,
             result,
         ))
-        .instrument(tracing::info_span!(
-            "recording-stopped-script",
-            command = self.config.scripts.recording_stopped,
-        ))
+        .instrument(tracing::info_span!("recording-stopped-script", %program_id))
     }
 
     async fn run_recording_stopped_script(
