@@ -43,7 +43,8 @@ suitable for your environment.
 | [jobs.update-schedules.command]          | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.update-schedules.schedule]         | `'0 21 6,18 * * * *'` (execute at 06:21 and 18:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
-| [recorder.max-start-delay]               | `None`                            |
+| [recording.records-dir]                  | `None`                            |
+| [recording.max-start-delay]              | `None`                            |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
 | [timeshift.recorders\[\].service-triple] |                                   |
 | [timeshift.recorders\[\].ts-file]        |                                   |
@@ -94,7 +95,8 @@ suitable for your environment.
 [jobs.update-schedules.command]: #jobsupdate-schedules
 [jobs.update-schedules.schedule]: #jobsupdate-schedules
 [jobs.update-schedules.disabled]: #jobsupdate-schedules
-[recorder.max-start-delay]: #recordermax-start-delay
+[recording.records-dir]: #recordingrecords-dir
+[recording.max-start-delay]: #recordingmax-start-delay
 [timeshift.command]: #timeshift
 [timeshift.recorders\[\].service-triple]: #timeshiftrecorders
 [timeshift.recorders\[\].ts-file]: #timeshiftrecorders
@@ -617,13 +619,22 @@ Command template variables:
 * xsids
   * A list of SIDs which must be excluded
 
-## recorder.max-start-delay
+## recording
 
-`recorder.max-start-delay` can be used to specify a maximum delay for the start
+### recording.records-dir
+
+`recording.records-dir` specifies an absolute path to a directory which is used
+for storing information about recording schedules and recorded contents.
+Additionally, specifying an absolute path to an existing directory enables web
+endpoints for recording functions.
+
+### recording.max-start-delay
+
+`recording.max-start-delay` can be used to specify a maximum delay for the start
 time of a TV program in [a human-friendly format](https://github.com/tailhook/humantime).
 
 ```yaml
-recorder:
+recording:
   max-start-delay: 3h
 ```
 
@@ -631,7 +642,7 @@ The value must be less than `24h`.  The value will be converted into the number
 of whole seconds and its fractional part will be ignored.
 
 `mirakc-arib filter-program` will wait the start of a TV program for an amount
-of time specified with `recorder.max-start-delay` if it's specified.  In the
+of time specified with `recording.max-start-delay` if it's specified.  In the
 meantime, `mirakc-arib filter-program` keeps a tuner device open.
 
 ## timeshift

@@ -938,9 +938,9 @@ fn config_for_test() -> Arc<Config> {
         },
     );
     // Enable endpoints for recording
-    config.recorder.record_dir = Some("/tmp".into());
+    config.recording.records_dir = Some("/tmp".into());
     // Disable tracking airtime
-    config.recorder.track_airtime_command = "true".to_string();
+    config.recording.track_airtime_command = "true".to_string();
     // logo for SID#1
     config.resource.logos = hashmap! {
         ServiceTriple::new(0.into(), 0.into(), 1.into()) =>

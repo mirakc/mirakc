@@ -63,7 +63,7 @@ pub struct Config {
     #[serde(default)]
     pub jobs: JobsConfig,
     #[serde(default)]
-    pub recorder: RecorderConfig,
+    pub recording: RecordingConfig,
     #[serde(default)]
     pub timeshift: TimeshiftConfig,
     #[serde(default)]
@@ -114,7 +114,7 @@ impl Config {
             .iter()
             .for_each(|(name, config)| config.validate(name));
         self.jobs.validate();
-        self.recorder.validate();
+        self.recording.validate();
         self.timeshift.validate();
         self.resource.validate();
         self.mirakurun.validate();
@@ -648,34 +648,34 @@ impl JobConfig {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
-pub struct RecorderConfig {
-    pub record_dir: Option<PathBuf>,
-    #[serde(default = "RecorderConfig::default_track_airtime_command")]
+pub struct RecordingConfig {
+    pub records_dir: Option<PathBuf>,
+    #[serde(default = "RecordingConfig::default_track_airtime_command")]
     pub track_airtime_command: String,
     #[serde(default, with = "humantime_serde")]
     pub max_start_delay: Option<Duration>,
 }
 
-impl RecorderConfig {
+impl RecordingConfig {
     fn validate(&self) {
-        if let Some(ref record_dir) = self.record_dir {
+        if let Some(ref records_dir) = self.records_dir {
             assert!(
-                record_dir.is_absolute(),
-                "config.recorder: `record_dir` must be an absolute path"
+                records_dir.is_absolute(),
+                "config.recording: `records_dir` must be an absolute path"
             );
             assert!(
-                record_dir.is_dir(),
-                "config.recorder: `record_dir` must be a path to an existing directory"
+                records_dir.is_dir(),
+                "config.recording: `records_dir` must be a path to an existing directory"
             );
         }
         assert!(
             !self.track_airtime_command.is_empty(),
-            "config.recorder: `track-airtime-command` must be a non-empty string"
+            "config.recording: `track-airtime-command` must be a non-empty string"
         );
         if let Some(max_start_delay) = self.max_start_delay {
             assert!(
                 max_start_delay < Duration::from_secs(24 * 3600),
-                "config.recorder: `max-start-delay` must not be less than 24h"
+                "config.recording: `max-start-delay` must not be less than 24h"
             );
         }
     }
@@ -685,10 +685,10 @@ impl RecorderConfig {
     }
 }
 
-impl Default for RecorderConfig {
+impl Default for RecordingConfig {
     fn default() -> Self {
-        RecorderConfig {
-            record_dir: None,
+        RecordingConfig {
+            records_dir: None,
             track_airtime_command: Self::default_track_airtime_command(),
             max_start_delay: Default::default(),
         }
@@ -2262,33 +2262,33 @@ mod tests {
     }
 
     #[test]
-    fn test_recorder_config() {
+    fn test_recording_config() {
         assert_eq!(
-            serde_yaml::from_str::<RecorderConfig>("{}").unwrap(),
+            serde_yaml::from_str::<RecordingConfig>("{}").unwrap(),
             Default::default()
         );
 
         assert_eq!(
-            serde_yaml::from_str::<RecorderConfig>(
+            serde_yaml::from_str::<RecordingConfig>(
                 r#"
-                record-dir: /tmp
+                records-dir: /tmp
             "#
             )
             .unwrap(),
-            RecorderConfig {
-                record_dir: Some("/tmp".into()),
+            RecordingConfig {
+                records_dir: Some("/tmp".into()),
                 ..Default::default()
             }
         );
 
         assert_eq!(
-            serde_yaml::from_str::<RecorderConfig>(
+            serde_yaml::from_str::<RecordingConfig>(
                 r#"
                 max-start-delay: 1h
             "#
             )
             .unwrap(),
-            RecorderConfig {
+            RecordingConfig {
                 max_start_delay: Some(Duration::from_secs(3600)),
                 ..Default::default()
             }
@@ -2296,10 +2296,10 @@ mod tests {
     }
 
     #[test]
-    fn test_recorder_config_validate_record_path() {
-        let config = serde_yaml::from_str::<RecorderConfig>(
+    fn test_recording_config_validate_records_dir() {
+        let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
-            record-dir: /tmp
+            records-dir: /tmp
         "#,
         )
         .unwrap();
@@ -2308,10 +2308,10 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_recorder_config_validate_record_path_relative() {
-        let config = serde_yaml::from_str::<RecorderConfig>(
+    fn test_recording_config_validate_records_dir_relative() {
+        let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
-            record-dir: relative/dir
+            records-dir: relative/dir
         "#,
         )
         .unwrap();
@@ -2320,10 +2320,10 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_recorder_config_validate_record_path_not_existing() {
-        let config = serde_yaml::from_str::<RecorderConfig>(
+    fn test_recording_config_validate_records_dir_not_existing() {
+        let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
-            record-dir: /no/such/dir
+            records-dir: /no/such/dir
         "#,
         )
         .unwrap();
@@ -2331,8 +2331,8 @@ mod tests {
     }
 
     #[test]
-    fn test_recorder_config_validate_max_start_delay() {
-        let config = serde_yaml::from_str::<RecorderConfig>(
+    fn test_recording_config_validate_max_start_delay() {
+        let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
             max-start-delay: 1h
         "#,
@@ -2340,7 +2340,7 @@ mod tests {
         .unwrap();
         config.validate();
 
-        let config = serde_yaml::from_str::<RecorderConfig>(
+        let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
             max-start-delay: 23h 59m 59s
         "#,
@@ -2351,8 +2351,8 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_recorder_config_validate_max_start_delay_less_than_24h() {
-        let config = serde_yaml::from_str::<RecorderConfig>(
+    fn test_recording_config_validate_max_start_delay_less_than_24h() {
+        let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
             max-start-delay: 24h
         "#,

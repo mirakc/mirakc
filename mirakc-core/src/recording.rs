@@ -201,7 +201,7 @@ where
             .insert("clock_time", &clock.time)?
             .insert("video_tags", &video_tags)?
             .insert("audio_tags", &audio_tags)?;
-        if let Some(max_start_delay) = self.config.recorder.max_start_delay {
+        if let Some(max_start_delay) = self.config.recording.max_start_delay {
             // Round off the fractional (nanosecond) part of the duration.
             //
             // The value can be safely converted into i64 because the value is less
@@ -221,12 +221,12 @@ where
         builder.add_post_filters(&self.config.post_filters, &schedule.post_filters)?;
         let (filters, content_type) = builder.build();
 
-        let record_dir = self.config.recorder.record_dir.as_ref().unwrap();
+        let records_dir = self.config.recording.records_dir.as_ref().unwrap();
 
         let content_path = if schedule.content_path.is_absolute() {
             schedule.content_path.clone()
         } else {
-            record_dir.join(&schedule.content_path)
+            records_dir.join(&schedule.content_path)
         };
         // We assumed that schedule.content_path has already been normalized.
         if let Some(dir) = content_path.parent() {
@@ -243,9 +243,9 @@ where
         let fut = fut.instrument(tracing::info_span!("pipeline", id = %pipeline.id()));
         ctx.spawn_task(fut);
 
-        // Metadata file is always saved in the `record_dir` and no additional
+        // Metadata file is always saved in the `records_dir` and no additional
         // sub-directories are created.
-        let metadata_path = record_dir.join(program.metadata_filename());
+        let metadata_path = records_dir.join(program.metadata_filename());
         serde_json::to_writer_pretty(
             std::fs::File::create(&metadata_path)?,
             &Record {
@@ -375,12 +375,12 @@ impl<T, E> RecordingManager<T, E> {
             Ok(serde_json::from_reader(file)?)
         }
 
-        let record_dir = match self.config.recorder.record_dir {
-            Some(ref record_dir) => record_dir,
+        let records_dir = match self.config.recording.records_dir {
+            Some(ref records_dir) => records_dir,
             None => return,
         };
 
-        let path = record_dir.join("schedules.json");
+        let path = records_dir.join("schedules.json");
         if !path.exists() {
             return;
         }
@@ -405,12 +405,12 @@ impl<T, E> RecordingManager<T, E> {
             Ok(())
         }
 
-        let record_dir = match self.config.recorder.record_dir {
-            Some(ref record_dir) => record_dir,
+        let records_dir = match self.config.recording.records_dir {
+            Some(ref records_dir) => records_dir,
             None => return,
         };
 
-        let path = record_dir.join("schedules.json");
+        let path = records_dir.join("schedules.json");
         let schedules = self.schedule_map.values().collect_vec();
 
         match do_save(schedules, &path) {
@@ -817,15 +817,15 @@ where
 
 impl<T, E> RecordingManager<T, E> {
     async fn query_records(&self) -> Result<Vec<Record>, Error> {
-        let record_dir = self
+        let records_dir = self
             .config
-            .recorder
-            .record_dir
+            .recording
+            .records_dir
             .as_ref()
             .unwrap()
             .to_str()
             .unwrap();
-        let pattern = format!("{}/*.record.json", record_dir);
+        let pattern = format!("{}/*.record.json", records_dir);
         let mut records = vec![];
         for path in glob::glob(&pattern).unwrap() {
             if let Ok(path) = path {
@@ -871,8 +871,8 @@ impl<T, E> RecordingManager<T, E> {
     fn query_record(&self, id: &str) -> Result<Record, Error> {
         let path = self
             .config
-            .recorder
-            .record_dir
+            .recording
+            .records_dir
             .as_ref()
             .unwrap()
             .join(id)
@@ -923,8 +923,8 @@ impl<T, E> RecordingManager<T, E> {
     fn remove_record(&self, id: &str, remove_content: bool) -> Result<(), Error> {
         let metadata_path = self
             .config
-            .recorder
-            .record_dir
+            .recording
+            .records_dir
             .as_ref()
             .unwrap()
             .join(id)
@@ -1278,7 +1278,7 @@ mod tests {
 
     fn config_for_test(temp_dir: &TempDir) -> Arc<Config> {
         let mut config = Config::default();
-        config.recorder.record_dir = Some(temp_dir.path().to_owned());
+        config.recording.records_dir = Some(temp_dir.path().to_owned());
         Arc::new(config)
     }
 }

@@ -411,7 +411,7 @@ where
         // Disable caching.
         .layer(DefaultHeadersLayer::new(default_headers));
 
-    if state.config.recorder.record_dir.is_some() {
+    if state.config.recording.records_dir.is_some() {
         tracing::info!("Enable endpoints for recording");
         router = router
             .route(
@@ -865,7 +865,7 @@ where
         .insert("clock_time", &clock.time)?
         .insert("video_tags", &video_tags)?
         .insert("audio_tags", &audio_tags)?;
-    if let Some(max_start_delay) = state.config.recorder.max_start_delay {
+    if let Some(max_start_delay) = state.config.recording.max_start_delay {
         // Round off the fractional (nanosecond) part of the duration.
         //
         // The value can be safely converted into i64 because the value is less
@@ -886,7 +886,7 @@ where
     let (filters, content_type) = builder.build();
 
     let tracker_stop_trigger = airtime_tracker::track_airtime(
-        &state.config.recorder.track_airtime_command,
+        &state.config.recording.track_airtime_command,
         &service.channel,
         &program,
         stream.id(),
