@@ -207,16 +207,22 @@ where
         tracing::debug!("Started");
         if self.config.jobs.scan_services.disabled {
             tracing::warn!("The scan-services job is disabled");
+        } else if is_fresh(&self.config, "services.json") {
+            tracing::debug!("Skip initial scan for services");
         } else {
             self.scan_services(ctx).await;
         }
         if self.config.jobs.sync_clocks.disabled {
             tracing::warn!("The sync-clocks job is disabled");
+        } else if is_fresh(&self.config, "clocks.json") {
+            tracing::debug!("Skip initial scan for clocks");
         } else {
             self.sync_clocks(ctx).await;
         }
         if self.config.jobs.update_schedules.disabled {
             tracing::warn!("The update-schedules job is disabled");
+        } else if is_fresh(&self.config, "schedules.json") {
+            tracing::debug!("Skip initial scan for schedules");
         } else {
             self.update_schedules(ctx).await;
         }
@@ -368,5 +374,38 @@ where
     async fn handle(&mut self, _msg: InvokeUpdateSchedules, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "InvokeUpdateSchedules");
         self.invoke_update_schedules(ctx).await;
+    }
+}
+
+// used for debugging purposes
+
+static EPG_FRESH_PERIOD: Lazy<Option<std::time::Duration>> = Lazy::new(|| {
+    let period = std::env::var("MIRAKC_EPG_FRESH_PERIOD")
+        .ok()
+        .map(|s| humantime::parse_duration(&s).ok())
+        .flatten();
+    tracing::debug!(MIRAKC_EPG_FRESH_PERIOD = ?period);
+    period
+});
+
+fn is_fresh(config: &Config, filename: &str) -> bool {
+    if cfg!(test) {
+        return false;
+    }
+    let cache_dir = if let Some(ref cache_dir) = config.epg.cache_dir {
+        cache_dir
+    } else {
+        return false;
+    };
+    let path = PathBuf::from(cache_dir).join(filename);
+    match (*EPG_FRESH_PERIOD, path.metadata()) {
+        (Some(period), Ok(metadata)) => metadata
+            .modified()
+            .ok()
+            .map(|time| time.elapsed().ok())
+            .flatten()
+            .map(|elapsed| elapsed <= period)
+            .unwrap_or(false),
+        _ => false,
     }
 }
