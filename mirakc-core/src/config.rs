@@ -27,6 +27,7 @@ pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
 
     config.channels = ChannelConfig::normalize(config.channels);
     config.jobs = JobsConfig::normalize(config.jobs);
+    config.recording = RecordingConfig::normalize(config.recording);
 
     config.validate();
 
@@ -643,6 +644,7 @@ impl JobConfig {
 #[serde(deny_unknown_fields)]
 pub struct RecordingConfig {
     pub records_dir: Option<PathBuf>,
+    pub contents_dir: Option<PathBuf>,
     #[serde(default = "RecordingConfig::default_track_airtime_command")]
     pub track_airtime_command: String,
     #[serde(default, with = "humantime_serde")]
@@ -650,6 +652,17 @@ pub struct RecordingConfig {
 }
 
 impl RecordingConfig {
+    fn normalize(mut self) -> Self {
+        if self.records_dir.is_some() {
+            if self.contents_dir.is_none() {
+                self.contents_dir = self.records_dir.clone();
+            }
+        } else {
+            self.contents_dir = None;
+        }
+        self
+    }
+
     fn validate(&self) {
         if let Some(ref records_dir) = self.records_dir {
             assert!(
@@ -659,6 +672,16 @@ impl RecordingConfig {
             assert!(
                 records_dir.is_dir(),
                 "config.recording: `records_dir` must be a path to an existing directory"
+            );
+        }
+        if let Some(ref contents_dir) = self.contents_dir {
+            assert!(
+                contents_dir.is_absolute(),
+                "config.recording: `contents_dir` must be an absolute path"
+            );
+            assert!(
+                contents_dir.is_dir(),
+                "config.recording: `contents_dir` must be a path to an existing directory"
             );
         }
         assert!(
@@ -682,6 +705,7 @@ impl Default for RecordingConfig {
     fn default() -> Self {
         RecordingConfig {
             records_dir: None,
+            contents_dir: None,
             track_airtime_command: Self::default_track_airtime_command(),
             max_start_delay: Default::default(),
         }
@@ -2253,12 +2277,67 @@ mod tests {
         assert_eq!(
             serde_yaml::from_str::<RecordingConfig>(
                 r#"
+                contents-dir: /tmp
+            "#
+            )
+            .unwrap(),
+            RecordingConfig {
+                contents_dir: Some("/tmp".into()),
+                ..Default::default()
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<RecordingConfig>(
+                r#"
                 max-start-delay: 1h
             "#
             )
             .unwrap(),
             RecordingConfig {
                 max_start_delay: Some(Duration::from_secs(3600)),
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_recording_config_normalize() {
+        let config = serde_yaml::from_str::<RecordingConfig>(
+            r#"
+            records-dir: /tmp
+        "#
+        )
+        .unwrap();
+        assert_eq!(
+            config.normalize(),
+            RecordingConfig {
+                records_dir: Some("/tmp".into()),
+                contents_dir: Some("/tmp".into()),
+                ..Default::default()
+            }
+        );
+
+        let config = serde_yaml::from_str::<RecordingConfig>(
+            r#"
+            contents-dir: /tmp
+        "#
+        )
+        .unwrap();
+        assert_eq!(config.normalize(), Default::default());
+
+        let config = serde_yaml::from_str::<RecordingConfig>(
+            r#"
+            records-dir: /tmp
+            contents-dir: /var
+        "#
+        )
+        .unwrap();
+        assert_eq!(
+            config.normalize(),
+            RecordingConfig {
+                records_dir: Some("/tmp".into()),
+                contents_dir: Some("/var".into()),
                 ..Default::default()
             }
         );
@@ -2293,6 +2372,41 @@ mod tests {
         let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
             records-dir: /no/such/dir
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    fn test_recording_config_validate_contents_dir() {
+        let config = serde_yaml::from_str::<RecordingConfig>(
+            r#"
+            contents-dir: /tmp
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_recording_config_validate_contents_dir_relative() {
+        let config = serde_yaml::from_str::<RecordingConfig>(
+            r#"
+            contents-dir: relative/dir
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_recording_config_validate_contents_dir_not_existing() {
+        let config = serde_yaml::from_str::<RecordingConfig>(
+            r#"
+            contents-dir: /no/such/dir
         "#,
         )
         .unwrap();

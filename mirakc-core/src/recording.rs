@@ -222,11 +222,12 @@ where
         let (filters, content_type) = builder.build();
 
         let records_dir = self.config.recording.records_dir.as_ref().unwrap();
+        let contents_dir = self.config.recording.contents_dir.as_ref().unwrap();
 
         let content_path = if schedule.content_path.is_absolute() {
             schedule.content_path.clone()
         } else {
-            records_dir.join(&schedule.content_path)
+            contents_dir.join(&schedule.content_path)
         };
         // We assumed that schedule.content_path has already been normalized.
         if let Some(dir) = content_path.parent() {

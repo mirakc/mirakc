@@ -43,6 +43,7 @@ suitable for your environment.
 | [jobs.update-schedules.schedule]         | `'0 21 6,18 * * * *'` (execute at 06:21 and 18:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
 | [recording.records-dir]                  | `None`                            |
+| [recording.contents-dir]                 | `None`                            |
 | [recording.max-start-delay]              | `None`                            |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
 | [timeshift.recorders\[\].service-triple] |                                   |
@@ -94,6 +95,7 @@ suitable for your environment.
 [jobs.update-schedules.schedule]: #jobsupdate-schedules
 [jobs.update-schedules.disabled]: #jobsupdate-schedules
 [recording.records-dir]: #recordingrecords-dir
+[recording.contents-dir]: #recordingcontents-dir
 [recording.max-start-delay]: #recordingmax-start-delay
 [timeshift.command]: #timeshift
 [timeshift.recorders\[\].service-triple]: #timeshiftrecorders
@@ -611,9 +613,32 @@ Command template variables:
 ### recording.records-dir
 
 `recording.records-dir` specifies an absolute path to a directory which is used
-for storing information about recording schedules and recorded contents.
-Additionally, specifying an absolute path to an existing directory enables web
-endpoints for recording functions.
+for storing information about recording schedules and metadata of recorded
+contents.  Additionally, specifying an absolute path to an existing directory
+enables web endpoints for recording functions.
+
+The following files are stored in the directory specified by this property:
+
+* `schedules.json` contains recording schedules
+* `<YYYYMMDD>_<ProgramQuad>.record.json` contains metadata for the corresponding
+  recorded content
+
+### recording.contents-dir
+
+`recording.contents-dir` specifies an absolute path to a directory which is used
+for recorded contents.
+
+`recording.records-dir` is used instead if this property is undefined.
+
+A directory specified by this property contains recorded contents.  The filename
+of each recorded content can be specified in the `contentPath` property in a
+JSON data used in the following Web endpoints:
+
+* [POST /api/recording/schedules](./web-api.md#postapirecordingschedules)
+* [POST /api/recording/recorders](./web-api.md#postapirecordingrecorders)
+
+This property can be used if you want to save recorded contents into another
+location, such as a shared folder on a NAS server.
 
 ### recording.max-start-delay
 
