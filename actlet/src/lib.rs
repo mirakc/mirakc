@@ -6,12 +6,13 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
+use tracing::Span;
 
 #[cfg(feature = "derive")]
 pub use actlet_derive::Message;
 
 /// Errors that may happen in communication with an actor.
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Failed to send a message")]
     Send,
@@ -485,6 +486,7 @@ where
 {
     message: Option<M>,
     sender: Option<oneshot::Sender<M::Reply>>,
+    span: Span,
 }
 
 impl<M> ActionDispatcher<M>
@@ -495,6 +497,7 @@ where
         ActionDispatcher {
             message: Some(msg),
             sender: Some(sender),
+            span: Span::current(),
         }
     }
 }
@@ -506,11 +509,12 @@ where
     M: Action,
 {
     async fn dispatch(mut self: Box<Self>, actor: &mut A, ctx: &mut Context<A>) {
+        let _enter = self.span.enter();
         let message = self.message.take().unwrap();
         let sender = self.sender.take().unwrap();
         let reply = actor.handle(message, ctx).await;
         if sender.send(reply).is_err() {
-            tracing::error!("Failed to send, {} stopped", type_name::<A>());
+            tracing::error!("Failed to send a reply, {} stopped", type_name::<A>());
         }
     }
 }
@@ -520,6 +524,7 @@ where
     M: Signal,
 {
     message: Option<M>,
+    span: Span,
 }
 
 impl<M> SignalDispatcher<M>
@@ -527,7 +532,10 @@ where
     M: Signal,
 {
     fn new(msg: M) -> Self {
-        SignalDispatcher { message: Some(msg) }
+        SignalDispatcher {
+            message: Some(msg),
+            span: Span::current(),
+        }
     }
 }
 
@@ -538,6 +546,7 @@ where
     M: Signal,
 {
     async fn dispatch(mut self: Box<Self>, actor: &mut A, ctx: &mut Context<A>) {
+        let _enter = self.span.enter();
         let message = self.message.take().unwrap();
         actor.handle(message, ctx).await;
     }
