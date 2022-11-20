@@ -10,7 +10,6 @@ suitable for your environment.
 |------------------------------------------|-----------------------------------|
 | [epg.cache-dir]                          | `None`                            |
 | [server.addrs]                           | `[!http 'localhost:40772']`       |
-| [server.workers]                         | The number of CPUs                |
 | [server.stream-chunk-size]               | `32768` (32KiB)                   |
 | [server.stream-max-chunks]               | `1000`                            |
 | [server.stream-time-limit]               | `16000` (16s)                     |
@@ -62,7 +61,6 @@ suitable for your environment.
 
 [epg.cache-dir]: #epgcache-dir
 [server.addrs]: #serveraddrs
-[server.workers]: #serverworkers
 [server.stream-chunk-size]: #serverstream-chunk-size
 [server.stream-max-chunks]: #serverstream-max-chunks
 [server.stream-time-limit]: #serverstream-time-limit
@@ -159,17 +157,6 @@ server:
   addrs:
     - !http '0.0.0.0:40772'
     - !unix /var/run/mirakc.sock
-```
-
-## server.workers
-
-The number of worker threads to serve the web API.
-
-The specified number of threads are spawned and pooled at startup.
-
-```yaml
-server:
-  workers: 2
 ```
 
 ## server.stream-chunk-size

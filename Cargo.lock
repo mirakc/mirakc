@@ -876,7 +876,6 @@ dependencies = [
  "libc",
  "maplit",
  "mustache",
- "num_cpus",
  "once_cell",
  "serde",
  "serde_json",

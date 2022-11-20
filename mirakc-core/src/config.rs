@@ -146,8 +146,6 @@ impl EpgConfig {
 pub struct ServerConfig {
     #[serde(default = "ServerConfig::default_addrs")]
     pub addrs: Vec<ServerAddr>,
-    #[serde(default = "ServerConfig::default_workers")]
-    pub workers: usize,
     #[serde(default = "ServerConfig::default_stream_max_chunks")]
     pub stream_max_chunks: usize,
     #[serde(default = "ServerConfig::default_stream_chunk_size")]
@@ -178,10 +176,6 @@ impl ServerConfig {
 
     fn default_addrs() -> Vec<ServerAddr> {
         vec![Default::default()]
-    }
-
-    fn default_workers() -> usize {
-        num_cpus::get()
     }
 
     fn default_stream_max_chunks() -> usize {
@@ -217,7 +211,6 @@ impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig {
             addrs: Self::default_addrs(),
-            workers: Self::default_workers(),
             stream_max_chunks: Self::default_stream_max_chunks(),
             stream_chunk_size: Self::default_stream_chunk_size(),
             stream_time_limit: Self::default_stream_time_limit(),
@@ -1096,7 +1089,6 @@ mod tests {
             .unwrap(),
             ServerConfig {
                 addrs: vec![ServerAddr::Http("0.0.0.0:40772".to_string()),],
-                workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
@@ -1114,7 +1106,6 @@ mod tests {
             .unwrap(),
             ServerConfig {
                 addrs: vec![ServerAddr::Unix("/path/to/sock".into()),],
-                workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
@@ -1136,24 +1127,6 @@ mod tests {
                     ServerAddr::Http("0.0.0.0:40772".to_string()),
                     ServerAddr::Unix("/path/to/sock".into()),
                 ],
-                workers: ServerConfig::default_workers(),
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                mounts: Default::default(),
-            }
-        );
-
-        assert_eq!(
-            serde_yaml::from_str::<ServerConfig>(
-                r#"
-                workers: 2
-            "#
-            )
-            .unwrap(),
-            ServerConfig {
-                addrs: ServerConfig::default_addrs(),
-                workers: 2,
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
@@ -1170,7 +1143,6 @@ mod tests {
             .unwrap(),
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
-                workers: ServerConfig::default_workers(),
                 stream_max_chunks: 1000,
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
@@ -1187,7 +1159,6 @@ mod tests {
             .unwrap(),
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
-                workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: 10000,
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
@@ -1204,7 +1175,6 @@ mod tests {
             .unwrap(),
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
-                workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: 10000,
@@ -1229,7 +1199,6 @@ mod tests {
             .unwrap(),
             ServerConfig {
                 addrs: ServerConfig::default_addrs(),
-                workers: ServerConfig::default_workers(),
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
