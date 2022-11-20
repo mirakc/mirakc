@@ -36,6 +36,10 @@ pub enum Error {
     AccessDenied,
     #[error("Already exists")]
     AlreadyExists,
+    #[error("Program already started")]
+    ProgramAlreadyStarted,
+    #[error("Program will start soon")]
+    ProgramWillStartSoon,
     #[error("Command failed: {0}")]
     CommandFailed(command_util::Error),
     #[error("std::fmt::error: {0}")]

@@ -531,10 +531,20 @@ where
 
 impl<T, E> RecordingManager<T, E> {
     fn add_schedule(&mut self, schedule: Schedule) -> Result<(), Error> {
+        let now = Jst::now();
         let program_id = schedule.program_id;
         if self.schedule_map.contains_key(&program_id) {
-            tracing::warn!(%schedule.program_id, "Already exists");
-            Err(Error::AlreadyExists)
+            let err = Error::AlreadyExists;
+            tracing::warn!(%schedule.program_id, %err);
+            Err(err)
+        } else if schedule.start_at <= now {
+            let err = Error::ProgramAlreadyStarted;
+            tracing::error!(%schedule.program_id, %err);
+            Err(err)
+        } else if schedule.start_at - now <= Duration::seconds(PREP_SECS) {
+            let err = Error::ProgramWillStartSoon;
+            tracing::error!(%schedule.program_id, %err);
+            Err(err)
         } else {
             tracing::info!(%schedule.program_id, "Added");
             let schedule = Arc::new(schedule);
@@ -1175,6 +1185,37 @@ mod tests {
     use static_assertions::const_assert;
     use tempfile::TempDir;
 
+    #[test]
+    fn test_add_schedule() {
+        let now = Jst::now();
+        Jst::freeze(now);
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(&temp_dir);
+
+        let mut manager = RecordingManager::new(config, TunerManagerStub, EpgStub);
+
+        let schedule = schedule_for_test((0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 1);
+
+        let schedule = schedule_for_test((0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Err(Error::AlreadyExists));
+        assert_eq!(manager.schedules.len(), 1);
+
+        let schedule = schedule_for_test((0, 0, 2).into(), now + Duration::seconds(PREP_SECS));
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Err(Error::ProgramWillStartSoon));
+        assert_eq!(manager.schedules.len(), 1);
+
+        let schedule = schedule_for_test((0, 0, 3).into(), now);
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Err(Error::ProgramAlreadyStarted));
+        assert_eq!(manager.schedules.len(), 1);
+    }
+
     #[tokio::test]
     #[ignore]
     async fn test_recording() {
@@ -1281,6 +1322,18 @@ mod tests {
         config.recording.records_dir = Some(temp_dir.path().to_owned());
         Arc::new(config)
     }
+
+    fn schedule_for_test(program_id: MirakurunProgramId, start_at: DateTime<Jst>) -> Schedule {
+        Schedule {
+            program_id,
+            content_path: format!("{}.m2ts", program_id.eid().value()).into(),
+            priority: Default::default(),
+            pre_filters: Default::default(),
+            post_filters: Default::default(),
+            tags: Default::default(),
+            start_at,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1296,7 +1349,10 @@ pub(crate) mod stub {
             msg: AddRecordingSchedule,
         ) -> Result<<AddRecordingSchedule as Message>::Reply, actlet::Error> {
             match msg.schedule.program_id.eid().value() {
-                0 => Ok(Err(Error::ScheduleNotFound)),
+                // 0 is reserved for Error::ProgramNotFound
+                1 => Ok(Err(Error::AlreadyExists)),
+                2 => Ok(Err(Error::ProgramAlreadyStarted)),
+                3 => Ok(Err(Error::ProgramWillStartSoon)),
                 _ => Ok(Ok(Arc::new(msg.schedule))),
             }
         }
