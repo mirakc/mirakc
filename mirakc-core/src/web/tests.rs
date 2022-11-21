@@ -895,18 +895,28 @@ async fn test_filter_setting() {
 }
 
 async fn get_with_peer_addr(url: &str, addr: Option<SocketAddr>) -> TestResponse {
-    let app = create_app().layer(helper::ReplaceConnectInfoLayer::new(addr));
-    TestClient::new(app.into_service()).get(url).send().await
+    let config = config_for_test();
+    let app = build_app(&config)
+        .layer(helper::ReplaceConnectInfoLayer::new(addr))
+        .with_state(Arc::new(AppState {
+            config,
+            string_table: string_table_for_test(),
+            tuner_manager: TunerManagerStub,
+            epg: EpgStub,
+            recording_manager: RecordingManagerStub,
+            timeshift_manager: TimeshiftManagerStub,
+        }));
+    TestClient::new(app).get(url).send().await
 }
 
 async fn get(url: &str) -> TestResponse {
     let app = create_app();
-    TestClient::new(app.into_service()).get(url).send().await
+    TestClient::new(app).get(url).send().await
 }
 
 async fn head(url: &str) -> TestResponse {
     let app = create_app();
-    TestClient::new(app.into_service()).head(url).send().await
+    TestClient::new(app).head(url).send().await
 }
 
 async fn post<T>(url: &str, data: T) -> TestResponse
@@ -914,7 +924,7 @@ where
     T: serde::Serialize,
 {
     let app = create_app();
-    TestClient::new(app.into_service())
+    TestClient::new(app)
         .post(url)
         .json(&data)
         .send()
@@ -923,19 +933,20 @@ where
 
 async fn delete(url: &str) -> TestResponse {
     let app = create_app();
-    TestClient::new(app.into_service()).delete(url).send().await
+    TestClient::new(app).delete(url).send().await
 }
 
-fn create_app() -> Router {
-    let state = Arc::new(AppState {
-        config: config_for_test(),
-        string_table: string_table_for_test(),
-        tuner_manager: TunerManagerStub,
-        epg: EpgStub,
-        recording_manager: RecordingManagerStub,
-        timeshift_manager: TimeshiftManagerStub,
-    });
-    build_app(state)
+fn create_app() -> RouterService {
+    let config = config_for_test();
+    build_app(&config)
+        .with_state(Arc::new(AppState {
+            config,
+            string_table: string_table_for_test(),
+            tuner_manager: TunerManagerStub,
+            epg: EpgStub,
+            recording_manager: RecordingManagerStub,
+            timeshift_manager: TimeshiftManagerStub,
+        }))
 }
 
 fn config_for_test() -> Arc<Config> {

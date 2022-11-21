@@ -46,6 +46,7 @@ use axum::response::Response;
 use axum::routing;
 use axum::Json;
 use axum::Router;
+use axum::RouterService;
 use axum::Server;
 use axum::TypedHeader;
 use bytes::Bytes;
@@ -168,14 +169,15 @@ where
     S: Call<QueryTimeshiftRecorder>,
     S: Call<QueryTimeshiftRecorders>,
 {
-    let app = build_app(Arc::new(AppState {
-        config: config.clone(),
-        string_table,
-        tuner_manager,
-        epg,
-        recording_manager,
-        timeshift_manager,
-    }));
+    let app = build_app(&config)
+        .with_state(Arc::new(AppState {
+            config: config.clone(),
+            string_table,
+            tuner_manager,
+            epg,
+            recording_manager,
+            timeshift_manager,
+        }));
 
     let http_servers = config
         .server
@@ -194,7 +196,7 @@ where
 
 // http
 
-async fn serve_http(addr: SocketAddr, app: Router) -> hyper::Result<()> {
+async fn serve_http(addr: SocketAddr, app: RouterService) -> hyper::Result<()> {
     Server::bind(&addr)
         .http1_keepalive(false)
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
@@ -203,7 +205,7 @@ async fn serve_http(addr: SocketAddr, app: Router) -> hyper::Result<()> {
 
 // uds
 
-async fn serve_uds(path: &std::path::Path, app: Router) -> hyper::Result<()> {
+async fn serve_uds(path: &std::path::Path, app: RouterService) -> hyper::Result<()> {
     // Cleanup the previous socket if it exists.
     let _ = tokio::fs::remove_file(&path).await;
     tokio::fs::create_dir_all(path.parent().unwrap())
@@ -233,7 +235,7 @@ const X_MIRAKURUN_TUNER_USER_ID: &'static str = "x-mirakurun-tuner-user-id";
 
 // endpoints
 
-fn build_app<T, E, R, S>(state: Arc<AppState<T, E, R, S>>) -> Router
+fn build_app<T, E, R, S>(config: &Config) -> Router<Arc<AppState<T, E, R, S>>>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<QueryTuners>,
@@ -270,7 +272,7 @@ where
     S: Call<QueryTimeshiftRecorder>,
     S: Call<QueryTimeshiftRecorders>,
 {
-    let api_routes = build_api(state.clone());
+    let api_routes = build_api(config);
 
     let mut router = Router::new().nest("/api", api_routes);
 
@@ -278,7 +280,7 @@ where
         err.into()
     }
 
-    for (mount_point, mount) in state.config.server.mounts.iter() {
+    for (mount_point, mount) in config.server.mounts.iter() {
         let path = std::path::Path::new(&mount.path);
         router = if path.is_dir() {
             router.nest_service(
@@ -311,7 +313,7 @@ where
     router
 }
 
-fn build_api<T, E, R, S>(state: Arc<AppState<T, E, R, S>>) -> Router<Arc<AppState<T, E, R, S>>>
+fn build_api<T, E, R, S>(config: &Config) -> Router<Arc<AppState<T, E, R, S>>>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<QueryTuners>,
@@ -356,7 +358,7 @@ where
     //
     // We implement a HEAD request handler for each streaming endpoint so that
     // we don't allocate a tuner for the request.
-    let mut router = Router::with_state(state.clone())
+    let mut router = Router::new()
         .route("/version", routing::get(version_gh))
         .route("/status", routing::get(status_gh))
         .route("/channels", routing::get(channels_gh))
@@ -411,7 +413,7 @@ where
         // Disable caching.
         .layer(DefaultHeadersLayer::new(default_headers));
 
-    if state.config.recording.records_dir.is_some() {
+    if config.recording.records_dir.is_some() {
         tracing::info!("Enable endpoints for recording");
         router = router
             .route(
