@@ -12,5 +12,5 @@ actlet = { path = "../actlet" }
 mirakc-core = { path = "../mirakc-core" }
 serde_json = { version = "1.0.87", features = ["preserve_order"] }
 structopt = "0.3.26"
-tokio = { version = "1.21.2", features = ["full"] }
+tokio = { version = "1.22.0", features = ["full"] }
 tracing = "0.1.37"
