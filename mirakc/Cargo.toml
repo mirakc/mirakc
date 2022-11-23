@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 actlet = { path = "../actlet" }
 mirakc-core = { path = "../mirakc-core" }
-serde_json = { version = "1.0.88", features = ["preserve_order"] }
+serde_json = { version = "1.0.89", features = ["preserve_order"] }
 structopt = "0.3.26"
 tokio = { version = "1.22.0", features = ["full"] }
 tracing = "0.1.37"
