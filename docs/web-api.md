@@ -12,6 +12,7 @@ Web API endpoints listed below have been implemented at this moment:
 | [GET /api/services]                             | :heavy_check_mark:         |
 | [GET /api/services/{id}]                        | :heavy_check_mark:         |
 | [GET /api/services/{id}/logo]                   | :heavy_check_mark:         |
+| [GET /api/services/{id}/programs]               |                            |
 | [GET /api/services/{id}/stream]                 | :heavy_check_mark:         |
 | [GET /api/programs]                             | :heavy_check_mark:         |
 | [GET /api/programs/{id}]                        | :heavy_check_mark:         |
@@ -56,6 +57,7 @@ See [issues/4](https://github.com/mirakc/mirakc/issues/4) for details
 
 Web API endpoints listed below have been implemented as the mirakc extensions:
 
+* [GET /api/services/{id}/programs]
 * [GET /api/iptv/playlist]
 * [GET /api/recording/schedules]
 * [POST /api/recording/schedules]
@@ -84,6 +86,7 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [GET /api/services]: #getapiservices
 [GET /api/services/{id}]: #getapiservicesid
 [GET /api/services/{id}/logo]: #getapiservicesidlogo
+[GET /api/services/{id}/programs]: #getapiservicesidprograms
 [GET /api/services/{id}/stream]: #getapiservicesidstream
 [GET /api/programs]: #getapiprograms
 [GET /api/programs/{id}]: #getapiprogramsid
@@ -174,6 +177,10 @@ Returns a service.
 Returns a logo image if available.
 
 Support GET and HEAD methods so that IPTV Simple Client in Kodi works properly.
+
+## GET /api/services/{id}/programs
+
+Returns a list of programs of a particular service.
 
 ## GET /api/services/{id}/stream
 

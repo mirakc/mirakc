@@ -56,6 +56,7 @@ use futures::future::join_all;
 use futures::future::FutureExt;
 use futures::stream::Stream;
 use futures::stream::StreamExt;
+use itertools::Itertools;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::AsyncSeekExt;
@@ -365,6 +366,7 @@ where
         .route("/services", routing::get(services_gh))
         .route("/services/:id", routing::get(service_gh))
         .route("/services/:id/logo", routing::get(service_logo_gh))
+        .route("/services/:id/programs", routing::get(get_service_programs))
         .route("/programs", routing::get(programs_gh))
         .route("/programs/:id", routing::get(program_gh))
         .route("/tuners", routing::get(tuners_gh))
@@ -560,6 +562,32 @@ where
         }
         None => Err(Error::NoLogoData),
     }
+}
+
+async fn get_service_programs<T, E, R, S>(
+    State(state): State<Arc<AppState<T, E, R, S>>>,
+    Path(id): Path<MirakurunServiceId>,
+) -> Result<Json<Vec<MirakurunProgram>>, Error>
+where
+    E: Call<QueryService>,
+    E: Call<QueryPrograms>,
+{
+    let service = state
+        .epg
+        .call(QueryService::ByMirakurunServiceId(id))
+        .await??;
+
+    let programs = state
+        .epg
+        .call(QueryPrograms {
+            service_triple: service.triple(),
+        })
+        .await?
+        .values()
+        .cloned()
+        .map(MirakurunProgram::from)
+        .collect_vec();
+    Ok(programs.into())
 }
 
 async fn programs_gh<T, E, R, S>(

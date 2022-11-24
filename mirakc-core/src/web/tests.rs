@@ -80,6 +80,15 @@ async fn test_head_service_logo() {
 }
 
 #[tokio::test]
+async fn test_get_service_programs() {
+    let res = get("/api/services/1/programs").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = head("/api/services/0/programs").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_get_programs() {
     let res = get("/api/programs").await;
     assert_eq!(res.status(), StatusCode::OK);
