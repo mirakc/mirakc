@@ -202,19 +202,8 @@ impl<T> Epg<T> {
             );
         }
 
-        let programs = self
-            .schedules
-            .get(&service_triple)
-            .unwrap()
-            .programs
-            .clone();
         for emitter in self.programs_emitters.iter() {
-            emitter
-                .emit(ProgramsUpdated {
-                    service_triple,
-                    programs: programs.clone(),
-                })
-                .await;
+            emitter.emit(ProgramsUpdated { service_triple }).await;
         }
     }
 
@@ -905,7 +894,6 @@ pub struct ClocksUpdated {
 #[derive(Message)]
 pub struct ProgramsUpdated {
     pub service_triple: ServiceTriple,
-    pub programs: Arc<IndexMap<EventId, EpgProgram>>,
 }
 
 // EpgSchedule holds sections of H-EIT[schedule basic] and H-EIT[schedule extended]

@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use actlet::*;
 use async_trait::async_trait;
-use indexmap::IndexMap;
 use serde::Serialize;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
@@ -14,11 +13,8 @@ use tracing::Instrument;
 
 use crate::command_util::CommandBuilder;
 use crate::config::Config;
-use crate::datetime_ext::Jst;
 use crate::epg;
 use crate::error::Error;
-use crate::models::EventId;
-use crate::models::MirakurunProgram;
 use crate::models::MirakurunProgramId;
 use crate::models::MirakurunServiceId;
 use crate::models::ServiceTriple;
@@ -88,7 +84,7 @@ where
     async fn handle(&mut self, msg: epg::ProgramsUpdated, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "ProgramsUpdated", %msg.service_triple);
         if self.has_epg_programs_updated_script() {
-            ctx.spawn_task(self.create_epg_programs_updated_task(msg.service_triple, msg.programs));
+            ctx.spawn_task(self.create_epg_programs_updated_task(msg.service_triple));
         }
     }
 }
@@ -101,12 +97,10 @@ impl<E, R> ScriptRunner<E, R> {
     fn create_epg_programs_updated_task(
         &self,
         service_triple: ServiceTriple,
-        programs: Arc<IndexMap<EventId, epg::EpgProgram>>,
     ) -> impl Future<Output = ()> {
         wrap(Self::run_epg_programs_updated_script(
             self.config.clone(),
             service_triple.into(),
-            programs,
         ))
         .instrument(tracing::info_span!("epg-program-updated-script", %service_triple))
     }
@@ -114,20 +108,10 @@ impl<E, R> ScriptRunner<E, R> {
     async fn run_epg_programs_updated_script(
         config: Arc<Config>,
         msid: MirakurunServiceId,
-        programs: Arc<IndexMap<EventId, epg::EpgProgram>>,
     ) -> Result<ExitStatus, Error> {
         let mut child = spawn_command(&config.scripts.epg_programs_updated)?;
         let mut input = child.stdin.take().unwrap();
-        let now = Jst::now();
         write_line(&mut input, &msid).await?;
-        let iter = programs
-            .values()
-            .filter(|program| program.start_at > now)
-            .cloned()
-            .map(MirakurunProgram::from);
-        for program in iter {
-            write_line(&mut input, &program).await?;
-        }
         drop(input);
         Ok(child.wait().await?)
     }
@@ -295,11 +279,8 @@ where
 mod tests {
     use super::*;
     use crate::epg::stub::EpgStub;
-    use crate::epg::EpgProgram;
     use crate::recording::stub::RecordingManagerStub;
     use assert_matches::assert_matches;
-    use chrono::Duration;
-    use indexmap::indexmap;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -307,18 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_epg_programs_updated_script() {
-        let now = Jst::now();
-        Jst::freeze(now);
-
         let service_id = (1, 2).into();
-
-        let mut program = EpgProgram::new((1, 0, 2, 3).into());
-        program.start_at = now + Duration::minutes(1);
-
-        let programs = Arc::new(indexmap! {
-            2.into() => EpgProgram::new((1, 0, 2, 2).into()), // expired
-            3.into() => program.clone(),
-        });
 
         let mut script = NamedTempFile::new().unwrap();
         write!(script, "read ID\n").unwrap();
@@ -328,19 +298,11 @@ mod tests {
             serde_json::to_string(&service_id).unwrap()
         )
         .unwrap();
-        write!(script, "read PG\n").unwrap();
-        write!(
-            script,
-            "test $PG = '{}'\n",
-            serde_json::to_string(&MirakurunProgram::from(program)).unwrap()
-        )
-        .unwrap();
 
         let mut config = Config::default();
         config.scripts.epg_programs_updated = format!("sh {}", script.path().to_str().unwrap());
         let config = Arc::new(config);
-        let result =
-            TestTarget::run_epg_programs_updated_script(config, service_id, programs.clone()).await;
+        let result = TestTarget::run_epg_programs_updated_script(config, service_id).await;
         assert_matches!(result, Ok(status) => {
             assert_matches!(status.code(), Some(0));
         });
@@ -348,8 +310,7 @@ mod tests {
         let mut config = Config::default();
         config.scripts.epg_programs_updated = "sh -c 'cat; false'".to_string();
         let config = Arc::new(config);
-        let result =
-            TestTarget::run_epg_programs_updated_script(config, service_id, programs.clone()).await;
+        let result = TestTarget::run_epg_programs_updated_script(config, service_id).await;
         assert_matches!(result, Ok(status) => {
             assert_matches!(status.code(), Some(1));
         });
@@ -357,8 +318,7 @@ mod tests {
         let mut config = Config::default();
         config.scripts.epg_programs_updated = "command-not-found".to_string();
         let config = Arc::new(config);
-        let result =
-            TestTarget::run_epg_programs_updated_script(config, service_id, programs.clone()).await;
+        let result = TestTarget::run_epg_programs_updated_script(config, service_id).await;
         assert_matches!(result, Err(_));
     }
 

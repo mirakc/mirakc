@@ -2306,7 +2306,7 @@ mod tests {
         let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
             records-dir: /tmp
-        "#
+        "#,
         )
         .unwrap();
         assert_eq!(
@@ -2321,7 +2321,7 @@ mod tests {
         let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
             contents-dir: /tmp
-        "#
+        "#,
         )
         .unwrap();
         assert_eq!(config.normalize(), Default::default());
@@ -2330,7 +2330,7 @@ mod tests {
             r#"
             records-dir: /tmp
             contents-dir: /var
-        "#
+        "#,
         )
         .unwrap();
         assert_eq!(

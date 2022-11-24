@@ -711,19 +711,15 @@ Definitions for scripts to be executed when a particular event occurs.
 
 ### scripts.epg-programs-updated
 
-A script to be executed when EPG programs in a service are updated.
+A script to be executed when EPG programs of a service are updated.
 
 Output from the following rust code is piped to the script:
 
 ```rust
 let service_id = MirakurunServiceId::new(
     NetworkId::from(1), ServiceId::from(2));
-let programs: Vec<MirakurunProgram> = vec![...];
 
 println!("{}", serde_json::to_string(&service_id)?);
-for program in programs.iter() {
-    println!("{}", serde_json::to_string(program)?);
-}
 ```
 
 ### scripts.recording-started

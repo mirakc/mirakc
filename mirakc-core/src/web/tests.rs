@@ -933,11 +933,7 @@ where
     T: serde::Serialize,
 {
     let app = create_app();
-    TestClient::new(app)
-        .post(url)
-        .json(&data)
-        .send()
-        .await
+    TestClient::new(app).post(url).json(&data).send().await
 }
 
 async fn delete(url: &str) -> TestResponse {
@@ -947,15 +943,14 @@ async fn delete(url: &str) -> TestResponse {
 
 fn create_app() -> RouterService {
     let config = config_for_test();
-    build_app(&config)
-        .with_state(Arc::new(AppState {
-            config,
-            string_table: string_table_for_test(),
-            tuner_manager: TunerManagerStub,
-            epg: EpgStub,
-            recording_manager: RecordingManagerStub,
-            timeshift_manager: TimeshiftManagerStub,
-        }))
+    build_app(&config).with_state(Arc::new(AppState {
+        config,
+        string_table: string_table_for_test(),
+        tuner_manager: TunerManagerStub,
+        epg: EpgStub,
+        recording_manager: RecordingManagerStub,
+        timeshift_manager: TimeshiftManagerStub,
+    }))
 }
 
 fn config_for_test() -> Arc<Config> {

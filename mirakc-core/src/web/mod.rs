@@ -170,15 +170,14 @@ where
     S: Call<QueryTimeshiftRecorder>,
     S: Call<QueryTimeshiftRecorders>,
 {
-    let app = build_app(&config)
-        .with_state(Arc::new(AppState {
-            config: config.clone(),
-            string_table,
-            tuner_manager,
-            epg,
-            recording_manager,
-            timeshift_manager,
-        }));
+    let app = build_app(&config).with_state(Arc::new(AppState {
+        config: config.clone(),
+        string_table,
+        tuner_manager,
+        epg,
+        recording_manager,
+        timeshift_manager,
+    }));
 
     let http_servers = config
         .server
