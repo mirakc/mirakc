@@ -877,6 +877,7 @@ dependencies = [
  "maplit",
  "mustache",
  "once_cell",
+ "path-dedot",
  "serde",
  "serde_json",
  "serde_qs",
@@ -1012,6 +1013,15 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-sys",
+]
+
+[[package]]
+name = "path-dedot"
+version = "3.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a81540d94551664b72b72829b12bd167c73c9d25fbac0e04fafa8023f7e4901"
+dependencies = [
+ "once_cell",
 ]
 
 [[package]]

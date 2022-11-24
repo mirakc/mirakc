@@ -57,6 +57,7 @@ use futures::future::FutureExt;
 use futures::stream::Stream;
 use futures::stream::StreamExt;
 use itertools::Itertools;
+use path_dedot::ParseDot;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::AsyncSeekExt;
@@ -1045,10 +1046,28 @@ where
     R: Call<AddRecordingSchedule>,
     R: Call<QueryRecordingSchedule>,
 {
+    if input.content_path.is_absolute() {
+        let err = Error::InvalidPath;
+        tracing::error!(%err, ?input.content_path);
+        return Err(err);
+    }
+
+    let contents_dir = state.config.recording.contents_dir.as_ref().unwrap();
+    if !contents_dir
+        .join(&input.content_path)
+        .parse_dot()?
+        .starts_with(contents_dir)
+    {
+        let err = Error::InvalidPath;
+        tracing::error!(%err, ?input.content_path);
+        return Err(err);
+    }
+
     let program = state
         .epg
         .call(QueryProgram::ByMirakurunProgramId(input.program_id))
         .await??;
+
     let schedule = Schedule {
         program_id: input.program_id,
         content_path: input.content_path,
@@ -1062,6 +1081,7 @@ where
         .recording_manager
         .call(AddRecordingSchedule { schedule })
         .await??;
+
     Ok((
         StatusCode::CREATED,
         Json(WebRecordingSchedule {
@@ -2369,6 +2389,7 @@ impl IntoResponse for Error {
             Error::QuerystringError(_) => error_response!(StatusCode::BAD_REQUEST),
             Error::ProgramAlreadyStarted => error_response!(StatusCode::BAD_REQUEST),
             Error::ProgramWillStartSoon => error_response!(StatusCode::BAD_REQUEST),
+            Error::InvalidPath => error_response!(StatusCode::BAD_REQUEST),
             _ => error_response!(StatusCode::INTERNAL_SERVER_ERROR),
         }
     }

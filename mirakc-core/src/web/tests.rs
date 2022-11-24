@@ -404,6 +404,30 @@ async fn test_create_recording_schedule() {
     };
     let res = post("/api/recording/schedules", input).await;
     assert_eq!(res.status(), StatusCode::CREATED);
+
+    // Error::InvalidPath
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 0, 4).into(),
+        content_path: "/4.m2ts".into(),
+        priority: 1,
+        pre_filters: vec![],
+        post_filters: vec![],
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/schedules", input).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Error::InvalidPath
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 0, 4).into(),
+        content_path: "../4.m2ts".into(),
+        priority: 1,
+        pre_filters: vec![],
+        post_filters: vec![],
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/schedules", input).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -992,6 +1016,7 @@ fn config_for_test() -> Arc<Config> {
     );
     // Enable endpoints for recording
     config.recording.records_dir = Some("/tmp".into());
+    config.recording.contents_dir = Some("/tmp".into());
     // Disable tracking airtime
     config.recording.track_airtime_command = "true".to_string();
     // logo for SID#1

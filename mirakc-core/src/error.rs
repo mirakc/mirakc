@@ -40,6 +40,8 @@ pub enum Error {
     ProgramAlreadyStarted,
     #[error("Program will start soon")]
     ProgramWillStartSoon,
+    #[error("Invalid path")]
+    InvalidPath,
     #[error("Command failed: {0}")]
     CommandFailed(command_util::Error),
     #[error("std::fmt::error: {0}")]
