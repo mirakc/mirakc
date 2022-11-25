@@ -661,8 +661,16 @@ impl<T, E> RecordingManager<T, E> {
     }
 
     fn remove_schedules_by_tag(&mut self, tag: &str) {
+        let start_soon = Jst::now() + Duration::seconds(PREP_SECS);
         tracing::info!("Remove schedules tagged with {}", tag);
-        self.schedule_map.retain(|_, v| !v.tags.contains(tag));
+        self.schedule_map.retain(|_, v| {
+            // Always retain schedules which will start soon
+            // (or have already been expired).
+            if v.start_at <= start_soon {
+                return true;
+            }
+            return !v.tags.contains(tag);
+        });
         self.sync_schedules();
     }
 }
@@ -1192,7 +1200,7 @@ mod tests {
         Jst::freeze(now);
 
         let temp_dir = TempDir::new().unwrap();
-        let config = config_for_test(&temp_dir);
+        let config = config_for_test(temp_dir.path());
 
         let mut manager = RecordingManager::new(config, TunerManagerStub, EpgStub);
 
@@ -1215,6 +1223,43 @@ mod tests {
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Err(Error::ProgramAlreadyStarted));
         assert_eq!(manager.schedules.len(), 1);
+    }
+
+    #[test]
+    fn test_remove_schedules() {
+        let now = Jst::now();
+        Jst::freeze(now);
+
+        let config = config_for_test("/tmp");
+
+        let mut manager = RecordingManager::new(config, TunerManagerStub, EpgStub);
+
+        let mut schedule =
+            schedule_for_test((0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+        schedule.tags.insert("tag1".to_string());
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 1);
+
+        let mut schedule =
+            schedule_for_test((0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 1));
+        schedule.tags.insert("tag2".to_string());
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 2);
+
+        manager.remove_schedules(RemoveTarget::Tag("tag2".to_string()));
+        assert!(manager.schedule_map.contains_key(&(0, 0, 1).into()));
+
+        // Schedules which will start soon are always retained.
+        Jst::freeze(now + Duration::seconds(PREP_SECS));
+        manager.remove_schedules(RemoveTarget::Tag("tag1".to_string()));
+        assert!(manager.schedule_map.contains_key(&(0, 0, 1).into()));
+
+        // Remove all schedules regardless of whether a schedule will start soon
+        // or not.
+        manager.remove_schedules(RemoveTarget::All);
+        assert!(manager.schedules.is_empty());
     }
 
     #[tokio::test]
@@ -1318,9 +1363,10 @@ mod tests {
         system.stop();
     }
 
-    fn config_for_test(temp_dir: &TempDir) -> Arc<Config> {
+    fn config_for_test<P: AsRef<Path>>(dir: P) -> Arc<Config> {
         let mut config = Config::default();
-        config.recording.records_dir = Some(temp_dir.path().to_owned());
+        config.recording.records_dir = Some(dir.as_ref().to_owned());
+        config.recording.contents_dir = config.recording.records_dir.clone();
         Arc::new(config)
     }
 
