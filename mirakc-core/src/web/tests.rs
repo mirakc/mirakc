@@ -4,6 +4,8 @@ use super::*;
 use std::future::Future;
 
 use assert_matches::assert_matches;
+use axum::http::header::ACCEPT_RANGES;
+use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
 use maplit::hashmap;
@@ -12,9 +14,12 @@ use crate::config::FilterConfig;
 use crate::config::MountConfig;
 use crate::config::PostFilterConfig;
 use crate::epg::stub::EpgStub;
+use crate::models::*;
 use crate::recording::stub::RecordingManagerStub;
 use crate::timeshift::stub::TimeshiftManagerStub;
 use crate::tuner::stub::TunerManagerStub;
+use models::*;
+use qs::*;
 
 #[tokio::test]
 async fn test_get_unknown() {
@@ -690,33 +695,6 @@ async fn test_access_control_denied() {
 }
 
 #[tokio::test]
-async fn test_do_streaming() {
-    let user = user_for_test(0.into());
-
-    let result = do_streaming(
-        user.clone(),
-        futures::stream::empty(),
-        "video/MP2T".to_string(),
-        None,
-        (),
-        1000,
-    )
-    .await;
-    assert_matches!(result, Err(Error::ProgramNotFound));
-
-    let result = do_streaming(
-        user.clone(),
-        futures::stream::pending(),
-        "video/MP2T".to_string(),
-        None,
-        (),
-        1,
-    )
-    .await;
-    assert_matches!(result, Err(Error::StreamingTimedOut));
-}
-
-#[tokio::test]
 async fn test_mount() {
     let res = get("/").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
@@ -1034,16 +1012,6 @@ fn string_table_for_test() -> Arc<StringTable> {
     crate::string_table::load(
         format!("{}/../resources/strings.yml", env!("CARGO_MANIFEST_DIR")).as_str(),
     )
-}
-
-fn user_for_test(priority: TunerUserPriority) -> TunerUser {
-    TunerUser {
-        info: TunerUserInfo::Web {
-            id: "".to_string(),
-            agent: None,
-        },
-        priority,
-    }
 }
 
 mod helper {

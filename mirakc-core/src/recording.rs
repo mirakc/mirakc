@@ -105,20 +105,19 @@ where
         let prep_secs = Duration::seconds(PREP_SECS);
         let now = Jst::now();
         while let Some(schedule) = self.schedules.peek() {
-            let program_id = schedule.program_id;
             if schedule.start_at <= now {
-                tracing::warn!(schedule.program_id = %program_id, "Expired, remove schedule");
-                self.schedule_map.remove(&program_id);
+                tracing::warn!(%schedule.program_id, "Expired, remove schedule");
+                self.schedule_map.remove(&schedule.program_id);
                 self.schedules.pop();
             } else if schedule.start_at - now <= prep_secs {
-                self.schedule_map.remove(&program_id);
+                self.schedule_map.remove(&schedule.program_id);
                 let schedule = self.schedules.pop().unwrap();
-                match self.start_recording(schedule, ctx).await {
+                match self.start_recording(schedule.clone(), ctx).await {
                     Ok(_) => {
-                        tracing::info!(schedule.program_id = %program_id, "Start recording");
+                        tracing::info!(%schedule.program_id, "Start recording");
                     }
                     Err(err) => {
-                        tracing::error!(schedule.program_id = %program_id, %err, "Failed to start recording");
+                        tracing::error!(%err, %schedule.program_id, "Failed to start recording");
                     }
                 }
             } else {
