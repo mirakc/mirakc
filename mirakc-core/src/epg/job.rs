@@ -209,6 +209,7 @@ where
             tracing::warn!("The scan-services job is disabled");
         } else if is_fresh(&self.config, "services.json") {
             tracing::debug!("Skip initial scan for services");
+            self.schedule_scan_services(ctx);
         } else {
             self.scan_services(ctx).await;
         }
@@ -216,6 +217,7 @@ where
             tracing::warn!("The sync-clocks job is disabled");
         } else if is_fresh(&self.config, "clocks.json") {
             tracing::debug!("Skip initial scan for clocks");
+            self.schedule_sync_clocks(ctx);
         } else {
             self.sync_clocks(ctx).await;
         }
@@ -223,6 +225,7 @@ where
             tracing::warn!("The update-schedules job is disabled");
         } else if is_fresh(&self.config, "schedules.json") {
             tracing::debug!("Skip initial scan for schedules");
+            self.schedule_update_schedules(ctx);
         } else {
             self.update_schedules(ctx).await;
         }
@@ -389,15 +392,12 @@ static EPG_FRESH_PERIOD: Lazy<Option<std::time::Duration>> = Lazy::new(|| {
 });
 
 fn is_fresh(config: &Config, filename: &str) -> bool {
-    if cfg!(test) {
-        return false;
-    }
     let cache_dir = if let Some(ref cache_dir) = config.epg.cache_dir {
         cache_dir
     } else {
         return false;
     };
-    let path = PathBuf::from(cache_dir).join(filename);
+    let path = cache_dir.join(filename);
     match (*EPG_FRESH_PERIOD, path.metadata()) {
         (Some(period), Ok(metadata)) => metadata
             .modified()

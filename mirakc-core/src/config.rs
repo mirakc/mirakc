@@ -127,14 +127,14 @@ impl Config {
 #[serde(deny_unknown_fields)]
 pub struct EpgConfig {
     #[serde(default)]
-    pub cache_dir: Option<String>,
+    pub cache_dir: Option<PathBuf>,
 }
 
 impl EpgConfig {
     fn validate(&self) {
         if let Some(cache_dir) = self.cache_dir.as_ref() {
             assert!(
-                Path::new(cache_dir).is_dir(),
+                cache_dir.is_dir(),
                 "config.epg: `cache_dir` must be a path to an existing directory"
             );
         }
@@ -1069,7 +1069,7 @@ mod tests {
             )
             .unwrap(),
             EpgConfig {
-                cache_dir: Some("/path/to/epg".to_string()),
+                cache_dir: Some("/path/to/epg".into()),
             }
         );
 
@@ -1092,7 +1092,7 @@ mod tests {
     #[should_panic]
     fn test_epg_config_validate_cache_dir() {
         let mut config = EpgConfig::default();
-        config.cache_dir = Some("/path/to/dir".to_string());
+        config.cache_dir = Some("/path/to/dir".into());
         config.validate();
     }
 

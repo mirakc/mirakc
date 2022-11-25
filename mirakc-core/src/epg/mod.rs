@@ -12,7 +12,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::BufWriter;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use actlet::*;
@@ -219,7 +218,7 @@ impl<T> Epg<T> {
 
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = PathBuf::from(cache_dir).join("services.json");
+                let json_path = cache_dir.join("services.json");
                 tracing::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
                 let services: Vec<(ServiceTriple, EpgService)> = serde_json::from_reader(reader)?;
@@ -250,7 +249,7 @@ impl<T> Epg<T> {
     fn load_clocks(&mut self) -> Result<(), Error> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = PathBuf::from(cache_dir).join("clocks.json");
+                let json_path = cache_dir.join("clocks.json");
                 tracing::debug!("Loading clocks from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
                 let clocks: Vec<(ServiceTriple, Clock)> = serde_json::from_reader(reader)?;
@@ -277,7 +276,7 @@ impl<T> Epg<T> {
         let today = Jst::today();
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = PathBuf::from(cache_dir).join("schedules.json");
+                let json_path = cache_dir.join("schedules.json");
                 tracing::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
                 let schedules: Vec<(ServiceTriple, Box<EpgSchedule>)> =
@@ -310,7 +309,7 @@ impl<T> Epg<T> {
     fn save_services(&self) -> Result<(), Error> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = PathBuf::from(cache_dir).join("services.json");
+                let json_path = cache_dir.join("services.json");
                 tracing::debug!("Saving services into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 // Serialize as a list of tuples in order to avoid failures in
@@ -333,7 +332,7 @@ impl<T> Epg<T> {
     fn save_clocks(&self) -> Result<(), Error> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = PathBuf::from(cache_dir).join("clocks.json");
+                let json_path = cache_dir.join("clocks.json");
                 tracing::debug!("Saving clocks into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 // Serialize as a list of tuples in order to avoid failures in
@@ -356,7 +355,7 @@ impl<T> Epg<T> {
     fn save_schedules(&self) -> Result<(), Error> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = PathBuf::from(cache_dir).join("schedules.json");
+                let json_path = cache_dir.join("schedules.json");
                 tracing::debug!("Saving schedules into {}...", json_path.display());
                 let writer = BufWriter::new(File::create(&json_path)?);
                 // Serialize as a list of tuples in order to avoid failures in
