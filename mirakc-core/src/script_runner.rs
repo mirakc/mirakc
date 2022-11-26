@@ -9,9 +9,11 @@ use serde::Serialize;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Child;
+use tokio::sync::Semaphore;
 use tracing::Instrument;
 
 use crate::command_util::CommandBuilder;
+use crate::config::Concurrency;
 use crate::config::Config;
 use crate::epg;
 use crate::error::Error;
@@ -24,14 +26,21 @@ pub struct ScriptRunner<E, R> {
     config: Arc<Config>,
     epg: E,
     recording_manager: R,
+    semaphore: Arc<Semaphore>,
 }
 
 impl<E, R> ScriptRunner<E, R> {
     pub fn new(config: Arc<Config>, epg: E, recording_manager: R) -> Self {
+        let concurrency = match config.scripts.concurrency {
+            Concurrency::Unlimited => Semaphore::MAX_PERMITS,
+            Concurrency::Number(n) => n.max(1),
+            Concurrency::NumCpus(r) => (num_cpus::get() as f32 * r).max(1.0) as usize,
+        };
         ScriptRunner {
             config,
             epg,
             recording_manager,
+            semaphore: Arc::new(Semaphore::new(concurrency)),
         }
     }
 }
@@ -98,11 +107,9 @@ impl<E, R> ScriptRunner<E, R> {
         &self,
         service_triple: ServiceTriple,
     ) -> impl Future<Output = ()> {
-        wrap(Self::run_epg_programs_updated_script(
-            self.config.clone(),
-            service_triple.into(),
-        ))
-        .instrument(tracing::info_span!("epg-program-updated-script", %service_triple))
+        let fut = Self::run_epg_programs_updated_script(self.config.clone(), service_triple.into());
+        wrap(self.semaphore.clone(), fut)
+            .instrument(tracing::info_span!("epg-program-updated-script", %service_triple))
     }
 
     async fn run_epg_programs_updated_script(
@@ -144,11 +151,9 @@ impl<E, R> ScriptRunner<E, R> {
         &self,
         program_id: MirakurunProgramId,
     ) -> impl Future<Output = ()> {
-        wrap(Self::run_recording_started_script(
-            self.config.clone(),
-            program_id,
-        ))
-        .instrument(tracing::info_span!("recording-started-script", %program_id))
+        let fut = Self::run_recording_started_script(self.config.clone(), program_id);
+        wrap(self.semaphore.clone(), fut)
+            .instrument(tracing::info_span!("recording-started-script", %program_id))
     }
 
     async fn run_recording_started_script(
@@ -191,12 +196,9 @@ impl<E, R> ScriptRunner<E, R> {
         program_id: MirakurunProgramId,
         result: Result<u64, String>,
     ) -> impl Future<Output = ()> {
-        wrap(Self::run_recording_stopped_script(
-            self.config.clone(),
-            program_id,
-            result,
-        ))
-        .instrument(tracing::info_span!("recording-stopped-script", %program_id))
+        let fut = Self::run_recording_stopped_script(self.config.clone(), program_id, result);
+        wrap(self.semaphore.clone(), fut)
+            .instrument(tracing::info_span!("recording-stopped-script", %program_id))
     }
 
     async fn run_recording_stopped_script(
@@ -229,8 +231,12 @@ impl From<Result<u64, String>> for RecordingStoppedResult {
     }
 }
 
-fn wrap(fut: impl Future<Output = Result<ExitStatus, Error>>) -> impl Future<Output = ()> {
+fn wrap(
+    semaphore: Arc<Semaphore>,
+    fut: impl Future<Output = Result<ExitStatus, Error>>,
+) -> impl Future<Output = ()> {
     async move {
+        let _permit = semaphore.acquire().await;
         tracing::info!("Start");
         match fut.await {
             Ok(status) => {

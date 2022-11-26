@@ -51,8 +51,9 @@ suitable for your environment.
 | [timeshift.recorders\[\].data-file]      |                                   |
 | [timeshift.recorders\[\].chunk-size]     | `163840000` (~160MB)              |
 | [timeshift.recorders\[\].num-chunks]     |                                   |
-| [timeshift.recorders\[\].num-reserves]   | `1`                               |
+| [timeshift.recorders\[\].num-reserves]   | `!number 1`                       |
 | [timeshift.recorders\[\].priority]       | `128`                             |
+| [scripts.concurrency]                    | `1`                               |
 | [scripts.epg-programs-updated]           | `''`                              |
 | [scripts.recording-started]              | `''`                              |
 | [scripts.recording-stopped]              | `''`                              |
@@ -105,6 +106,7 @@ suitable for your environment.
 [timeshift.recorders\[\].num-chunks]: #timeshiftrecorders
 [timeshift.recorders\[\].num-reserves]: #timeshiftrecorders
 [timeshift.recorders\[\].priority]: #timeshiftrecorders
+[scripts.concurrency]: #scriptsconcurrency
 [scripts.epg-programs-updated]: #scriptsepg-programs-updated
 [scripts.recording-started]: #scriptsrecording-started
 [scripts.recording-stopped]: #scriptsrecording-stopped
@@ -708,6 +710,23 @@ Definitions of timeshift recorders.
 ## scripts
 
 Definitions for scripts to be executed when a particular event occurs.
+
+### scripts.concurrency
+
+The number of maximum concurrent scripts can be executed in parallel.
+
+The following values can be specified:
+
+```yaml
+# up to 2
+concurrency: !number 2
+
+# up to half of the number of CPUs
+concurrency: !num-cpus 0.5
+
+# unlimited
+concurrency: !unlimited
+```
 
 ### scripts.epg-programs-updated
 

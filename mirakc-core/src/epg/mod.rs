@@ -872,11 +872,19 @@ where
     ) -> <RegisterEmitter as Message>::Reply {
         match msg {
             RegisterEmitter::ServicesUpdated(emitter) => {
-                emitter.emit(ServicesUpdated { services: self.services.clone() }).await;
+                emitter
+                    .emit(ServicesUpdated {
+                        services: self.services.clone(),
+                    })
+                    .await;
                 self.services_emitters.push(emitter);
             }
             RegisterEmitter::ClocksUpdated(emitter) => {
-                emitter.emit(ClocksUpdated { clocks: self.clocks.clone() }).await;
+                emitter
+                    .emit(ClocksUpdated {
+                        clocks: self.clocks.clone(),
+                    })
+                    .await;
                 self.clocks_emitters.push(emitter);
             }
             RegisterEmitter::ProgramsUpdated(emitter) => {

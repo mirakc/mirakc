@@ -878,11 +878,28 @@ impl TimeshiftRecorderConfig {
 #[cfg_attr(test, derive(Debug))]
 pub struct ScriptsConfig {
     #[serde(default)]
+    pub concurrency: Concurrency,
+    #[serde(default)]
     pub epg_programs_updated: String,
     #[serde(default)]
     pub recording_started: String,
     #[serde(default)]
     pub recording_stopped: String,
+}
+
+#[derive(Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(test, derive(Debug))]
+pub enum Concurrency {
+    Unlimited,
+    Number(usize),
+    NumCpus(f32),
+}
+
+impl Default for Concurrency {
+    fn default() -> Self {
+        Concurrency::Number(1)
+    }
 }
 
 #[derive(Clone, Deserialize, PartialEq)]
@@ -2760,6 +2777,53 @@ mod tests {
             priority: TimeshiftRecorderConfig::default_priority(),
         };
         config.validate("test");
+    }
+
+    #[test]
+    fn test_scripts_config() {
+        assert_eq!(
+            serde_yaml::from_str::<ScriptsConfig>("{}").unwrap(),
+            Default::default()
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<ScriptsConfig>(
+                r#"
+                concurrency: !number 2
+            "#
+            )
+            .unwrap(),
+            ScriptsConfig {
+                concurrency: Concurrency::Number(2),
+                ..Default::default()
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<ScriptsConfig>(
+                r#"
+                concurrency: !num-cpus 0.5
+            "#
+            )
+            .unwrap(),
+            ScriptsConfig {
+                concurrency: Concurrency::NumCpus(0.5),
+                ..Default::default()
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<ScriptsConfig>(
+                r#"
+                concurrency: !unlimited
+            "#
+            )
+            .unwrap(),
+            ScriptsConfig {
+                concurrency: Concurrency::Unlimited,
+                ..Default::default()
+            }
+        );
     }
 
     #[test]
