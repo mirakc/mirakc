@@ -444,7 +444,14 @@ where
         _ctx: &mut Context<Self>,
     ) -> <QueryRecordingSchedules as Message>::Reply {
         tracing::debug!(msg.name = "QueryRecordingSchedules");
-        self.schedules.clone().into_sorted_vec()
+        self.query_schedules()
+    }
+}
+
+impl<T, E> RecordingManager<T, E> {
+    fn query_schedules(&self) -> Vec<Arc<Schedule>> {
+        // TODO: somewhat inefficient...
+        self.schedules.clone().into_sorted_vec().into_iter().rev().collect_vec()
     }
 }
 
@@ -1222,6 +1229,41 @@ mod tests {
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Err(Error::ProgramAlreadyStarted));
         assert_eq!(manager.schedules.len(), 1);
+
+        let schedule = schedule_for_test((0, 0, 4).into(), now + Duration::seconds(PREP_SECS + 2));
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 2);
+        assert_matches!(manager.schedules.peek(), Some(schedule) => {
+            assert_eq!(schedule.program_id, (0, 0, 1).into());
+        });
+    }
+
+    #[test]
+    fn test_query_schedules() {
+        let now = Jst::now();
+        Jst::freeze(now);
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut manager = RecordingManager::new(config, TunerManagerStub, EpgStub);
+
+        let schedule = schedule_for_test((0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 1);
+
+        let schedule = schedule_for_test((0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 2));
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 2);
+
+        let schedules = manager.query_schedules();
+        assert_eq!(schedules.len(), 2);
+        assert_matches!(schedules.get(0), Some(schedule) => {
+            assert_eq!(schedule.program_id, (0, 0, 1).into());
+        });
     }
 
     #[test]
