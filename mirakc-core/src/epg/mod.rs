@@ -871,9 +871,20 @@ where
         _ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
         match msg {
-            RegisterEmitter::ServicesUpdated(emitter) => self.services_emitters.push(emitter),
-            RegisterEmitter::ClocksUpdated(emitter) => self.clocks_emitters.push(emitter),
-            RegisterEmitter::ProgramsUpdated(emitter) => self.programs_emitters.push(emitter),
+            RegisterEmitter::ServicesUpdated(emitter) => {
+                emitter.emit(ServicesUpdated { services: self.services.clone() }).await;
+                self.services_emitters.push(emitter);
+            }
+            RegisterEmitter::ClocksUpdated(emitter) => {
+                emitter.emit(ClocksUpdated { clocks: self.clocks.clone() }).await;
+                self.clocks_emitters.push(emitter);
+            }
+            RegisterEmitter::ProgramsUpdated(emitter) => {
+                for service_triple in self.schedules.keys().cloned() {
+                    emitter.emit(ProgramsUpdated { service_triple }).await;
+                }
+                self.programs_emitters.push(emitter);
+            }
         }
     }
 }
