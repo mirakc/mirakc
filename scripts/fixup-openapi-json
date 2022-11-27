@@ -57,10 +57,6 @@ process.stdin.on('end', () => {
   delete swagger.paths['/services'].get.parameters;
   delete swagger.paths['/programs'].get.parameters;
 
-  swagger.definitions.Version = {
-    type: 'string',
-  };
-
   swagger.definitions.Status = {
     type: 'object',
     properties: {},

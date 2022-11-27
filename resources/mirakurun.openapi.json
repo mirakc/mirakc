@@ -1273,7 +1273,15 @@
       }
     },
     "Version": {
-      "type": "string"
+      "type": "object",
+      "properties": {
+        "current": {
+          "type": "string"
+        },
+        "latest": {
+          "type": "string"
+        }
+      }
     },
     "Status": {
       "type": "object",
