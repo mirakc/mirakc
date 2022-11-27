@@ -10,7 +10,6 @@ use axum::http::HeaderMap;
 use axum::http::HeaderValue;
 use axum::routing;
 use axum::Router;
-use axum::RouterService;
 use axum::Server;
 use futures::future::join_all;
 use futures::future::FutureExt;
@@ -128,7 +127,7 @@ where
 
 // http
 
-async fn serve_http(addr: SocketAddr, app: RouterService) -> hyper::Result<()> {
+async fn serve_http(addr: SocketAddr, app: Router) -> hyper::Result<()> {
     Server::bind(&addr)
         .http1_keepalive(false)
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
@@ -137,7 +136,7 @@ async fn serve_http(addr: SocketAddr, app: RouterService) -> hyper::Result<()> {
 
 // uds
 
-async fn serve_uds(path: &std::path::Path, app: RouterService) -> hyper::Result<()> {
+async fn serve_uds(path: &std::path::Path, app: Router) -> hyper::Result<()> {
     // Cleanup the previous socket if it exists.
     let _ = tokio::fs::remove_file(&path).await;
     tokio::fs::create_dir_all(path.parent().unwrap())

@@ -718,7 +718,7 @@ async fn test_filter_setting() {
     {
         let url = format!("/?{}", query);
         let app = Router::new().route("/", routing::get(handler));
-        TestClient::new(app.into_service())
+        TestClient::new(app)
             .get(&url)
             .send()
             .await
@@ -943,7 +943,7 @@ async fn delete(url: &str) -> TestResponse {
     TestClient::new(app).delete(url).send().await
 }
 
-fn create_app() -> RouterService {
+fn create_app() -> Router {
     let config = config_for_test();
     build_app(&config).with_state(Arc::new(AppState {
         config,
