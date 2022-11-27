@@ -1,7 +1,5 @@
-use axum::response::IntoResponse;
-use axum::Json;
-
-use crate::web::models::Version;
+use super::*;
+use crate::web::api::models::Version;
 
 pub(super) async fn get() -> impl IntoResponse {
     Json(Version {

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use actlet::*;
 use axum::body::StreamBody;
 use axum::extract::Path;
+use axum::extract::Query;
 use axum::extract::State;
 use axum::http::header::ACCEPT_RANGES;
 use axum::http::header::CONTENT_RANGE;
@@ -19,6 +20,7 @@ use axum::response::Response;
 use axum::routing;
 use axum::Json;
 use axum::Router;
+use axum::TypedHeader;
 use bytes::Bytes;
 use chrono::Duration;
 use futures::stream::Stream;
@@ -45,16 +47,23 @@ use crate::tuner::TunerStreamStopTrigger;
 
 use super::body::SeekableStreamBody;
 use super::body::StaticFileBody;
-use super::models::*;
 use super::qs::Qs;
 use super::server_name;
 use super::AppState;
+use super::X_MIRAKURUN_TUNER_USER_ID;
 
+mod channels;
 mod iptv;
+mod programs;
 mod recording;
+mod services;
 mod status;
 mod timeshift;
+mod tuners;
 mod version;
+
+pub(super) mod models;
+use models::*;
 
 pub(super) fn build_api<T, E, R, S>(config: &Config) -> Router<Arc<AppState<T, E, R, S>>>
 where
@@ -101,29 +110,29 @@ where
     let mut router = Router::new()
         .route("/version", routing::get(version::get))
         .route("/status", routing::get(status::get))
-        .route("/channels", routing::get(get_channels))
-        .route("/services", routing::get(get_services))
-        .route("/services/:id", routing::get(get_service))
-        .route("/services/:id/logo", routing::get(get_service_logo))
-        .route("/services/:id/programs", routing::get(get_service_programs))
-        .route("/programs", routing::get(get_programs))
-        .route("/programs/:id", routing::get(get_program))
-        .route("/tuners", routing::get(get_tuners))
+        .route("/tuners", routing::get(tuners::list))
+        .route("/channels", routing::get(channels::list))
         .route(
             "/channels/:channel_type/:channel/stream",
-            routing::get(get_channel_stream).head(head_channel_stream),
+            routing::get(channels::stream::get).head(channels::stream::head),
         )
         .route(
             "/channels/:channel_type/:channel/services/:sid/stream",
-            routing::get(get_channel_service_stream).head(head_channel_service_stream),
+            routing::get(channels::services::stream::get).head(channels::services::stream::head),
         )
+        .route("/services", routing::get(services::list))
+        .route("/services/:id", routing::get(services::get))
+        .route("/services/:id/logo", routing::get(services::logo))
+        .route("/services/:id/programs", routing::get(services::programs))
         .route(
             "/services/:id/stream",
-            routing::get(get_service_stream).head(head_service_stream),
+            routing::get(services::stream::get).head(services::stream::head),
         )
+        .route("/programs", routing::get(programs::list))
+        .route("/programs/:id", routing::get(programs::get))
         .route(
             "/programs/:id/stream",
-            routing::get(get_program_stream).head(head_program_stream),
+            routing::get(programs::stream::get).head(programs::stream::head),
         )
         .route("/timeshift", routing::get(timeshift::recorders::list))
         .route(
@@ -214,499 +223,6 @@ where
 
 // Request Handlers
 
-async fn get_channels<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-) -> Result<Json<Vec<MirakurunChannel>>, Error>
-where
-    E: Call<epg::QueryChannels>,
-{
-    state
-        .epg
-        .call(epg::QueryChannels)
-        .await
-        .map(Json::from)
-        .map_err(Error::from)
-}
-
-async fn get_services<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-) -> Result<Json<Vec<MirakurunService>>, Error>
-where
-    E: Call<epg::QueryServices>,
-{
-    Ok(state
-        .epg
-        .call(epg::QueryServices)
-        .await?
-        .values()
-        .cloned()
-        .map(MirakurunService::from)
-        .map(|mut service| {
-            service.check_logo_existence(&state.config.resource);
-            service
-        })
-        .collect::<Vec<MirakurunService>>()
-        .into())
-}
-
-async fn get_service<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(id): Path<MirakurunServiceId>,
-) -> Result<Json<MirakurunService>, Error>
-where
-    E: Call<epg::QueryService>,
-{
-    state
-        .epg
-        .call(epg::QueryService::ByMirakurunServiceId(id))
-        .await?
-        .map(MirakurunService::from)
-        .map(|mut service| {
-            service.check_logo_existence(&state.config.resource);
-            Json(service)
-        })
-}
-
-async fn get_service_logo<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(id): Path<MirakurunServiceId>,
-) -> Result<Response<StaticFileBody>, Error>
-where
-    E: Call<epg::QueryService>,
-{
-    let service = state
-        .epg
-        .call(epg::QueryService::ByMirakurunServiceId(id))
-        .await??;
-
-    match state.config.resource.logos.get(&service.triple()) {
-        Some(path) => {
-            Ok(Response::builder()
-                // TODO: The type should be specified in config.yml.
-                .header(CONTENT_TYPE, "image/png")
-                .body(StaticFileBody::new(path).await?)?)
-        }
-        None => Err(Error::NoLogoData),
-    }
-}
-
-async fn get_service_programs<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(id): Path<MirakurunServiceId>,
-) -> Result<Json<Vec<MirakurunProgram>>, Error>
-where
-    E: Call<epg::QueryService>,
-    E: Call<epg::QueryPrograms>,
-{
-    let service = state
-        .epg
-        .call(epg::QueryService::ByMirakurunServiceId(id))
-        .await??;
-
-    let programs = state
-        .epg
-        .call(epg::QueryPrograms {
-            service_triple: service.triple(),
-        })
-        .await?
-        .values()
-        .cloned()
-        .map(MirakurunProgram::from)
-        .collect_vec();
-    Ok(programs.into())
-}
-
-async fn get_programs<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-) -> Result<Json<Vec<MirakurunProgram>>, Error>
-where
-    E: Call<epg::QueryPrograms>,
-    E: Call<epg::QueryServices>,
-{
-    let services = state.epg.call(epg::QueryServices).await?;
-    let mut result = vec![];
-    for triple in services.keys() {
-        let programs = state
-            .epg
-            .call(epg::QueryPrograms {
-                service_triple: triple.clone(),
-            })
-            .await?;
-        result.reserve(programs.len());
-        result.extend(programs.values().cloned().map(MirakurunProgram::from));
-    }
-    Ok(result.into())
-}
-
-async fn get_program<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(id): Path<MirakurunProgramId>,
-) -> Result<Json<MirakurunProgram>, Error>
-where
-    E: Call<epg::QueryProgram>,
-{
-    state
-        .epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(id))
-        .await?
-        .map(MirakurunProgram::from)
-        .map(Json::from)
-}
-
-async fn get_tuners<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-) -> Result<Json<Vec<MirakurunTuner>>, Error>
-where
-    T: Call<tuner::QueryTuners>,
-{
-    state
-        .tuner_manager
-        .call(tuner::QueryTuners)
-        .await
-        .map(Json::from)
-        .map_err(Error::from)
-}
-
-async fn get_channel_stream<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(path): Path<ChannelPath>,
-    user: TunerUser,
-    Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error>
-where
-    T: Clone,
-    T: Call<tuner::StartStreaming>,
-    T: Into<Emitter<tuner::StopStreaming>>,
-    E: Call<epg::QueryChannel>,
-{
-    let channel = state
-        .epg
-        .call(epg::QueryChannel {
-            channel_type: path.channel_type,
-            channel: path.channel,
-        })
-        .await??;
-
-    let stream = state
-        .tuner_manager
-        .call(tuner::StartStreaming {
-            channel: channel.clone(),
-            user: user.clone(),
-        })
-        .await??;
-
-    // stop_trigger must be created here in order to stop streaming when an
-    // error occurs.
-    let stop_trigger = TunerStreamStopTrigger::new(stream.id(), state.tuner_manager.clone().into());
-
-    let data = mustache::MapBuilder::new()
-        .insert_str("channel_name", &channel.name)
-        .insert("channel_type", &channel.channel_type)?
-        .insert_str("channel", &channel.channel)
-        .build();
-
-    let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(&state.config.pre_filters, &filter_setting.pre_filters)?;
-    if !stream.is_decoded() && filter_setting.decode {
-        builder.add_decode_filter(&state.config.filters.decode_filter)?;
-    }
-    builder.add_post_filters(&state.config.post_filters, &filter_setting.post_filters)?;
-    let (filters, content_type) = builder.build();
-
-    streaming(
-        &state.config,
-        user,
-        stream,
-        filters,
-        content_type,
-        stop_trigger,
-    )
-    .await
-}
-
-async fn head_channel_stream<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(path): Path<ChannelPath>,
-    user: TunerUser,
-    Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse
-where
-    E: Call<epg::QueryChannel>,
-{
-    let _channel = state
-        .epg
-        .call(epg::QueryChannel {
-            channel_type: path.channel_type,
-            channel: path.channel,
-        })
-        .await??;
-
-    // This endpoint returns a positive response even when no tuner is available
-    // for streaming at this point.  No one knows whether this request handler
-    // will success or not until actually starting streaming.
-    do_head_stream(&state.config, &user, &filter_setting)
-}
-
-async fn get_channel_service_stream<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(path): Path<ChannelServicePath>,
-    user: TunerUser,
-    Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error>
-where
-    T: Clone,
-    T: Call<tuner::StartStreaming>,
-    T: Into<Emitter<tuner::StopStreaming>>,
-    E: Call<epg::QueryChannel>,
-{
-    let channel = state
-        .epg
-        .call(epg::QueryChannel {
-            channel_type: path.channel_type,
-            channel: path.channel,
-        })
-        .await??;
-
-    do_get_service_stream(
-        &state.config,
-        &state.tuner_manager,
-        channel,
-        path.sid,
-        user,
-        filter_setting,
-    )
-    .await
-}
-
-async fn head_channel_service_stream<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(path): Path<ChannelServicePath>,
-    user: TunerUser,
-    Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse
-where
-    E: Call<epg::QueryChannel>,
-{
-    let _channel = state
-        .epg
-        .call(epg::QueryChannel {
-            channel_type: path.channel_type,
-            channel: path.channel,
-        })
-        .await??;
-
-    // This endpoint returns a positive response even when no tuner is available
-    // for streaming at this point.  No one knows whether this request handler
-    // will success or not until actually starting streaming.
-    do_head_stream(&state.config, &user, &filter_setting)
-}
-
-async fn get_service_stream<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(id): Path<MirakurunServiceId>,
-    user: TunerUser,
-    Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error>
-where
-    T: Clone,
-    T: Call<tuner::StartStreaming>,
-    T: Into<Emitter<tuner::StopStreaming>>,
-    E: Call<epg::QueryService>,
-{
-    let service = state
-        .epg
-        .call(epg::QueryService::ByMirakurunServiceId(id))
-        .await??;
-
-    do_get_service_stream(
-        &state.config,
-        &state.tuner_manager,
-        service.channel,
-        service.sid,
-        user,
-        filter_setting,
-    )
-    .await
-}
-
-// IPTV Simple Client in Kodi sends a HEAD request before streaming.
-async fn head_service_stream<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(id): Path<MirakurunServiceId>,
-    user: TunerUser,
-    Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse
-where
-    E: Call<epg::QueryService>,
-{
-    let _service = state
-        .epg
-        .call(epg::QueryService::ByMirakurunServiceId(id))
-        .await??;
-
-    // This endpoint returns a positive response even when no tuner is available
-    // for streaming at this point.  No one knows whether this request handler
-    // will success or not until actually starting streaming.
-    do_head_stream(&state.config, &user, &filter_setting)
-}
-
-async fn get_program_stream<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(id): Path<MirakurunProgramId>,
-    user: TunerUser,
-    Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error>
-where
-    T: Clone,
-    T: Call<tuner::StartStreaming>,
-    T: Into<Emitter<tuner::StopStreaming>>,
-    E: Clone + Send + Sync + 'static,
-    E: Call<epg::QueryProgram>,
-    E: Call<epg::QueryService>,
-    E: Call<epg::QueryClock>,
-    E: Call<epg::RemoveAirtime>,
-    E: Call<epg::UpdateAirtime>,
-{
-    let program = state
-        .epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(id))
-        .await??;
-
-    let service = state
-        .epg
-        .call(epg::QueryService::ByMirakurunServiceId(id.into()))
-        .await??;
-
-    let clock = state
-        .epg
-        .call(epg::QueryClock {
-            triple: service.triple(),
-        })
-        .await??;
-
-    let stream = state
-        .tuner_manager
-        .call(tuner::StartStreaming {
-            channel: service.channel.clone(),
-            user: user.clone(),
-        })
-        .await??;
-
-    // stream_stop_trigger must be created here in order to stop streaming when
-    // an error occurs.
-    let stream_stop_trigger =
-        TunerStreamStopTrigger::new(stream.id(), state.tuner_manager.clone().into());
-
-    let video_tags: Vec<u8> = program
-        .video
-        .iter()
-        .map(|video| video.component_tag)
-        .collect();
-
-    let audio_tags: Vec<u8> = program
-        .audios
-        .values()
-        .map(|audio| audio.component_tag)
-        .collect();
-
-    let mut builder = mustache::MapBuilder::new();
-    builder = builder
-        .insert_str("channel_name", &service.channel.name)
-        .insert("channel_type", &service.channel.channel_type)?
-        .insert_str("channel", &service.channel.channel)
-        .insert("sid", &program.quad.sid().value())?
-        .insert("eid", &program.quad.eid().value())?
-        .insert("clock_pid", &clock.pid)?
-        .insert("clock_pcr", &clock.pcr)?
-        .insert("clock_time", &clock.time)?
-        .insert("video_tags", &video_tags)?
-        .insert("audio_tags", &audio_tags)?;
-    if let Some(max_start_delay) = state.config.recording.max_start_delay {
-        // Round off the fractional (nanosecond) part of the duration.
-        //
-        // The value can be safely converted into i64 because the value is less
-        // than 24h.
-        let duration = Duration::seconds(max_start_delay.as_secs() as i64);
-        let wait_until = program.start_at + duration;
-        builder = builder.insert("wait_until", &wait_until.timestamp_millis())?;
-    }
-    let data = builder.build();
-
-    let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(&state.config.pre_filters, &filter_setting.pre_filters)?;
-    if !stream.is_decoded() && filter_setting.decode {
-        builder.add_decode_filter(&state.config.filters.decode_filter)?;
-    }
-    builder.add_program_filter(&state.config.filters.program_filter)?;
-    builder.add_post_filters(&state.config.post_filters, &filter_setting.post_filters)?;
-    let (filters, content_type) = builder.build();
-
-    let tracker_stop_trigger = airtime_tracker::track_airtime(
-        &state.config.recording.track_airtime_command,
-        &service.channel,
-        &program,
-        stream.id(),
-        state.tuner_manager.clone(),
-        state.epg.clone(),
-    )
-    .await?;
-
-    let stop_triggers = vec![stream_stop_trigger, tracker_stop_trigger];
-
-    let result = streaming(
-        &state.config,
-        user,
-        stream,
-        filters,
-        content_type,
-        stop_triggers,
-    )
-    .await;
-
-    match result {
-        Err(Error::ProgramNotFound) => {
-            tracing::warn!("No stream for the program#{}, maybe canceled", id)
-        }
-        _ => (),
-    }
-
-    result
-}
-
-async fn head_program_stream<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(id): Path<MirakurunProgramId>,
-    user: TunerUser,
-    Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse
-where
-    E: Call<epg::QueryClock>,
-    E: Call<epg::QueryProgram>,
-    E: Call<epg::QueryService>,
-{
-    let _program = state
-        .epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(id))
-        .await??;
-
-    let service = state
-        .epg
-        .call(epg::QueryService::ByMirakurunServiceId(id.into()))
-        .await??;
-
-    let _clock = state
-        .epg
-        .call(epg::QueryClock {
-            triple: service.triple(),
-        })
-        .await??;
-
-    // This endpoint returns a positive response even when no tuner is available
-    // for streaming at this point.  No one knows whether this request handler
-    // will success or not until actually starting streaming.
-    do_head_stream(&state.config, &user, &filter_setting)
-}
-
 async fn get_docs<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Response<StaticFileBody>, Error> {
@@ -714,6 +230,8 @@ async fn get_docs<T, E, R, S>(
         .header(CONTENT_TYPE, "application/json")
         .body(StaticFileBody::new(&state.config.mirakurun.openapi_json).await?)?)
 }
+
+// helpers
 
 async fn do_get_service_stream<T>(
     config: &Config,

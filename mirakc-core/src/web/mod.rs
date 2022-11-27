@@ -46,7 +46,6 @@ mod body;
 mod default_headers;
 mod error;
 mod escape;
-mod models;
 mod qs;
 mod uds;
 

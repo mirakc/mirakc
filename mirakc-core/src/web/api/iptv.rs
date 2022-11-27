@@ -1,27 +1,17 @@
-use std::fmt::Write as _;
-use std::sync::Arc;
+use super::*;
 
-use actlet::*;
+use std::fmt::Write as _;
+
 use axum::extract::Host;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
-use axum::response::IntoResponse;
-use axum::response::Response;
 
-use crate::config::Config;
 use crate::datetime_ext::Jst;
-use crate::epg;
-use crate::error::Error;
-use crate::models::*;
 use crate::string_table::StringTable;
 
 use super::determine_stream_content_type;
-use super::server_name;
-use super::AppState;
 use crate::web::escape::escape;
-use crate::web::models::*;
-use crate::web::qs::Qs;
 
 pub(super) async fn playlist<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,

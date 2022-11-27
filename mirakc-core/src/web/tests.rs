@@ -18,7 +18,7 @@ use crate::models::*;
 use crate::recording::stub::RecordingManagerStub;
 use crate::timeshift::stub::TimeshiftManagerStub;
 use crate::tuner::stub::TunerManagerStub;
-use models::*;
+use api::models::*;
 use qs::*;
 
 #[tokio::test]
