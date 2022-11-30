@@ -2,10 +2,21 @@ use super::*;
 
 use std::ops::Bound;
 
-use crate::filter::FilterPipelineBuilder;
 use crate::models::TunerUser;
-use crate::web::api::streaming;
 
+/// Lists records in a timeshift recorder.
+#[utoipa::path(
+    get,
+    path = "/timeshift/{recorder}/records",
+    params(
+        ("recorder" = String, Path, description = "Timeshift recorder name"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = [WebTimeshiftRecord]),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn list<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(recorder): Path<String>,
@@ -29,6 +40,19 @@ where
         .map(Json::from)
 }
 
+/// Gets a record in a timeshift recorder.
+#[utoipa::path(
+    get,
+    path = "/timeshift/{recorder}/records/{id}",
+    params(
+        TimeshiftRecordPath,
+    ),
+    responses(
+        (status = 200, description = "OK", body = WebTimeshiftRecord),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn get<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(path): Path<TimeshiftRecordPath>,

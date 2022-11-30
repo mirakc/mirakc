@@ -13,6 +13,14 @@ use crate::string_table::StringTable;
 use super::determine_stream_content_type;
 use crate::web::escape::escape;
 
+/// Get a M3U8 playlist containing all available services.
+#[utoipa::path(
+    get,
+    path = "/iptv/playlist",
+    responses(
+        (status = 200, description = "OK", content_type = "application/x-mpegURL", body = String),
+    ),
+)]
 pub(super) async fn playlist<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Host(host): Host,
@@ -110,6 +118,14 @@ where
         .body(buf)?)
 }
 
+/// Gets an XMLTV document containing all TV program information.
+#[utoipa::path(
+    get,
+    path = "/iptv/epg",
+    responses(
+        (status = 200, description = "OK", content_type = "application/xml", body = String),
+    ),
+)]
 pub(super) async fn epg<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Host(host): Host,
@@ -122,7 +138,16 @@ where
     do_epg(&state.config, &state.string_table, &state.epg, &host, query).await
 }
 
-// For compatibility with Mirakurun
+/// Gets an XMLTV document containing all TV program information.
+///
+/// For compatibility with Mirakurun.
+#[utoipa::path(
+    get,
+    path = "/iptv/xmltv",
+    responses(
+        (status = 200, description = "OK", content_type = "application/xml", body = String),
+    ),
+)]
 pub(super) async fn xmltv<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Host(host): Host,

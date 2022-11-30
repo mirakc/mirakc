@@ -2,6 +2,15 @@ use super::*;
 
 use crate::recording::Schedule;
 
+/// Lists recorders.
+#[utoipa::path(
+    get,
+    path = "/recording/recorders",
+    responses(
+        (status = 200, description = "OK", body = [WebRecordingRecorder]),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn list<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Json<Vec<WebRecordingRecorder>>, Error>
@@ -37,6 +46,19 @@ where
     Ok(Json(results))
 }
 
+/// Gets a recorder.
+#[utoipa::path(
+    get,
+    path = "/recording/recorders/{program_id}",
+    params(
+        ("program_id" = u64, Path, description = "Mirakurun program ID"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = WebRecordingRecorder),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn get<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(program_id): Path<MirakurunProgramId>,
@@ -67,6 +89,18 @@ where
     }))
 }
 
+/// Starts recording.
+#[utoipa::path(
+    post,
+    path = "/recording/recorders",
+    request_body = WebRecordingScheduleInput,
+    responses(
+        (status = 201, description = "Created", body = WebRecordingRecorder),
+        (status = 401, description = "Bad Request"),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn create<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Json(input): Json<WebRecordingScheduleInput>,
@@ -109,6 +143,20 @@ where
     ))
 }
 
+/// Stops recording.
+#[utoipa::path(
+    delete,
+    path = "/recording/recorders/{program_id}",
+    params(
+        ("program_id" = u64, Path, description = "Mirakurun program ID"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 401, description = "Bad Request"),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn delete<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(program_id): Path<MirakurunProgramId>,

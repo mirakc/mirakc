@@ -1,5 +1,28 @@
 use super::*;
 
+/// Feeds a media stream of a program.
+#[utoipa::path(
+    get,
+    path = "/programs/{id}/stream",
+    params(
+        ("X-Mirakurun-Priority" = Option<i32>, Header, description = "Priority of the tuner user"),
+        ("id" = u64, Path, description = "Mirakurun program ID"),
+        FilterSetting,
+    ),
+    responses(
+        (status = 200, description = "OK",
+         headers(
+             ("X-Mirakurun-Tuner-User-ID" = String, description = "Tuner user ID"),
+         ),
+        ),
+        (status = 404, description = "Not Found"),
+        (status = 503, description = "Tuner Resource Unavailable"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+    // Specifying a correct operation ID is needed for working with
+    // mirakurun.Client properly.
+    operation_id = "getProgramStream",
+)]
 pub(in crate::web::api) async fn get<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunProgramId>,
@@ -123,6 +146,25 @@ where
     result
 }
 
+#[utoipa::path(
+    head,
+    path = "/programs/{id}/stream",
+    params(
+        ("X-Mirakurun-Priority" = Option<i32>, Header, description = "Priority of the tuner user"),
+        ("id" = u64, Path, description = "Mirakurun program ID"),
+        FilterSetting,
+    ),
+    responses(
+        (status = 200, description = "OK",
+         headers(
+             ("X-Mirakurun-Tuner-User-ID" = String, description = "Tuner user ID"),
+         ),
+        ),
+        (status = 404, description = "Not Found"),
+        (status = 503, description = "Tuner Resource Unavailable"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn head<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunProgramId>,

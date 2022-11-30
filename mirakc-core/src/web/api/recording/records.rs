@@ -13,6 +13,15 @@ use tokio_util::io::ReaderStream;
 
 use crate::web::body::SeekableStreamBody;
 
+/// Lists records.
+#[utoipa::path(
+    get,
+    path = "/recording/records",
+    responses(
+        (status = 200, description = "OK", body = [WebRecordingRecord]),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn list<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Json<Vec<WebRecordingRecord>>, Error>
@@ -29,6 +38,19 @@ where
     Ok(Json(records))
 }
 
+/// Gets a record.
+#[utoipa::path(
+    get,
+    path = "/recording/records/{id}",
+    params(
+        ("id" = String, Path, description = "Record ID"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = WebRecordingRecord),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn get<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<String>,
@@ -44,6 +66,20 @@ where
         .map(Json::from)
 }
 
+/// Deletes a record.
+#[utoipa::path(
+    delete,
+    path = "/recording/records/{id}",
+    params(
+        ("id" = String, Path, description = "Record ID"),
+        ("content" = Option<String>, Query, description = "Remove contents or not"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn delete<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<String>,

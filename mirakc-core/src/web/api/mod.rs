@@ -29,6 +29,8 @@ use itertools::Itertools;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
+use utoipa::openapi::Server;
+use utoipa::OpenApi;
 
 use crate::airtime_tracker;
 use crate::command_util::spawn_pipeline;
@@ -134,35 +136,34 @@ where
             "/programs/:id/stream",
             routing::get(programs::stream::get).head(programs::stream::head),
         )
-        .route("/timeshift", routing::get(timeshift::recorders::list))
+        .route("/timeshift", routing::get(timeshift::list))
         .route(
             "/timeshift/:recorder",
-            routing::get(timeshift::recorders::get),
+            routing::get(timeshift::get),
         )
         .route(
             "/timeshift/:recorder/records",
-            routing::get(timeshift::recorders::records::list),
+            routing::get(timeshift::records::list),
         )
         .route(
             "/timeshift/:recorder/records/:id",
-            routing::get(timeshift::recorders::records::get),
+            routing::get(timeshift::records::get),
         )
         // The following two endpoints won't allocate any tuner.
         .route(
             "/timeshift/:recorder/stream",
-            routing::get(timeshift::recorders::stream),
+            routing::get(timeshift::stream),
         )
         .route(
             "/timeshift/:recorder/records/:id/stream",
-            routing::get(timeshift::recorders::records::stream),
+            routing::get(timeshift::records::stream),
         )
         .route("/iptv/playlist", routing::get(iptv::playlist))
         // For compatibility with EPGStation
         .route("/iptv/channel.m3u8", routing::get(iptv::playlist))
         .route("/iptv/epg", routing::get(iptv::epg))
         // For compatibility with Mirakurun
-        .route("/iptv/xmltv", routing::get(iptv::xmltv))
-        .route("/docs", routing::get(get_docs));
+        .route("/iptv/xmltv", routing::get(iptv::xmltv));
 
     if config.recording.records_dir.is_some() {
         tracing::info!("Enable endpoints for rec");
@@ -221,14 +222,108 @@ where
     router
 }
 
-// Request Handlers
+// openapi docs
 
-async fn get_docs<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-) -> Result<Response<StaticFileBody>, Error> {
-    Ok(Response::builder()
-        .header(CONTENT_TYPE, "application/json")
-        .body(StaticFileBody::new(&state.config.mirakurun.openapi_json).await?)?)
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        version::get,
+        status::get,
+        tuners::list,
+        channels::list,
+        channels::stream::get,
+        channels::stream::head,
+        channels::services::stream::get,
+        channels::services::stream::head,
+        services::list,
+        services::get,
+        services::logo,
+        services::programs,
+        services::stream::get,
+        services::stream::head,
+        programs::list,
+        programs::get,
+        programs::stream::get,
+        programs::stream::head,
+        iptv::playlist,
+        iptv::epg,
+        iptv::xmltv,
+        recording::schedules::list,
+        recording::schedules::get,
+        recording::schedules::create,
+        recording::schedules::delete,
+        recording::schedules::clear,
+        recording::recorders::list,
+        recording::recorders::get,
+        recording::recorders::create,
+        recording::recorders::delete,
+        recording::records::list,
+        recording::records::get,
+        recording::records::delete,
+        timeshift::list,
+        timeshift::get,
+        timeshift::records::list,
+        timeshift::records::get,
+    ),
+    components(
+        schemas(
+            models::Status,
+            models::Version,
+            models::WebProcessModel,
+            models::WebRecordingRecord,
+            models::WebRecordingRecorder,
+            models::WebRecordingSchedule,
+            models::WebRecordingScheduleInput,
+            models::WebTimeshiftRecord,
+            models::WebTimeshiftRecorder,
+            ChannelType,
+            MirakurunChannel,
+            MirakurunProgram,
+            MirakurunService,
+            MirakurunTuner,
+        ),
+    ),
+    modifiers(
+        &BasicAddon,
+        &MirakurunCompatAddon,
+    ),
+)]
+pub(super) struct Docs;
+
+struct BasicAddon;
+
+impl utoipa::Modify for BasicAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        openapi.info.title = "mirakc Web API".to_string();
+        openapi.servers = Some(vec![Server::new("/api")]);
+    }
+}
+
+struct MirakurunCompatAddon;
+
+impl utoipa::Modify for MirakurunCompatAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        for path in openapi.paths.paths.values_mut() {
+            // mirakurun.Client assumes that every path item has the
+            // `parameters` properties even if it's empty.  See
+            // mirakurun.Client.call().
+            if path.parameters.is_none() {
+                path.parameters = Some(vec![]);
+            }
+
+            // mirakurun.Client assumes that every streaming endpoints has a
+            // `stream` tag.  See mirakurun.Client.call().
+            for op in path.operations.values_mut() {
+                let tags = match op.tags.as_mut() {
+                    Some(tags) => tags,
+                    None => continue,
+                };
+                if tags.iter().any(|tag| tag.ends_with("::stream")) {
+                    tags.push("stream".to_string());
+                }
+            }
+        }
+    }
 }
 
 // helpers
@@ -461,6 +556,70 @@ fn determine_stream_content_type<'a>(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+
+    #[test]
+    fn test_openapi_docs() {
+        use utoipa::openapi::PathItemType::*;
+
+        let openapi = Docs::openapi();
+        let paths = &openapi.paths;
+
+        // Validate compatibility with one generated by Mirakurun.
+
+        // NOTE
+        // ----
+        // utoipa::openapi::path::Operation doesn't implement std::fmt::Debug at
+        // this point.  So, we cannot write like below:
+        //
+        // ```rust
+        // assert_matches!(paths.get_path_operation("/version", Get), Some(op) => {
+        //     ...
+        // })
+        // ```
+
+        let op = paths.get_path_operation("/version", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "checkVersion"));
+
+        let op = paths.get_path_operation("/status", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getStatus"));
+
+        let op = paths.get_path_operation("/tuners", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getTuners"));
+
+        let op = paths.get_path_operation("/channels", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getChannels"));
+
+        let op = paths.get_path_operation("/channels/{type}/{channel}/stream", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getChannelStream"));
+        assert_matches!(op.tags, Some(ref tags) => assert!(tags.iter().any(|s| s == "stream")));
+
+        let op = paths.get_path_operation("/channels/{type}/{channel}/services/{sid}/stream", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getServiceStreamByChannel"));
+        assert_matches!(op.tags, Some(ref tags) => assert!(tags.iter().any(|s| s == "stream")));
+
+        let op = paths.get_path_operation("/services", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getServices"));
+
+        let op = paths.get_path_operation("/services/{id}", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getService"));
+
+        let op = paths.get_path_operation("/services/{id}/logo", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getLogoImage"));
+
+        let op = paths.get_path_operation("/services/{id}/stream", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getServiceStream"));
+        assert_matches!(op.tags, Some(ref tags) => assert!(tags.iter().any(|s| s == "stream")));
+
+        let op = paths.get_path_operation("/programs", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getPrograms"));
+
+        let op = paths.get_path_operation("/programs/{id}", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getProgram"));
+
+        let op = paths.get_path_operation("/programs/{id}/stream", Get).unwrap();
+        assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getProgramStream"));
+        assert_matches!(op.tags, Some(ref tags) => assert!(tags.iter().any(|s| s == "stream")));
+    }
 
     #[tokio::test]
     async fn test_do_streaming() {

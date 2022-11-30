@@ -6,6 +6,15 @@ use path_dedot::ParseDot;
 
 use crate::recording::Schedule;
 
+/// Lists recording schedules.
+#[utoipa::path(
+    get,
+    path = "/recording/schedules",
+    responses(
+        (status = 200, description = "OK", body = [WebRecordingSchedule]),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn list<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Json<Vec<WebRecordingSchedule>>, Error>
@@ -36,6 +45,19 @@ where
     Ok(Json(results))
 }
 
+/// Gets a recording schedule.
+#[utoipa::path(
+    get,
+    path = "/recording/schedules/{program_id}",
+    params(
+        ("program_id" = u64, Path, description = "Mirakurun program ID"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = WebRecordingSchedule),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn get<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(program_id): Path<MirakurunProgramId>,
@@ -62,6 +84,18 @@ where
     }))
 }
 
+/// Books a recording schedule.
+#[utoipa::path(
+    post,
+    path = "/recording/schedules",
+    request_body = WebRecordingScheduleInput,
+    responses(
+        (status = 201, description = "Created", body = WebRecordingSchedule),
+        (status = 401, description = "Bad Request"),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn create<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Json(input): Json<WebRecordingScheduleInput>,
@@ -120,6 +154,23 @@ where
     ))
 }
 
+/// Deletes a recording schedule.
+///
+/// The specified recording schedule won't be deleted if the recording will be
+/// started soon.
+#[utoipa::path(
+    delete,
+    path = "/recording/schedules/{program_id}",
+    params(
+        ("program_id" = u64, Path, description = "Mirakurun program ID"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 401, description = "Bad Request"),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn delete<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(program_id): Path<MirakurunProgramId>,
@@ -134,6 +185,22 @@ where
     Ok(())
 }
 
+/// Clears recording schedules.
+///
+/// If a tag name is specified in the `tag` query parameter, recording schedules
+/// tagged with the specified name will be deleted.  Otherwise, all recording
+/// schedules will be deleted.
+#[utoipa::path(
+    delete,
+    path = "/recording/schedules",
+    params(
+        ("tag" = Option<String>, Query, description = "Tag name"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn clear<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Query(query): Query<HashMap<String, String>>,
@@ -141,7 +208,7 @@ pub(in crate::web::api) async fn clear<T, E, R, S>(
 where
     R: Call<recording::RemoveRecordingSchedules>,
 {
-    let target = match query.get("target") {
+    let target = match query.get("tag") {
         Some(tag) => crate::recording::RemoveTarget::Tag(tag.clone()),
         None => crate::recording::RemoveTarget::All,
     };

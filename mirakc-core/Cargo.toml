@@ -44,6 +44,8 @@ tower = { version = "0.4.13", default-features = false, features = ["util", "mak
 tower-http = { version = "0.3.4", features = ["fs", "trace"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "json"] }
+utoipa = { version = "2.4.2", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "3.0.1", features = ["axum"] }
 
 [dev-dependencies]
 assert_matches = "1.5.0"

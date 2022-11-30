@@ -2,6 +2,18 @@ pub(super) mod stream;
 
 use super::*;
 
+/// Lists services.
+#[utoipa::path(
+    get,
+    path = "/services",
+    responses(
+        (status = 200, description = "OK", body = [MirakurunService]),
+        (status = 505, description = "Internal Server Error"),
+    ),
+    // Specifying a correct operation ID is needed for working with
+    // mirakurun.Client properly.
+    operation_id = "getServices",
+)]
 pub(super) async fn list<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
 ) -> Result<Json<Vec<MirakurunService>>, Error>
@@ -23,6 +35,22 @@ where
         .into())
 }
 
+/// Gets a service.
+#[utoipa::path(
+    get,
+    path = "/services/{id}",
+    params(
+        ("id" = u64, Path, description = "Mirakurun service ID"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = MirakurunService),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+    // Specifying a correct operation ID is needed for working with
+    // mirakurun.Client properly.
+    operation_id = "getService",
+)]
 pub(super) async fn get<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunServiceId>,
@@ -41,6 +69,23 @@ where
         })
 }
 
+/// Gets a logo image of a service.
+#[utoipa::path(
+    get,
+    path = "/services/{id}/logo",
+    params(
+        ("id" = u64, Path, description = "Mirakurun service ID"),
+    ),
+    responses(
+        (status = 200, description = "OK", content_type = "image/png"),
+        (status = 404, description = "Not Found"),
+        (status = 503, description = "Logo Data Unavailable"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+    // Specifying a correct operation ID is needed for working with
+    // mirakurun.Client properly.
+    operation_id = "getLogoImage",
+)]
 pub(super) async fn logo<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunServiceId>,
@@ -64,6 +109,19 @@ where
     }
 }
 
+/// Gets programs of a service.
+#[utoipa::path(
+    get,
+    path = "/services/{id}/programs",
+    params(
+        ("id" = u64, Path, description = "Mirakurun service ID"),
+    ),
+    responses(
+        (status = 200, description = "OK", body = [MirakurunProgram]),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(super) async fn programs<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(id): Path<MirakurunServiceId>,

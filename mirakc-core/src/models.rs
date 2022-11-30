@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 use serde::Serialize;
 use smallstr::SmallString;
+use utoipa::ToSchema;
 
 use crate::config::ResourceConfig;
 use crate::datetime_ext::serde_duration_in_millis;
@@ -19,7 +20,7 @@ use crate::epg::EpgService;
 use crate::epg::SeriesDescriptor;
 use crate::tuner::TunerSubscriptionId;
 
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, ToSchema)]
 pub enum ChannelType {
     GR,
     BS,
@@ -256,7 +257,7 @@ pub struct Clock {
     pub time: i64,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
 pub struct EpgGenre {
     pub lv1: u8,
     pub lv2: u8,
@@ -494,59 +495,99 @@ impl Into<(NetworkId, ServiceId, EventId)> for MirakurunProgramId {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "Tuner")]
 pub struct MirakurunTuner {
+    /// The index of the tuner defined in `config.yml`.
     pub index: usize,
+
+    /// The name of the tuner defined in `config.yml`.
     pub name: String,
+
+    /// Channel types supported by the tuner.
     #[serde(rename = "types")]
     pub channel_types: Vec<ChannelType>,
+
+    /// A command to use getting a media stream from the tuner.
     pub command: Option<String>,
+
+    /// PID of a process to run the command.
     pub pid: Option<u32>,
+
+    /// Users of the tuner.
+    #[schema(inline)]
     pub users: Vec<MirakurunTunerUser>,
+
+    /// Always `true`.
     pub is_available: bool,
+
+    /// Always `false`.
     pub is_remote: bool,
+
+    /// `true` if the tuner is free, `false` otherwise.
     pub is_free: bool,
+
+    /// `false` if the tuner is free, `true` otherwise.
     pub is_using: bool,
+
+    /// Always `false`.
     pub is_fault: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunTunerUser {
+    /// User ID.
     pub id: String,
+
+    /// User-Agent string.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+
+    /// Priority.
     pub priority: i32,
+
     // url, disableDecoder, streamSetting and streamInfo properties are not supported.
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "Channel")]
 pub struct MirakurunChannel {
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
     pub channel: String,
     pub name: String,
+    #[schema(inline)]
     pub services: Vec<MirakurunChannelService>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunChannelService {
+    #[schema(value_type = u64)]
     pub id: MirakurunServiceId,
+    #[schema(value_type = u16)]
     pub service_id: ServiceId,
+    #[schema(value_type = u16)]
     pub transport_stream_id: TransportStreamId, // incompatible with Mirakurun
+    #[schema(value_type = u16)]
     pub network_id: NetworkId,
     pub name: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "Service")]
 pub struct MirakurunService {
+    #[schema(value_type = u64)]
     pub id: MirakurunServiceId,
+    #[schema(value_type = u16)]
     pub service_id: ServiceId,
+    #[schema(value_type = u16)]
     pub transport_stream_id: TransportStreamId, // incompatible with Mirakurun
+    #[schema(value_type = u16)]
     pub network_id: NetworkId,
     #[serde(rename = "type")]
     pub service_type: u16,
@@ -555,6 +596,7 @@ pub struct MirakurunService {
     #[serde(default)]
     pub remote_control_key_id: u16,
     pub name: String,
+    #[schema(inline)]
     pub channel: MirakurunServiceChannel,
     pub has_logo_data: bool,
 }
@@ -583,7 +625,7 @@ impl From<EpgService> for MirakurunService {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunServiceChannel {
     #[serde(rename = "type")]
@@ -602,17 +644,25 @@ impl From<EpgChannel> for MirakurunServiceChannel {
 
 // Don't use MirakurunProgram for saving information.
 // See MirakurunProgramRelatedItem::get_type().
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "Program")]
 pub struct MirakurunProgram {
+    #[schema(value_type = u64)]
     pub id: MirakurunProgramId,
+    #[schema(value_type = u16)]
     pub event_id: EventId,
+    #[schema(value_type = u16)]
     pub service_id: ServiceId,
+    #[schema(value_type = u16)]
     pub transport_stream_id: TransportStreamId, // incompatible with Mirakurun
+    #[schema(value_type = u16)]
     pub network_id: NetworkId,
     #[serde(with = "serde_jst")]
+    #[schema(value_type = i64)]
     pub start_at: DateTime<Jst>,
     #[serde(with = "serde_duration_in_millis")]
+    #[schema(value_type = i64)]
     pub duration: Duration,
     pub is_free: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -620,18 +670,25 @@ pub struct MirakurunProgram {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Object)]
     pub extended: Option<IndexMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(inline)]
     pub video: Option<MirakurunProgramVideo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(inline)]
     pub audio: Option<MirakurunProgramAudio>, // for backward compatibility
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schema(inline)]
     pub audios: Vec<MirakurunProgramAudio>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(inline)]
     pub genres: Option<Vec<EpgGenre>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(inline)]
     pub series: Option<MirakurunProgramSeries>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schema(inline)]
     pub related_items: Vec<MirakurunProgramRelatedItem>,
 }
 
@@ -683,7 +740,7 @@ impl From<EpgProgram> for MirakurunProgram {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramVideo {
     #[serde(rename = "type")]
@@ -734,12 +791,13 @@ impl From<ComponentDescriptor> for MirakurunProgramVideo {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramAudio {
     component_type: u8,
     is_main: bool,
     sampling_rate: i32,
+    #[schema(value_type = Vec<String>)]
     langs: Vec<MirakurunLangCode>,
 }
 
@@ -786,7 +844,7 @@ impl From<AudioComponentDescriptor> for MirakurunProgramAudio {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramSeries {
     id: u16,
@@ -812,13 +870,16 @@ impl From<SeriesDescriptor> for MirakurunProgramSeries {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramRelatedItem {
     #[serde(rename = "type")]
     group_type: &'static str,
+    #[schema(value_type = Option<u16>)]
     network_id: Option<NetworkId>,
+    #[schema(value_type = u16)]
     service_id: ServiceId,
+    #[schema(value_type = u16)]
     event_id: EventId,
 }
 
