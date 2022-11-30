@@ -262,8 +262,10 @@ where
         recording::records::delete,
         timeshift::list,
         timeshift::get,
+        timeshift::stream,
         timeshift::records::list,
         timeshift::records::get,
+        timeshift::records::stream,
     ),
     components(
         schemas(

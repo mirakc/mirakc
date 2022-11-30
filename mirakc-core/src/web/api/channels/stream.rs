@@ -1,6 +1,6 @@
 use super::*;
 
-/// Feeds a media stream of a channel.
+/// Gets a media stream of a channel.
 #[utoipa::path(
     get,
     path = "/channels/{type}/{channel}/stream",

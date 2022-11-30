@@ -4,7 +4,7 @@ use std::ops::Bound;
 
 use crate::models::TunerUser;
 
-/// Lists records in a timeshift recorder.
+/// Lists timeshift records.
 #[utoipa::path(
     get,
     path = "/timeshift/{recorder}/records",
@@ -40,7 +40,7 @@ where
         .map(Json::from)
 }
 
-/// Gets a record in a timeshift recorder.
+/// Gets a timeshift record.
 #[utoipa::path(
     get,
     path = "/timeshift/{recorder}/records/{id}",
@@ -72,6 +72,22 @@ where
         .map(Json::from)
 }
 
+/// Gets a media stream of a timeshift record.
+#[utoipa::path(
+    get,
+    path = "/timeshift/{recorder}/records/{id}/stream",
+    params(
+        TimeshiftRecordPath,
+        ("pre-filters" = Option<[String]>, Query, description = "Pre-filters"),
+        ("post-filters" = Option<[String]>, Query, description = "post-filters"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 404, description = "Not Found"),
+        (status = 503, description = "Tuner Resource Unavailable"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn stream<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(path): Path<TimeshiftRecordPath>,

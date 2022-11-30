@@ -68,6 +68,22 @@ where
         .map(Json::from)
 }
 
+/// Gets a live stream of a timeshift record.
+#[utoipa::path(
+    get,
+    path = "/timeshift/{recorder}/stream",
+    params(
+        ("recorder" = String, Path, description = "Timeshift recorder name"),
+        ("pre-filters" = Option<[String]>, Query, description = "Pre-filters"),
+        ("post-filters" = Option<[String]>, Query, description = "post-filters"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 404, description = "Not Found"),
+        (status = 503, description = "Tuner Resource Unavailable"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
 pub(in crate::web::api) async fn stream<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Path(recorder_id): Path<String>,

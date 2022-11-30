@@ -1,6 +1,6 @@
 use super::*;
 
-/// Feeds a media stream of a service.
+/// Gets a media stream of a service.
 #[utoipa::path(
     get,
     path = "/services/{id}/stream",

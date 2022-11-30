@@ -1,6 +1,6 @@
 use super::*;
 
-/// Feeds a media stream of a program.
+/// Gets a media stream of a program.
 #[utoipa::path(
     get,
     path = "/programs/{id}/stream",
