@@ -1002,8 +1002,6 @@ fn config_for_test() -> Arc<Config> {
         ServiceTriple::new(0.into(), 0.into(), 1.into()) =>
             "/dev/null".to_string(),
     };
-    // "/dev/null" is enough to test
-    config.mirakurun.openapi_json = "/dev/null".to_string();
 
     Arc::new(config)
 }

@@ -71,8 +71,6 @@ pub struct Config {
     pub scripts: ScriptsConfig,
     #[serde(default)]
     pub resource: ResourceConfig,
-    #[serde(default)]
-    pub mirakurun: MirakurunConfig,
 }
 
 impl Config {
@@ -118,7 +116,6 @@ impl Config {
         self.recording.validate();
         self.timeshift.validate();
         self.resource.validate();
-        self.mirakurun.validate();
     }
 }
 
@@ -968,35 +965,6 @@ impl Default for ResourceConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-#[serde(deny_unknown_fields)]
-pub struct MirakurunConfig {
-    #[serde(default = "MirakurunConfig::default_openapi_json")]
-    pub openapi_json: String,
-}
-
-impl MirakurunConfig {
-    fn default_openapi_json() -> String {
-        "/etc/mirakc/mirakurun.openapi.json".to_string()
-    }
-
-    fn validate(&self) {
-        assert!(
-            Path::new(&self.openapi_json).is_file(),
-            "config.resources: `openapi-json` must be a path to an existing JSON file"
-        );
-    }
-}
-
-impl Default for MirakurunConfig {
-    fn default() -> Self {
-        MirakurunConfig {
-            openapi_json: Self::default_openapi_json(),
-        }
-    }
-}
-
 // <coverage:exclude>
 #[cfg(test)]
 mod tests {
@@ -1024,7 +992,6 @@ mod tests {
     fn test_config_validate() {
         let mut config = Config::default();
         config.resource.strings_yaml = "/bin/sh".to_string();
-        config.mirakurun.openapi_json = "/bin/sh".to_string();
         config.validate();
     }
 
@@ -1041,8 +1008,6 @@ mod tests {
                 channel: test1
             resource:
               strings-yaml: /bin/sh
-            mirakurun:
-              openapi-json: /bin/sh
         "#,
         )
         .unwrap();
@@ -1063,8 +1028,6 @@ mod tests {
                 command: test
             resource:
               strings-yaml: /bin/sh
-            mirakurun:
-              openapi-json: /bin/sh
         "#,
         )
         .unwrap();
@@ -2909,51 +2872,6 @@ mod tests {
                 ServiceTriple::new(1.into(), 2.into(), 3.into())
                     => "/path/to/non-existing".to_string(),
             },
-        };
-        config.validate();
-    }
-
-    #[test]
-    fn test_mirakurun_config() {
-        assert_eq!(
-            serde_yaml::from_str::<MirakurunConfig>("{}").unwrap(),
-            Default::default()
-        );
-
-        assert_eq!(
-            serde_yaml::from_str::<MirakurunConfig>(
-                r#"
-                openapi-json: /path/to/json
-            "#
-            )
-            .unwrap(),
-            MirakurunConfig {
-                openapi_json: "/path/to/json".to_string(),
-            }
-        );
-
-        let result = serde_yaml::from_str::<MirakurunConfig>(
-            r#"
-            unknown:
-              property: value
-        "#,
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_mirakurun_config_validate_existing_openapi_json() {
-        let config = MirakurunConfig {
-            openapi_json: "/bin/sh".to_string(),
-        };
-        config.validate();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_mirakurun_config_validate_non_existing_openapi_json() {
-        let config = MirakurunConfig {
-            openapi_json: "/path/to/non-existing".to_string(),
         };
         config.validate();
     }

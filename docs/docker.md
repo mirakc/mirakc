@@ -67,7 +67,6 @@ FROM docker.io/mirakc/mirakc:alpine AS mirakc-image
 FROM docker.io/alpine
 
 COPY --from=mirakc-image /usr/local/bin/mirakc /usr/local/bin/
-COPY --from=mirakc-image /etc/mirakurun.openapi.json /etc/
 
 ...
 

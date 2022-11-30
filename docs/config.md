@@ -59,7 +59,6 @@ suitable for your environment.
 | [scripts.recording-stopped]              | `''`                              |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
-| [mirakurun.openapi-json]                 | `/etc/mirakc/mirakurun.openapi.json` |
 
 [epg.cache-dir]: #epgcache-dir
 [server.addrs]: #serveraddrs
@@ -112,7 +111,6 @@ suitable for your environment.
 [scripts.recording-stopped]: #scriptsrecording-stopped
 [resource.strings-yaml]: #resourcestrings-yaml
 [resource.logos]: #resourcelogos
-[mirakurun.openapi-json]: #mirakurunopenapi-json
 
 ## epg.cache-dir
 
@@ -798,17 +796,3 @@ Specified logo images are provided from the `/api/services/{id}/logo` endpoint.
 Endpoint URLs are specified in a M3U8 playlist provided from the
 `/api/iptv/playlist` endpoint and a XMLTV document provided from the
 `/api/iptv/epg` endpoint.
-
-## mirakurun.openapi-json
-
-`mirakurun.openapi-json` specifies a path to an OpenAPI/Swagger JSON file
-obtained from Mirakurun.
-
-Applications including EPGStation use the Mirakurun client which uses `api/docs`
-in order to query interfaces implemented by a web server that the client will
-communicate.
-
-```yaml
-mirakurun:
-  openapi-json: /path/to/mirakurun.openapi.json
-```

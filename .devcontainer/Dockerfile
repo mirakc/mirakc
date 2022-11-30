@@ -3,7 +3,6 @@ FROM mirakc/tools:debian AS mirakc-tools
 FROM mcr.microsoft.com/vscode/devcontainers/rust:1
 COPY --from=mirakc-tools /usr/local/bin /usr/local/bin/
 COPY ./resources/strings.yml /etc/mirakc/strings.yml
-COPY ./resources/mirakurun.openapi.json /etc/mirakc/mirakurun.openapi.json
 RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update \

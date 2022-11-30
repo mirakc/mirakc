@@ -1,6 +1,5 @@
 /.devcontainer/config.yml
 /.devcontainer/epg/
-/mirakurun.openapi.json
 /target
 *.pyc
 **/*.sed.backup

@@ -24,7 +24,6 @@ LABEL maintainer="Contributors of mirakc"
 COPY --from=mirakc-tools /usr/local/bin /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
 COPY --from=mirakc-build /build/resources/strings.yml /etc/mirakc/strings.yml
-COPY --from=mirakc-build /build/resources/mirakurun.openapi.json /etc/mirakc/mirakurun.openapi.json
 RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update \
@@ -44,7 +43,6 @@ LABEL maintainer="Contributors of mirakc"
 COPY --from=mirakc-build /usr/local/bin/mirakc-timeshift-fs /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/run-mirakc-timeshift-fs /usr/local/bin/
 COPY --from=mirakc-build /build/resources/strings.yml /etc/mirakc/strings.yml
-COPY --from=mirakc-build /build/resources/mirakurun.openapi.json /etc/mirakc/mirakurun.openapi.json
 RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update \
