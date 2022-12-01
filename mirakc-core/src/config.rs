@@ -649,6 +649,10 @@ pub struct RecordingConfig {
 }
 
 impl RecordingConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.records_dir.is_some()
+    }
+
     fn normalize(mut self) -> Self {
         if self.records_dir.is_some() {
             if self.contents_dir.is_none() {
@@ -720,6 +724,10 @@ pub struct TimeshiftConfig {
 }
 
 impl TimeshiftConfig {
+    pub fn is_enabled(&self) -> bool {
+        !self.command.is_empty() && !self.recorders.is_empty()
+    }
+
     fn default_command() -> String {
         "mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} \
          --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} \
@@ -2282,6 +2290,19 @@ mod tests {
     }
 
     #[test]
+    fn test_recording_is_enabled() {
+        assert!(!RecordingConfig::default().is_enabled());
+
+        assert!(serde_yaml::from_str::<RecordingConfig>(
+            r#"
+                records-dir: /tmp
+            "#
+        )
+        .unwrap()
+        .is_enabled());
+    }
+
+    #[test]
     fn test_recording_config_normalize() {
         let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
@@ -2466,6 +2487,39 @@ mod tests {
         "#
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_timeshift_is_enabled() {
+        assert!(!TimeshiftConfig::default().is_enabled());
+
+        assert!(serde_yaml::from_str::<TimeshiftConfig>(
+            r#"
+                command: command
+                recorders:
+                  test:
+                    service-triple: [1, 2, 3]
+                    ts-file: /path/to/timeshift.m2ts
+                    data-file: /path/to/timeshift.json
+                    num-chunks: 100
+            "#
+        )
+        .unwrap()
+        .is_enabled());
+
+        assert!(!serde_yaml::from_str::<TimeshiftConfig>(
+            r#"
+                command: ''
+                recorders:
+                  test:
+                    service-triple: [1, 2, 3]
+                    ts-file: /path/to/timeshift.m2ts
+                    data-file: /path/to/timeshift.json
+                    num-chunks: 100
+            "#
+        )
+        .unwrap()
+        .is_enabled());
     }
 
     #[test]

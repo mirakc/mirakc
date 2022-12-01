@@ -155,9 +155,6 @@ where
 }
 
 /// Deletes a recording schedule.
-///
-/// The specified recording schedule won't be deleted if the recording will be
-/// started soon.
 #[utoipa::path(
     delete,
     path = "/recording/schedules/{program_id}",
@@ -190,6 +187,9 @@ where
 /// If a tag name is specified in the `tag` query parameter, recording schedules
 /// tagged with the specified name will be deleted.  Otherwise, all recording
 /// schedules will be deleted.
+///
+/// When deleting recording schedules by a tag, a recording schedule won't be
+/// deleted if the recording will be started soon.
 #[utoipa::path(
     delete,
     path = "/recording/schedules",

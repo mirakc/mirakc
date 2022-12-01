@@ -451,7 +451,12 @@ where
 impl<T, E> RecordingManager<T, E> {
     fn query_schedules(&self) -> Vec<Arc<Schedule>> {
         // TODO: somewhat inefficient...
-        self.schedules.clone().into_sorted_vec().into_iter().rev().collect_vec()
+        self.schedules
+            .clone()
+            .into_sorted_vec()
+            .into_iter()
+            .rev()
+            .collect_vec()
     }
 }
 

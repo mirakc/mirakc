@@ -1,5 +1,5 @@
-pub(in super) mod services;
-pub(in super) mod stream;
+pub(super) mod services;
+pub(super) mod stream;
 
 use super::*;
 

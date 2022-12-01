@@ -16,7 +16,6 @@ use futures::future::FutureExt;
 use tower_http::services::ServeDir;
 use tower_http::services::ServeFile;
 use tower_http::trace::TraceLayer;
-use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::config::Config;
@@ -196,7 +195,7 @@ where
 {
     let mut router = Router::new()
         .nest("/api", api::build_api(config))
-        .merge(SwaggerUi::new("/api/debug").url("/api/docs", api::Docs::openapi()));
+        .merge(SwaggerUi::new("/api/debug").url("/api/docs", api::Docs::generate(config)));
 
     async fn convert_error(err: io::Error) -> Error {
         err.into()

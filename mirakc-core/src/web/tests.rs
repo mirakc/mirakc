@@ -718,11 +718,7 @@ async fn test_filter_setting() {
     {
         let url = format!("/?{}", query);
         let app = Router::new().route("/", routing::get(handler));
-        TestClient::new(app)
-            .get(&url)
-            .send()
-            .await
-            .status()
+        TestClient::new(app).get(&url).send().await.status()
     }
 
     assert_eq!(

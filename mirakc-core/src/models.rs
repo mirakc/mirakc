@@ -547,7 +547,6 @@ pub struct MirakurunTunerUser {
 
     /// Priority.
     pub priority: i32,
-
     // url, disableDecoder, streamSetting and streamInfo properties are not supported.
 }
 

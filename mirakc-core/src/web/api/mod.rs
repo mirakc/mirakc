@@ -137,10 +137,7 @@ where
             routing::get(programs::stream::get).head(programs::stream::head),
         )
         .route("/timeshift", routing::get(timeshift::list))
-        .route(
-            "/timeshift/:recorder",
-            routing::get(timeshift::get),
-        )
+        .route("/timeshift/:recorder", routing::get(timeshift::get))
         .route(
             "/timeshift/:recorder/records",
             routing::get(timeshift::records::list),
@@ -291,6 +288,33 @@ where
     ),
 )]
 pub(super) struct Docs;
+
+impl Docs {
+    // Currently, utoipa doesn't support conditional endpoints.  So, we define
+    // all endpoints in the openapi proc macro, and then remove disabled
+    // endpoints in this function.
+    pub(super) fn generate(config: &Config) -> utoipa::openapi::OpenApi {
+        let mut openapi = Self::openapi();
+
+        // Remove endpoints for recording if it's disabled.
+        if !config.recording.is_enabled() {
+            openapi
+                .paths
+                .paths
+                .retain(|path, _| !path.starts_with("/recording"))
+        }
+
+        // Remove endpoints for timeshift recording if it's disabled.
+        if !config.timeshift.is_enabled() {
+            openapi
+                .paths
+                .paths
+                .retain(|path, _| !path.starts_with("/timeshift"))
+        }
+
+        openapi
+    }
+}
 
 struct BasicAddon;
 
@@ -591,11 +615,15 @@ mod tests {
         let op = paths.get_path_operation("/channels", Get).unwrap();
         assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getChannels"));
 
-        let op = paths.get_path_operation("/channels/{type}/{channel}/stream", Get).unwrap();
+        let op = paths
+            .get_path_operation("/channels/{type}/{channel}/stream", Get)
+            .unwrap();
         assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getChannelStream"));
         assert_matches!(op.tags, Some(ref tags) => assert!(tags.iter().any(|s| s == "stream")));
 
-        let op = paths.get_path_operation("/channels/{type}/{channel}/services/{sid}/stream", Get).unwrap();
+        let op = paths
+            .get_path_operation("/channels/{type}/{channel}/services/{sid}/stream", Get)
+            .unwrap();
         assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getServiceStreamByChannel"));
         assert_matches!(op.tags, Some(ref tags) => assert!(tags.iter().any(|s| s == "stream")));
 
@@ -605,10 +633,14 @@ mod tests {
         let op = paths.get_path_operation("/services/{id}", Get).unwrap();
         assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getService"));
 
-        let op = paths.get_path_operation("/services/{id}/logo", Get).unwrap();
+        let op = paths
+            .get_path_operation("/services/{id}/logo", Get)
+            .unwrap();
         assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getLogoImage"));
 
-        let op = paths.get_path_operation("/services/{id}/stream", Get).unwrap();
+        let op = paths
+            .get_path_operation("/services/{id}/stream", Get)
+            .unwrap();
         assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getServiceStream"));
         assert_matches!(op.tags, Some(ref tags) => assert!(tags.iter().any(|s| s == "stream")));
 
@@ -618,7 +650,9 @@ mod tests {
         let op = paths.get_path_operation("/programs/{id}", Get).unwrap();
         assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getProgram"));
 
-        let op = paths.get_path_operation("/programs/{id}/stream", Get).unwrap();
+        let op = paths
+            .get_path_operation("/programs/{id}/stream", Get)
+            .unwrap();
         assert_matches!(op.operation_id, Some(ref id) => assert_eq!(id, "getProgramStream"));
         assert_matches!(op.tags, Some(ref tags) => assert!(tags.iter().any(|s| s == "stream")));
     }
