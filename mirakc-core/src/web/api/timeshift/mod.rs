@@ -7,7 +7,7 @@ use crate::models::TimeshiftRecordId;
 use crate::models::TunerUser;
 use crate::timeshift;
 use crate::timeshift::TimeshiftRecorderQuery;
-use crate::web::api::streaming;
+use crate::web::api::stream::streaming;
 
 /// Lists timeshift recorders.
 #[utoipa::path(

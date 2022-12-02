@@ -8,13 +8,8 @@ use axum::http::header::ACCEPT_RANGES;
 use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
-use maplit::hashmap;
 
-use crate::config::FilterConfig;
-use crate::config::MountConfig;
-use crate::config::PostFilterConfig;
 use crate::epg::stub::EpgStub;
-use crate::models::*;
 use crate::recording::stub::RecordingManagerStub;
 use crate::timeshift::stub::TimeshiftManagerStub;
 use crate::tuner::stub::TunerManagerStub;
@@ -952,54 +947,56 @@ fn create_app() -> Router {
 }
 
 fn config_for_test() -> Arc<Config> {
-    let mut config = Config::default();
-    // Map "/" to CARGO_MANIFEST_DIR.
-    config.server.mounts.insert(
-        "/".to_string(),
-        MountConfig {
-            path: env!("CARGO_MANIFEST_DIR").into(),
-            // TODO: ServeDir doesn't support specifying the index filename.
-            index: None,
-            // TODO: ServeDir doesn't support listing entries.
-            listing: false,
-        },
+    let config_yaml = format!(
+        r#"
+        server:
+          # Map "/" to CARGO_MANIFEST_DIR.
+          mounts:
+            /:
+              path: {manifest_dir}
+              # TODO: ServeDir doesn't support specifying the index filename.
+              index: null
+              # TODO: ServeDir doesn't support listing entries.
+              listing: false
+        # Disable service and program filters
+        filters:
+          service-filter:
+            command: ''
+          program-filter:
+            command: ''
+        # filters for testing
+        pre-filters:
+          cat:
+            command: cat
+        post-filters:
+          cat:
+            command: cat
+          mp4:
+            command: cat
+            content-type: video/mp4
+        recording:
+          # Enable endpoints for recording
+          records-dir: /tmp
+          # Disable tracking airtime
+          track-airtime-command: true
+        # Enable endpoints for timeshift recording
+        timeshift:
+          recorders:
+            test:
+              service-triple: [0, 0, 1]
+              ts-file: /dev/null
+              data-file: /dev/null
+              num-chunks: 100
+        # logo for SID#1
+        resource:
+          logos:
+            - service-triple: [0, 0, 1]
+              image: /dev/null
+        "#,
+        manifest_dir = env!("CARGO_MANIFEST_DIR"),
     );
-    // Disable service and program filters
-    config.filters.service_filter = Default::default();
-    config.filters.program_filter = Default::default();
-    // filters for testing
-    config.pre_filters.insert(
-        "cat".to_string(),
-        FilterConfig {
-            command: "cat".to_string(),
-        },
-    );
-    config.post_filters.insert(
-        "cat".to_string(),
-        PostFilterConfig {
-            command: "cat".to_string(),
-            content_type: None,
-        },
-    );
-    config.post_filters.insert(
-        "mp4".to_string(),
-        PostFilterConfig {
-            command: "cat".to_string(),
-            content_type: Some("video/mp4".to_string()),
-        },
-    );
-    // Enable endpoints for recording
-    config.recording.records_dir = Some("/tmp".into());
-    config.recording.contents_dir = Some("/tmp".into());
-    // Disable tracking airtime
-    config.recording.track_airtime_command = "true".to_string();
-    // logo for SID#1
-    config.resource.logos = hashmap! {
-        ServiceTriple::new(0.into(), 0.into(), 1.into()) =>
-            "/dev/null".to_string(),
-    };
 
-    Arc::new(config)
+    Arc::new(serde_yaml::from_str::<Config>(&config_yaml).unwrap().normalize())
 }
 
 fn string_table_for_test() -> Arc<StringTable> {

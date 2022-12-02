@@ -10,7 +10,7 @@ use axum::http::header::CONTENT_TYPE;
 use crate::datetime_ext::Jst;
 use crate::string_table::StringTable;
 
-use super::determine_stream_content_type;
+use crate::web::api::stream::determine_stream_content_type;
 use crate::web::escape::escape;
 
 /// Get a M3U8 playlist containing all available services.

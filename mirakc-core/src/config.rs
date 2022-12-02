@@ -25,9 +25,7 @@ pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
         panic!("Failed to parse {:?}: {}", config_path, err);
     });
 
-    config.channels = ChannelConfig::normalize(config.channels);
-    config.jobs = JobsConfig::normalize(config.jobs);
-    config.recording = RecordingConfig::normalize(config.recording);
+    config = config.normalize();
 
     config.validate();
 
@@ -74,6 +72,13 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn normalize(mut self) -> Self {
+        self.channels = ChannelConfig::normalize(self.channels);
+        self.jobs = JobsConfig::normalize(self.jobs);
+        self.recording = RecordingConfig::normalize(self.recording);
+        self
+    }
+
     fn validate(&self) {
         self.epg.validate();
         self.server.validate();

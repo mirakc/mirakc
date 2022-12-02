@@ -1,5 +1,8 @@
 use super::*;
 
+use crate::web::api::stream::do_get_service_stream;
+use crate::web::api::stream::do_head_stream;
+
 /// Gets a media stream of a service.
 #[utoipa::path(
     get,
