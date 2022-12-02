@@ -1482,6 +1482,17 @@ pub(crate) mod stub {
         }
     }
 
+
+    #[async_trait]
+    impl Call<RegisterEmitter> for RecordingManagerStub {
+        async fn call(
+            &self,
+            _msg: RegisterEmitter,
+        ) -> Result<<RegisterEmitter as Message>::Reply, actlet::Error> {
+            Ok(())
+        }
+    }
+
     #[async_trait]
     impl Call<RemoveRecordingSchedule> for RecordingManagerStub {
         async fn call(

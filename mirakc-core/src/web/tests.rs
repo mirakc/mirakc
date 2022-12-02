@@ -670,6 +670,12 @@ async fn test_get_docs() {
 }
 
 #[tokio::test]
+async fn test_get_events() {
+    let res = get("/events").await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn test_access_control_localhost() {
     let addr = "127.0.0.1:10000".parse().unwrap();
     let res = get_with_peer_addr("/api/version", Some(addr)).await;

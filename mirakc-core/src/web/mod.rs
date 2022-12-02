@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use actlet::*;
+use axum::extract::State;
 use axum::http::header::CACHE_CONTROL;
 use axum::http::header::CONNECTION;
 use axum::http::header::SERVER;
@@ -42,6 +43,7 @@ mod body;
 mod default_headers;
 mod error;
 mod escape;
+mod sse;
 mod qs;
 mod uds;
 
@@ -69,6 +71,7 @@ where
     E: Call<crate::epg::QueryPrograms>,
     E: Call<crate::epg::QueryService>,
     E: Call<crate::epg::QueryServices>,
+    E: Call<crate::epg::RegisterEmitter>,
     E: Call<crate::epg::RemoveAirtime>,
     E: Call<crate::epg::UpdateAirtime>,
     R: Send + Sync + 'static,
@@ -79,6 +82,7 @@ where
     R: Call<crate::recording::QueryRecordingRecords>,
     R: Call<crate::recording::QueryRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingSchedules>,
+    R: Call<crate::recording::RegisterEmitter>,
     R: Call<crate::recording::RemoveRecordingRecord>,
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
@@ -166,6 +170,7 @@ where
     E: Call<crate::epg::QueryPrograms>,
     E: Call<crate::epg::QueryService>,
     E: Call<crate::epg::QueryServices>,
+    E: Call<crate::epg::RegisterEmitter>,
     E: Call<crate::epg::RemoveAirtime>,
     E: Call<crate::epg::UpdateAirtime>,
     R: Send + Sync + 'static,
@@ -176,6 +181,7 @@ where
     R: Call<crate::recording::QueryRecordingRecords>,
     R: Call<crate::recording::QueryRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingSchedules>,
+    R: Call<crate::recording::RegisterEmitter>,
     R: Call<crate::recording::RemoveRecordingRecord>,
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
@@ -192,6 +198,8 @@ where
     let mut router = Router::new()
         .nest("/api", api::build_api(config))
         .merge(SwaggerUi::new("/api/debug").url("/api/docs", api::Docs::generate(config)));
+
+    router = router.route("/events", routing::get(sse::events));
 
     async fn convert_error(err: io::Error) -> Error {
         err.into()
@@ -240,6 +248,8 @@ struct AppState<T, E, R, S> {
     recording_manager: R,
     timeshift_manager: S,
 }
+
+// helpers
 
 fn server_name() -> String {
     format!("mirakc/{}", env!("CARGO_PKG_VERSION"))

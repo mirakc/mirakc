@@ -1,18 +1,12 @@
-use std::sync::Arc;
+use super::*;
 
-use actlet::*;
 use axum::extract::Path;
 use axum::extract::Query;
-use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
-use axum::http::HeaderMap;
-use axum::http::HeaderValue;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Response;
-use axum::routing;
 use axum::Json;
-use axum::Router;
 use axum::TypedHeader;
 use chrono::Duration;
 use itertools::Itertools;
@@ -20,9 +14,7 @@ use utoipa::openapi::Server;
 use utoipa::OpenApi;
 
 use crate::airtime_tracker;
-use crate::config::Config;
 use crate::epg;
-use crate::error::Error;
 use crate::filter::FilterPipelineBuilder;
 use crate::models::*;
 use crate::tuner;
