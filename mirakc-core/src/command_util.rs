@@ -102,7 +102,7 @@ where
 pub enum Error {
     #[error("Unable to parse: {0}")]
     UnableToParse(String),
-    #[error("Unable to spawn: {0}: 1{}")]
+    #[error("Unable to spawn: {0}: {1}")]
     UnableToSpawn(String, io::Error),
     #[error(transparent)]
     IoError(#[from] io::Error),
