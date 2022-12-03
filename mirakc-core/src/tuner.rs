@@ -646,11 +646,11 @@ mod tests {
               - name: bs
                 types: [BS]
                 command: >-
-                  true
+                  sleep 1
               - name: gr
                 types: [GR]
                 command: >-
-                  true
+                  sleep 1
         "#).unwrap());
 
         let manager = start(config);
