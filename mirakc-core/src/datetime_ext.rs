@@ -1,7 +1,7 @@
 use std::fmt;
 
 use chrono::{
-    Date, DateTime, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset,
+    DateTime, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset,
     TimeZone, Utc,
 };
 
@@ -18,12 +18,17 @@ impl Jst {
         Utc::now().with_timezone(&Jst)
     }
 
-    pub fn today() -> Date<Jst> {
-        Jst::now().date()
+    pub fn today() -> NaiveDate {
+        Jst::now().date_naive()
     }
 
     pub fn midnight() -> DateTime<Jst> {
-        Jst::today().and_hms(0, 0, 0)
+        Jst::today()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_local_timezone(Jst)
+            .unwrap()
+
     }
 }
 
@@ -47,7 +52,9 @@ impl TimeZone for Jst {
 }
 
 impl Offset for Jst {
-    fn fix(&self) -> FixedOffset { FixedOffset::east(9 * 60 * 60) }
+    fn fix(&self) -> FixedOffset {
+        FixedOffset::east_opt(9 * 60 * 60).unwrap()
+    }
 }
 
 impl fmt::Display for Jst {
@@ -77,7 +84,7 @@ mod tests {
 
     #[test]
     fn test_to_rfc2822() {
-        let jst = Utc.timestamp(UNIX_TIME, 0).with_timezone(&Jst);
+        let jst = Utc.timestamp_opt(UNIX_TIME, 0).unwrap().with_timezone(&Jst);
         assert_eq!(jst.to_rfc2822(), RFC2822_STR);
     }
 
@@ -141,7 +148,7 @@ pub mod serde_jst {
         impl Data {
             fn new(timestamp: i64) -> Self {
                 Data {
-                    datetime: Utc.timestamp(timestamp, 0).with_timezone(&Jst),
+                    datetime: Utc.timestamp_opt(timestamp, 0).unwrap().with_timezone(&Jst),
                 }
             }
         }

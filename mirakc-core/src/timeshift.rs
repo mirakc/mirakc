@@ -1398,11 +1398,11 @@ mod tests {
                     id: 1u32.into(),
                     program: EpgProgram::new((0, 0, 0, 1).into()),
                     start: TimeshiftPoint {
-                        timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
+                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
                     },
                     end: TimeshiftPoint {
-                        timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
+                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
                     },
                     recording: false,
@@ -1410,7 +1410,7 @@ mod tests {
             },
             points: vec![
                 TimeshiftPoint {
-                    timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 1, 0),
+                    timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 1, 0).unwrap(),
                     pos: 0,
                 },
             ],
@@ -1430,11 +1430,11 @@ mod tests {
                     id: 1u32.into(),
                     program: EpgProgram::new((0, 0, 0, 1).into()),
                     start: TimeshiftPoint {
-                        timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
+                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
                     },
                     end: TimeshiftPoint {
-                        timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
+                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
                     },
                     recording: false,
@@ -1443,11 +1443,11 @@ mod tests {
                     id: 2u32.into(),
                     program: EpgProgram::new((0, 0, 0, 2).into()),
                     start: TimeshiftPoint {
-                        timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
+                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
                     },
                     end: TimeshiftPoint {
-                        timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 1, 0),
+                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 1, 0).unwrap(),
                         pos: 0,
                     },
                     recording: false,
@@ -1456,11 +1456,11 @@ mod tests {
                     id: 3u32.into(),
                     program: EpgProgram::new((0, 0, 0, 3).into()),
                     start: TimeshiftPoint {
-                        timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 0, 0),
+                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
                     },
                     end: TimeshiftPoint {
-                        timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 2, 0),
+                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 2, 0).unwrap(),
                         pos: 0,
                     },
                     recording: false,
@@ -1468,7 +1468,7 @@ mod tests {
             },
             points: vec![
                 TimeshiftPoint {
-                    timestamp: Jst.ymd(2021, 1, 1).and_hms(0, 1, 0),
+                    timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 1, 0).unwrap(),
                     pos: 0,
                 },
             ],

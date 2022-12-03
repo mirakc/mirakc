@@ -166,7 +166,12 @@ impl Epg {
         let mut unused_ids: HashSet<_> =
             HashSet::from_iter(self.schedules.keys().cloned());
 
-        let midnight = timestamp.date().and_hms(0, 0, 0);
+        let midnight = timestamp
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_local_timezone(Jst)
+            .unwrap();
 
         for service in self.services.values() {
             let triple = service.triple();
@@ -1132,7 +1137,7 @@ impl EpgProgram {
     pub fn new(quad: EventQuad) -> Self {
         Self {
             quad: quad,
-            start_at: Jst.timestamp(0, 0),
+            start_at: Jst.timestamp_opt(0, 0).unwrap(),
             duration: Duration::minutes(0),
             scrambled: false,
             name: None,
@@ -1189,7 +1194,7 @@ impl EpgProgram {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Date, TimeZone};
+    use chrono::{TimeZone, NaiveDate};
 
     #[test]
     fn test_update_services() {
@@ -1374,34 +1379,34 @@ mod tests {
         let sched = create_epg_schedule_with_overnight_events(triple);
         epg.schedules.insert(triple, sched);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 14, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 4);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 15, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 16).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 16, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 17).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 17, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 18).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 18, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 1);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 19).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 19, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 20).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 20, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 21).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 21, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
 
-        epg.prepare_schedules(Jst.ymd(2019, 10, 22).and_hms(0, 0, 0));
+        epg.prepare_schedules(Jst.with_ymd_and_hms(2019, 10, 22, 0, 0, 0).unwrap());
         assert_eq!(epg.schedules[&triple].overnight_events.len(), 0);
     }
 
@@ -1428,34 +1433,34 @@ mod tests {
     fn test_epg_schedule_save_overnight_events() {
         let mut sched = create_epg_schedule_with_overnight_events(
             ServiceTriple::from((1, 2, 3)));
-        sched.save_overnight_events(Jst.ymd(2019, 10, 13).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 0);
 
-        sched.save_overnight_events(Jst.ymd(2019, 10, 14).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 14, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 4);
 
-        sched.save_overnight_events(Jst.ymd(2019, 10, 15).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 15, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 0);
 
-        sched.save_overnight_events(Jst.ymd(2019, 10, 16).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 16, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 0);
 
-        sched.save_overnight_events(Jst.ymd(2019, 10, 17).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 17, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 0);
 
-        sched.save_overnight_events(Jst.ymd(2019, 10, 18).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 18, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 1);
 
-        sched.save_overnight_events(Jst.ymd(2019, 10, 19).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 19, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 0);
 
-        sched.save_overnight_events(Jst.ymd(2019, 10, 20).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 20, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 0);
 
-        sched.save_overnight_events(Jst.ymd(2019, 10, 21).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 21, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 0);
 
-        sched.save_overnight_events(Jst.ymd(2019, 10, 22).and_hms(0, 0, 0));
+        sched.save_overnight_events(Jst.with_ymd_and_hms(2019, 10, 22, 0, 0, 0).unwrap());
         assert_eq!(sched.overnight_events.len(), 0);
     }
 
@@ -1480,9 +1485,9 @@ mod tests {
     #[test]
     fn test_epg_table_collect_overnight_events() {
         let table = create_epg_table_with_overnight_events(
-            Jst.ymd(2019, 10, 13));
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap().date_naive());
         let events = table.collect_overnight_events(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
+            Jst.with_ymd_and_hms(2019, 10, 14, 0, 0, 0).unwrap(), Vec::new());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 2.into());
     }
@@ -1523,9 +1528,9 @@ mod tests {
     #[test]
     fn test_epg_segment_collect_overnight_events() {
         let segment = create_epg_segment_with_overnight_events(
-            Jst.ymd(2019, 10, 13));
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap().date_naive());
         let events = segment.collect_overnight_events(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
+            Jst.with_ymd_and_hms(2019, 10, 14, 0, 0, 0).unwrap(), Vec::new());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 2.into());
     }
@@ -1533,9 +1538,9 @@ mod tests {
     #[test]
     fn test_epg_section_collect_overnight_events() {
         let section = create_epg_section_with_overnight_events(
-            Jst.ymd(2019, 10, 13));
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap().date_naive());
         let events = section.collect_overnight_events(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0), Vec::new());
+            Jst.with_ymd_and_hms(2019, 10, 14, 0, 0, 0).unwrap(), Vec::new());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, 2.into());
     }
@@ -1544,51 +1549,51 @@ mod tests {
     fn test_eit_event_is_overnight_event() {
         let event = EitEvent {
             event_id: 0.into(),
-            start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 59),
+            start_time: Jst.with_ymd_and_hms(2019, 10, 13, 23, 59, 59).unwrap(),
             duration: Duration::seconds(2),
             scrambled: false,
             descriptors: Vec::new(),
         };
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 12, 0, 0, 0).unwrap()));
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap()));
         assert!(event.is_overnight_event(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 14, 0, 0, 0).unwrap()));
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 15, 0, 0, 0).unwrap()));
 
         let event = EitEvent {
             event_id: 0.into(),
-            start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 59),
+            start_time: Jst.with_ymd_and_hms(2019, 10, 13, 23, 59, 59).unwrap(),
             duration: Duration::seconds(1),
             scrambled: false,
             descriptors: Vec::new(),
         };
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 12, 0, 0, 0).unwrap()));
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap()));
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 14, 0, 0, 0).unwrap()));
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 15, 0, 0, 0).unwrap()));
 
         let event = EitEvent {
             event_id: 0.into(),
-            start_time: Jst.ymd(2019, 10, 13).and_hms(23, 59, 58),
+            start_time: Jst.with_ymd_and_hms(2019, 10, 13, 23, 59, 58).unwrap(),
             duration: Duration::seconds(1),
             scrambled: false,
             descriptors: Vec::new(),
         };
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 12).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 12, 0, 0, 0).unwrap()));
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 13).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap()));
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 14).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 14, 0, 0, 0).unwrap()));
         assert!(!event.is_overnight_event(
-            Jst.ymd(2019, 10, 15).and_hms(0, 0, 0)));
+            Jst.with_ymd_and_hms(2019, 10, 15, 0, 0, 0).unwrap()));
     }
 
     fn create_epg_service(
@@ -1622,27 +1627,27 @@ mod tests {
         triple: ServiceTriple
     ) -> EpgSchedule {
         let mut sched = create_epg_schedule(triple);
-        sched.updated_at = Jst.ymd(2019, 10, 13).and_hms(0, 0, 0);
-        sched.tables[0] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
-        sched.tables[1] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 17))));
-        sched.tables[8] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
-        sched.tables[16] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
-        sched.tables[24] = Some(Box::new(
-            create_epg_table_with_overnight_events(Jst.ymd(2019, 10, 13))));
+        sched.updated_at = Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap();
+        sched.tables[0] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap().date_naive())));
+        sched.tables[1] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.with_ymd_and_hms(2019, 10, 17, 0, 0, 0).unwrap().date_naive())));
+        sched.tables[8] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap().date_naive())));
+        sched.tables[16] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap().date_naive())));
+        sched.tables[24] = Some(Box::new(create_epg_table_with_overnight_events(
+            Jst.with_ymd_and_hms(2019, 10, 13, 0, 0, 0).unwrap().date_naive())));
         sched
     }
 
-    fn create_epg_table_with_overnight_events(date: Date<Jst>) -> EpgTable {
+    fn create_epg_table_with_overnight_events(date: NaiveDate) -> EpgTable {
         let mut table = EpgTable::default();
         table.segments[7] = create_epg_segment_with_overnight_events(date);
         table
     }
 
-    fn create_epg_segment_with_overnight_events(date: Date<Jst>) -> EpgSegment {
+    fn create_epg_segment_with_overnight_events(date: NaiveDate) -> EpgSegment {
         let mut segment = EpgSegment::default();
         segment.sections[0] =
             Some(EpgSection { version: 1, events: Vec::new() });
@@ -1651,20 +1656,28 @@ mod tests {
         segment
     }
 
-    fn create_epg_section_with_overnight_events(date: Date<Jst>) -> EpgSection {
+    fn create_epg_section_with_overnight_events(date: NaiveDate) -> EpgSection {
         EpgSection {
             version: 1,
             events: vec![
                 EitEvent {
                     event_id: 1.into(),
-                    start_time: date.and_hms(23, 0, 0),
+                    start_time: date
+                        .and_hms_opt(23, 0, 0)
+                        .unwrap()
+                        .and_local_timezone(Jst)
+                        .unwrap(),
                     duration: Duration::minutes(30),
                     scrambled: false,
                     descriptors: Vec::new(),
                 },
                 EitEvent {
                     event_id: 2.into(),
-                    start_time: date.and_hms(23, 30, 0),
+                    start_time: date
+                        .and_hms_opt(23, 30, 0)
+                        .unwrap()
+                        .and_local_timezone(Jst)
+                        .unwrap(),
                     duration: Duration::hours(1),
                     scrambled: false,
                     descriptors: Vec::new(),
