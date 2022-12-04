@@ -2,15 +2,14 @@ mod filesystem;
 
 use std::path::PathBuf;
 
-use fuser;
-use structopt::StructOpt;
+use clap::Parser;
+use clap::ValueEnum;
 
 use crate::filesystem::TimeshiftFilesystem;
-use mirakc_core;
 use mirakc_core::error::Error;
 
-#[derive(StructOpt)]
-#[structopt(about)]
+#[derive(Parser)]
+#[command(author, version, about)]
 struct Opt {
     /// Path to a configuration file in a YAML format.
     ///
@@ -22,30 +21,34 @@ struct Opt {
     config: PathBuf,
 
     /// Logging format.
-    #[structopt(
-        long,
-        env = "MIRAKC_LOG_FORMAT",
-        possible_values = &["text", "json"],
-        default_value = "text",
-    )]
-    log_format: String,
+    #[arg(long, value_enum, env = "MIRAKC_LOG_FORMAT", default_value = "text")]
+    log_format: LogFormat,
 
     /// Additional mount options.
     ///
     /// The following mount options will be added internally:
     /// fsname=mirakc-timeshift,ro,noatime
-    #[structopt(short, long)]
+    #[arg(short, long)]
     options: Vec<String>,
 
     /// Path to the mount point.
-    #[structopt()]
+    #[arg()]
     mount_point: PathBuf,
 }
 
-fn main() -> Result<(), Error> {
-    let opt = Opt::from_args();
+#[derive(Clone, ValueEnum)]
+enum LogFormat {
+    Text,
+    Json,
+}
 
-    mirakc_core::tracing_ext::init_tracing(&opt.log_format);
+fn main() -> Result<(), Error> {
+    let opt = Opt::parse();
+
+    mirakc_core::tracing_ext::init_tracing(match opt.log_format {
+        LogFormat::Text => "text",
+        LogFormat::Json => "json",
+    });
 
     let config = mirakc_core::config::load(&opt.config);
 

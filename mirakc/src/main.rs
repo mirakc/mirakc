@@ -1,15 +1,16 @@
 use std::path::PathBuf;
 
 use actlet::*;
+use clap::Parser;
+use clap::ValueEnum;
 use mirakc_core::error::Error;
 use mirakc_core::tracing_ext::init_tracing;
 use mirakc_core::*;
-use structopt::StructOpt;
 use tokio::signal::unix::signal;
 use tokio::signal::unix::SignalKind;
 
-#[derive(StructOpt)]
-#[structopt(about)]
+#[derive(Parser)]
+#[command(author, version, about)]
 struct Opt {
     /// Path to a configuration file in a YAML format.
     ///
@@ -17,24 +18,28 @@ struct Opt {
     /// specified.  Its value has to be an absolute path.
     ///
     /// See docs/config.md for details of the YAML format.
-    #[structopt(short, long, env = "MIRAKC_CONFIG")]
+    #[arg(short, long, env = "MIRAKC_CONFIG")]
     config: PathBuf,
 
     /// Logging format.
-    #[structopt(
-        long,
-        env = "MIRAKC_LOG_FORMAT",
-        possible_values = &["text", "json"],
-        default_value = "text",
-    )]
-    log_format: String,
+    #[arg(long, value_enum, env = "MIRAKC_LOG_FORMAT", default_value = "text")]
+    log_format: LogFormat,
+}
+
+#[derive(Clone, ValueEnum)]
+enum LogFormat {
+    Text,
+    Json,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
-    init_tracing(&opt.log_format);
+    init_tracing(match opt.log_format {
+        LogFormat::Text => "text",
+        LogFormat::Json => "json",
+    });
 
     let config = config::load(&opt.config);
     let string_table = string_table::load(&config.resource.strings_yaml);
