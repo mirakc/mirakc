@@ -13,7 +13,7 @@ async-trait = "0.1.59"
 atty = "0.2.14"
 axum = { version = "0.6.1", features = ["http2", "headers"] }
 bytes = "1.3.0"
-chrono = { version = "0.4.23", features = ["serde"] }
+chrono = { version = "0.4.23", default-features = false, features = ["clock", "serde"] }
 cron = "0.12.0"
 fs2 = "0.4.3"
 futures = "0.3.25"
