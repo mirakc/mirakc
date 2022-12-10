@@ -95,7 +95,30 @@ impl Call<QueryService> for EpgStub {
                     }))
                 }
             }
-            _ => unreachable!(),
+            QueryService::ByServiceTriple(triple) => {
+                if triple.sid().value() == 0 {
+                    Ok(Err(Error::ServiceNotFound))
+                } else {
+                    let channel = if triple.sid().value() == 1 { "ch" } else { "" };
+                    Ok(Ok(EpgService {
+                        nid: triple.nid(),
+                        tsid: triple.tsid(),
+                        sid: triple.sid(),
+                        service_type: 1,
+                        logo_id: 0,
+                        remote_control_key_id: 0,
+                        name: "test".to_string(),
+                        channel: EpgChannel {
+                            name: "test".to_string(),
+                            channel_type: ChannelType::GR,
+                            channel: channel.to_string(),
+                            extra_args: "".to_string(),
+                            services: Vec::new(),
+                            excluded_services: Vec::new(),
+                        },
+                    }))
+                }
+            }
         }
     }
 }

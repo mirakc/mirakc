@@ -8,6 +8,7 @@ pub mod error;
 pub mod filter;
 pub mod models;
 pub mod mpeg_ts_stream;
+pub mod onair_tracker;
 pub mod recording;
 pub mod script_runner;
 pub mod string_table;

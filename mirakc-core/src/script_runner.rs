@@ -135,9 +135,9 @@ where
     R: Call<recording::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingStarted, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingStarted", %msg.program_id);
+        tracing::debug!(msg.name = "RecordingStarted", %msg.program_quad);
         if self.has_recording_started_script() {
-            ctx.spawn_task(self.create_recording_started_task(msg.program_id));
+            ctx.spawn_task(self.create_recording_started_task(msg.program_quad.into()));
         }
     }
 }
@@ -179,9 +179,9 @@ where
     R: Call<recording::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingStopped, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingStopped", %msg.program_id, ?msg.result);
+        tracing::debug!(msg.name = "RecordingStopped", %msg.program_quad, ?msg.result);
         if self.has_recording_stopped_script() {
-            ctx.spawn_task(self.create_recording_stopped_task(msg.program_id, msg.result));
+            ctx.spawn_task(self.create_recording_stopped_task(msg.program_quad.into(), msg.result));
         }
     }
 }

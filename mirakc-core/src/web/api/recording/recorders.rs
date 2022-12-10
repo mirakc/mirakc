@@ -26,8 +26,8 @@ where
     for recorder in recorders.into_iter() {
         let program = state
             .epg
-            .call(epg::QueryProgram::ByMirakurunProgramId(
-                recorder.schedule.program_id,
+            .call(epg::QueryProgram::ByProgramQuad(
+                recorder.schedule.program_quad,
             ))
             .await??;
         results.push(WebRecordingRecorder {
@@ -73,7 +73,9 @@ where
         .await??;
     let recorder = state
         .recording_manager
-        .call(recording::QueryRecordingRecorder { program_id })
+        .call(recording::QueryRecordingRecorder {
+            program_quad: program.quad,
+        })
         .await??;
     Ok(Json(WebRecordingRecorder {
         program: program.into(),
@@ -114,7 +116,7 @@ where
         .call(epg::QueryProgram::ByMirakurunProgramId(input.program_id))
         .await??;
     let schedule = Arc::new(Schedule {
-        program_id: input.program_id,
+        program_quad: program.quad,
         content_path: input.content_path,
         priority: input.priority,
         pre_filters: input.pre_filters,
@@ -162,11 +164,18 @@ pub(in crate::web::api) async fn delete<T, E, R, S>(
     Path(program_id): Path<MirakurunProgramId>,
 ) -> Result<(), Error>
 where
+    E: Call<epg::QueryProgram>,
     R: Call<recording::StopRecording>,
 {
+    let program = state
+        .epg
+        .call(epg::QueryProgram::ByMirakurunProgramId(program_id))
+        .await??;
     state
         .recording_manager
-        .call(recording::StopRecording { program_id })
+        .call(recording::StopRecording {
+            program_quad: program.quad,
+        })
         .await??;
     Ok(())
 }

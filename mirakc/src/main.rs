@@ -54,11 +54,20 @@ async fn main() -> Result<(), Error> {
         .spawn_actor(epg::Epg::new(config.clone(), tuner_manager.clone()))
         .await;
 
+    let onair_tracker = system
+        .spawn_actor(onair_tracker::OnairTracker::new(
+            config.clone(),
+            tuner_manager.clone(),
+            epg.clone(),
+        ))
+        .await;
+
     let recording_manager = system
         .spawn_actor(recording::RecordingManager::new(
             config.clone(),
             tuner_manager.clone(),
             epg.clone(),
+            onair_tracker.clone(),
         ))
         .await;
 

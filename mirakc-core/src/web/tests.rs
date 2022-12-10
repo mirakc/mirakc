@@ -1002,7 +1002,11 @@ fn config_for_test() -> Arc<Config> {
         manifest_dir = env!("CARGO_MANIFEST_DIR"),
     );
 
-    Arc::new(serde_yaml::from_str::<Config>(&config_yaml).unwrap().normalize())
+    Arc::new(
+        serde_yaml::from_str::<Config>(&config_yaml)
+            .unwrap()
+            .normalize(),
+    )
 }
 
 fn string_table_for_test() -> Arc<StringTable> {

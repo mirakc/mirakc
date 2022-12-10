@@ -228,6 +228,17 @@ impl fmt::Display for ProgramQuad {
     }
 }
 
+impl From<u64> for ProgramQuad {
+    fn from(v: u64) -> Self {
+        ProgramQuad(
+            ((v >> 48) as u16).into(),
+            ((v >> 32) as u16).into(),
+            ((v >> 16) as u16).into(),
+            ((v >> 0) as u16).into(),
+        )
+    }
+}
+
 impl From<(ServiceTriple, EventId)> for ProgramQuad {
     fn from(tuple: (ServiceTriple, EventId)) -> ProgramQuad {
         ProgramQuad::new(tuple.0.nid(), tuple.0.tsid(), tuple.0.sid(), tuple.1)
@@ -276,6 +287,7 @@ impl EpgGenre {
 #[derive(Clone)]
 pub enum TunerUserInfo {
     Job { name: String },
+    OnairTracker(ServiceTriple),
     Recorder { name: String },
     Tracker { stream_id: TunerSubscriptionId },
     Web { id: String, agent: Option<String> },
@@ -285,6 +297,7 @@ impl TunerUserInfo {
     fn get_mirakurun_model(&self) -> (String, Option<String>) {
         match self {
             Self::Job { name } => (format!("job:{}", name), None),
+            Self::OnairTracker(triple) => (format!("onair-tracker:{triple}"), None),
             Self::Recorder { name } => (format!("recorder:{}", name), None),
             Self::Tracker { stream_id } => (format!("tracker:{}", stream_id), None),
             Self::Web { id, agent } => (id.clone(), agent.clone()),
@@ -296,6 +309,7 @@ impl fmt::Display for TunerUserInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Job { name } => write!(f, "Job({})", name),
+            Self::OnairTracker(triple) => write!(f, "OnairTracker({triple})"),
             Self::Recorder { name } => write!(f, "Recorder({})", name),
             Self::Tracker { stream_id } => write!(f, "Tracker({})", stream_id),
             Self::Web { id, agent: None } => write!(f, r#"Web(id="{}")"#, id),

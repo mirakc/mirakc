@@ -32,23 +32,25 @@ use crate::epg::QueryService;
 use crate::epg::ServicesUpdated;
 use crate::error::Error;
 use crate::filter::FilterPipelineBuilder;
-use crate::models::MirakurunProgramId;
-use crate::models::MirakurunServiceId;
+use crate::models::ProgramQuad;
 use crate::models::ServiceTriple;
 use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
+use crate::onair_tracker::OnairProgramChanged;
 use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
 use crate::tuner::TunerStreamStopTrigger;
 use crate::tuner::TunerSubscriptionId;
 
-pub struct RecordingManager<T, E> {
+pub struct RecordingManager<T, E, O> {
     config: Arc<Config>,
     tuner_manager: T,
     epg: E,
+    onair_tracker: O,
     schedules: BinaryHeap<Arc<Schedule>>,
-    schedule_map: HashMap<MirakurunProgramId, Arc<Schedule>>,
-    recorders: HashMap<MirakurunProgramId, Recorder>,
+    schedule_map: HashMap<ProgramQuad, Arc<Schedule>>,
+    recorders: HashMap<ProgramQuad, Recorder>,
+    retries: HashMap<ProgramQuad, Arc<Schedule>>,
     timer_token: Option<CancellationToken>,
     recording_started_emitters: Vec<Emitter<RecordingStarted>>,
     recording_stopped_emitters: Vec<Emitter<RecordingStopped>>,
@@ -56,7 +58,7 @@ pub struct RecordingManager<T, E> {
 
 const PREP_SECS: i64 = 15;
 
-impl<T, E> RecordingManager<T, E>
+impl<T, E, O> RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -66,15 +68,20 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
-    pub fn new(config: Arc<Config>, tuner_manager: T, epg: E) -> Self {
+    pub fn new(config: Arc<Config>, tuner_manager: T, epg: E, onair_tracker: O) -> Self {
         RecordingManager {
             config,
             tuner_manager,
             epg,
+            onair_tracker,
             schedules: Default::default(),
             schedule_map: Default::default(),
             recorders: Default::default(),
+            retries: Default::default(),
             timer_token: None,
             recording_started_emitters: Default::default(),
             recording_stopped_emitters: Default::default(),
@@ -84,17 +91,12 @@ where
     fn update_services(&mut self, services: Arc<IndexMap<ServiceTriple, EpgService>>) {
         let mut schedules = BinaryHeap::new();
         for schedule in self.schedules.drain() {
-            let nid = schedule.program_id.nid();
-            let sid = schedule.program_id.sid();
-            if services
-                .keys()
-                .any(|triple| triple.nid() == nid && triple.sid() == sid)
-            {
+            let triple = ServiceTriple::from(schedule.program_quad);
+            if services.contains_key(&triple) {
                 schedules.push(schedule);
             } else {
-                let msid = MirakurunServiceId::from(schedule.program_id);
-                tracing::warn!(%schedule.program_id, %msid, "Invalidated");
-                self.schedule_map.remove(&schedule.program_id);
+                tracing::warn!(%schedule.program_quad, "Invalidated");
+                self.schedule_map.remove(&schedule.program_quad);
             }
         }
         self.schedules = schedules;
@@ -106,18 +108,18 @@ where
         let now = Jst::now();
         while let Some(schedule) = self.schedules.peek() {
             if schedule.start_at <= now {
-                tracing::warn!(%schedule.program_id, "Expired, remove schedule");
-                self.schedule_map.remove(&schedule.program_id);
+                tracing::warn!(%schedule.program_quad, "Expired, remove schedule");
+                self.schedule_map.remove(&schedule.program_quad);
                 self.schedules.pop();
             } else if schedule.start_at - now <= prep_secs {
-                self.schedule_map.remove(&schedule.program_id);
+                self.schedule_map.remove(&schedule.program_quad);
                 let schedule = self.schedules.pop().unwrap();
                 match self.start_recording(schedule.clone(), ctx).await {
                     Ok(_) => {
-                        tracing::info!(%schedule.program_id, "Start recording");
+                        tracing::info!(%schedule.program_quad, "Start recording");
                     }
                     Err(err) => {
-                        tracing::error!(%err, %schedule.program_id, "Failed to start recording");
+                        tracing::error!(%err, %schedule.program_quad, "Failed to start recording");
                     }
                 }
             } else {
@@ -133,9 +135,10 @@ where
         schedule: Arc<Schedule>,
         ctx: &Context<Self>,
     ) -> Result<RecorderModel, Error> {
-        let program_id = schedule.program_id;
+        let program_quad = schedule.program_quad;
+        let service_triple = schedule.program_quad.into();
 
-        if self.recorders.contains_key(&program_id) {
+        if self.recorders.contains_key(&program_quad) {
             return Err(Error::AlreadyExists);
         }
 
@@ -143,18 +146,18 @@ where
 
         let program = self
             .epg
-            .call(QueryProgram::ByMirakurunProgramId(program_id))
+            .call(QueryProgram::ByProgramQuad(program_quad))
             .await??;
 
         let service = self
             .epg
-            .call(QueryService::ByMirakurunServiceId(program_id.into()))
+            .call(QueryService::ByServiceTriple(service_triple))
             .await??;
 
         let clock = self
             .epg
             .call(QueryClock {
-                triple: service.triple(),
+                triple: service_triple,
             })
             .await??;
 
@@ -164,7 +167,7 @@ where
                 channel: service.channel.clone(),
                 user: TunerUser {
                     info: TunerUserInfo::Recorder {
-                        name: format!("program#{}", program_id),
+                        name: format!("program#{}", program_quad),
                     },
                     priority: schedule.priority.into(),
                 },
@@ -200,15 +203,6 @@ where
             .insert("clock_time", &clock.time)?
             .insert("video_tags", &video_tags)?
             .insert("audio_tags", &audio_tags)?;
-        if let Some(max_start_delay) = self.config.recording.max_start_delay {
-            // Round off the fractional (nanosecond) part of the duration.
-            //
-            // The value can be safely converted into i64 because the value is less
-            // than 24h.
-            let duration = Duration::seconds(max_start_delay.as_secs() as i64);
-            let wait_until = program.start_at + duration;
-            builder = builder.insert("wait_until", &wait_until.timestamp_millis())?;
-        }
         let data = builder.build();
 
         let mut builder = FilterPipelineBuilder::new(data);
@@ -240,7 +234,7 @@ where
         let fut = async move {
             let _ = stream.pipe(input).await;
         };
-        let fut = fut.instrument(tracing::info_span!("pipeline", id = %pipeline.id()));
+        let fut = fut.instrument(tracing::info_span!(parent: None, "pipeline", id = %pipeline.id()));
         ctx.spawn_task(fut);
 
         // Metadata file is always saved in the `records_dir` and no additional
@@ -257,7 +251,7 @@ where
                 tags: schedule.tags.clone(),
             },
         )?;
-        tracing::info!(%program_id, ?metadata_path, "Saved metadata");
+        tracing::info!(%program_quad, ?metadata_path, "Saved metadata");
 
         // Inner future in order to capture the result in an outer future.
         let inner_fut = {
@@ -270,15 +264,18 @@ where
             }
         };
         // Outer future emits messages to observers.
-        let outer_fut = {
+        let fut = {
             let addr = ctx.address().clone();
             async move {
-                addr.emit(RecordingStarted { program_id }).await;
+                addr.emit(RecordingStarted { program_quad }).await;
                 let result = inner_fut.await.map_err(|err| format!("{}", err));
-                addr.emit(RecordingStopped { program_id, result }).await;
+                addr.emit(RecordingStopped {
+                    program_quad,
+                    result,
+                })
+                .await;
             }
         };
-        let fut = outer_fut.instrument(tracing::info_span!("writer", ?content_path));
 
         let recorder = Recorder {
             schedule,
@@ -287,7 +284,7 @@ where
             stop_trigger: Some(stop_trigger),
         };
         let model = recorder.get_model();
-        self.recorders.insert(program_id, recorder);
+        self.recorders.insert(program_quad, recorder);
 
         // Spawn the following task after the recorder is inserted so that
         // actors receiving RecordingStarted messages can access the recorder.
@@ -296,17 +293,17 @@ where
         Ok(model)
     }
 
-    fn stop_recording(&mut self, program_id: MirakurunProgramId) -> Result<(), Error> {
-        match self.recorders.get_mut(&program_id) {
+    fn stop_recording(&mut self, program_quad: ProgramQuad) -> Result<(), Error> {
+        match self.recorders.get_mut(&program_quad) {
             Some(recorder) => {
                 match recorder.stop_trigger.take() {
-                    Some(_) => tracing::info!(%program_id, "Stop recording"),
-                    None => tracing::warn!(%program_id, "Already stopped"),
+                    Some(_) => tracing::info!(%program_quad, "Stop recording"),
+                    None => tracing::warn!(%program_quad, "Already stopped"),
                 }
                 Ok(())
             }
             None => {
-                tracing::error!(%program_id, "No such recorder, maybe already stopped");
+                tracing::error!(%program_quad, "No such recorder, maybe already stopped");
                 Err(Error::RecorderNotFound)
             }
         }
@@ -341,7 +338,7 @@ where
 // actor
 
 #[async_trait]
-impl<T, E> Actor for RecordingManager<T, E>
+impl<T, E, O> Actor for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -351,6 +348,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
@@ -368,7 +368,7 @@ where
     }
 }
 
-impl<T, E> RecordingManager<T, E> {
+impl<T, E, O> RecordingManager<T, E, O> {
     fn load_schedules(&mut self) {
         fn do_load(path: &Path) -> Result<Vec<Schedule>, Error> {
             let file = std::fs::File::open(path)?;
@@ -427,7 +427,7 @@ impl<T, E> RecordingManager<T, E> {
 pub struct QueryRecordingSchedules;
 
 #[async_trait]
-impl<T, E> Handler<QueryRecordingSchedules> for RecordingManager<T, E>
+impl<T, E, O> Handler<QueryRecordingSchedules> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -437,6 +437,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
@@ -448,7 +451,7 @@ where
     }
 }
 
-impl<T, E> RecordingManager<T, E> {
+impl<T, E, O> RecordingManager<T, E, O> {
     fn query_schedules(&self) -> Vec<Arc<Schedule>> {
         // TODO: somewhat inefficient...
         self.schedules
@@ -465,11 +468,11 @@ impl<T, E> RecordingManager<T, E> {
 #[derive(Message)]
 #[reply("Result<Arc<Schedule>, Error>")]
 pub struct QueryRecordingSchedule {
-    pub program_id: MirakurunProgramId,
+    pub program_quad: ProgramQuad,
 }
 
 #[async_trait]
-impl<T, E> Handler<QueryRecordingSchedule> for RecordingManager<T, E>
+impl<T, E, O> Handler<QueryRecordingSchedule> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -479,21 +482,24 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
         msg: QueryRecordingSchedule,
         _ctx: &mut Context<Self>,
     ) -> <QueryRecordingSchedule as Message>::Reply {
-        tracing::debug!(msg.name = "QueryRecordingSchedule", %msg.program_id);
-        self.get_schedule(msg.program_id)
+        tracing::debug!(msg.name = "QueryRecordingSchedule", %msg.program_quad);
+        self.get_schedule(msg.program_quad)
     }
 }
 
-impl<T, E> RecordingManager<T, E> {
-    fn get_schedule(&self, program_id: MirakurunProgramId) -> Result<Arc<Schedule>, Error> {
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn get_schedule(&self, program_quad: ProgramQuad) -> Result<Arc<Schedule>, Error> {
         self.schedule_map
-            .get(&program_id)
+            .get(&program_quad)
             .cloned()
             .ok_or(Error::ScheduleNotFound)
     }
@@ -508,7 +514,7 @@ pub struct AddRecordingSchedule {
 }
 
 #[async_trait]
-impl<T, E> Handler<AddRecordingSchedule> for RecordingManager<T, E>
+impl<T, E, O> Handler<AddRecordingSchedule> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -518,6 +524,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
@@ -526,42 +535,42 @@ where
     ) -> <AddRecordingSchedule as Message>::Reply {
         tracing::debug!(
             msg.name = "AddRecordingSchedule",
-            %msg.schedule.program_id,
+            %msg.schedule.program_quad,
             ?msg.schedule.content_path,
             %msg.schedule.priority,
             ?msg.schedule.pre_filters,
             ?msg.schedule.post_filters,
             %msg.schedule.start_at,
         );
-        let program_id = msg.schedule.program_id;
+        let program_quad = msg.schedule.program_quad;
         self.add_schedule(msg.schedule)?;
         self.save_schedules();
         self.set_timer(ctx);
-        self.get_schedule(program_id)
+        self.get_schedule(program_quad)
     }
 }
 
-impl<T, E> RecordingManager<T, E> {
+impl<T, E, O> RecordingManager<T, E, O> {
     fn add_schedule(&mut self, schedule: Schedule) -> Result<(), Error> {
         let now = Jst::now();
-        let program_id = schedule.program_id;
-        if self.schedule_map.contains_key(&program_id) {
+        let program_quad = schedule.program_quad;
+        if self.schedule_map.contains_key(&program_quad) {
             let err = Error::AlreadyExists;
-            tracing::warn!(%schedule.program_id, %err);
+            tracing::warn!(%schedule.program_quad, %err);
             Err(err)
         } else if schedule.start_at <= now {
             let err = Error::ProgramAlreadyStarted;
-            tracing::error!(%schedule.program_id, %err);
+            tracing::error!(%schedule.program_quad, %err);
             Err(err)
         } else if schedule.start_at - now <= Duration::seconds(PREP_SECS) {
             let err = Error::ProgramWillStartSoon;
-            tracing::error!(%schedule.program_id, %err);
+            tracing::error!(%schedule.program_quad, %err);
             Err(err)
         } else {
-            tracing::info!(%schedule.program_id, "Added");
+            tracing::info!(%schedule.program_quad, "Added");
             let schedule = Arc::new(schedule);
             self.schedules.push(schedule.clone());
-            self.schedule_map.insert(program_id, schedule);
+            self.schedule_map.insert(program_quad, schedule);
             assert_eq!(self.schedules.len(), self.schedule_map.len());
             Ok(())
         }
@@ -573,11 +582,11 @@ impl<T, E> RecordingManager<T, E> {
 #[derive(Message)]
 #[reply("Result<Arc<Schedule>, Error>")]
 pub struct RemoveRecordingSchedule {
-    pub program_id: MirakurunProgramId,
+    pub program_quad: ProgramQuad,
 }
 
 #[async_trait]
-impl<T, E> Handler<RemoveRecordingSchedule> for RecordingManager<T, E>
+impl<T, E, O> Handler<RemoveRecordingSchedule> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -587,14 +596,17 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
         msg: RemoveRecordingSchedule,
         ctx: &mut Context<Self>,
     ) -> <RemoveRecordingSchedule as Message>::Reply {
-        tracing::debug!(msg.name = "RemoveRecordingSchedule", %msg.program_id);
-        match self.schedule_map.remove(&msg.program_id) {
+        tracing::debug!(msg.name = "RemoveRecordingSchedule", %msg.program_quad);
+        match self.schedule_map.remove(&msg.program_quad) {
             Some(schedule) => {
                 self.sync_schedules();
                 self.save_schedules();
@@ -602,14 +614,14 @@ where
                 Ok(schedule)
             }
             None => {
-                tracing::warn!(%msg.program_id, "No such schedule");
+                tracing::warn!(%msg.program_quad, "No such schedule");
                 Err(Error::ScheduleNotFound)
             }
         }
     }
 }
 
-impl<T, E> RecordingManager<T, E> {
+impl<T, E, O> RecordingManager<T, E, O> {
     fn sync_schedules(&mut self) {
         self.schedules.clear();
         for schedule in self.schedule_map.values() {
@@ -634,7 +646,7 @@ pub enum RemoveTarget {
 }
 
 #[async_trait]
-impl<T, E> Handler<RemoveRecordingSchedules> for RecordingManager<T, E>
+impl<T, E, O> Handler<RemoveRecordingSchedules> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -644,6 +656,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
@@ -657,7 +672,7 @@ where
     }
 }
 
-impl<T, E> RecordingManager<T, E> {
+impl<T, E, O> RecordingManager<T, E, O> {
     fn remove_schedules(&mut self, target: RemoveTarget) {
         match target {
             RemoveTarget::All => self.clear_schedules(),
@@ -693,7 +708,7 @@ impl<T, E> RecordingManager<T, E> {
 pub struct QueryRecordingRecorders;
 
 #[async_trait]
-impl<T, E> Handler<QueryRecordingRecorders> for RecordingManager<T, E>
+impl<T, E, O> Handler<QueryRecordingRecorders> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -703,6 +718,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
@@ -722,11 +740,11 @@ where
 #[derive(Message)]
 #[reply("Result<RecorderModel, Error>")]
 pub struct QueryRecordingRecorder {
-    pub program_id: MirakurunProgramId,
+    pub program_quad: ProgramQuad,
 }
 
 #[async_trait]
-impl<T, E> Handler<QueryRecordingRecorder> for RecordingManager<T, E>
+impl<T, E, O> Handler<QueryRecordingRecorder> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -736,15 +754,18 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
         msg: QueryRecordingRecorder,
         _ctx: &mut Context<Self>,
     ) -> <QueryRecordingRecorder as Message>::Reply {
-        tracing::debug!(msg.name = "QueryRecordingRecorder", %msg.program_id);
+        tracing::debug!(msg.name = "QueryRecordingRecorder", %msg.program_quad);
         self.recorders
-            .get(&msg.program_id)
+            .get(&msg.program_quad)
             .map(|recorder| recorder.get_model())
             .ok_or(Error::RecorderNotFound)
     }
@@ -759,7 +780,7 @@ pub struct StartRecording {
 }
 
 #[async_trait]
-impl<T, E> Handler<StartRecording> for RecordingManager<T, E>
+impl<T, E, O> Handler<StartRecording> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -769,6 +790,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
@@ -777,7 +801,7 @@ where
     ) -> <StartRecording as Message>::Reply {
         tracing::debug!(
             msg.name = "StartRecording",
-            %msg.schedule.program_id,
+            %msg.schedule.program_quad,
             ?msg.schedule.content_path,
             %msg.schedule.priority,
             ?msg.schedule.pre_filters,
@@ -792,11 +816,11 @@ where
 #[derive(Message)]
 #[reply("Result<(), Error>")]
 pub struct StopRecording {
-    pub program_id: MirakurunProgramId,
+    pub program_quad: ProgramQuad,
 }
 
 #[async_trait]
-impl<T, E> Handler<StopRecording> for RecordingManager<T, E>
+impl<T, E, O> Handler<StopRecording> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -806,14 +830,17 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
         msg: StopRecording,
         _ctx: &mut Context<Self>,
     ) -> <StopRecording as Message>::Reply {
-        tracing::debug!(msg.name = "StopRecording", %msg.program_id);
-        self.stop_recording(msg.program_id)
+        tracing::debug!(msg.name = "StopRecording", %msg.program_quad);
+        self.stop_recording(msg.program_quad)
     }
 }
 
@@ -824,7 +851,7 @@ where
 pub struct QueryRecordingRecords;
 
 #[async_trait]
-impl<T, E> Handler<QueryRecordingRecords> for RecordingManager<T, E>
+impl<T, E, O> Handler<QueryRecordingRecords> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -834,6 +861,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
@@ -845,7 +875,7 @@ where
     }
 }
 
-impl<T, E> RecordingManager<T, E> {
+impl<T, E, O> RecordingManager<T, E, O> {
     async fn query_records(&self) -> Result<Vec<Record>, Error> {
         let records_dir = self
             .config
@@ -876,7 +906,7 @@ pub struct QueryRecordingRecord {
 }
 
 #[async_trait]
-impl<T, E> Handler<QueryRecordingRecord> for RecordingManager<T, E>
+impl<T, E, O> Handler<QueryRecordingRecord> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -886,6 +916,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
@@ -897,7 +930,7 @@ where
     }
 }
 
-impl<T, E> RecordingManager<T, E> {
+impl<T, E, O> RecordingManager<T, E, O> {
     fn query_record(&self, id: &str) -> Result<Record, Error> {
         let path = self
             .config
@@ -924,7 +957,7 @@ pub struct RemoveRecordingRecord {
 }
 
 #[async_trait]
-impl<T, E> Handler<RemoveRecordingRecord> for RecordingManager<T, E>
+impl<T, E, O> Handler<RemoveRecordingRecord> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -934,6 +967,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
@@ -949,7 +985,7 @@ where
     }
 }
 
-impl<T, E> RecordingManager<T, E> {
+impl<T, E, O> RecordingManager<T, E, O> {
     fn remove_record(&self, id: &str, remove_content: bool) -> Result<(), Error> {
         let metadata_path = self
             .config
@@ -976,7 +1012,7 @@ impl<T, E> RecordingManager<T, E> {
 // services updated
 
 #[async_trait]
-impl<T, E> Handler<ServicesUpdated> for RecordingManager<T, E>
+impl<T, E, O> Handler<ServicesUpdated> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -986,6 +1022,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(&mut self, msg: ServicesUpdated, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "ServicesUpdated");
@@ -1001,7 +1040,7 @@ where
 struct TimerExpired;
 
 #[async_trait]
-impl<T, E> Handler<TimerExpired> for RecordingManager<T, E>
+impl<T, E, O> Handler<TimerExpired> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -1011,6 +1050,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(&mut self, _msg: TimerExpired, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "TimerExpired");
@@ -1030,7 +1072,7 @@ pub enum RegisterEmitter {
 }
 
 #[async_trait]
-impl<T, E> Handler<RegisterEmitter> for RecordingManager<T, E>
+impl<T, E, O> Handler<RegisterEmitter> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -1040,6 +1082,9 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(
         &mut self,
@@ -1061,11 +1106,11 @@ where
 
 #[derive(Clone, Message)]
 pub struct RecordingStarted {
-    pub program_id: MirakurunProgramId,
+    pub program_quad: ProgramQuad,
 }
 
 #[async_trait]
-impl<T, E> Handler<RecordingStarted> for RecordingManager<T, E>
+impl<T, E, O> Handler<RecordingStarted> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -1075,9 +1120,12 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
     async fn handle(&mut self, msg: RecordingStarted, _ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingStarted", %msg.program_id);
+        tracing::debug!(msg.name = "RecordingStarted", %msg.program_quad);
         for emitter in self.recording_started_emitters.iter() {
             emitter.emit(msg.clone()).await;
         }
@@ -1088,12 +1136,12 @@ where
 
 #[derive(Clone, Message)]
 pub struct RecordingStopped {
-    pub program_id: MirakurunProgramId,
+    pub program_quad: ProgramQuad,
     pub result: Result<u64, String>,
 }
 
 #[async_trait]
-impl<T, E> Handler<RecordingStopped> for RecordingManager<T, E>
+impl<T, E, O> Handler<RecordingStopped> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
@@ -1103,13 +1151,172 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
 {
-    async fn handle(&mut self, msg: RecordingStopped, _ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingStopped", %msg.program_id, ?msg.result);
-        self.recorders.remove(&msg.program_id);
+    async fn handle(&mut self, mut msg: RecordingStopped, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "RecordingStopped", %msg.program_quad, ?msg.result);
+
+        let recorder = self.recorders.remove(&msg.program_quad);
+        let retry_enabled = self.config.recording.max_start_delay.is_some();
+        match (recorder, retry_enabled) {
+            (Some(mut recorder), true) => {
+                // Manually drop the stop trigger so that we get the exit code
+                // from the program-filter without killing its process.
+                drop(recorder.stop_trigger.take().unwrap());
+                if recorder.check_retry().await {
+                    self.retry(recorder.schedule);
+                    msg.result = Err("Retry recording".to_string());
+                    let service_triple = msg.program_quad.into();
+                    if self.need_adding_observer(service_triple) {
+                        let result = self
+                            .onair_tracker
+                            .call(crate::onair_tracker::AddObserver {
+                                service_triple,
+                                name: "recording",
+                                emitter: ctx.address().clone().into(),
+                            })
+                            .await;
+                        if let Err(err) = result {
+                            tracing::error!(%err, %service_triple, "Failed to add on-air tracker");
+                            self.cancel_retry(msg.program_quad);
+                            msg.result = Err("Retry failed".to_string());
+                        }
+                    }
+                }
+            }
+            (Some(_), false) => {
+                // Retry is disabled.
+            }
+            (None, _) => {
+                tracing::warn!(recorder.id = %msg.program_quad, "Already removed");
+            }
+        }
         for emitter in self.recording_stopped_emitters.iter() {
             emitter.emit(msg.clone()).await;
         }
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn retry(&mut self, schedule: Arc<Schedule>) {
+        let program_quad = schedule.program_quad;
+        tracing::info!(%program_quad, "Retry recording");
+        self.retries.insert(program_quad, schedule);
+    }
+
+    fn need_adding_observer(&self, service_triple: ServiceTriple) -> bool {
+        self.retries
+            .keys()
+            .filter(|&&quad| service_triple == quad.into())
+            .count()
+            == 1
+    }
+
+    fn cancel_retry(&mut self, program_quad: ProgramQuad) {
+        tracing::info!(%program_quad, "Cancel retry");
+        self.retries.remove(&program_quad);
+    }
+}
+
+// on-air program changed
+
+#[async_trait]
+impl<T, E, O> Handler<OnairProgramChanged> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryProgram>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
+{
+    async fn handle(&mut self, msg: OnairProgramChanged, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "OnairProgramChanged", %msg.service_triple);
+        let now = Jst::now();
+        let start_soon = now + Duration::seconds(PREP_SECS);
+
+        if let Some(program) = msg.present {
+            let program_quad = ProgramQuad::from(program.quad);
+            if let Some(schedule) = self.retries.remove(&program_quad) {
+                tracing::info!(%program_quad, %program.start_at,
+                               "Already started, start recording");
+                if let Err(err) = self.start_recording(schedule, ctx).await {
+                    // TODO: notify error of script runner
+                    tracing::error!(%err, %program_quad, "Failed in retry");
+                }
+            }
+        }
+
+        if let Some(program) = msg.following {
+            let program_quad = ProgramQuad::from(program.quad);
+            if let Some(schedule) = self.retries.remove(&program_quad) {
+                if program.start_at <= start_soon {
+                    tracing::info!(%program_quad, %program.start_at,
+                                   "Will start soon, start recording");
+                    if let Err(err) = self.start_recording(schedule, ctx).await {
+                        // TODO: notify error of script runner
+                        tracing::error!(%err, %program_quad, "Failed in retry");
+                    }
+                } else {
+                    tracing::info!(%program_quad, %program.start_at, "Reschedule");
+                    let result = self.add_schedule(Schedule {
+                        program_quad,
+                        content_path: schedule.content_path.clone(),
+                        priority: schedule.priority,
+                        pre_filters: schedule.pre_filters.clone(),
+                        post_filters: schedule.post_filters.clone(),
+                        tags: schedule.tags.clone(),
+                        start_at: program.start_at,
+                    });
+                    match result {
+                        Ok(_) => {
+                            self.save_schedules();
+                            self.set_timer(ctx);
+                        }
+                        Err(err) => {
+                            // TODO: notify error of script runner
+                            tracing::error!(%err, %program_quad, "Failed in retry");
+                        }
+                    }
+                }
+            }
+        }
+
+        let duration = Duration::from_std(self.config.recording.max_start_delay.unwrap()).unwrap();
+        self.retries.retain(|_, schedule| {
+            let expired = schedule.start_at + duration > now;
+            if expired {
+                tracing::info!(%schedule.program_quad, "Retry expired");
+            }
+            expired
+        });
+
+        if self.need_removing_observer(msg.service_triple) {
+            let _ = self
+                .onair_tracker
+                .call(crate::onair_tracker::RemoveObserver {
+                    service_triple: msg.service_triple,
+                    name: "recording",
+                })
+                .await;
+        }
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn need_removing_observer(&self, service_triple: ServiceTriple) -> bool {
+        self.retries
+            .keys()
+            .filter(|&&quad| service_triple == quad.into())
+            .count()
+            == 0
     }
 }
 
@@ -1117,7 +1324,7 @@ where
 
 #[derive(Clone, Debug, Deserialize, Eq, Serialize)]
 pub struct Schedule {
-    pub program_id: MirakurunProgramId,
+    pub program_quad: ProgramQuad,
     pub content_path: PathBuf,
     pub priority: i32,
     pub pre_filters: Vec<String>,
@@ -1138,7 +1345,7 @@ impl Ord for Schedule {
 
 impl PartialEq for Schedule {
     fn eq(&self, other: &Self) -> bool {
-        self.program_id == other.program_id
+        self.program_quad == other.program_quad
     }
 }
 
@@ -1163,6 +1370,22 @@ impl Recorder {
             start_time: self.start_time,
         }
     }
+
+    async fn check_retry(&mut self) -> bool {
+        assert!(self.stop_trigger.is_none());
+        self.pipeline
+            .wait()
+            .await
+            .iter()
+            .any(|result| match result {
+                Ok(status) => if let Some(2) = status.code() {
+                    true
+                } else {
+                    false
+                }
+                _ => false,
+            })
+    }
 }
 
 pub struct RecorderModel {
@@ -1172,7 +1395,7 @@ pub struct RecorderModel {
 }
 
 impl EpgProgram {
-    const METADATA_FILE_DATE_FORMAT: &'static str = "%Y%d%m%H%M";
+    const METADATA_FILE_DATE_FORMAT: &'static str = "%Y-%d-%m-%H%M";
 
     pub(crate) fn record_id(&self) -> String {
         let datetime = self.start_at.format(Self::METADATA_FILE_DATE_FORMAT);
@@ -1200,6 +1423,7 @@ pub struct Record {
 mod tests {
     use super::*;
     use crate::epg::stub::EpgStub;
+    use crate::onair_tracker::stub::OnairTrackerStub;
     use crate::tuner::stub::TunerManagerStub;
     use assert_matches::assert_matches;
     use static_assertions::const_assert;
@@ -1213,34 +1437,38 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager = RecordingManager::new(config, TunerManagerStub, EpgStub);
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairTrackerStub);
 
-        let schedule = schedule_for_test((0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+        let schedule =
+            schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
         assert_eq!(manager.schedules.len(), 1);
 
-        let schedule = schedule_for_test((0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+        let schedule =
+            schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Err(Error::AlreadyExists));
         assert_eq!(manager.schedules.len(), 1);
 
-        let schedule = schedule_for_test((0, 0, 2).into(), now + Duration::seconds(PREP_SECS));
+        let schedule = schedule_for_test((0, 0, 0, 2).into(), now + Duration::seconds(PREP_SECS));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Err(Error::ProgramWillStartSoon));
         assert_eq!(manager.schedules.len(), 1);
 
-        let schedule = schedule_for_test((0, 0, 3).into(), now);
+        let schedule = schedule_for_test((0, 0, 0, 3).into(), now);
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Err(Error::ProgramAlreadyStarted));
         assert_eq!(manager.schedules.len(), 1);
 
-        let schedule = schedule_for_test((0, 0, 4).into(), now + Duration::seconds(PREP_SECS + 2));
+        let schedule =
+            schedule_for_test((0, 0, 0, 4).into(), now + Duration::seconds(PREP_SECS + 2));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
         assert_eq!(manager.schedules.len(), 2);
         assert_matches!(manager.schedules.peek(), Some(schedule) => {
-            assert_eq!(schedule.program_id, (0, 0, 1).into());
+            assert_eq!(schedule.program_quad, (0, 0, 0, 1).into());
         });
     }
 
@@ -1252,14 +1480,17 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager = RecordingManager::new(config, TunerManagerStub, EpgStub);
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairTrackerStub);
 
-        let schedule = schedule_for_test((0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+        let schedule =
+            schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
         assert_eq!(manager.schedules.len(), 1);
 
-        let schedule = schedule_for_test((0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 2));
+        let schedule =
+            schedule_for_test((0, 0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 2));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
         assert_eq!(manager.schedules.len(), 2);
@@ -1267,7 +1498,7 @@ mod tests {
         let schedules = manager.query_schedules();
         assert_eq!(schedules.len(), 2);
         assert_matches!(schedules.get(0), Some(schedule) => {
-            assert_eq!(schedule.program_id, (0, 0, 1).into());
+            assert_eq!(schedule.program_quad, (0, 0, 0, 1).into());
         });
     }
 
@@ -1278,34 +1509,87 @@ mod tests {
 
         let config = config_for_test("/tmp");
 
-        let mut manager = RecordingManager::new(config, TunerManagerStub, EpgStub);
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairTrackerStub);
 
         let mut schedule =
-            schedule_for_test((0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+            schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
         schedule.tags.insert("tag1".to_string());
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
         assert_eq!(manager.schedules.len(), 1);
 
         let mut schedule =
-            schedule_for_test((0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 1));
+            schedule_for_test((0, 0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 1));
         schedule.tags.insert("tag2".to_string());
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
         assert_eq!(manager.schedules.len(), 2);
 
         manager.remove_schedules(RemoveTarget::Tag("tag2".to_string()));
-        assert!(manager.schedule_map.contains_key(&(0, 0, 1).into()));
+        assert!(manager.schedule_map.contains_key(&(0, 0, 0, 1).into()));
 
         // Schedules which will start soon are always retained.
         Jst::freeze(now + Duration::seconds(PREP_SECS));
         manager.remove_schedules(RemoveTarget::Tag("tag1".to_string()));
-        assert!(manager.schedule_map.contains_key(&(0, 0, 1).into()));
+        assert!(manager.schedule_map.contains_key(&(0, 0, 0, 1).into()));
 
         // Remove all schedules regardless of whether a schedule will start soon
         // or not.
         manager.remove_schedules(RemoveTarget::All);
         assert!(manager.schedules.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recorder_check_retry() {
+        let now = Jst::now();
+        let program_quad = (0, 0, 1, 1).into();
+        let schedule = Arc::new(schedule_for_test(program_quad, now));
+
+        // exit(0)
+        let pipeline = spawn_pipeline(vec!["true".to_string()], Default::default()).unwrap();
+        let mut recorder = Recorder {
+            schedule: schedule.clone(),
+            start_time: now,
+            pipeline,
+            stop_trigger: None,
+        };
+        let retry = recorder.check_retry().await;
+        assert!(!retry);
+
+        // exit(1)
+        let pipeline = spawn_pipeline(vec!["false".to_string()], Default::default()).unwrap();
+        let mut recorder = Recorder {
+            schedule: schedule.clone(),
+            start_time: now,
+            pipeline,
+            stop_trigger: None,
+        };
+        let retry = recorder.check_retry().await;
+        assert!(!retry);
+
+        // no such command
+        let pipeline = spawn_pipeline(vec!["sh -c 'command_not_found'".to_string()], Default::default()).unwrap();
+        let mut recorder = Recorder {
+            schedule: schedule.clone(),
+            start_time: now,
+            pipeline,
+            stop_trigger: None,
+        };
+        let retry = recorder.check_retry().await;
+        assert!(!retry);
+
+        // retry
+        let pipeline =
+            spawn_pipeline(vec!["sh -c 'exit 2'".to_string()], Default::default()).unwrap();
+        let mut recorder = Recorder {
+            schedule: schedule.clone(),
+            start_time: now,
+            pipeline,
+            stop_trigger: None,
+        };
+        let retry = recorder.check_retry().await;
+        assert!(retry);
     }
 
     #[tokio::test]
@@ -1323,12 +1607,13 @@ mod tests {
                     config_for_test(&temp_dir),
                     TunerManagerStub,
                     EpgStub,
+                    OnairTrackerStub,
                 ))
                 .await;
 
             // Schedules for programs already started will be ignored.
             let schedule = Schedule {
-                program_id: (0, 1, 1).into(),
+                program_quad: (0, 0, 1, 1).into(),
                 content_path: "1.m2ts".into(),
                 priority: 0,
                 pre_filters: vec![],
@@ -1343,7 +1628,7 @@ mod tests {
             assert_matches!(result, Ok(_));
             const_assert!(PREP_SECS >= 1);
             let schedule = Schedule {
-                program_id: (0, 1, 2).into(),
+                program_quad: (0, 0, 1, 2).into(),
                 content_path: "2.m2ts".into(),
                 priority: 0,
                 pre_filters: vec![],
@@ -1356,7 +1641,7 @@ mod tests {
 
             // Schedules for programs start after PREP_SECS will be kept.
             let schedule = Schedule {
-                program_id: (0, 1, 3).into(),
+                program_quad: (0, 0, 1, 3).into(),
                 content_path: "3.m2ts".into(),
                 priority: 0,
                 pre_filters: vec![],
@@ -1401,7 +1686,7 @@ mod tests {
                 .inspect(|actor| {
                     assert_eq!(actor.schedules.len(), 1);
                     assert_eq!(actor.schedule_map.len(), 1);
-                    assert!(actor.schedule_map.contains_key(&(0, 1, 3).into()));
+                    assert!(actor.schedule_map.contains_key(&(0, 0, 1, 3).into()));
                 })
                 .await;
             assert_matches!(result, Ok(_));
@@ -1416,10 +1701,10 @@ mod tests {
         Arc::new(config)
     }
 
-    fn schedule_for_test(program_id: MirakurunProgramId, start_at: DateTime<Jst>) -> Schedule {
+    fn schedule_for_test(program_quad: ProgramQuad, start_at: DateTime<Jst>) -> Schedule {
         Schedule {
-            program_id,
-            content_path: format!("{}.m2ts", program_id.eid().value()).into(),
+            program_quad,
+            content_path: format!("{}.m2ts", program_quad.eid().value()).into(),
             priority: Default::default(),
             pre_filters: Default::default(),
             post_filters: Default::default(),
@@ -1441,7 +1726,7 @@ pub(crate) mod stub {
             &self,
             msg: AddRecordingSchedule,
         ) -> Result<<AddRecordingSchedule as Message>::Reply, actlet::Error> {
-            match msg.schedule.program_id.eid().value() {
+            match msg.schedule.program_quad.eid().value() {
                 // 0 is reserved for Error::ProgramNotFound
                 1 => Ok(Err(Error::AlreadyExists)),
                 2 => Ok(Err(Error::ProgramAlreadyStarted)),
@@ -1457,10 +1742,10 @@ pub(crate) mod stub {
             &self,
             msg: QueryRecordingSchedule,
         ) -> Result<<QueryRecordingSchedule as Message>::Reply, actlet::Error> {
-            match msg.program_id.eid().value() {
+            match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::ProgramNotFound)),
                 _ => Ok(Ok(Arc::new(Schedule {
-                    program_id: msg.program_id,
+                    program_quad: msg.program_quad,
                     content_path: "test.m2ts".into(),
                     priority: 1,
                     pre_filters: vec![],
@@ -1482,7 +1767,6 @@ pub(crate) mod stub {
         }
     }
 
-
     #[async_trait]
     impl Call<RegisterEmitter> for RecordingManagerStub {
         async fn call(
@@ -1499,10 +1783,10 @@ pub(crate) mod stub {
             &self,
             msg: RemoveRecordingSchedule,
         ) -> Result<<RemoveRecordingSchedule as Message>::Reply, actlet::Error> {
-            match msg.program_id.eid().value() {
+            match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::ScheduleNotFound)),
                 _ => Ok(Ok(Arc::new(Schedule {
-                    program_id: msg.program_id,
+                    program_quad: msg.program_quad,
                     content_path: "test.m2ts".into(),
                     priority: 1,
                     pre_filters: vec![],
@@ -1536,11 +1820,11 @@ pub(crate) mod stub {
             &self,
             msg: QueryRecordingRecorder,
         ) -> Result<<QueryRecordingRecorder as Message>::Reply, actlet::Error> {
-            match msg.program_id.eid().value() {
+            match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::RecorderNotFound)),
                 _ => Ok(Ok(RecorderModel {
                     schedule: Arc::new(Schedule {
-                        program_id: msg.program_id,
+                        program_quad: msg.program_quad,
                         content_path: "test.m2ts".into(),
                         priority: 1,
                         pre_filters: vec![],
@@ -1571,7 +1855,7 @@ pub(crate) mod stub {
             &self,
             msg: StartRecording,
         ) -> Result<<StartRecording as Message>::Reply, actlet::Error> {
-            match msg.schedule.program_id.eid().value() {
+            match msg.schedule.program_quad.eid().value() {
                 0 => Ok(Err(Error::RecorderNotFound)),
                 _ => Ok(Ok(RecorderModel {
                     schedule: msg.schedule,
@@ -1588,7 +1872,7 @@ pub(crate) mod stub {
             &self,
             msg: StopRecording,
         ) -> Result<<StopRecording as Message>::Reply, actlet::Error> {
-            match msg.program_id.eid().value() {
+            match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::RecorderNotFound)),
                 _ => Ok(Ok(())),
             }

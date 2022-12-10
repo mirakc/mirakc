@@ -43,8 +43,8 @@ mod body;
 mod default_headers;
 mod error;
 mod escape;
-mod sse;
 mod qs;
+mod sse;
 mod uds;
 
 #[cfg(test)]

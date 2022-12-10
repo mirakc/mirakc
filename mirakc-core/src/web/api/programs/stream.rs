@@ -1,7 +1,7 @@
 use super::*;
 
-use crate::web::api::stream::streaming;
 use crate::web::api::stream::do_head_stream;
+use crate::web::api::stream::streaming;
 
 /// Gets a media stream of a program.
 #[utoipa::path(

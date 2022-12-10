@@ -1,7 +1,3 @@
-use std::env;
-use std::fmt;
-use std::io;
-
 use crate::command_util;
 
 #[derive(Debug, thiserror::Error)]
@@ -44,10 +40,12 @@ pub enum Error {
     InvalidPath,
     #[error("Command failed: {0}")]
     CommandFailed(command_util::Error),
-    #[error("std::fmt::error: {0}")]
-    FmtError(fmt::Error),
-    #[error("std::io::error: {0}")]
-    IoError(io::Error),
+    #[error("std::fmt error: {0}")]
+    FmtError(std::fmt::Error),
+    #[error("std::io error: {0}")]
+    IoError(std::io::Error),
+    #[error("std::num error: {0}")]
+    ParseIntError(std::num::ParseIntError),
     #[error("JSON error: {0}")]
     JsonError(serde_json::Error),
     #[error("YAML error: {0}")]
@@ -57,7 +55,7 @@ pub enum Error {
     #[error("Mustache error: {0}")]
     MustacheError(mustache::Error),
     #[error("std::env error: {0}")]
-    EnvVarError(env::VarError),
+    EnvVarError(std::env::VarError),
     #[error("tokio::sync::broadcast error: {0:?}")]
     TokioSyncBroadcastError(tokio::sync::broadcast::error::RecvError),
     #[error("hyper error: {0:?}")]
@@ -76,15 +74,21 @@ impl From<command_util::Error> for Error {
     }
 }
 
-impl From<fmt::Error> for Error {
-    fn from(err: fmt::Error) -> Self {
+impl From<std::fmt::Error> for Error {
+    fn from(err: std::fmt::Error) -> Self {
         Self::FmtError(err)
     }
 }
 
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
         Self::IoError(err)
+    }
+}
+
+impl From<std::num::ParseIntError> for Error {
+    fn from(err: std::num::ParseIntError) -> Self {
+        Self::ParseIntError(err)
     }
 }
 
@@ -118,8 +122,8 @@ impl From<mustache::EncoderError> for Error {
     }
 }
 
-impl From<env::VarError> for Error {
-    fn from(err: env::VarError) -> Self {
+impl From<std::env::VarError> for Error {
+    fn from(err: std::env::VarError) -> Self {
         Self::EnvVarError(err)
     }
 }

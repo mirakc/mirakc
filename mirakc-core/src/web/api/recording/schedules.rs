@@ -30,7 +30,7 @@ where
     for schedule in schedules.into_iter() {
         let program = state
             .epg
-            .call(epg::QueryProgram::ByMirakurunProgramId(schedule.program_id))
+            .call(epg::QueryProgram::ByProgramQuad(schedule.program_quad))
             .await??;
         results.push(WebRecordingSchedule {
             program: program.into(),
@@ -72,7 +72,9 @@ where
         .await??;
     let schedule = state
         .recording_manager
-        .call(recording::QueryRecordingSchedule { program_id })
+        .call(recording::QueryRecordingSchedule {
+            program_quad: program.quad,
+        })
         .await??;
     Ok(Json(WebRecordingSchedule {
         program: program.into(),
@@ -128,7 +130,7 @@ where
         .await??;
 
     let schedule = Schedule {
-        program_id: input.program_id,
+        program_quad: program.quad,
         content_path: input.content_path,
         priority: input.priority,
         pre_filters: input.pre_filters,
@@ -173,11 +175,19 @@ pub(in crate::web::api) async fn delete<T, E, R, S>(
     Path(program_id): Path<MirakurunProgramId>,
 ) -> Result<(), Error>
 where
+    E: Call<epg::QueryProgram>,
     R: Call<recording::RemoveRecordingSchedule>,
 {
+    let program = state
+        .epg
+        .call(epg::QueryProgram::ByMirakurunProgramId(program_id))
+        .await??;
+
     state
         .recording_manager
-        .call(recording::RemoveRecordingSchedule { program_id })
+        .call(recording::RemoveRecordingSchedule {
+            program_quad: program.quad,
+        })
         .await??;
     Ok(())
 }

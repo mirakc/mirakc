@@ -26,17 +26,23 @@ where
 
     state
         .epg
-        .call(crate::epg::RegisterEmitter::ProgramsUpdated(feeder.clone().into()))
+        .call(crate::epg::RegisterEmitter::ProgramsUpdated(
+            feeder.clone().into(),
+        ))
         .await?;
 
     state
         .recording_manager
-        .call(crate::recording::RegisterEmitter::RecordingStarted(feeder.clone().into()))
+        .call(crate::recording::RegisterEmitter::RecordingStarted(
+            feeder.clone().into(),
+        ))
         .await?;
 
     state
         .recording_manager
-        .call(crate::recording::RegisterEmitter::RecordingStopped(feeder.clone().into()))
+        .call(crate::recording::RegisterEmitter::RecordingStopped(
+            feeder.clone().into(),
+        ))
         .await?;
 
     Ok(Sse::new(ReceiverStream::new(receiver)).keep_alive(Default::default()))
@@ -88,7 +94,9 @@ impl EpgProgramsUpdated {
 
 impl From<crate::epg::ProgramsUpdated> for EpgProgramsUpdated {
     fn from(msg: crate::epg::ProgramsUpdated) -> Self {
-        EpgProgramsUpdated { service_id: msg.service_triple.into() }
+        EpgProgramsUpdated {
+            service_id: msg.service_triple.into(),
+        }
     }
 }
 
@@ -106,7 +114,9 @@ impl RecordingStarted {
 
 impl From<crate::recording::RecordingStarted> for RecordingStarted {
     fn from(msg: crate::recording::RecordingStarted) -> Self {
-        RecordingStarted { program_id: msg.program_id }
+        RecordingStarted {
+            program_id: msg.program_quad.into(),
+        }
     }
 }
 
@@ -126,7 +136,7 @@ impl RecordingStopped {
 impl From<crate::recording::RecordingStopped> for RecordingStopped {
     fn from(msg: crate::recording::RecordingStopped) -> Self {
         RecordingStopped {
-            program_id: msg.program_id,
+            program_id: msg.program_quad.into(),
             result: msg.result,
         }
     }

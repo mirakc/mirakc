@@ -50,5 +50,6 @@ utoipa-swagger-ui = { version = "3.0.1", features = ["axum"] }
 [dev-dependencies]
 assert_matches = "1.5.0"
 axum-test-helper = { path = "../axum-test-helper" }
+mockall = "0.11.3"
 static_assertions = "1.1.0"
 tempfile = "3.3.0"

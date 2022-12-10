@@ -3,6 +3,7 @@ use std::env;
 use std::fmt;
 use std::io;
 use std::pin::Pin;
+use std::process::ExitStatus;
 use std::process::Stdio;
 use std::task::Context;
 use std::task::Poll;
@@ -122,7 +123,10 @@ where
             self.stdin = process.stdin.take();
         }
         self.stdout = process.stdout.take();
-        self.commands.push(CommandData { command, process });
+        self.commands.push(CommandData {
+            command,
+            process,
+        });
 
         Ok(())
     }
@@ -162,6 +166,17 @@ where
         Ok((input, output))
     }
 
+    pub async fn wait(&mut self) -> Vec<io::Result<ExitStatus>> {
+        let mut result = Vec::with_capacity(self.commands.len());
+        let _enter = self.span.enter();
+        tracing::debug!("Wait for the command pipeline termination...");
+        let commands = std::mem::replace(&mut self.commands, vec![]);
+        for mut data in commands.into_iter() {
+            result.push(data.process.wait().await);
+        }
+        result
+    }
+
     fn log_to_console(&mut self) {
         let streams = self
             .commands
@@ -186,29 +201,32 @@ where
 {
     fn drop(&mut self) {
         let _enter = self.span.enter();
-        for data in self.commands.iter() {
-            let command = &data.command;
-            match data.process.id() {
-                Some(pid) => tracing::debug!(pid, command, "Kill"),
-                None => tracing::debug!(command, "Already terminated"),
-            }
-        }
-        tracing::debug!("Wait for the command pipeline termination...");
-        for data in self.commands.iter_mut() {
-            // Always send a SIGKILL to the process.
-            let _ = data.process.start_kill();
-
-            // It's necessary to wait for the process termination because the process may
-            // exclusively use resources like a tuner device.
-            //
-            // However, we cannot wait for any async task here, so we wait for the process
-            // termination in a busy loop.
-            loop {
-                match data.process.try_wait() {
-                    Ok(None) => (),
-                    _ => break,
+        if !self.commands.is_empty() {
+            for data in self.commands.iter() {
+                let command = &data.command;
+                match data.process.id() {
+                    Some(pid) => tracing::debug!(pid, command, "Kill"),
+                    None => tracing::debug!(command, "Already terminated"),
                 }
-                sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
+            }
+            tracing::debug!("Wait for the command pipeline termination...");
+            for data in self.commands.iter_mut() {
+                // Always send a SIGKILL to the process.
+                let _ = data.process.start_kill();
+
+                // It's necessary to wait for the process termination because
+                // the process may  exclusively use resources like a tuner
+                // device.
+                //
+                // However, we cannot wait for any async task here, so we wait
+                // for the process termination in a busy loop.
+                loop {
+                    match data.process.try_wait() {
+                        Ok(None) => (),
+                        _ => break,
+                    }
+                    sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
+                }
             }
         }
         tracing::debug!("The command pipeline has terminated");

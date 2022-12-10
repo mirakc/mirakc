@@ -315,6 +315,12 @@ where
     }
 }
 
+impl<M> std::fmt::Debug for Emitter<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Emitter<{}>", std::any::type_name::<M>())
+    }
+}
+
 #[async_trait]
 impl<M> Emit<M> for Emitter<M>
 where

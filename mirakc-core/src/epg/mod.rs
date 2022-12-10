@@ -1181,7 +1181,7 @@ impl Into<MirakurunChannelService> for EpgService {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EpgProgram {
     pub quad: ProgramQuad,
     #[serde(with = "serde_jst")]

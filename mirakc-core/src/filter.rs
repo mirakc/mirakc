@@ -26,7 +26,7 @@ impl FilterPipelineBuilder {
         &mut self,
         pre_filters: &HashMap<String, FilterConfig>,
         names: &Vec<String>,
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         for name in names.iter() {
             if pre_filters.contains_key(name) {
                 self.add_pre_filter(&pre_filters[name], name)?;
@@ -34,54 +34,54 @@ impl FilterPipelineBuilder {
                 tracing::warn!("No such pre-filter: {}", name);
             }
         }
-        Ok(())
+        Ok(self.filters.len())
     }
 
-    pub fn add_pre_filter(&mut self, config: &FilterConfig, name: &str) -> Result<(), Error> {
+    pub fn add_pre_filter(&mut self, config: &FilterConfig, name: &str) -> Result<usize, Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("pre-filter({}) not valid", name);
         } else {
             self.filters.push(filter);
         }
-        Ok(())
+        Ok(self.filters.len())
     }
 
-    pub fn add_service_filter(&mut self, config: &FilterConfig) -> Result<(), Error> {
+    pub fn add_service_filter(&mut self, config: &FilterConfig) -> Result<usize, Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("service-filter not valid");
         } else {
             self.filters.push(filter);
         }
-        Ok(())
+        Ok(self.filters.len())
     }
 
-    pub fn add_decode_filter(&mut self, config: &FilterConfig) -> Result<(), Error> {
+    pub fn add_decode_filter(&mut self, config: &FilterConfig) -> Result<usize, Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("decode-filter not valid");
         } else {
             self.filters.push(filter);
         }
-        Ok(())
+        Ok(self.filters.len())
     }
 
-    pub fn add_program_filter(&mut self, config: &FilterConfig) -> Result<(), Error> {
+    pub fn add_program_filter(&mut self, config: &FilterConfig) -> Result<usize, Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("program-filter not valid");
         } else {
             self.filters.push(filter);
         }
-        Ok(())
+        Ok(self.filters.len())
     }
 
     pub fn add_post_filters(
         &mut self,
         post_filters: &HashMap<String, PostFilterConfig>,
         names: &Vec<String>,
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         for name in names.iter() {
             if post_filters.contains_key(name) {
                 self.add_post_filter(&post_filters[name], name)?;
@@ -89,10 +89,14 @@ impl FilterPipelineBuilder {
                 tracing::warn!("No such post-filter: {}", name);
             }
         }
-        Ok(())
+        Ok(self.filters.len())
     }
 
-    pub fn add_post_filter(&mut self, config: &PostFilterConfig, name: &str) -> Result<(), Error> {
+    pub fn add_post_filter(
+        &mut self,
+        config: &PostFilterConfig,
+        name: &str,
+    ) -> Result<usize, Error> {
         let filter = self.make_filter(&config.command)?;
         if filter.is_empty() {
             tracing::warn!("post-filter({}) not valid", name);
@@ -102,7 +106,7 @@ impl FilterPipelineBuilder {
                 self.content_type = content_type.clone();
             }
         }
-        Ok(())
+        Ok(self.filters.len())
     }
 
     pub fn make_filter(&self, command: &str) -> Result<String, Error> {

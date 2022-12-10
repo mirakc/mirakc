@@ -68,6 +68,8 @@ pub struct Config {
     #[serde(default)]
     pub scripts: ScriptsConfig,
     #[serde(default)]
+    pub onair_trackers: OnairTrackersConfig,
+    #[serde(default)]
     pub resource: ResourceConfig,
 }
 
@@ -909,6 +911,29 @@ pub enum Concurrency {
 impl Default for Concurrency {
     fn default() -> Self {
         Concurrency::Number(1)
+    }
+}
+
+#[derive(Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
+pub struct OnairTrackersConfig {
+    #[serde(default = "OnairTrackersConfig::default_local")]
+    pub local: String,
+}
+
+impl OnairTrackersConfig {
+    fn default_local() -> String {
+        "mirakc-arib collect-eitpf --sids={{{sid}}}".to_string()
+    }
+}
+
+impl Default for OnairTrackersConfig {
+    fn default() -> Self {
+        OnairTrackersConfig {
+            local: Self::default_local(),
+        }
     }
 }
 
