@@ -1399,7 +1399,7 @@ pub struct RecorderModel {
 }
 
 impl EpgProgram {
-    const METADATA_FILE_DATE_FORMAT: &'static str = "%Y-%d-%m-%H%M";
+    const METADATA_FILE_DATE_FORMAT: &'static str = "%Y-%m-%d-%H%M";
 
     pub(crate) fn record_id(&self) -> String {
         let datetime = self.start_at.format(Self::METADATA_FILE_DATE_FORMAT);
