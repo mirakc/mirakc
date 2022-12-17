@@ -38,8 +38,8 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
         .map(|nanos| Duration::from_nanos(nanos))
         .unwrap_or(COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT);
     tracing::debug!(
-        "MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: {}",
-        humantime::format_duration(nanos)
+        parent: None,
+        MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS = %humantime::format_duration(nanos),
     );
     nanos
 });
@@ -89,6 +89,7 @@ where
 struct CommandData {
     command: String,
     process: Child,
+    span: Span,
 }
 
 impl<T> CommandPipeline<T>
@@ -123,7 +124,12 @@ where
             self.stdin = process.stdin.take();
         }
         self.stdout = process.stdout.take();
-        self.commands.push(CommandData { command, process });
+        let span = tracing::debug_span!("child", pid = process.id().unwrap());
+        self.commands.push(CommandData {
+            command,
+            process,
+            span,
+        });
 
         Ok(())
     }
@@ -166,11 +172,14 @@ where
     pub async fn wait(&mut self) -> Vec<io::Result<ExitStatus>> {
         let mut result = Vec::with_capacity(self.commands.len());
         let _enter = self.span.enter();
-        tracing::debug!("Wait for the command pipeline termination...");
+        tracing::debug!("Wait for termination...");
         let commands = std::mem::replace(&mut self.commands, vec![]);
         for mut data in commands.into_iter() {
+            let _enter = data.span.enter();
+            tracing::debug!("Wait for termination...");
             result.push(data.process.wait().await);
         }
+        tracing::debug!("Terminated");
         result
     }
 
@@ -198,35 +207,36 @@ where
 {
     fn drop(&mut self) {
         let _enter = self.span.enter();
-        if !self.commands.is_empty() {
-            for data in self.commands.iter() {
-                let command = &data.command;
-                match data.process.id() {
-                    Some(pid) => tracing::debug!(pid, command, "Kill"),
-                    None => tracing::debug!(command, "Already terminated"),
-                }
-            }
-            tracing::debug!("Wait for the command pipeline termination...");
-            for data in self.commands.iter_mut() {
-                // Always send a SIGKILL to the process.
-                let _ = data.process.start_kill();
+        if self.commands.is_empty() {
+            // Already terminated.
+            return;
+        }
+        for mut data in std::mem::replace(&mut self.commands, vec![]).into_iter() {
+            let _enter = data.span.enter();
+            match data.process.id() {
+                Some(_) => {
+                    // Always send a SIGKILL to the process.
+                    tracing::debug!("Kill");
+                    let _ = data.process.start_kill();
 
-                // It's necessary to wait for the process termination because
-                // the process may  exclusively use resources like a tuner
-                // device.
-                //
-                // However, we cannot wait for any async task here, so we wait
-                // for the process termination in a busy loop.
-                loop {
-                    match data.process.try_wait() {
-                        Ok(None) => (),
-                        _ => break,
+                    // It's necessary to wait for the process termination because
+                    // the process may  exclusively use resources like a tuner
+                    // device.
+                    //
+                    // However, we cannot wait for any async task here, so we wait
+                    // for the process termination in a busy loop.
+                    loop {
+                        match data.process.try_wait() {
+                            Ok(None) => (),
+                            _ => break,
+                        }
+                        sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
                     }
-                    sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
                 }
+                None => tracing::debug!("Already terminated"),
             }
         }
-        tracing::debug!("The command pipeline has terminated");
+        tracing::debug!("Terminated");
     }
 }
 
@@ -400,10 +410,7 @@ impl<'a> CommandBuilder<'a> {
             .spawn()
             .map_err(|err| Error::UnableToSpawn(self.command.to_string(), err))?;
 
-        let pid = child.id().unwrap();
-        let command = &self.command;
-
-        let span = tracing::debug_span!("child", pid, command);
+        let span = tracing::debug_span!("child", pid = child.id().unwrap());
         let _enter = span.enter();
 
         if self.logging.is_default() {
@@ -420,7 +427,7 @@ impl<'a> CommandBuilder<'a> {
             }
         }
 
-        tracing::debug!("Spawned");
+        tracing::debug!(command = self.command, "Spawned");
         Ok(child)
     }
 }
