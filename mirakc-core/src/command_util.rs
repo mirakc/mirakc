@@ -123,10 +123,7 @@ where
             self.stdin = process.stdin.take();
         }
         self.stdout = process.stdout.take();
-        self.commands.push(CommandData {
-            command,
-            process,
-        });
+        self.commands.push(CommandData { command, process });
 
         Ok(())
     }

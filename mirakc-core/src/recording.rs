@@ -42,6 +42,9 @@ use crate::tuner::StopStreaming;
 use crate::tuner::TunerStreamStopTrigger;
 use crate::tuner::TunerSubscriptionId;
 
+const EXIT_RETRY: i32 = 222;
+const PREP_SECS: i64 = 15;
+
 pub struct RecordingManager<T, E, O> {
     config: Arc<Config>,
     tuner_manager: T,
@@ -55,8 +58,6 @@ pub struct RecordingManager<T, E, O> {
     recording_started_emitters: Vec<Emitter<RecordingStarted>>,
     recording_stopped_emitters: Vec<Emitter<RecordingStopped>>,
 }
-
-const PREP_SECS: i64 = 15;
 
 impl<T, E, O> RecordingManager<T, E, O>
 where
@@ -234,7 +235,8 @@ where
         let fut = async move {
             let _ = stream.pipe(input).await;
         };
-        let fut = fut.instrument(tracing::info_span!(parent: None, "pipeline", id = %pipeline.id()));
+        let fut =
+            fut.instrument(tracing::info_span!(parent: None, "pipeline", id = %pipeline.id()));
         ctx.spawn_task(fut);
 
         // Metadata file is always saved in the `records_dir` and no additional
@@ -1378,10 +1380,12 @@ impl Recorder {
             .await
             .iter()
             .any(|result| match result {
-                Ok(status) => if let Some(2) = status.code() {
-                    true
-                } else {
-                    false
+                Ok(status) => {
+                    if let Some(EXIT_RETRY) = status.code() {
+                        true
+                    } else {
+                        false
+                    }
                 }
                 _ => false,
             })
@@ -1569,7 +1573,11 @@ mod tests {
         assert!(!retry);
 
         // no such command
-        let pipeline = spawn_pipeline(vec!["sh -c 'command_not_found'".to_string()], Default::default()).unwrap();
+        let pipeline = spawn_pipeline(
+            vec!["sh -c 'command_not_found'".to_string()],
+            Default::default(),
+        )
+        .unwrap();
         let mut recorder = Recorder {
             schedule: schedule.clone(),
             start_time: now,
@@ -1580,8 +1588,11 @@ mod tests {
         assert!(!retry);
 
         // retry
-        let pipeline =
-            spawn_pipeline(vec!["sh -c 'exit 2'".to_string()], Default::default()).unwrap();
+        let pipeline = spawn_pipeline(
+            vec![format!("sh -c 'exit {}'", EXIT_RETRY)],
+            Default::default(),
+        )
+        .unwrap();
         let mut recorder = Recorder {
             schedule: schedule.clone(),
             start_time: now,
