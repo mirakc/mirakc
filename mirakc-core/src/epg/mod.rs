@@ -490,7 +490,8 @@ where
     ) -> <QueryChannel as Message>::Reply {
         tracing::debug!(
             msg.name = "QueryChannel",
-            msg.channel = format!("{}/{}", msg.channel_type, msg.channel),
+            %msg.channel_type,
+            msg.channel,
         );
         self.config
             .channels

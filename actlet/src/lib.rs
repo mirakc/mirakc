@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 use tracing::Span;
 
 #[cfg(feature = "derive")]
@@ -235,7 +236,7 @@ where
     async fn emit(&self, msg: M) {
         let dispatcher = Box::new(SignalDispatcher::new(msg));
         if let Err(_) = self.sender.send(dispatcher).await {
-            tracing::warn!("{} stopped", type_name::<A>());
+            tracing::warn!(actor = type_name::<A>(), "Stopped");
         }
     }
 
@@ -252,12 +253,12 @@ where
                 let sender = self.sender.clone();
                 tokio::spawn(async move {
                     if let Err(_) = sender.send(dispatcher).await {
-                        tracing::warn!("{} stopped", type_name::<A>());
+                        tracing::warn!(actor = type_name::<A>(), "Stopped");
                     }
                 });
             }
             Err(TrySendError::Closed(_)) => {
-                tracing::warn!("{} stopped", type_name::<A>());
+                tracing::warn!(actor = type_name::<A>(), "Stopped");
             }
         }
     }
@@ -514,13 +515,16 @@ where
     A: Handler<M>,
     M: Action,
 {
+    // Don't use Span::enter() in async functions.
     async fn dispatch(mut self: Box<Self>, actor: &mut A, ctx: &mut Context<A>) {
-        let _enter = self.span.enter();
         let message = self.message.take().unwrap();
         let sender = self.sender.take().unwrap();
-        let reply = actor.handle(message, ctx).await;
+        let reply = actor
+            .handle(message, ctx)
+            .instrument(self.span.clone())
+            .await;
         if sender.send(reply).is_err() {
-            tracing::error!("Failed to send a reply, {} stopped", type_name::<A>());
+            tracing::error!(parent: &self.span, "Failed to send a reply, {} stopped", type_name::<A>());
         }
     }
 }
@@ -530,7 +534,6 @@ where
     M: Signal,
 {
     message: Option<M>,
-    span: Span,
 }
 
 impl<M> SignalDispatcher<M>
@@ -538,10 +541,7 @@ where
     M: Signal,
 {
     fn new(msg: M) -> Self {
-        SignalDispatcher {
-            message: Some(msg),
-            span: Span::current(),
-        }
+        SignalDispatcher { message: Some(msg) }
     }
 }
 
@@ -552,7 +552,6 @@ where
     M: Signal,
 {
     async fn dispatch(mut self: Box<Self>, actor: &mut A, ctx: &mut Context<A>) {
-        let _enter = self.span.enter();
         let message = self.message.take().unwrap();
         actor.handle(message, ctx).await;
     }

@@ -15,7 +15,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::BufWriter;
 use tokio_util::sync::CancellationToken;
-use tracing::Instrument;
 
 use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipeline;
@@ -235,8 +234,6 @@ where
         let fut = async move {
             let _ = stream.pipe(input).await;
         };
-        let fut =
-            fut.instrument(tracing::info_span!(parent: None, "pipeline", id = %pipeline.id()));
         ctx.spawn_task(fut);
 
         // Metadata file is always saved in the `records_dir` and no additional

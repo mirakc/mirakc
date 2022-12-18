@@ -109,7 +109,7 @@ impl<E, R> ScriptRunner<E, R> {
     ) -> impl Future<Output = ()> {
         let fut = Self::run_epg_programs_updated_script(self.config.clone(), service_triple.into());
         wrap(self.semaphore.clone(), fut)
-            .instrument(tracing::info_span!("epg-program-updated-script", %service_triple))
+            .instrument(tracing::info_span!("epg-program-updated", %service_triple))
     }
 
     async fn run_epg_programs_updated_script(
@@ -153,7 +153,7 @@ impl<E, R> ScriptRunner<E, R> {
     ) -> impl Future<Output = ()> {
         let fut = Self::run_recording_started_script(self.config.clone(), program_id);
         wrap(self.semaphore.clone(), fut)
-            .instrument(tracing::info_span!("recording-started-script", %program_id))
+            .instrument(tracing::info_span!("recording-started", %program_id))
     }
 
     async fn run_recording_started_script(
@@ -198,7 +198,7 @@ impl<E, R> ScriptRunner<E, R> {
     ) -> impl Future<Output = ()> {
         let fut = Self::run_recording_stopped_script(self.config.clone(), program_id, result);
         wrap(self.semaphore.clone(), fut)
-            .instrument(tracing::info_span!("recording-stopped-script", %program_id))
+            .instrument(tracing::info_span!("recording-stopped", %program_id))
     }
 
     async fn run_recording_stopped_script(

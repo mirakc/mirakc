@@ -171,6 +171,8 @@ impl<T, E> OnairTracker<T, E> {
         match self.entries.get_mut(&service_triple) {
             Some(entry) => {
                 if let Some(_) = entry.emitters.remove(&name) {
+                    tracing::info!(%service_triple, name, "Removed");
+                } else {
                     tracing::warn!(%service_triple, name, "No observer added");
                 }
                 // Keep the entry even if there is no observer in it so that we
@@ -218,27 +220,28 @@ where
     async fn update_onair_programs(&mut self) {
         let mut entries = HashMap::with_capacity(self.entries.len());
 
-        for (triple, mut entry) in
+        for (service_triple, mut entry) in
             std::mem::replace(&mut self.entries, Default::default()).into_iter()
         {
             // Remove entries which have no observer.
             if entry.emitters.is_empty() {
+                tracing::info!(%service_triple, "Removed");
                 continue;
             }
 
-            let changed = Self::update_onair_program(
+            let updated = Self::update_onair_program(
                 &self.config,
                 &self.tuner_manager,
                 &self.epg,
-                triple,
+                service_triple,
                 &mut entry,
             )
             .await;
 
-            match changed {
+            match updated {
                 Ok(true) => {
                     let msg = OnairProgramChanged::from((
-                        triple,
+                        service_triple,
                         entry.present.as_ref(),
                         entry.following.as_ref(),
                     ));
@@ -250,11 +253,11 @@ where
                     // Nothing to do.
                 }
                 Err(err) => {
-                    tracing::error!(%err);
+                    tracing::error!(%err, %service_triple, "Failed to update");
                 }
             }
 
-            entries.insert(triple, entry);
+            entries.insert(service_triple, entry);
         }
 
         entries.shrink_to_fit();
@@ -268,7 +271,7 @@ where
         service_triple: ServiceTriple,
         entry: &mut Entry,
     ) -> Result<bool, Error> {
-        let mut changed = false;
+        let mut updated = false;
 
         let service = epg
             .call(crate::epg::QueryService::ByServiceTriple(service_triple))
@@ -304,13 +307,15 @@ where
             match section.section_number {
                 0 => {
                     if Self::is_changed(entry.present.as_ref(), &section) {
-                        changed = true;
+                        tracing::info!(%service_triple, "EIT[p] updated");
+                        updated = true;
                     }
                     entry.present = Some(section);
                 }
                 1 => {
                     if Self::is_changed(entry.following.as_ref(), &section) {
-                        changed = true;
+                        tracing::info!(%service_triple, "EIT[f] updated");
+                        updated = true;
                     }
                     entry.following = Some(section);
                 }
@@ -329,7 +334,7 @@ where
         // streaming in the next iteration.
         let _ = handle.await;
 
-        Ok(changed)
+        Ok(updated)
     }
 
     fn is_changed(old: Option<&EitSection>, new: &EitSection) -> bool {
@@ -589,6 +594,10 @@ mod tests {
         });
 
         tracker.update_onair_programs().await;
+        assert_eq!(tracker.entries.len(), 2);
+        for entry in tracker.entries.values() {
+            assert_eq!(entry.emitters.len(), 1);
+        }
     }
 
     #[tokio::test]

@@ -20,7 +20,6 @@ use tokio::process::ChildStdout;
 use tokio::process::Command;
 use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
-use tracing::instrument;
 use tracing::Instrument;
 use tracing::Span;
 
@@ -47,12 +46,14 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
 // Spawn processes for input commands and build a pipeline, then returns it.
 // Input and output endpoints can be took from the pipeline only once
 // respectively.
-#[instrument(name = "pipeline", level = "debug", skip_all, fields(%id))]
 pub fn spawn_pipeline<T>(commands: Vec<String>, id: T) -> Result<CommandPipeline<T>, Error>
 where
     T: fmt::Display + Clone + Unpin,
 {
-    let mut pipeline = CommandPipeline::new(id);
+    let span = tracing::debug_span!(parent: None, "pipeline", %id);
+    // We can safely use Span::enter() in non-async functions.
+    let _enter = span.enter();
+    let mut pipeline = CommandPipeline::new(id, span.clone());
     for command in commands.into_iter() {
         pipeline.spawn(command)?;
     }
@@ -96,7 +97,7 @@ impl<T> CommandPipeline<T>
 where
     T: Clone + Unpin,
 {
-    fn new(id: T) -> Self {
+    fn new(id: T, span: Span) -> Self {
         let (sender, _) = broadcast::channel(1);
         Self {
             id,
@@ -104,7 +105,7 @@ where
             stdin: None,
             stdout: None,
             commands: Vec::new(),
-            span: Span::current(),
+            span,
         }
     }
 
@@ -169,17 +170,16 @@ where
         Ok((input, output))
     }
 
+    // Don't use Span::enter() in async functions.
     pub async fn wait(&mut self) -> Vec<io::Result<ExitStatus>> {
         let mut result = Vec::with_capacity(self.commands.len());
-        let _enter = self.span.enter();
-        tracing::debug!("Wait for termination...");
+        tracing::debug!(parent: &self.span, "Wait for termination...");
         let commands = std::mem::replace(&mut self.commands, vec![]);
         for mut data in commands.into_iter() {
-            let _enter = data.span.enter();
-            tracing::debug!("Wait for termination...");
-            result.push(data.process.wait().await);
+            tracing::debug!(parent: &data.span, "Wait for termination...");
+            result.push(data.process.wait().instrument(data.span.clone()).await);
         }
-        tracing::debug!("Terminated");
+        tracing::debug!(parent: &self.span, "Terminated");
         result
     }
 
@@ -196,8 +196,7 @@ where
                 tracing::debug!("{}", String::from_utf8_lossy(&raw).trim_end());
             }
         };
-        let fut = fut.instrument(self.span.clone());
-        tokio::spawn(fut);
+        tokio::spawn(fut.instrument(self.span.clone()));
     }
 }
 
@@ -206,6 +205,7 @@ where
     T: Clone + Unpin,
 {
     fn drop(&mut self) {
+        // We can safely use Span::enter() in non-async functions.
         let _enter = self.span.enter();
         if self.commands.is_empty() {
             // Already terminated.
@@ -411,6 +411,7 @@ impl<'a> CommandBuilder<'a> {
             .map_err(|err| Error::UnableToSpawn(self.command.to_string(), err))?;
 
         let span = tracing::debug_span!("child", pid = child.id().unwrap());
+        // We can safely use Span::enter() in non-async functions.
         let _enter = span.enter();
 
         if self.logging.is_default() {
@@ -422,8 +423,7 @@ impl<'a> CommandBuilder<'a> {
                         tracing::debug!("{}", String::from_utf8_lossy(&raw).trim_end());
                     }
                 };
-                let fut = fut.instrument(span.clone());
-                tokio::spawn(fut);
+                tokio::spawn(fut.instrument(span.clone()));
             }
         }
 
