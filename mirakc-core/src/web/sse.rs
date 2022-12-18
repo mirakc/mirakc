@@ -45,6 +45,13 @@ where
         ))
         .await?;
 
+    state
+        .recording_manager
+        .call(crate::recording::RegisterEmitter::RecordingFailed(
+            feeder.clone().into(),
+        ))
+        .await?;
+
     Ok(Sse::new(ReceiverStream::new(receiver)).keep_alive(Default::default()))
 }
 
@@ -77,6 +84,7 @@ macro_rules! impl_emit {
 impl_emit!(crate::epg::ProgramsUpdated, EpgProgramsUpdated);
 impl_emit!(crate::recording::RecordingStarted, RecordingStarted);
 impl_emit!(crate::recording::RecordingStopped, RecordingStopped);
+impl_emit!(crate::recording::RecordingFailed, RecordingFailed);
 
 // events
 
@@ -138,6 +146,26 @@ impl From<crate::recording::RecordingStopped> for RecordingStopped {
         RecordingStopped {
             program_id: msg.program_quad.into(),
             result: msg.result,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordingFailed {
+    program_id: MirakurunProgramId,
+}
+
+impl RecordingFailed {
+    const fn name() -> &'static str {
+        "recording.failed"
+    }
+}
+
+impl From<crate::recording::RecordingFailed> for RecordingFailed {
+    fn from(msg: crate::recording::RecordingFailed) -> Self {
+        RecordingFailed {
+            program_id: msg.program_quad.into(),
         }
     }
 }

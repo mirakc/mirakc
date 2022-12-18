@@ -56,6 +56,7 @@ pub struct RecordingManager<T, E, O> {
     timer_token: Option<CancellationToken>,
     recording_started_emitters: Vec<Emitter<RecordingStarted>>,
     recording_stopped_emitters: Vec<Emitter<RecordingStopped>>,
+    recording_failed_emitters: Vec<Emitter<RecordingFailed>>,
 }
 
 impl<T, E, O> RecordingManager<T, E, O>
@@ -85,6 +86,7 @@ where
             timer_token: None,
             recording_started_emitters: Default::default(),
             recording_stopped_emitters: Default::default(),
+            recording_failed_emitters: Default::default(),
         }
     }
 
@@ -388,7 +390,14 @@ impl<T, E, O> RecordingManager<T, E, O> {
             Ok(schedules) => {
                 tracing::info!(?path, "Loaded");
                 for schedule in schedules.into_iter() {
-                    let _ = self.add_schedule(schedule);
+                    if let Err(_err) = self.add_schedule(schedule) {
+                        // TODO
+                        // ----
+                        // Should emit RecordingFailed messages when the
+                        // schedule has been expired.  However, no observer is
+                        // registered at this point.  Because this function is
+                        // called from Actor::started()...
+                    }
                 }
             }
             Err(err) => {
@@ -1068,6 +1077,7 @@ where
 pub enum RegisterEmitter {
     RecordingStarted(Emitter<RecordingStarted>),
     RecordingStopped(Emitter<RecordingStopped>),
+    RecordingFailed(Emitter<RecordingFailed>),
 }
 
 #[async_trait]
@@ -1092,10 +1102,13 @@ where
     ) -> <RegisterEmitter as Message>::Reply {
         match msg {
             RegisterEmitter::RecordingStarted(emitter) => {
-                self.recording_started_emitters.push(emitter)
+                self.recording_started_emitters.push(emitter);
             }
             RegisterEmitter::RecordingStopped(emitter) => {
-                self.recording_stopped_emitters.push(emitter)
+                self.recording_stopped_emitters.push(emitter);
+            }
+            RegisterEmitter::RecordingFailed(emitter) => {
+                self.recording_failed_emitters.push(emitter);
             }
         }
     }
@@ -1219,6 +1232,21 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 }
 
+// recording failed
+
+#[derive(Clone, Message)]
+pub struct RecordingFailed {
+    pub program_quad: ProgramQuad,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_recording_failed(&self, program_quad: ProgramQuad) {
+        for emitter in self.recording_failed_emitters.iter() {
+            emitter.emit(RecordingFailed { program_quad }).await;
+        }
+    }
+}
+
 // on-air program changed
 
 #[async_trait]
@@ -1247,8 +1275,8 @@ where
                 tracing::info!(%program_quad, %program.start_at,
                                "Already started, start recording");
                 if let Err(err) = self.start_recording(schedule, ctx).await {
-                    // TODO: notify error of script runner
                     tracing::error!(%err, %program_quad, "Failed in retry");
+                    self.emit_recording_failed(program_quad).await;
                 }
             }
         }
@@ -1260,8 +1288,8 @@ where
                     tracing::info!(%program_quad, %program.start_at,
                                    "Will start soon, start recording");
                     if let Err(err) = self.start_recording(schedule, ctx).await {
-                        // TODO: notify error of script runner
                         tracing::error!(%err, %program_quad, "Failed in retry");
+                        self.emit_recording_failed(program_quad).await;
                     }
                 } else {
                     tracing::info!(%program_quad, %program.start_at, "Reschedule");
@@ -1280,8 +1308,8 @@ where
                             self.set_timer(ctx);
                         }
                         Err(err) => {
-                            // TODO: notify error of script runner
                             tracing::error!(%err, %program_quad, "Failed in retry");
+                            self.emit_recording_failed(program_quad).await;
                         }
                     }
                 }
@@ -1418,6 +1446,8 @@ pub struct Record {
     pub post_filters: Vec<String>,
     pub tags: HashSet<String>,
 }
+
+pub struct RecordId(DateTime<Jst>, ProgramQuad);
 
 // <coverage:exclude>
 #[cfg(test)]

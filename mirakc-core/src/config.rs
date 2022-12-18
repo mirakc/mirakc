@@ -892,11 +892,31 @@ pub struct ScriptsConfig {
     #[serde(default)]
     pub concurrency: Concurrency,
     #[serde(default)]
-    pub epg_programs_updated: String,
+    pub epg: EpgScriptsConfig,
     #[serde(default)]
-    pub recording_started: String,
+    pub recording: RecordingScriptsConfig,
+}
+
+#[derive(Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
+pub struct EpgScriptsConfig {
     #[serde(default)]
-    pub recording_stopped: String,
+    pub programs_updated: String,
+}
+
+#[derive(Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
+pub struct RecordingScriptsConfig {
+    #[serde(default)]
+    pub started: String,
+    #[serde(default)]
+    pub stopped: String,
+    #[serde(default)]
+    pub failed: String,
 }
 
 #[derive(Clone, Deserialize, PartialEq)]

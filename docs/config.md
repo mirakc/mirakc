@@ -54,9 +54,11 @@ suitable for your environment.
 | [timeshift.recorders\[\].num-reserves]   | `!number 1`                       |
 | [timeshift.recorders\[\].priority]       | `128`                             |
 | [scripts.concurrency]                    | `1`                               |
-| [scripts.epg-programs-updated]           | `''`                              |
-| [scripts.recording-started]              | `''`                              |
-| [scripts.recording-stopped]              | `''`                              |
+| [scripts.epg.programs-updated]           | `''`                              |
+| [scripts.recording.started]              | `''`                              |
+| [scripts.recording.stopped]              | `''`                              |
+| [scripts.recording.failed]               | `''`                              |
+| [onair-trackers.local]                   | `mirakc-arib collect-eitpf --sids={{{sid}}}` |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
 
@@ -106,9 +108,11 @@ suitable for your environment.
 [timeshift.recorders\[\].num-reserves]: #timeshiftrecorders
 [timeshift.recorders\[\].priority]: #timeshiftrecorders
 [scripts.concurrency]: #scriptsconcurrency
-[scripts.epg-programs-updated]: #scriptsepg-programs-updated
-[scripts.recording-started]: #scriptsrecording-started
-[scripts.recording-stopped]: #scriptsrecording-stopped
+[scripts.epg.programs-updated]: #scriptsepgprograms-updated
+[scripts.recording.started]: #scriptsrecordingstarted
+[scripts.recording.stopped]: #scriptsrecordingstopped
+[scripts.recording.failed]: #scriptsrecordingfailed
+[onair-trackers.local]: #onair-trackerslocal
 [resource.strings-yaml]: #resourcestrings-yaml
 [resource.logos]: #resourcelogos
 
@@ -726,7 +730,7 @@ concurrency: !num-cpus 0.5
 concurrency: !unlimited
 ```
 
-### scripts.epg-programs-updated
+### scripts.epg.programs-updated
 
 A script to be executed when EPG programs of a service are updated.
 
@@ -739,7 +743,7 @@ let service_id = MirakurunServiceId::new(
 println!("{}", serde_json::to_string(&service_id)?);
 ```
 
-### scripts.recording-started
+### scripts.recording.started
 
 A script to be executed when recording for a program is started.
 
@@ -752,7 +756,7 @@ let program_id = MirakurunProgramId::new(
 println!("{}", serde_json::to_string(&program_id)?);
 ```
 
-### scripts.recording-stopped
+### scripts.recording.stopped
 
 A script to be executed when recording for a program is stopped.
 
@@ -771,14 +775,45 @@ println!("{}", serde_json::to_string(&program_id)?);
 println!("{}", serde_json::to_string(&result)?);
 ```
 
-## resource.strings-yaml
+### scripts.recording.failed
+
+A script to be executed when recording for a program is failed.
+
+Output from the following rust code is piped to the script:
+
+```rust
+let program_id = MirakurunProgramId::new(
+    NetworkId::from(1), ServiceId::from(2), EventId::from(3));
+
+println!("{}", serde_json::to_string(&program_id)?);
+```
+
+## onair-trackers
+
+Definitions of On-Air TV program trackers which can use used for tracking the
+current and next TV programs of a particular service.
+
+### onair-trackers.local
+
+A Mustache template string of a command which collects EIT[p/f] sections in
+NDJSON from a TS stream.  See the description of `mirakc-arib collect-eitpf -h`
+for details of the JSON format.
+
+Command template variables:
+
+* sid
+  * The 16-bit integer identifier of a service (SID)
+
+## resource
+
+### resource.strings-yaml
 
 `resource.strings-yaml` specifies a path to a YAML file which contains strings
 used in mirakc at runtime.
 
 > TODO: This might be obsoleted by other tools like GNU gettext in the future.
 
-## resource.logos
+### resource.logos
 
 `resource.logos` specifies a logo image for each service.
 
