@@ -655,9 +655,16 @@ recording:
 The value must be less than `24h`.  The value will be converted into the number
 of whole seconds and its fractional part will be ignored.
 
-`mirakc-arib filter-program` will wait the start of a TV program for an amount
-of time specified with `recording.max-start-delay` if it's specified.  In the
-meantime, `mirakc-arib filter-program` keeps a tuner device open.
+Streaming with `mirakc-arib filter-program` will wait the start of a TV program
+for an amount of time specified with `recording.max-start-delay` if it's
+specified.  In the meantime, `mirakc-arib filter-program` keeps a tuner device
+open.
+
+When a recording schedule for a TV program fails before the TV program starts,
+the recording will be rescheduled if the TV program will start within the value
+of `recording.max-start-delay`.
+
+`recording.max-start-delay` is disabled by default.
 
 ## timeshift
 
