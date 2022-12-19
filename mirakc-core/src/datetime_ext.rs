@@ -1,10 +1,5 @@
 use std::fmt;
 
-#[cfg(test)]
-use std::cell::Cell;
-#[cfg(test)]
-use std::sync::Mutex;
-
 use chrono::DateTime;
 use chrono::FixedOffset;
 use chrono::LocalResult;
@@ -14,9 +9,6 @@ use chrono::Offset;
 use chrono::TimeZone;
 use chrono::Utc;
 
-#[cfg(test)]
-use once_cell::sync::Lazy;
-
 // The following implementation is based on chrono::offset::Utc.
 //
 // See https://github.com/chronotope/chrono/blob/master/src/offset/utc.rs for
@@ -25,18 +17,8 @@ use once_cell::sync::Lazy;
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Jst;
 
-#[cfg(test)]
-static FREEZED: Lazy<Mutex<Cell<Option<DateTime<Jst>>>>> =
-    Lazy::new(|| Mutex::new(Cell::new(None)));
-
 impl Jst {
     pub fn now() -> DateTime<Jst> {
-        // <coverage:exclude>
-        #[cfg(test)]
-        if let Some(ref freezed) = FREEZED.lock().unwrap().get() {
-            return freezed.clone();
-        }
-        // <coverage:exclude>
         Utc::now().with_timezone(&Jst)
     }
 
@@ -51,13 +33,6 @@ impl Jst {
             .and_local_timezone(Jst)
             .unwrap()
     }
-
-    // <coverage:exclude>
-    #[cfg(test)]
-    pub fn freeze(freezed: DateTime<Jst>) {
-        FREEZED.lock().unwrap().set(Some(freezed));
-    }
-    // </coverage:exclude>
 }
 
 impl TimeZone for Jst {

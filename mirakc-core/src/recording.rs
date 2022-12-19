@@ -1267,7 +1267,6 @@ mod tests {
     #[test]
     fn test_add_schedule() {
         let now = Jst::now();
-        Jst::freeze(now);
 
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
@@ -1310,7 +1309,6 @@ mod tests {
     #[test]
     fn test_query_schedules() {
         let now = Jst::now();
-        Jst::freeze(now);
 
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
@@ -1340,7 +1338,6 @@ mod tests {
     #[test]
     fn test_remove_schedules() {
         let now = Jst::now();
-        Jst::freeze(now);
 
         let config = config_for_test("/tmp");
 
@@ -1365,9 +1362,15 @@ mod tests {
         assert!(manager.schedule_map.contains_key(&(0, 0, 0, 1).into()));
 
         // Schedules which will start soon are always retained.
-        Jst::freeze(now + Duration::seconds(PREP_SECS));
+        let mut schedule =
+            schedule_for_test((0, 0, 0, 3).into(), now + Duration::seconds(PREP_SECS - 1));
+        schedule.tags.insert("tag1".to_string());
+        let schedule = Arc::new(schedule);
+        manager.schedules.push(schedule.clone());
+        manager.schedule_map.insert((0, 0, 0, 3).into(), schedule);
         manager.remove_schedules(RemoveTarget::Tag("tag1".to_string()));
-        assert!(manager.schedule_map.contains_key(&(0, 0, 0, 1).into()));
+        assert!(!manager.schedule_map.contains_key(&(0, 0, 0, 1).into()));
+        assert!(manager.schedule_map.contains_key(&(0, 0, 0, 3).into()));
 
         // Remove all schedules regardless of whether a schedule will start soon
         // or not.
@@ -1438,7 +1441,6 @@ mod tests {
     #[ignore]
     async fn test_recording() {
         let now = Jst::now();
-        Jst::freeze(now);
 
         let temp_dir = TempDir::new().unwrap();
 
