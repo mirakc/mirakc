@@ -11,6 +11,6 @@ publish = false
 actlet = { path = "../actlet" }
 clap = { version = "4.0.29", features = ["derive", "env"] }
 mirakc-core = { path = "../mirakc-core" }
-serde_json = { version = "1.0.89", features = ["preserve_order"] }
+serde_json = { version = "1.0.91", features = ["preserve_order"] }
 tokio = { version = "1.23.0", features = ["full"] }
 tracing = "0.1.37"
