@@ -58,13 +58,10 @@ where
     E: Call<crate::epg::UpdateAirtime>,
     R: Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
-    R: Call<crate::recording::QueryRecordingRecord>,
     R: Call<crate::recording::QueryRecordingRecorder>,
     R: Call<crate::recording::QueryRecordingRecorders>,
-    R: Call<crate::recording::QueryRecordingRecords>,
     R: Call<crate::recording::QueryRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingSchedules>,
-    R: Call<crate::recording::RemoveRecordingRecord>,
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
     R: Call<crate::recording::StartRecording>,
@@ -155,19 +152,6 @@ where
             .route(
                 "/recording/recorders/:id",
                 routing::delete(recording::recorders::delete),
-            )
-            .route("/recording/records", routing::get(recording::records::list))
-            .route(
-                "/recording/records/:id",
-                routing::get(recording::records::get),
-            )
-            .route(
-                "/recording/records/:id",
-                routing::delete(recording::records::delete),
-            )
-            .route(
-                "/recording/records/:id/stream",
-                routing::get(recording::records::stream),
             );
     };
 
@@ -233,9 +217,6 @@ where
         recording::recorders::get,
         recording::recorders::create,
         recording::recorders::delete,
-        recording::records::list,
-        recording::records::get,
-        recording::records::delete,
         timeshift::list,
         timeshift::get,
         timeshift::stream,
@@ -248,7 +229,6 @@ where
             models::Status,
             models::Version,
             models::WebProcessModel,
-            models::WebRecordingRecord,
             models::WebRecordingRecorder,
             models::WebRecordingSchedule,
             models::WebRecordingScheduleInput,

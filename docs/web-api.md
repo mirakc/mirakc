@@ -31,10 +31,6 @@ Web API endpoints listed below have been implemented at this moment:
 | [POST /api/recording/recorders]                 |                            |
 | [GET /api/recording/recorders/{program_id}]     |                            |
 | [DELETE /api/recording/recorders/{program_id}]  |                            |
-| [GET /api/recording/records]                    |                            |
-| [GET /api/recording/records/{id}]               |                            |
-| [DELETE /api/recording/records/{id}]            |                            |
-| [GET /api/recording/records/{id}/stream]        |                            |
 | [GET /api/timeshift]                            |                            |
 | [GET /api/timeshift/{recorder}]                 |                            |
 | [GET /api/timeshift/{recorder}/records]         |                            |
@@ -67,10 +63,6 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 * [POST /api/recording/recorders]
 * [GET /api/recording/recorders/{program_id}]
 * [DELETE /api/recording/recorders/{program_id}]
-* [GET /api/recording/records]
-* [GET /api/recording/records/{id}]
-* [DELETE /api/recording/records/{id}]
-* [GET /api/recording/records/{id}/stream]
 * [GET /api/timeshift]
 * [GET /api/timeshift/{recorder}]
 * [GET /api/timeshift/{recorder}/records]
@@ -105,10 +97,6 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [POST /api/recording/recorders]: #postapirecordingrecorders
 [GET /api/recording/recorders/{program_id}]: #getapirecordingrecordersprogram_id
 [DELETE /api/recording/recorders/{program_id}]: #deleteapirecordingrecordersprogram_id
-[GET /api/recording/records]: #getapirecordingrecords
-[GET /api/recording/records/{id}]: #getapirecordingrecordsid
-[DELETE /api/recording/records/{id}]: #deleteapirecordingrecordsid
-[GET /api/recording/records/{id}/stream]: #getapirecordingrecordsidstream
 [GET /api/timeshift]: #getapitimeshift
 [GET /api/timeshift/{recorder}]: #getapitimeshiftrecorder
 [GET /api/timeshift/{recorder}/records]: #getapitimeshiftrecorderrecords
@@ -278,6 +266,34 @@ parameter for compatibility with Mirakurun and returns all programs.
 
 ## Web API endpoints for recording
 
+mirakc doesn't provide the following endpoints:
+
+* Listing recorded TV programs
+* Getting metadata of a recorded TV program
+* Streaming a recorded TV program
+
+These functions are out of scope of mirakc.  Because there already exist some
+media center applications that provide better functions to manage media files
+than mirakc.
+
+If you don't like to use any media center applications, you can simply mount
+a folder specified in `config.recording.records-dir` (or
+`config.recording.contents-dir`) onto somewhere like below:
+
+```yaml
+server:
+  mounts:
+    /videos:
+      # Recorded media files will be served as static files.
+      path: /path/to/videos
+      listing: true
+
+recording:
+  records-dir: /var/lib/mirakc/recording
+  # Recorded media files will be stored in /path/to/videos.
+  contents-dir: /path/to/videos
+```
+
 ### GET /api/recording/schedules
 
 Returns a list of recording schedules.
@@ -309,24 +325,6 @@ Returns a recorder for a specified program.
 ### DELETE /api/recording/recorders/{program_id}
 
 Stop recording for a specified program.
-
-### GET /api/recording/records
-
-Returns a list of records.
-
-### GET /api/recording/records/{id}
-
-Returns metadata of a record.
-
-### DELETE /api/recording/records/{id}
-
-Deletes a record.
-
-### GET /api/recording/records/{id}/stream
-
-Starts streaming for a record.
-
-No filter is supported.
 
 ## Web API endpoints for timeshift recording and playback
 

@@ -507,47 +507,6 @@ async fn test_delete_recording_recorder() {
 }
 
 #[tokio::test]
-async fn test_get_recording_records() {
-    let res = get("/api/recording/records").await;
-    assert_eq!(res.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn test_get_recording_record() {
-    let res = get("/api/recording/records/1").await;
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let res = get("/api/recording/records/0").await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn test_delete_recording_record() {
-    let res = delete("/api/recording/records/1").await;
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let res = delete("/api/recording/records/0").await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
-
-    let res = delete("/api/recording/records/remove_content?content=remove").await;
-    assert_eq!(res.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn test_get_recording_record_stream() {
-    let res = get("/api/recording/records/1/stream").await;
-    assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
-        assert_eq!(v, "bytes");
-    });
-    assert!(res.headers().contains_key("content-range"));
-    assert!(res.headers().contains_key("content-length"));
-
-    let res = get("/api/recording/records/0/stream").await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
 async fn test_get_timeshift_recorders() {
     let res = get("/api/timeshift").await;
     assert_eq!(res.status(), StatusCode::OK);

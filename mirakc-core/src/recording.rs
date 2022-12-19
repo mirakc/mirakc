@@ -214,9 +214,8 @@ where
         }
         builder.add_program_filter(&self.config.filters.program_filter)?;
         builder.add_post_filters(&self.config.post_filters, &schedule.post_filters)?;
-        let (filters, content_type) = builder.build();
+        let (filters, _) = builder.build();
 
-        let records_dir = self.config.recording.records_dir.as_ref().unwrap();
         let contents_dir = self.config.recording.contents_dir.as_ref().unwrap();
 
         let content_path = if schedule.content_path.is_absolute() {
@@ -237,22 +236,6 @@ where
             let _ = stream.pipe(input).await;
         };
         ctx.spawn_task(fut);
-
-        // Metadata file is always saved in the `records_dir` and no additional
-        // sub-directories are created.
-        let metadata_path = records_dir.join(program.metadata_filename());
-        serde_json::to_writer_pretty(
-            std::fs::File::create(&metadata_path)?,
-            &Record {
-                program: program.clone(),
-                content_path: content_path.clone(),
-                content_type,
-                pre_filters: schedule.pre_filters.clone(),
-                post_filters: schedule.post_filters.clone(),
-                tags: schedule.tags.clone(),
-            },
-        )?;
-        tracing::info!(%program_quad, ?metadata_path, "Saved metadata");
 
         // Inner future in order to capture the result in an outer future.
         let inner_fut = {
@@ -852,171 +835,6 @@ where
     }
 }
 
-// query recording records
-
-#[derive(Message)]
-#[reply("Result<Vec<Record>, Error>")]
-pub struct QueryRecordingRecords;
-
-#[async_trait]
-impl<T, E, O> Handler<QueryRecordingRecords> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        _msg: QueryRecordingRecords,
-        _ctx: &mut Context<Self>,
-    ) -> <QueryRecordingRecords as Message>::Reply {
-        tracing::debug!(msg.name = "QueryRecordingRecords");
-        self.query_records().await
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    async fn query_records(&self) -> Result<Vec<Record>, Error> {
-        let records_dir = self
-            .config
-            .recording
-            .records_dir
-            .as_ref()
-            .unwrap()
-            .to_str()
-            .unwrap();
-        let pattern = format!("{}/*.record.json", records_dir);
-        let mut records = vec![];
-        for path in glob::glob(&pattern).unwrap() {
-            if let Ok(path) = path {
-                let record = serde_json::from_reader(std::fs::File::open(&path)?)?;
-                records.push(record);
-            }
-        }
-        Ok(records)
-    }
-}
-
-// query recording record
-
-#[derive(Message)]
-#[reply("Result<Record, Error>")]
-pub struct QueryRecordingRecord {
-    pub id: String,
-}
-
-#[async_trait]
-impl<T, E, O> Handler<QueryRecordingRecord> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        msg: QueryRecordingRecord,
-        _ctx: &mut Context<Self>,
-    ) -> <QueryRecordingRecord as Message>::Reply {
-        tracing::debug!(msg.name = "QueryRecordingRecord", msg.id);
-        self.query_record(&msg.id)
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn query_record(&self, id: &str) -> Result<Record, Error> {
-        let path = self
-            .config
-            .recording
-            .records_dir
-            .as_ref()
-            .unwrap()
-            .join(id)
-            .with_extension("record.json");
-        if !path.exists() {
-            return Err(Error::RecordNotFound);
-        }
-        Ok(serde_json::from_reader(std::fs::File::open(&path)?)?)
-    }
-}
-
-// remove recording record
-
-#[derive(Message)]
-#[reply("Result<(), Error>")]
-pub struct RemoveRecordingRecord {
-    pub id: String,
-    pub remove_content: bool,
-}
-
-#[async_trait]
-impl<T, E, O> Handler<RemoveRecordingRecord> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        msg: RemoveRecordingRecord,
-        _ctx: &mut Context<Self>,
-    ) -> <RemoveRecordingRecord as Message>::Reply {
-        tracing::debug!(
-            msg.name = "RemoveRecordingRecord",
-            msg.id,
-            msg.remove_content
-        );
-        self.remove_record(&msg.id, msg.remove_content)
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn remove_record(&self, id: &str, remove_content: bool) -> Result<(), Error> {
-        let metadata_path = self
-            .config
-            .recording
-            .records_dir
-            .as_ref()
-            .unwrap()
-            .join(id)
-            .with_extension("record.json");
-        if !metadata_path.exists() {
-            return Err(Error::RecordNotFound);
-        }
-        let record: Record = serde_json::from_reader(std::fs::File::open(&metadata_path)?)?;
-        if remove_content {
-            tracing::info!(?record.content_path, "Remove");
-            std::fs::remove_file(&record.content_path)?;
-        }
-        tracing::info!(?metadata_path, "Remove");
-        std::fs::remove_file(&metadata_path)?;
-        Ok(())
-    }
-}
-
 // services updated
 
 #[async_trait]
@@ -1423,20 +1241,6 @@ pub struct RecorderModel {
     pub start_time: DateTime<Jst>,
 }
 
-impl EpgProgram {
-    const METADATA_FILE_DATE_FORMAT: &'static str = "%Y-%m-%d-%H%M";
-
-    pub(crate) fn record_id(&self) -> String {
-        let datetime = self.start_at.format(Self::METADATA_FILE_DATE_FORMAT);
-        format!("{}_{}", datetime, self.quad)
-    }
-
-    fn metadata_filename(&self) -> String {
-        let datetime = self.start_at.format(Self::METADATA_FILE_DATE_FORMAT);
-        format!("{}_{}.record.json", datetime, self.quad)
-    }
-}
-
 #[derive(Deserialize, Serialize)]
 pub struct Record {
     pub program: EpgProgram,
@@ -1694,10 +1498,8 @@ mod tests {
             loop {
                 let schedules = manager.call(QueryRecordingSchedules).await.unwrap();
                 let recorders = manager.call(QueryRecordingRecorders).await.unwrap();
-                let records = manager.call(QueryRecordingRecords).await.unwrap().unwrap();
-                if !schedules.is_empty() && recorders.is_empty() && !records.is_empty() {
+                if !schedules.is_empty() && recorders.is_empty() {
                     assert_eq!(schedules.len(), 1);
-                    assert_eq!(records.len(), 1);
                     break;
                 }
                 assert!(start_time.elapsed().as_secs() < 1);
@@ -1705,20 +1507,8 @@ mod tests {
             }
 
             assert!(!temp_dir.path().join("1.m2ts").exists());
-            assert!(!temp_dir
-                .path()
-                .join(EpgProgram::new((0, 0, 1, 1).into()).metadata_filename())
-                .exists());
             assert!(temp_dir.path().join("2.m2ts").is_file());
-            assert!(temp_dir
-                .path()
-                .join(EpgProgram::new((0, 0, 1, 2).into()).metadata_filename())
-                .is_file());
             assert!(!temp_dir.path().join("3.m2ts").exists());
-            assert!(!temp_dir
-                .path()
-                .join(EpgProgram::new((0, 0, 1, 3).into()).metadata_filename())
-                .exists());
 
             let result = manager
                 .inspect(|actor| {
@@ -1913,56 +1703,6 @@ pub(crate) mod stub {
             match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::RecorderNotFound)),
                 _ => Ok(Ok(())),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl Call<QueryRecordingRecords> for RecordingManagerStub {
-        async fn call(
-            &self,
-            _msg: QueryRecordingRecords,
-        ) -> Result<<QueryRecordingRecords as Message>::Reply, actlet::Error> {
-            Ok(Ok(vec![]))
-        }
-    }
-
-    #[async_trait]
-    impl Call<QueryRecordingRecord> for RecordingManagerStub {
-        async fn call(
-            &self,
-            msg: QueryRecordingRecord,
-        ) -> Result<<QueryRecordingRecord as Message>::Reply, actlet::Error> {
-            match msg.id.as_str() {
-                "0" => Ok(Err(Error::RecordNotFound)),
-                _ => Ok(Ok(Record {
-                    program: EpgProgram::new((0, 0, 1, 1).into()),
-                    content_path: "/dev/null".into(),
-                    content_type: "video/MP2T".into(),
-                    pre_filters: vec![],
-                    post_filters: vec![],
-                    tags: Default::default(),
-                })),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl Call<RemoveRecordingRecord> for RecordingManagerStub {
-        async fn call(
-            &self,
-            msg: RemoveRecordingRecord,
-        ) -> Result<<RemoveRecordingRecord as Message>::Reply, actlet::Error> {
-            match msg.id.as_str() {
-                "0" => Ok(Err(Error::RecordNotFound)),
-                "remove_content" => {
-                    assert!(msg.remove_content);
-                    Ok(Ok(()))
-                }
-                _ => {
-                    assert!(!msg.remove_content);
-                    Ok(Ok(()))
-                }
             }
         }
     }

@@ -624,8 +624,6 @@ enables web endpoints for recording functions.
 The following files are stored in the directory specified by this property:
 
 * `schedules.json` contains recording schedules
-* `<YYYYMMDD>_<ProgramQuad>.record.json` contains metadata for the corresponding
-  recorded content
 
 ### recording.contents-dir
 

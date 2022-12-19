@@ -27,7 +27,6 @@ use crate::models::TimeshiftRecordId;
 use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
 use crate::models::TunerUserPriority;
-use crate::recording::Record;
 use crate::timeshift::TimeshiftRecordModel;
 use crate::timeshift::TimeshiftRecorderModel;
 
@@ -88,49 +87,6 @@ pub(in crate::web) struct WebRecordingRecorder {
     #[serde(with = "serde_jst")]
     #[schema(value_type = u64)]
     pub start_time: DateTime<Jst>,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub(in crate::web) struct WebRecordingRecord {
-    pub id: String,
-    pub program: MirakurunProgram,
-    pub pre_filters: Vec<String>,
-    pub post_filters: Vec<String>,
-    #[schema(value_type = Vec<String>)]
-    pub tags: HashSet<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = Option<String>)]
-    pub content_path: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_size: Option<u64>,
-}
-
-impl From<Record> for WebRecordingRecord {
-    fn from(record: Record) -> Self {
-        let content_size = record
-            .content_path
-            .metadata()
-            .ok()
-            .map(|metadata| metadata.len());
-        let (content_path, content_type) = if record.content_path.exists() {
-            (Some(record.content_path), Some(record.content_type))
-        } else {
-            (None, None)
-        };
-        WebRecordingRecord {
-            id: record.program.record_id(),
-            program: record.program.into(),
-            pre_filters: record.pre_filters,
-            post_filters: record.post_filters,
-            tags: record.tags,
-            content_path,
-            content_type,
-            content_size,
-        }
-    }
 }
 
 #[derive(Serialize, ToSchema)]
