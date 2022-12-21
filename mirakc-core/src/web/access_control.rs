@@ -13,7 +13,6 @@ use axum::response::Response;
 use futures::future::BoxFuture;
 use tower::Layer;
 use tower::Service;
-use tracing;
 
 use crate::error::Error;
 

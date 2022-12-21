@@ -1,4 +1,3 @@
-use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -14,8 +13,6 @@ use axum::Router;
 use axum::Server;
 use futures::future::join_all;
 use futures::future::FutureExt;
-use tower_http::services::ServeDir;
-use tower_http::services::ServeFile;
 use tower_http::trace::TraceLayer;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -43,6 +40,7 @@ mod body;
 mod default_headers;
 mod error;
 mod escape;
+mod mount;
 mod qs;
 mod sse;
 mod uds;
@@ -194,27 +192,7 @@ where
         .merge(SwaggerUi::new("/api/debug").url("/api/docs", api::Docs::generate(config)));
 
     router = router.route("/events", routing::get(sse::events));
-
-    async fn convert_error(err: io::Error) -> Error {
-        err.into()
-    }
-
-    for (mount_point, mount) in config.server.mounts.iter() {
-        let path = std::path::Path::new(&mount.path);
-        router = if path.is_dir() {
-            router.nest_service(
-                &mount_point,
-                routing::get_service(ServeDir::new(&path)).handle_error(convert_error),
-            )
-        } else if path.is_file() {
-            router.route(
-                &mount_point,
-                routing::get_service(ServeFile::new(&path)).handle_error(convert_error),
-            )
-        } else {
-            router
-        };
-    }
+    router = mount::mount_entries(config, router);
 
     let mut default_headers = HeaderMap::new();
     default_headers.append(SERVER, header_value!(server_name()));

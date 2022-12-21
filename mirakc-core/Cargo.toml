@@ -26,6 +26,7 @@ indexmap = { version = "1.9.2", features = ["serde-1"] }
 itertools = "0.10.5"
 libc = "0.2.138"
 maplit = "1.0.2"
+mime = "0.3.16"
 mustache = "0.9.0"
 num_cpus = "1.15.0"
 once_cell = "1.16.0"
@@ -46,6 +47,7 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "json"] }
 utoipa = { version = "2.4.2", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "3.0.1", features = ["axum"] }
+walkdir = "2.3.2"
 
 [dev-dependencies]
 assert_matches = "1.5.0"

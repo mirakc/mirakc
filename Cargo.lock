@@ -1052,6 +1052,7 @@ dependencies = [
  "itertools",
  "libc",
  "maplit",
+ "mime",
  "mockall",
  "mustache",
  "num_cpus",
@@ -1075,6 +1076,7 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "utoipa-swagger-ui",
+ "walkdir",
 ]
 
 [[package]]

@@ -159,6 +159,8 @@ pub struct ServerConfig {
     pub stream_time_limit: u64,
     #[serde(default)]
     pub mounts: IndexMap<String, MountConfig>, // keeps the insertion order
+    #[serde(default)]
+    pub folder_view_template_path: Option<PathBuf>,
 }
 
 impl ServerConfig {
@@ -209,6 +211,13 @@ impl ServerConfig {
         self.mounts
             .iter()
             .for_each(|(mp, config)| config.validate(mp));
+
+        if let Some(ref path) = self.folder_view_template_path {
+            assert!(
+                path.is_file(),
+                "config.server: `folder_view_template_path` must be a path to an existing file"
+            );
+        }
     }
 }
 
@@ -220,6 +229,7 @@ impl Default for ServerConfig {
             stream_chunk_size: Self::default_stream_chunk_size(),
             stream_time_limit: Self::default_stream_time_limit(),
             mounts: Default::default(),
+            folder_view_template_path: None,
         }
     }
 }
@@ -277,14 +287,12 @@ impl MountConfig {
         );
         if let Some(index) = self.index.as_ref() {
             let path = self.path.join(index);
-            if path.exists() {
-                assert!(
-                    path.is_file(),
-                    "config.server.mounts[{}]: \
-                         `index` must be an existing file if it exists",
-                    mount_point
-                );
-            }
+            assert!(
+                path.is_file(),
+                "config.server.mounts[{}]: \
+                 `index` must be an existing file if it exists",
+                mount_point
+            );
         }
     }
 }
@@ -1155,6 +1163,7 @@ mod tests {
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
+                folder_view_template_path: None,
             }
         );
 
@@ -1172,6 +1181,7 @@ mod tests {
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
+                folder_view_template_path: None,
             }
         );
 
@@ -1193,6 +1203,7 @@ mod tests {
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
+                folder_view_template_path: None,
             }
         );
 
@@ -1209,6 +1220,7 @@ mod tests {
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
+                folder_view_template_path: None,
             }
         );
 
@@ -1225,6 +1237,7 @@ mod tests {
                 stream_chunk_size: 10000,
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
                 mounts: Default::default(),
+                folder_view_template_path: None,
             }
         );
 
@@ -1241,6 +1254,7 @@ mod tests {
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: 10000,
                 mounts: Default::default(),
+                folder_view_template_path: None,
             }
         );
 
@@ -1280,7 +1294,25 @@ mod tests {
                         index: Some("index.html".into()),
                         listing: false,
                     },
-                }
+                },
+                folder_view_template_path: None,
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
+                folder-view-template-path: /path/to/listing.html.mustache
+            "#
+            )
+            .unwrap(),
+            ServerConfig {
+                addrs: ServerConfig::default_addrs(),
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
+                mounts: Default::default(),
+                folder_view_template_path: Some("/path/to/listing.html.mustache".into()),
             }
         );
 
@@ -1312,6 +1344,14 @@ mod tests {
     fn test_server_config_validate_addrs() {
         let mut config = ServerConfig::default();
         config.addrs = vec![ServerAddr::Http("invalid".to_string())];
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_server_config_validate_folder_view_template_path() {
+        let mut config = ServerConfig::default();
+        config.folder_view_template_path = Some("not_found".into());
         config.validate();
     }
 

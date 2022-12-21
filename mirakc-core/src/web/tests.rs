@@ -5,6 +5,7 @@ use std::future::Future;
 
 use assert_matches::assert_matches;
 use axum::http::header::ACCEPT_RANGES;
+use axum::http::header::LOCATION;
 use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
@@ -659,13 +660,31 @@ async fn test_mount() {
     let res = get("/").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
-    let res = get("/Cargo.toml").await;
+    let res = get("/src").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = get("/src/Cargo.toml").await;
     assert_eq!(res.status(), StatusCode::OK);
-
-    let res = get("/no-such-file").await;
+    let res = get("/src/no-such-file").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
-    let res = get("/api/version").await;
+    let res = get("/src-with-index").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_matches!(res.headers().get(LOCATION), Some(v) => {
+        assert_eq!(v, "/src-with-index/Cargo.toml");
+    });
+    let res = get("/src-with-index/Cargo.toml").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = get("/src-with-index/no-such-file").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let res = get("/src-with-listing").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = get("/src-with-listing/Cargo.toml").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = get("/src-with-listing/no-such-file").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let res = get("/Cargo.toml").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
@@ -915,14 +934,17 @@ fn config_for_test() -> Arc<Config> {
     let config_yaml = format!(
         r#"
         server:
-          # Map "/" to CARGO_MANIFEST_DIR.
           mounts:
-            /:
+            /src:
               path: {manifest_dir}
-              # TODO: ServeDir doesn't support specifying the index filename.
-              index: null
-              # TODO: ServeDir doesn't support listing entries.
-              listing: false
+            /src-with-listing:
+              path: {manifest_dir}
+              listing: true
+            /src-with-index:
+              path: {manifest_dir}
+              index: Cargo.toml
+            /Cargo.toml:
+              path: {manifest_dir}/Cargo.toml
         # Disable service and program filters
         filters:
           service-filter:

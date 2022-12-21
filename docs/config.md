@@ -14,6 +14,7 @@ suitable for your environment.
 | [server.stream-max-chunks]               | `1000`                            |
 | [server.stream-time-limit]               | `16000` (16s)                     |
 | [server.mounts]                          | `{}`                              |
+| [server.folder-view-template-path]       | `None`                            |
 | [channels\[\].name]                      |                                   |
 | [channels\[\].type]                      |                                   |
 | [channels\[\].channel]                   |                                   |
@@ -68,6 +69,7 @@ suitable for your environment.
 [server.stream-max-chunks]: #serverstream-max-chunks
 [server.stream-time-limit]: #serverstream-time-limit
 [server.mounts]: #servermounts
+[server.folder-view-template-path]: #serverfolder-view-template-path
 [channels\[\].name]: #channels
 [channels\[\].type]: #channels
 [channels\[\].channel]: #channels
@@ -225,16 +227,55 @@ Definitions of mount points for static files and folders on the file system.
   * Show entries listing for directories
 
 ```yaml
-mounts:
-  /public:
-    path: /path/to/public
-    listing: true
-  /:
-    path: /path/to/www
-    index: index.html
+server:
+  mounts:
+    /public:
+      path: /path/to/public
+      listing: true
+    /:
+      path: /path/to/www
+      index: index.html
 ```
 
 This property can be used for providing some kind of Web UI for mirakc.
+
+## server.folder-view-template-path
+
+A path to a Mustache template file rendered to an HTML document for the folder
+view of static files mounted by using `server.mounts`.
+
+The filename must end with the `.mustache` extension.
+
+```yaml
+server:
+  folder-view-template-path: /path/to/template.html.mustache
+```
+
+Template variables:
+
+* entries
+  * name
+    * The name of the entry
+  * size
+    * The size of the entry
+  * url
+    * The URL of the entry
+  * created
+    * The creation time of the entry in UNIX time
+  * modified
+    * The last modification time of the entry in UNIX time
+
+Example:
+
+```html
+<div>
+  {{#entries}}
+  {{name}},{{size}},{{url}},{{created}},{{modified}}
+  {{/entries}}
+</div>
+```
+
+The built-in template is used by default.
 
 ## channels
 
