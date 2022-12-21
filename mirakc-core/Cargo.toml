@@ -27,7 +27,7 @@ itertools = "0.10.5"
 libc = "0.2.138"
 maplit = "1.0.2"
 mustache = "0.9.0"
-num_cpus = "1.14.0"
+num_cpus = "1.15.0"
 once_cell = "1.16.0"
 path-dedot = "3.0.18"
 serde = { version = "1.0.151", features = ["derive", "rc"] }
