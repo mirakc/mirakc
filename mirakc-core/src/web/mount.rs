@@ -254,8 +254,6 @@ mod tests {
 
     #[test]
     fn test_load_template() {
-        crate::tracing_ext::init_tracing("text");
-
         // default template
         let config = Config::default();
         let template = load_template(&config);

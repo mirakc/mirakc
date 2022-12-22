@@ -812,13 +812,7 @@ Output from the following rust code is piped to the script:
 let program_id = MirakurunProgramId::new(
     NetworkId::from(1), ServiceId::from(2), EventId::from(3));
 
-// bytes written to the content file.
-let result = RecordingStoppedResult::Ok(123); // {"ok":123}
-
-// or an error like `{"err":"message"}` when something failed.
-
 println!("{}", serde_json::to_string(&program_id)?);
-println!("{}", serde_json::to_string(&result)?);
 ```
 
 ### scripts.recording.failed
@@ -831,7 +825,13 @@ Output from the following rust code is piped to the script:
 let program_id = MirakurunProgramId::new(
     NetworkId::from(1), ServiceId::from(2), EventId::from(3));
 
+// Possible patterns:
+// { "reason": "RetryFailed" }
+// { "reason": "IoError", "message": "...", "osError": <int or null> }
+let reason = RecordingFailedReason::RetryFailed;
+
 println!("{}", serde_json::to_string(&program_id)?);
+println!("{}", serde_json::to_string(&reason)?);
 ```
 
 ## onair-trackers

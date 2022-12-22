@@ -21,6 +21,7 @@ use crate::models::MirakurunProgramId;
 use crate::models::MirakurunServiceId;
 use crate::models::ServiceTriple;
 use crate::recording;
+use crate::recording::RecordingFailedReason;
 
 pub struct ScriptRunner<E, R> {
     config: Arc<Config>,
@@ -185,9 +186,9 @@ where
     R: Call<recording::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingStopped, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingStopped", %msg.program_quad, ?msg.result);
+        tracing::debug!(msg.name = "RecordingStopped", %msg.program_quad);
         if self.has_recording_stopped_script() {
-            ctx.spawn_task(self.create_recording_stopped_task(msg.program_quad.into(), msg.result));
+            ctx.spawn_task(self.create_recording_stopped_task(msg.program_quad.into()));
         }
     }
 }
@@ -200,9 +201,8 @@ impl<E, R> ScriptRunner<E, R> {
     fn create_recording_stopped_task(
         &self,
         program_id: MirakurunProgramId,
-        result: Result<u64, String>,
     ) -> impl Future<Output = ()> {
-        let fut = Self::run_recording_stopped_script(self.config.clone(), program_id, result);
+        let fut = Self::run_recording_stopped_script(self.config.clone(), program_id);
         wrap(self.semaphore.clone(), fut)
             .instrument(tracing::info_span!("recording.stopped", %program_id))
     }
@@ -210,12 +210,10 @@ impl<E, R> ScriptRunner<E, R> {
     async fn run_recording_stopped_script(
         config: Arc<Config>,
         program_id: MirakurunProgramId,
-        result: Result<u64, String>,
     ) -> Result<ExitStatus, Error> {
         let mut child = spawn_command(&config.scripts.recording.stopped)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &program_id).await?;
-        write_line(&mut input, &RecordingStoppedResult::from(result)).await?;
         drop(input);
         Ok(child.wait().await?)
     }
@@ -232,9 +230,9 @@ where
     R: Call<recording::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingFailed, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingFailed", %msg.program_quad);
+        tracing::debug!(msg.name = "RecordingFailed", %msg.program_quad, ?msg.reason);
         if self.has_recording_failed_script() {
-            ctx.spawn_task(self.create_recording_failed_task(msg.program_quad.into()));
+            ctx.spawn_task(self.create_recording_failed_task(msg.program_quad.into(), msg.reason));
         }
     }
 }
@@ -247,8 +245,9 @@ impl<E, R> ScriptRunner<E, R> {
     fn create_recording_failed_task(
         &self,
         program_id: MirakurunProgramId,
+        reason: RecordingFailedReason,
     ) -> impl Future<Output = ()> {
-        let fut = Self::run_recording_failed_script(self.config.clone(), program_id);
+        let fut = Self::run_recording_failed_script(self.config.clone(), program_id, reason);
         wrap(self.semaphore.clone(), fut)
             .instrument(tracing::info_span!("recording.failed", %program_id))
     }
@@ -256,10 +255,12 @@ impl<E, R> ScriptRunner<E, R> {
     async fn run_recording_failed_script(
         config: Arc<Config>,
         program_id: MirakurunProgramId,
+        reason: RecordingFailedReason,
     ) -> Result<ExitStatus, Error> {
         let mut child = spawn_command(&config.scripts.recording.failed)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &program_id).await?;
+        write_line(&mut input, &reason).await?;
         drop(input);
         Ok(child.wait().await?)
     }
@@ -388,7 +389,7 @@ mod tests {
 
         let mut config = Config::default();
         config.scripts.recording.started = format!(
-            r#"sh -c "test $(cat) = {}""#,
+            r#"sh -c "test $(cat) = '{}'""#,
             serde_json::to_string(&program_id).unwrap(),
         );
         let config = Arc::new(config);
@@ -416,36 +417,13 @@ mod tests {
     async fn test_run_recording_stopped_script() {
         let program_id = (1, 2, 3).into();
 
-        let mut script = NamedTempFile::new().unwrap();
-        write!(script, "read ID\n").unwrap();
-        write!(script, "test $ID = $1\n").unwrap();
-        write!(script, "read ST\n").unwrap();
-        write!(script, "test $ST = $2\n").unwrap();
-
-        let result = Ok(0);
         let mut config = Config::default();
         config.scripts.recording.stopped = format!(
-            "sh {} {} '{}'",
-            script.path().to_str().unwrap(),
+            r#"sh -c "test $(cat) = '{}'""#,
             serde_json::to_string(&program_id).unwrap(),
-            serde_json::to_string(&RecordingStoppedResult::from(result.clone())).unwrap(),
         );
         let config = Arc::new(config);
-        let result = TestTarget::run_recording_stopped_script(config, program_id, result).await;
-        assert_matches!(result, Ok(status) => {
-            assert_matches!(status.code(), Some(0));
-        });
-
-        let result = Err("msg".to_string());
-        let mut config = Config::default();
-        config.scripts.recording.stopped = format!(
-            "sh {} {} '{}'",
-            script.path().to_str().unwrap(),
-            serde_json::to_string(&program_id).unwrap(),
-            serde_json::to_string(&RecordingStoppedResult::from(result.clone())).unwrap(),
-        );
-        let config = Arc::new(config);
-        let result = TestTarget::run_recording_stopped_script(config, program_id, result).await;
+        let result = TestTarget::run_recording_stopped_script(config, program_id).await;
         assert_matches!(result, Ok(status) => {
             assert_matches!(status.code(), Some(0));
         });
@@ -453,7 +431,7 @@ mod tests {
         let mut config = Config::default();
         config.scripts.recording.stopped = "sh -c 'cat; false'".to_string();
         let config = Arc::new(config);
-        let result = TestTarget::run_recording_stopped_script(config, program_id, Ok(0)).await;
+        let result = TestTarget::run_recording_stopped_script(config, program_id).await;
         assert_matches!(result, Ok(status) => {
             assert_matches!(status.code(), Some(1));
         });
@@ -461,7 +439,7 @@ mod tests {
         let mut config = Config::default();
         config.scripts.recording.stopped = "command-not-found".to_string();
         let config = Arc::new(config);
-        let result = TestTarget::run_recording_stopped_script(config, program_id, Ok(0)).await;
+        let result = TestTarget::run_recording_stopped_script(config, program_id).await;
         assert_matches!(result, Err(_));
     }
 
@@ -469,13 +447,55 @@ mod tests {
     async fn test_run_recording_failed_script() {
         let program_id = (1, 2, 3).into();
 
+        let mut script = NamedTempFile::new().unwrap();
+        write!(script, "read ID\n").unwrap();
+        write!(script, "test $ID = $1\n").unwrap();
+        write!(script, "read REASON\n").unwrap();
+        write!(script, "test $REASON = $2\n").unwrap();
+
+        let reason = RecordingFailedReason::IoError {
+            message: "message".to_string(),
+            os_error: None,
+        };
         let mut config = Config::default();
         config.scripts.recording.failed = format!(
-            r#"sh -c "test $(cat) = {}""#,
+            "sh {} '{}' '{}'",
+            script.path().to_str().unwrap(),
             serde_json::to_string(&program_id).unwrap(),
+            serde_json::to_string(&reason).unwrap(),
         );
         let config = Arc::new(config);
-        let result = TestTarget::run_recording_failed_script(config, program_id).await;
+        let result = TestTarget::run_recording_failed_script(config, program_id, reason).await;
+        assert_matches!(result, Ok(status) => {
+            assert_matches!(status.code(), Some(0));
+        });
+
+        let reason = RecordingFailedReason::PipelineError {
+            exit_code: 1,
+        };
+        let mut config = Config::default();
+        config.scripts.recording.failed = format!(
+            "sh {} '{}' '{}'",
+            script.path().to_str().unwrap(),
+            serde_json::to_string(&program_id).unwrap(),
+            serde_json::to_string(&reason).unwrap(),
+        );
+        let config = Arc::new(config);
+        let result = TestTarget::run_recording_failed_script(config, program_id, reason).await;
+        assert_matches!(result, Ok(status) => {
+            assert_matches!(status.code(), Some(0));
+        });
+
+        let reason = RecordingFailedReason::RetryFailed;
+        let mut config = Config::default();
+        config.scripts.recording.failed = format!(
+            "sh {} '{}' '{}'",
+            script.path().to_str().unwrap(),
+            serde_json::to_string(&program_id).unwrap(),
+            serde_json::to_string(&reason).unwrap(),
+        );
+        let config = Arc::new(config);
+        let result = TestTarget::run_recording_failed_script(config, program_id, reason).await;
         assert_matches!(result, Ok(status) => {
             assert_matches!(status.code(), Some(0));
         });
@@ -483,7 +503,12 @@ mod tests {
         let mut config = Config::default();
         config.scripts.recording.failed = "sh -c 'cat; false'".to_string();
         let config = Arc::new(config);
-        let result = TestTarget::run_recording_failed_script(config, program_id).await;
+        let result = TestTarget::run_recording_failed_script(
+            config,
+            program_id,
+            RecordingFailedReason::RetryFailed,
+        )
+        .await;
         assert_matches!(result, Ok(status) => {
             assert_matches!(status.code(), Some(1));
         });
@@ -491,7 +516,12 @@ mod tests {
         let mut config = Config::default();
         config.scripts.recording.failed = "command-not-found".to_string();
         let config = Arc::new(config);
-        let result = TestTarget::run_recording_failed_script(config, program_id).await;
+        let result = TestTarget::run_recording_failed_script(
+            config,
+            program_id,
+            RecordingFailedReason::RetryFailed,
+        )
+        .await;
         assert_matches!(result, Err(_));
     }
 

@@ -244,7 +244,7 @@ where
                 let record = tokio::fs::File::create(&content_path).await?;
                 let mut writer = BufWriter::new(record);
                 // TODO: use Stdio
-                Ok::<_, Error>(tokio::io::copy(&mut output, &mut writer).await?)
+                Ok::<_, std::io::Error>(tokio::io::copy(&mut output, &mut writer).await?)
             }
         };
         // Outer future emits messages to observers.
@@ -252,12 +252,18 @@ where
             let addr = ctx.address().clone();
             async move {
                 addr.emit(RecordingStarted { program_quad }).await;
-                let result = inner_fut.await.map_err(|err| format!("{}", err));
-                addr.emit(RecordingStopped {
-                    program_quad,
-                    result,
-                })
-                .await;
+                let result = inner_fut.await;
+                addr.emit(RecordingStopped { program_quad }).await;
+                if let Err(err) = result {
+                    addr.emit(RecordingFailed {
+                        program_quad,
+                        reason: RecordingFailedReason::IoError {
+                            message: format!("{}", err),
+                            os_error: err.raw_os_error(),
+                        },
+                    })
+                    .await;
+                }
             }
         };
 
@@ -967,7 +973,6 @@ where
 #[derive(Clone, Message)]
 pub struct RecordingStopped {
     pub program_quad: ProgramQuad,
-    pub result: Result<u64, String>,
 }
 
 #[async_trait]
@@ -985,8 +990,12 @@ where
     O: Call<crate::onair_tracker::AddObserver>,
     O: Call<crate::onair_tracker::RemoveObserver>,
 {
-    async fn handle(&mut self, mut msg: RecordingStopped, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingStopped", %msg.program_quad, ?msg.result);
+    async fn handle(&mut self, msg: RecordingStopped, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "RecordingStopped", %msg.program_quad);
+
+        for emitter in self.recording_stopped_emitters.iter() {
+            emitter.emit(msg.clone()).await;
+        }
 
         let recorder = self.recorders.remove(&msg.program_quad);
         let retry_enabled = self.config.recording.max_start_delay.is_some();
@@ -994,11 +1003,14 @@ where
             (Some(mut recorder), true) => {
                 // Manually drop the stop trigger so that we get the exit code
                 // from the program-filter without killing its process.
-                drop(recorder.stop_trigger.take().unwrap());
+                if let Some(stop_trigger) = recorder.stop_trigger.take() {
+                    drop(stop_trigger);
+                }
                 if recorder.check_retry().await {
+                    let program_quad = msg.program_quad;
+                    tracing::warn!(%program_quad, "Reschedule for retry");
                     self.retry(recorder.schedule);
-                    msg.result = Err("Retry recording".to_string());
-                    let service_triple = msg.program_quad.into();
+                    let service_triple = program_quad.into();
                     if self.need_adding_observer(service_triple) {
                         let result = self
                             .onair_tracker
@@ -1009,22 +1021,37 @@ where
                             })
                             .await;
                         if let Err(err) = result {
-                            tracing::error!(%err, %service_triple, "Failed to add on-air tracker");
-                            self.cancel_retry(msg.program_quad);
-                            msg.result = Err("Retry failed".to_string());
+                            tracing::error!(%err, %program_quad, "Failed to add on-air tracker");
+                            self.cancel_retry(program_quad);
+                            self.emit_recording_failed(
+                                program_quad,
+                                RecordingFailedReason::RetryFailed,
+                            )
+                            .await;
                         }
                     }
                 }
             }
-            (Some(_), false) => {
-                // Retry is disabled.
+            // Retry is disabled.
+            (Some(mut recorder), false) => {
+                // Manually drop the stop trigger so that we get the exit code
+                // from the program-filter without killing its process.
+                if let Some(stop_trigger) = recorder.stop_trigger.take() {
+                    drop(stop_trigger);
+                }
+                if let Some(exit_code) = recorder.get_first_error().await {
+                    let program_quad = msg.program_quad;
+                    tracing::error!(%program_quad, %exit_code, "Failed in the recording pipeline");
+                    self.emit_recording_failed(
+                        program_quad,
+                        RecordingFailedReason::PipelineError { exit_code },
+                    )
+                    .await;
+                }
             }
             (None, _) => {
-                tracing::warn!(recorder.id = %msg.program_quad, "Already removed");
+                tracing::warn!(program_quad = %msg.program_quad, "Already removed");
             }
-        }
-        for emitter in self.recording_stopped_emitters.iter() {
-            emitter.emit(msg.clone()).await;
         }
     }
 }
@@ -1055,12 +1082,60 @@ impl<T, E, O> RecordingManager<T, E, O> {
 #[derive(Clone, Message)]
 pub struct RecordingFailed {
     pub program_quad: ProgramQuad,
+    pub reason: RecordingFailedReason,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "reason")]
+pub enum RecordingFailedReason {
+    #[serde(rename_all = "camelCase")]
+    IoError {
+        message: String,
+        os_error: Option<i32>,
+    },
+    #[serde(rename_all = "camelCase")]
+    PipelineError {
+        exit_code: i32,
+    },
+    RetryFailed,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<RecordingFailed> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryProgram>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair_tracker::AddObserver>,
+    O: Call<crate::onair_tracker::RemoveObserver>,
+{
+    async fn handle(&mut self, msg: RecordingFailed, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "RecordingFailed", %msg.program_quad, ?msg.reason);
+        self.emit_recording_failed(msg.program_quad, msg.reason)
+            .await;
+    }
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_recording_failed(&self, program_quad: ProgramQuad) {
+    async fn emit_recording_failed(
+        &self,
+        program_quad: ProgramQuad,
+        reason: RecordingFailedReason,
+    ) {
         for emitter in self.recording_failed_emitters.iter() {
-            emitter.emit(RecordingFailed { program_quad }).await;
+            let reason = reason.clone();
+            emitter
+                .emit(RecordingFailed {
+                    program_quad,
+                    reason,
+                })
+                .await;
         }
     }
 }
@@ -1093,8 +1168,9 @@ where
                 tracing::info!(%program_quad, %program.start_at,
                                "Already started, start recording");
                 if let Err(err) = self.start_recording(schedule, ctx).await {
-                    tracing::error!(%err, %program_quad, "Failed in retry");
-                    self.emit_recording_failed(program_quad).await;
+                    tracing::error!(%err, %program_quad, "Retry failed");
+                    self.emit_recording_failed(program_quad, RecordingFailedReason::RetryFailed)
+                        .await;
                 }
             }
         }
@@ -1106,8 +1182,12 @@ where
                     tracing::info!(%program_quad, %program.start_at,
                                    "Will start soon, start recording");
                     if let Err(err) = self.start_recording(schedule, ctx).await {
-                        tracing::error!(%err, %program_quad, "Failed in retry");
-                        self.emit_recording_failed(program_quad).await;
+                        tracing::error!(%err, %program_quad, "Retry failed");
+                        self.emit_recording_failed(
+                            program_quad,
+                            RecordingFailedReason::RetryFailed,
+                        )
+                        .await;
                     }
                 } else {
                     tracing::info!(%program_quad, %program.start_at, "Reschedule");
@@ -1126,8 +1206,12 @@ where
                             self.set_timer(ctx);
                         }
                         Err(err) => {
-                            tracing::error!(%err, %program_quad, "Failed in retry");
-                            self.emit_recording_failed(program_quad).await;
+                            tracing::error!(%err, %program_quad, "Retry failed");
+                            self.emit_recording_failed(
+                                program_quad,
+                                RecordingFailedReason::RetryFailed,
+                            )
+                            .await;
                         }
                     }
                 }
@@ -1232,6 +1316,19 @@ impl Recorder {
                 }
                 _ => false,
             })
+    }
+
+    async fn get_first_error(&mut self) -> Option<i32> {
+        assert!(self.stop_trigger.is_none());
+        self.pipeline
+            .wait()
+            .await
+            .iter()
+            .flat_map(|result| match result {
+                Ok(status) => status.code(),
+                _ => None,
+            })
+            .find(|&code| code != 0)
     }
 }
 
@@ -1435,6 +1532,35 @@ mod tests {
         };
         let retry = recorder.check_retry().await;
         assert!(retry);
+    }
+
+    #[tokio::test]
+    async fn test_recorder_get_first_error() {
+        let now = Jst::now();
+        let program_quad = (0, 0, 1, 1).into();
+        let schedule = Arc::new(schedule_for_test(program_quad, now));
+
+        // exit(0)
+        let pipeline = spawn_pipeline(vec!["true".to_string()], Default::default()).unwrap();
+        let mut recorder = Recorder {
+            schedule: schedule.clone(),
+            start_time: now,
+            pipeline,
+            stop_trigger: None,
+        };
+        let code = recorder.get_first_error().await;
+        assert_matches!(code, None);
+
+        // exit(1)
+        let pipeline = spawn_pipeline(vec!["false".to_string()], Default::default()).unwrap();
+        let mut recorder = Recorder {
+            schedule: schedule.clone(),
+            start_time: now,
+            pipeline,
+            stop_trigger: None,
+        };
+        let code = recorder.get_first_error().await;
+        assert_matches!(code, Some(1));
     }
 
     #[tokio::test]

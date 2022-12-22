@@ -132,7 +132,6 @@ impl From<crate::recording::RecordingStarted> for RecordingStarted {
 #[serde(rename_all = "camelCase")]
 struct RecordingStopped {
     program_id: MirakurunProgramId,
-    result: Result<u64, String>,
 }
 
 impl RecordingStopped {
@@ -145,7 +144,6 @@ impl From<crate::recording::RecordingStopped> for RecordingStopped {
     fn from(msg: crate::recording::RecordingStopped) -> Self {
         RecordingStopped {
             program_id: msg.program_quad.into(),
-            result: msg.result,
         }
     }
 }
