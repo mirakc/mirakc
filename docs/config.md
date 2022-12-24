@@ -59,6 +59,8 @@ suitable for your environment.
 | [scripts.recording.started]              | `''`                              |
 | [scripts.recording.stopped]              | `''`                              |
 | [scripts.recording.failed]               | `''`                              |
+| [scripts.recording.retried]              | `''`                              |
+| [scripts.recording.rescheduled]          | `''`                              |
 | [onair-trackers.local]                   | `mirakc-arib collect-eitpf --sids={{{sid}}}` |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
@@ -114,6 +116,8 @@ suitable for your environment.
 [scripts.recording.started]: #scriptsrecordingstarted
 [scripts.recording.stopped]: #scriptsrecordingstopped
 [scripts.recording.failed]: #scriptsrecordingfailed
+[scripts.recording.retried]: #scriptsrecordingretried
+[scripts.recording.rescheduled]: #scriptsrecordingrescheduled
 [onair-trackers.local]: #onair-trackerslocal
 [resource.strings-yaml]: #resourcestrings-yaml
 [resource.logos]: #resourcelogos
@@ -780,58 +784,117 @@ concurrency: !unlimited
 
 A script to be executed when EPG programs of a service are updated.
 
-Output from the following rust code is piped to the script:
+A JSON defined in the following schema is passed to the script via STDIN:
 
-```rust
-let service_id = MirakurunServiceId::new(
-    NetworkId::from(1), ServiceId::from(2));
-
-println!("{}", serde_json::to_string(&service_id)?);
+```json5
+{
+  "type": "object",
+  "properties": {
+    "serviceId": { "type": "number" }  // MirakurunServiceId
+  }
+}
 ```
-
 ### scripts.recording.started
 
 A script to be executed when recording for a program is started.
 
-Output from the following rust code is piped to the script:
+A JSON defined in the following schema is passed to the script via STDIN:
 
-```rust
-let program_id = MirakurunProgramId::new(
-    NetworkId::from(1), ServiceId::from(2), EventId::from(3));
-
-println!("{}", serde_json::to_string(&program_id)?);
+```json5
+{
+  "type": "object",
+  "properties": {
+    "programId": { "type": "number" }  // MirakurunProgramId
+  }
+}
 ```
 
 ### scripts.recording.stopped
 
 A script to be executed when recording for a program is stopped.
 
-Output from the following rust code is piped to the script:
+A JSON defined in the following schema is passed to the script via STDIN:
 
-```rust
-let program_id = MirakurunProgramId::new(
-    NetworkId::from(1), ServiceId::from(2), EventId::from(3));
-
-println!("{}", serde_json::to_string(&program_id)?);
+```json5
+{
+  "type": "object",
+  "properties": {
+    "programId": { "type": "number" }  // MirakurunProgramId
+  }
+}
 ```
 
 ### scripts.recording.failed
 
 A script to be executed when recording for a program is failed.
 
-Output from the following rust code is piped to the script:
+A JSON defined in the following schema is passed to the script via STDIN:
 
-```rust
-let program_id = MirakurunProgramId::new(
-    NetworkId::from(1), ServiceId::from(2), EventId::from(3));
+```json5
+{
+  "type": "object",
+  "properties": {
+    "programId": { "type": "number" },  // MirakurunProgramId
+    "reason": {
+      "oneOf": [
+        // IoError
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "IoError" },
+            "message": { "type": "string" },
+            "osError": { "type": ["number", null] }
+          }
+        },
+        // PipelineError
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "PipelineError" },
+            "exitCode": { "type": "number" }
+          }
+        },
+        // RetryFailed
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "RetryFailed" }
+          }
+        }
+      ]
+    }
+  }
+}
+```
 
-// Possible patterns:
-// { "reason": "RetryFailed" }
-// { "reason": "IoError", "message": "...", "osError": <int or null> }
-let reason = RecordingFailedReason::RetryFailed;
+### scripts.recording.retried
 
-println!("{}", serde_json::to_string(&program_id)?);
-println!("{}", serde_json::to_string(&reason)?);
+A script to be executed when recording for a program is retried.
+
+A JSON defined in the following schema is passed to the script via STDIN:
+
+```json5
+{
+  "type": "object",
+  "properties": {
+    "programId": { "type": "number" }  // MirakurunProgramId
+  }
+}
+```
+
+### scripts.recording.rescheduled
+
+A script to be executed when recording for a program is rescheduled.
+
+A JSON defined in the following schema is passed to the script via STDIN:
+
+```json5
+{
+  "type": "object",
+  "properties": {
+    "programId": { "type": "number" }  // MirakurunProgramId
+  }
+}
 ```
 
 ## onair-trackers

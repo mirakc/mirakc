@@ -925,6 +925,10 @@ pub struct RecordingScriptsConfig {
     pub stopped: String,
     #[serde(default)]
     pub failed: String,
+    #[serde(default)]
+    pub retried: String,
+    #[serde(default)]
+    pub rescheduled: String,
 }
 
 #[derive(Clone, Deserialize, PartialEq)]

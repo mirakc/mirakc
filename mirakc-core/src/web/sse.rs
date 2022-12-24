@@ -6,12 +6,10 @@ use async_trait::async_trait;
 use axum::response::sse::Event;
 use axum::response::sse::Sse;
 use futures::stream::Stream;
-use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::models::MirakurunProgramId;
-use crate::models::MirakurunServiceId;
+use crate::models::events::*;
 
 pub(super) async fn events<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
@@ -52,6 +50,20 @@ where
         ))
         .await?;
 
+    state
+        .recording_manager
+        .call(crate::recording::RegisterEmitter::RecordingRetried(
+            feeder.clone().into(),
+        ))
+        .await?;
+
+    state
+        .recording_manager
+        .call(crate::recording::RegisterEmitter::RecordingRescheduled(
+            feeder.clone().into(),
+        ))
+        .await?;
+
     Ok(Sse::new(ReceiverStream::new(receiver)).keep_alive(Default::default()))
 }
 
@@ -85,85 +97,5 @@ impl_emit!(crate::epg::ProgramsUpdated, EpgProgramsUpdated);
 impl_emit!(crate::recording::RecordingStarted, RecordingStarted);
 impl_emit!(crate::recording::RecordingStopped, RecordingStopped);
 impl_emit!(crate::recording::RecordingFailed, RecordingFailed);
-
-// events
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct EpgProgramsUpdated {
-    service_id: MirakurunServiceId,
-}
-
-impl EpgProgramsUpdated {
-    const fn name() -> &'static str {
-        "epg.programs-updated"
-    }
-}
-
-impl From<crate::epg::ProgramsUpdated> for EpgProgramsUpdated {
-    fn from(msg: crate::epg::ProgramsUpdated) -> Self {
-        EpgProgramsUpdated {
-            service_id: msg.service_triple.into(),
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RecordingStarted {
-    program_id: MirakurunProgramId,
-}
-
-impl RecordingStarted {
-    const fn name() -> &'static str {
-        "recording.started"
-    }
-}
-
-impl From<crate::recording::RecordingStarted> for RecordingStarted {
-    fn from(msg: crate::recording::RecordingStarted) -> Self {
-        RecordingStarted {
-            program_id: msg.program_quad.into(),
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RecordingStopped {
-    program_id: MirakurunProgramId,
-}
-
-impl RecordingStopped {
-    const fn name() -> &'static str {
-        "recording.stopped"
-    }
-}
-
-impl From<crate::recording::RecordingStopped> for RecordingStopped {
-    fn from(msg: crate::recording::RecordingStopped) -> Self {
-        RecordingStopped {
-            program_id: msg.program_quad.into(),
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RecordingFailed {
-    program_id: MirakurunProgramId,
-}
-
-impl RecordingFailed {
-    const fn name() -> &'static str {
-        "recording.failed"
-    }
-}
-
-impl From<crate::recording::RecordingFailed> for RecordingFailed {
-    fn from(msg: crate::recording::RecordingFailed) -> Self {
-        RecordingFailed {
-            program_id: msg.program_quad.into(),
-        }
-    }
-}
+impl_emit!(crate::recording::RecordingRetried, RecordingRetried);
+impl_emit!(crate::recording::RecordingRescheduled, RecordingRescheduled);

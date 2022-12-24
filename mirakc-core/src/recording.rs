@@ -57,6 +57,8 @@ pub struct RecordingManager<T, E, O> {
     recording_started_emitters: Vec<Emitter<RecordingStarted>>,
     recording_stopped_emitters: Vec<Emitter<RecordingStopped>>,
     recording_failed_emitters: Vec<Emitter<RecordingFailed>>,
+    recording_retried_emitters: Vec<Emitter<RecordingRetried>>,
+    recording_rescheduled_emitters: Vec<Emitter<RecordingRescheduled>>,
 }
 
 impl<T, E, O> RecordingManager<T, E, O>
@@ -87,6 +89,8 @@ where
             recording_started_emitters: Default::default(),
             recording_stopped_emitters: Default::default(),
             recording_failed_emitters: Default::default(),
+            recording_retried_emitters: Default::default(),
+            recording_rescheduled_emitters: Default::default(),
         }
     }
 
@@ -902,6 +906,8 @@ pub enum RegisterEmitter {
     RecordingStarted(Emitter<RecordingStarted>),
     RecordingStopped(Emitter<RecordingStopped>),
     RecordingFailed(Emitter<RecordingFailed>),
+    RecordingRetried(Emitter<RecordingRetried>),
+    RecordingRescheduled(Emitter<RecordingRescheduled>),
 }
 
 #[async_trait]
@@ -933,6 +939,12 @@ where
             }
             RegisterEmitter::RecordingFailed(emitter) => {
                 self.recording_failed_emitters.push(emitter);
+            }
+            RegisterEmitter::RecordingRetried(emitter) => {
+                self.recording_retried_emitters.push(emitter);
+            }
+            RegisterEmitter::RecordingRescheduled(emitter) => {
+                self.recording_rescheduled_emitters.push(emitter);
             }
         }
     }
@@ -1008,21 +1020,27 @@ where
                 }
                 if recorder.check_retry().await {
                     let program_quad = msg.program_quad;
-                    tracing::warn!(%program_quad, "Reschedule for retry");
-                    self.retry(recorder.schedule);
+                    tracing::warn!(%program_quad, "Recording stopped before the program starts");
                     let service_triple = program_quad.into();
-                    if self.need_adding_observer(service_triple) {
-                        let result = self
-                            .onair_tracker
+                    let result = if self.need_adding_observer(service_triple) {
+                        self.onair_tracker
                             .call(crate::onair_tracker::AddObserver {
                                 service_triple,
                                 name: "recording",
                                 emitter: ctx.address().clone().into(),
                             })
-                            .await;
-                        if let Err(err) = result {
-                            tracing::error!(%err, %program_quad, "Failed to add on-air tracker");
-                            self.cancel_retry(program_quad);
+                            .await
+                    } else {
+                        Ok(())
+                    };
+                    match result {
+                        Ok(_) => {
+                            tracing::info!(%program_quad, "Retry recording");
+                            self.retry(recorder.schedule);
+                            self.emit_recording_retried(program_quad).await;
+                        }
+                        Err(err) => {
+                            tracing::error!(%err, %program_quad, "Failed to retry recording");
                             self.emit_recording_failed(
                                 program_quad,
                                 RecordingFailedReason::RetryFailed,
@@ -1059,21 +1077,13 @@ where
 impl<T, E, O> RecordingManager<T, E, O> {
     fn retry(&mut self, schedule: Arc<Schedule>) {
         let program_quad = schedule.program_quad;
-        tracing::info!(%program_quad, "Retry recording");
         self.retries.insert(program_quad, schedule);
     }
 
     fn need_adding_observer(&self, service_triple: ServiceTriple) -> bool {
         self.retries
             .keys()
-            .filter(|&&quad| service_triple == quad.into())
-            .count()
-            == 1
-    }
-
-    fn cancel_retry(&mut self, program_quad: ProgramQuad) {
-        tracing::info!(%program_quad, "Cancel retry");
-        self.retries.remove(&program_quad);
+            .any(|&quad| service_triple == quad.into())
     }
 }
 
@@ -1086,7 +1096,7 @@ pub struct RecordingFailed {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "reason")]
+#[serde(tag = "type")]
 pub enum RecordingFailedReason {
     #[serde(rename_all = "camelCase")]
     IoError {
@@ -1136,6 +1146,36 @@ impl<T, E, O> RecordingManager<T, E, O> {
                     reason,
                 })
                 .await;
+        }
+    }
+}
+
+// recording retried
+
+#[derive(Clone, Message)]
+pub struct RecordingRetried {
+    pub program_quad: ProgramQuad,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_recording_retried(&self, program_quad: ProgramQuad) {
+        for emitter in self.recording_retried_emitters.iter() {
+            emitter.emit(RecordingRetried { program_quad }).await;
+        }
+    }
+}
+
+// recording rescheduled
+
+#[derive(Clone, Message)]
+pub struct RecordingRescheduled {
+    pub program_quad: ProgramQuad,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_recording_rescheduled(&self, program_quad: ProgramQuad) {
+        for emitter in self.recording_rescheduled_emitters.iter() {
+            emitter.emit(RecordingRescheduled { program_quad }).await;
         }
     }
 }
@@ -1190,7 +1230,6 @@ where
                         .await;
                     }
                 } else {
-                    tracing::info!(%program_quad, %program.start_at, "Reschedule");
                     let result = self.add_schedule(Schedule {
                         program_quad,
                         content_path: schedule.content_path.clone(),
@@ -1202,7 +1241,8 @@ where
                     });
                     match result {
                         Ok(_) => {
-                            self.save_schedules();
+                            tracing::info!(%program_quad, %program.start_at, "Rescheduled recording");
+                            self.emit_recording_rescheduled(program_quad).await;
                             self.set_timer(ctx);
                         }
                         Err(err) => {

@@ -927,6 +927,134 @@ impl From<u32> for MirakurunLangCode {
     }
 }
 
+// events
+pub mod events {
+    use super::*;
+    use crate::recording::RecordingFailedReason;
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct EpgProgramsUpdated {
+        pub service_id: MirakurunServiceId,
+    }
+
+    impl EpgProgramsUpdated {
+        pub const fn name() -> &'static str {
+            "epg.programs-updated"
+        }
+    }
+
+    impl From<crate::epg::ProgramsUpdated> for EpgProgramsUpdated {
+        fn from(msg: crate::epg::ProgramsUpdated) -> Self {
+            EpgProgramsUpdated {
+                service_id: msg.service_triple.into(),
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RecordingStarted {
+        pub program_id: MirakurunProgramId,
+    }
+
+    impl RecordingStarted {
+        pub const fn name() -> &'static str {
+            "recording.started"
+        }
+    }
+
+    impl From<crate::recording::RecordingStarted> for RecordingStarted {
+        fn from(msg: crate::recording::RecordingStarted) -> Self {
+            RecordingStarted {
+                program_id: msg.program_quad.into(),
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RecordingStopped {
+        pub program_id: MirakurunProgramId,
+    }
+
+    impl RecordingStopped {
+        pub const fn name() -> &'static str {
+            "recording.stopped"
+        }
+    }
+
+    impl From<crate::recording::RecordingStopped> for RecordingStopped {
+        fn from(msg: crate::recording::RecordingStopped) -> Self {
+            RecordingStopped {
+                program_id: msg.program_quad.into(),
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RecordingFailed {
+        pub program_id: MirakurunProgramId,
+        pub reason: RecordingFailedReason,
+    }
+
+    impl RecordingFailed {
+        pub const fn name() -> &'static str {
+            "recording.failed"
+        }
+    }
+
+    impl From<crate::recording::RecordingFailed> for RecordingFailed {
+        fn from(msg: crate::recording::RecordingFailed) -> Self {
+            RecordingFailed {
+                program_id: msg.program_quad.into(),
+                reason: msg.reason,
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RecordingRetried {
+        pub program_id: MirakurunProgramId,
+    }
+
+    impl RecordingRetried {
+        pub const fn name() -> &'static str {
+            "recording.retried"
+        }
+    }
+
+    impl From<crate::recording::RecordingRetried> for RecordingRetried {
+        fn from(msg: crate::recording::RecordingRetried) -> Self {
+            RecordingRetried {
+                program_id: msg.program_quad.into(),
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RecordingRescheduled {
+        pub program_id: MirakurunProgramId,
+    }
+
+    impl RecordingRescheduled {
+        pub const fn name() -> &'static str {
+            "recording.rescheduled"
+        }
+    }
+
+    impl From<crate::recording::RecordingRescheduled> for RecordingRescheduled {
+        fn from(msg: crate::recording::RecordingRescheduled) -> Self {
+            RecordingRescheduled {
+                program_id: msg.program_quad.into(),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test_helper {
     use super::*;
