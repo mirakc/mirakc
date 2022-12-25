@@ -24,24 +24,7 @@ where
         .call(recording::QueryRecordingRecorders)
         .await?;
     for recorder in recorders.into_iter() {
-        let program = state
-            .epg
-            .call(epg::QueryProgram::ByProgramQuad(
-                recorder.schedule.program_quad,
-            ))
-            .await??;
-        results.push(WebRecordingRecorder {
-            program: program.into(),
-            content_path: recorder.schedule.content_path.clone(),
-            priority: recorder.schedule.priority,
-            pipeline: recorder
-                .pipeline
-                .into_iter()
-                .map(WebProcessModel::from)
-                .collect(),
-            tags: recorder.schedule.tags.clone(),
-            start_time: recorder.start_time,
-        });
+        results.push(recorder.into());
     }
     Ok(Json(results))
 }
@@ -77,18 +60,7 @@ where
             program_quad: program.quad,
         })
         .await??;
-    Ok(Json(WebRecordingRecorder {
-        program: program.into(),
-        content_path: recorder.schedule.content_path.clone(),
-        priority: recorder.schedule.priority,
-        pipeline: recorder
-            .pipeline
-            .into_iter()
-            .map(WebProcessModel::from)
-            .collect(),
-        tags: recorder.schedule.tags.clone(),
-        start_time: recorder.start_time,
-    }))
+    Ok(Json(recorder.into()))
 }
 
 /// Starts recording.
@@ -117,32 +89,19 @@ where
         .await??;
     let schedule = Arc::new(Schedule {
         program_quad: program.quad,
+        start_at: program.start_at,
+        end_at: program.end_at(),
         content_path: input.content_path,
         priority: input.priority,
         pre_filters: input.pre_filters,
         post_filters: input.post_filters,
         tags: input.tags,
-        start_at: program.start_at,
     });
     let recorder = state
         .recording_manager
         .call(recording::StartRecording { schedule })
         .await??;
-    Ok((
-        StatusCode::CREATED,
-        Json(WebRecordingRecorder {
-            program: program.into(),
-            content_path: recorder.schedule.content_path.clone(),
-            priority: recorder.schedule.priority,
-            pipeline: recorder
-                .pipeline
-                .into_iter()
-                .map(WebProcessModel::from)
-                .collect(),
-            tags: recorder.schedule.tags.clone(),
-            start_time: recorder.start_time,
-        }),
-    ))
+    Ok((StatusCode::CREATED, Json(recorder.into())))
 }
 
 /// Stops recording.

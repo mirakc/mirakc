@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::extract::FromRequestParts;
@@ -27,6 +28,7 @@ use crate::models::TimeshiftRecordId;
 use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
 use crate::models::TunerUserPriority;
+use crate::recording;
 use crate::timeshift::TimeshiftRecordModel;
 use crate::timeshift::TimeshiftRecorderModel;
 
@@ -46,7 +48,14 @@ pub(in crate::web) struct Status {}
 #[serde(rename_all = "camelCase")]
 #[schema(title = "RecordingSchedule")]
 pub(in crate::web) struct WebRecordingSchedule {
-    pub program: MirakurunProgram,
+    #[schema(value_type = u64)]
+    pub program_id: MirakurunProgramId,
+    #[serde(with = "serde_jst")]
+    #[schema(value_type = u64)]
+    pub start_at: DateTime<Jst>,
+    #[serde(with = "serde_jst")]
+    #[schema(value_type = u64)]
+    pub end_at: DateTime<Jst>,
     #[schema(value_type = String)]
     pub content_path: PathBuf,
     pub priority: i32,
@@ -54,6 +63,21 @@ pub(in crate::web) struct WebRecordingSchedule {
     pub post_filters: Vec<String>,
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
+}
+
+impl From<Arc<recording::Schedule>> for WebRecordingSchedule {
+    fn from(value: Arc<recording::Schedule>) -> Self {
+        WebRecordingSchedule {
+            program_id: value.program_quad.into(),
+            start_at: value.start_at,
+            end_at: value.end_at,
+            content_path: value.content_path.clone(),
+            priority: value.priority,
+            pre_filters: value.pre_filters.clone(),
+            post_filters: value.post_filters.clone(),
+            tags: value.tags.clone(),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, ToSchema)]
@@ -77,16 +101,38 @@ pub(in crate::web) struct WebRecordingScheduleInput {
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub(in crate::web) struct WebRecordingRecorder {
-    pub program: MirakurunProgram,
+    #[schema(value_type = u64)]
+    pub program_id: MirakurunProgramId,
+    #[serde(with = "serde_jst")]
+    #[schema(value_type = u64)]
+    pub started_at: DateTime<Jst>,
+    #[serde(with = "serde_jst")]
+    #[schema(value_type = u64)]
+    pub end_at: DateTime<Jst>,
     #[schema(value_type = String)]
     pub content_path: PathBuf,
     pub priority: i32,
     pub pipeline: Vec<WebProcessModel>,
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
-    #[serde(with = "serde_jst")]
-    #[schema(value_type = u64)]
-    pub start_time: DateTime<Jst>,
+}
+
+impl From<recording::RecorderModel> for WebRecordingRecorder {
+    fn from(value: recording::RecorderModel) -> Self {
+        WebRecordingRecorder {
+            program_id: value.schedule.program_quad.into(),
+            started_at: value.started_at,
+            end_at: value.schedule.end_at,
+            content_path: value.schedule.content_path.clone(),
+            priority: value.schedule.priority,
+            pipeline: value
+                .pipeline
+                .into_iter()
+                .map(WebProcessModel::from)
+                .collect(),
+            tags: value.schedule.tags.clone(),
+        }
+    }
 }
 
 #[derive(Serialize, ToSchema)]

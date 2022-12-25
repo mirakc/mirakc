@@ -28,18 +28,7 @@ where
         .call(recording::QueryRecordingSchedules)
         .await?;
     for schedule in schedules.into_iter() {
-        let program = state
-            .epg
-            .call(epg::QueryProgram::ByProgramQuad(schedule.program_quad))
-            .await??;
-        results.push(WebRecordingSchedule {
-            program: program.into(),
-            content_path: schedule.content_path.clone(),
-            priority: schedule.priority,
-            pre_filters: schedule.pre_filters.clone(),
-            post_filters: schedule.post_filters.clone(),
-            tags: schedule.tags.clone(),
-        });
+        results.push(schedule.into());
     }
 
     Ok(Json(results))
@@ -76,14 +65,7 @@ where
             program_quad: program.quad,
         })
         .await??;
-    Ok(Json(WebRecordingSchedule {
-        program: program.into(),
-        content_path: schedule.content_path.clone(),
-        priority: schedule.priority,
-        pre_filters: schedule.pre_filters.clone(),
-        post_filters: schedule.post_filters.clone(),
-        tags: schedule.tags.clone(),
-    }))
+    Ok(Json(schedule.into()))
 }
 
 /// Books a recording schedule.
@@ -131,29 +113,20 @@ where
 
     let schedule = Schedule {
         program_quad: program.quad,
+        start_at: program.start_at,
+        end_at: program.end_at(),
         content_path: input.content_path,
         priority: input.priority,
         pre_filters: input.pre_filters,
         post_filters: input.post_filters,
         tags: input.tags,
-        start_at: program.start_at,
     };
     let schedule = state
         .recording_manager
         .call(recording::AddRecordingSchedule { schedule })
         .await??;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(WebRecordingSchedule {
-            program: program.into(),
-            content_path: schedule.content_path.clone(),
-            priority: schedule.priority,
-            pre_filters: schedule.pre_filters.clone(),
-            post_filters: schedule.post_filters.clone(),
-            tags: schedule.tags.clone(),
-        }),
-    ))
+    Ok((StatusCode::CREATED, Json(schedule.into())))
 }
 
 /// Deletes a recording schedule.

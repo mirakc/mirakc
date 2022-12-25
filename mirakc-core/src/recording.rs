@@ -273,8 +273,8 @@ where
 
         let recorder = Recorder {
             schedule,
+            started_at: Jst::now(),
             pipeline,
-            start_time: Jst::now(),
             stop_trigger: Some(stop_trigger),
         };
         let model = recorder.get_model();
@@ -1232,12 +1232,13 @@ where
                 } else {
                     let result = self.add_schedule(Schedule {
                         program_quad,
+                        start_at: program.start_at,
+                        end_at: program.end_at(),
                         content_path: schedule.content_path.clone(),
                         priority: schedule.priority,
                         pre_filters: schedule.pre_filters.clone(),
                         post_filters: schedule.post_filters.clone(),
                         tags: schedule.tags.clone(),
-                        start_at: program.start_at,
                     });
                     match result {
                         Ok(_) => {
@@ -1294,13 +1295,15 @@ impl<T, E, O> RecordingManager<T, E, O> {
 #[derive(Clone, Debug, Deserialize, Eq, Serialize)]
 pub struct Schedule {
     pub program_quad: ProgramQuad,
+    #[serde(with = "serde_jst")]
+    pub start_at: DateTime<Jst>,
+    #[serde(with = "serde_jst")]
+    pub end_at: DateTime<Jst>,
     pub content_path: PathBuf,
     pub priority: i32,
     pub pre_filters: Vec<String>,
     pub post_filters: Vec<String>,
     pub tags: HashSet<String>,
-    #[serde(with = "serde_jst")]
-    pub start_at: DateTime<Jst>,
 }
 
 impl Ord for Schedule {
@@ -1326,8 +1329,8 @@ impl PartialOrd for Schedule {
 
 struct Recorder {
     schedule: Arc<Schedule>,
+    started_at: DateTime<Jst>,
     pipeline: CommandPipeline<TunerSubscriptionId>,
-    start_time: DateTime<Jst>,
     stop_trigger: Option<TunerStreamStopTrigger>,
 }
 
@@ -1335,8 +1338,8 @@ impl Recorder {
     fn get_model(&self) -> RecorderModel {
         RecorderModel {
             schedule: self.schedule.clone(),
+            started_at: self.started_at,
             pipeline: self.pipeline.get_model(),
-            start_time: self.start_time,
         }
     }
 
@@ -1374,8 +1377,8 @@ impl Recorder {
 
 pub struct RecorderModel {
     pub schedule: Arc<Schedule>,
+    pub started_at: DateTime<Jst>,
     pub pipeline: Vec<CommandPipelineProcessModel>,
-    pub start_time: DateTime<Jst>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1525,7 +1528,7 @@ mod tests {
         let pipeline = spawn_pipeline(vec!["true".to_string()], Default::default()).unwrap();
         let mut recorder = Recorder {
             schedule: schedule.clone(),
-            start_time: now,
+            started_at: now,
             pipeline,
             stop_trigger: None,
         };
@@ -1536,7 +1539,7 @@ mod tests {
         let pipeline = spawn_pipeline(vec!["false".to_string()], Default::default()).unwrap();
         let mut recorder = Recorder {
             schedule: schedule.clone(),
-            start_time: now,
+            started_at: now,
             pipeline,
             stop_trigger: None,
         };
@@ -1551,7 +1554,7 @@ mod tests {
         .unwrap();
         let mut recorder = Recorder {
             schedule: schedule.clone(),
-            start_time: now,
+            started_at: now,
             pipeline,
             stop_trigger: None,
         };
@@ -1566,7 +1569,7 @@ mod tests {
         .unwrap();
         let mut recorder = Recorder {
             schedule: schedule.clone(),
-            start_time: now,
+            started_at: now,
             pipeline,
             stop_trigger: None,
         };
@@ -1584,7 +1587,7 @@ mod tests {
         let pipeline = spawn_pipeline(vec!["true".to_string()], Default::default()).unwrap();
         let mut recorder = Recorder {
             schedule: schedule.clone(),
-            start_time: now,
+            started_at: now,
             pipeline,
             stop_trigger: None,
         };
@@ -1595,7 +1598,7 @@ mod tests {
         let pipeline = spawn_pipeline(vec!["false".to_string()], Default::default()).unwrap();
         let mut recorder = Recorder {
             schedule: schedule.clone(),
-            start_time: now,
+            started_at: now,
             pipeline,
             stop_trigger: None,
         };
@@ -1624,12 +1627,13 @@ mod tests {
             // Schedules for programs already started will be ignored.
             let schedule = Schedule {
                 program_quad: (0, 0, 1, 1).into(),
+                start_at: now,
+                end_at: now,
                 content_path: "1.m2ts".into(),
                 priority: 0,
                 pre_filters: vec![],
                 post_filters: vec![],
                 tags: Default::default(),
-                start_at: now,
             };
             let result = manager.call(AddRecordingSchedule { schedule }).await;
             assert_matches!(result, Ok(Ok(_)));
@@ -1639,12 +1643,13 @@ mod tests {
             const_assert!(PREP_SECS >= 1);
             let schedule = Schedule {
                 program_quad: (0, 0, 1, 2).into(),
+                start_at: now + Duration::seconds(1),
+                end_at: now + Duration::seconds(1),
                 content_path: "2.m2ts".into(),
                 priority: 0,
                 pre_filters: vec![],
                 post_filters: vec![],
                 tags: Default::default(),
-                start_at: now + Duration::seconds(1),
             };
             let result = manager.call(AddRecordingSchedule { schedule }).await;
             assert_matches!(result, Ok(Ok(_)));
@@ -1652,12 +1657,13 @@ mod tests {
             // Schedules for programs start after PREP_SECS will be kept.
             let schedule = Schedule {
                 program_quad: (0, 0, 1, 3).into(),
+                start_at: now + Duration::seconds(PREP_SECS + 1),
+                end_at: now + Duration::seconds(PREP_SECS + 1),
                 content_path: "3.m2ts".into(),
                 priority: 0,
                 pre_filters: vec![],
                 post_filters: vec![],
                 tags: Default::default(),
-                start_at: now + Duration::seconds(PREP_SECS + 1),
             };
             let result = manager.call(AddRecordingSchedule { schedule }).await;
             assert_matches!(result, Ok(Ok(_)));
@@ -1700,12 +1706,13 @@ mod tests {
     fn schedule_for_test(program_quad: ProgramQuad, start_at: DateTime<Jst>) -> Schedule {
         Schedule {
             program_quad,
+            start_at,
+            end_at: start_at,
             content_path: format!("{}.m2ts", program_quad.eid().value()).into(),
             priority: Default::default(),
             pre_filters: Default::default(),
             post_filters: Default::default(),
             tags: Default::default(),
-            start_at,
         }
     }
 }
@@ -1742,12 +1749,13 @@ pub(crate) mod stub {
                 0 => Ok(Err(Error::ProgramNotFound)),
                 _ => Ok(Ok(Arc::new(Schedule {
                     program_quad: msg.program_quad,
+                    start_at: Jst::now(),
+                    end_at: Jst::now(),
                     content_path: "test.m2ts".into(),
                     priority: 1,
                     pre_filters: vec![],
                     post_filters: vec![],
                     tags: Default::default(),
-                    start_at: Jst::now(),
                 }))),
             }
         }
@@ -1783,12 +1791,13 @@ pub(crate) mod stub {
                 0 => Ok(Err(Error::ScheduleNotFound)),
                 _ => Ok(Ok(Arc::new(Schedule {
                     program_quad: msg.program_quad,
+                    start_at: Jst::now(),
+                    end_at: Jst::now(),
                     content_path: "test.m2ts".into(),
                     priority: 1,
                     pre_filters: vec![],
                     post_filters: vec![],
                     tags: Default::default(),
-                    start_at: Jst::now(),
                 }))),
             }
         }
@@ -1821,15 +1830,16 @@ pub(crate) mod stub {
                 _ => Ok(Ok(RecorderModel {
                     schedule: Arc::new(Schedule {
                         program_quad: msg.program_quad,
+                        start_at: Jst::now(),
+                        end_at: Jst::now(),
                         content_path: "test.m2ts".into(),
                         priority: 1,
                         pre_filters: vec![],
                         post_filters: vec![],
                         tags: Default::default(),
-                        start_at: Jst::now(),
                     }),
+                    started_at: Jst::now(),
                     pipeline: vec![],
-                    start_time: Jst::now(),
                 })),
             }
         }
@@ -1855,8 +1865,8 @@ pub(crate) mod stub {
                 0 => Ok(Err(Error::RecorderNotFound)),
                 _ => Ok(Ok(RecorderModel {
                     schedule: msg.schedule,
+                    started_at: Jst::now(),
                     pipeline: vec![],
-                    start_time: Jst::now(),
                 })),
             }
         }
