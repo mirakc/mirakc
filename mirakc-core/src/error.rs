@@ -32,10 +32,8 @@ pub enum Error {
     AccessDenied,
     #[error("Already exists")]
     AlreadyExists,
-    #[error("Program already started")]
-    ProgramAlreadyStarted,
-    #[error("Program will start soon")]
-    ProgramWillStartSoon,
+    #[error("Program ended")]
+    ProgramEnded,
     #[error("Invalid path")]
     InvalidPath,
     #[error("Command failed: {0}")]

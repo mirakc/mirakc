@@ -382,18 +382,6 @@ async fn test_create_recording_schedule() {
     let res = post("/api/recording/schedules", input).await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 
-    // Error::ProgramWillStartSoon
-    let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 2).into(),
-        content_path: "2.m2ts".into(),
-        priority: 1,
-        pre_filters: vec![],
-        post_filters: vec![],
-        tags: Default::default(),
-    };
-    let res = post("/api/recording/schedules", input).await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-
     // Ok
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 4).into(),

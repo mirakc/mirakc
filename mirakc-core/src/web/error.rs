@@ -55,9 +55,8 @@ impl IntoResponse for Error {
             }
             Error::AccessDenied => error_response!(StatusCode::FORBIDDEN),
             Error::AlreadyExists => error_response!(StatusCode::BAD_REQUEST),
+            Error::ProgramEnded => error_response!(StatusCode::BAD_REQUEST),
             Error::QuerystringError(_) => error_response!(StatusCode::BAD_REQUEST),
-            Error::ProgramAlreadyStarted => error_response!(StatusCode::BAD_REQUEST),
-            Error::ProgramWillStartSoon => error_response!(StatusCode::BAD_REQUEST),
             Error::InvalidPath => error_response!(StatusCode::BAD_REQUEST),
             _ => error_response!(StatusCode::INTERNAL_SERVER_ERROR),
         }

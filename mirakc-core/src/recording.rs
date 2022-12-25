@@ -383,7 +383,9 @@ impl<T, E, O> RecordingManager<T, E, O> {
             Ok(schedules) => {
                 tracing::info!(?path, "Loaded");
                 for schedule in schedules.into_iter() {
-                    if let Err(_err) = self.add_schedule(schedule) {
+                    let program_quad = schedule.program_quad;
+                    if let Err(err) = self.add_schedule(schedule) {
+                        tracing::error!(%err, %program_quad, "Recording failed");
                         // TODO
                         // ----
                         // Should emit RecordingFailed messages when the
@@ -553,18 +555,14 @@ where
 
 impl<T, E, O> RecordingManager<T, E, O> {
     fn add_schedule(&mut self, schedule: Schedule) -> Result<(), Error> {
-        let now = Jst::now();
+        let deadline = Jst::now() + Duration::seconds(PREP_SECS);
         let program_quad = schedule.program_quad;
         if self.schedule_map.contains_key(&program_quad) {
             let err = Error::AlreadyExists;
             tracing::warn!(%schedule.program_quad, %err);
             Err(err)
-        } else if schedule.start_at <= now {
-            let err = Error::ProgramAlreadyStarted;
-            tracing::error!(%schedule.program_quad, %err);
-            Err(err)
-        } else if schedule.start_at - now <= Duration::seconds(PREP_SECS) {
-            let err = Error::ProgramWillStartSoon;
+        } else if schedule.end_at <= deadline {
+            let err = Error::ProgramEnded;
             tracing::error!(%schedule.program_quad, %err);
             Err(err)
         } else {
@@ -1199,66 +1197,26 @@ where
 {
     async fn handle(&mut self, msg: OnairProgramChanged, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "OnairProgramChanged", %msg.service_triple);
-        let now = Jst::now();
-        let start_soon = now + Duration::seconds(PREP_SECS);
 
         if let Some(program) = msg.present {
-            let program_quad = ProgramQuad::from(program.quad);
-            if let Some(schedule) = self.retries.remove(&program_quad) {
-                tracing::info!(%program_quad, %program.start_at,
-                               "Already started, start recording");
-                if let Err(err) = self.start_recording(schedule, ctx).await {
-                    tracing::error!(%err, %program_quad, "Retry failed");
-                    self.emit_recording_failed(program_quad, RecordingFailedReason::RetryFailed)
-                        .await;
+            if let Some(schedule) = self.retries.remove(&program.quad) {
+                let rescheduled = self.reschedule(&schedule, &program).await;
+                if rescheduled {
+                    self.set_timer(ctx);
                 }
             }
         }
 
         if let Some(program) = msg.following {
-            let program_quad = ProgramQuad::from(program.quad);
-            if let Some(schedule) = self.retries.remove(&program_quad) {
-                if program.start_at <= start_soon {
-                    tracing::info!(%program_quad, %program.start_at,
-                                   "Will start soon, start recording");
-                    if let Err(err) = self.start_recording(schedule, ctx).await {
-                        tracing::error!(%err, %program_quad, "Retry failed");
-                        self.emit_recording_failed(
-                            program_quad,
-                            RecordingFailedReason::RetryFailed,
-                        )
-                        .await;
-                    }
-                } else {
-                    let result = self.add_schedule(Schedule {
-                        program_quad,
-                        start_at: program.start_at,
-                        end_at: program.end_at(),
-                        content_path: schedule.content_path.clone(),
-                        priority: schedule.priority,
-                        pre_filters: schedule.pre_filters.clone(),
-                        post_filters: schedule.post_filters.clone(),
-                        tags: schedule.tags.clone(),
-                    });
-                    match result {
-                        Ok(_) => {
-                            tracing::info!(%program_quad, %program.start_at, "Rescheduled recording");
-                            self.emit_recording_rescheduled(program_quad).await;
-                            self.set_timer(ctx);
-                        }
-                        Err(err) => {
-                            tracing::error!(%err, %program_quad, "Retry failed");
-                            self.emit_recording_failed(
-                                program_quad,
-                                RecordingFailedReason::RetryFailed,
-                            )
-                            .await;
-                        }
-                    }
+            if let Some(schedule) = self.retries.remove(&program.quad) {
+                let rescheduled = self.reschedule(&schedule, &program).await;
+                if rescheduled {
+                    self.set_timer(ctx);
                 }
             }
         }
 
+        let now = Jst::now();
         let duration = Duration::from_std(self.config.recording.max_start_delay.unwrap()).unwrap();
         self.retries.retain(|_, schedule| {
             let expired = schedule.start_at + duration > now;
@@ -1281,6 +1239,32 @@ where
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
+    async fn reschedule(&mut self, schedule: &Schedule, program: &EpgProgram) -> bool {
+        let result = self.add_schedule(Schedule {
+            program_quad: program.quad,
+            start_at: program.start_at,
+            end_at: program.end_at(),
+            content_path: schedule.content_path.clone(),
+            priority: schedule.priority,
+            pre_filters: schedule.pre_filters.clone(),
+            post_filters: schedule.post_filters.clone(),
+            tags: schedule.tags.clone(),
+        });
+        match result {
+            Ok(_) => {
+                tracing::info!(%program.quad, %program.start_at, "Rescheduled recording");
+                self.emit_recording_rescheduled(program.quad).await;
+                true
+            }
+            Err(err) => {
+                tracing::error!(%err, %program.quad, "Retry failed");
+                self.emit_recording_failed(program.quad, RecordingFailedReason::RetryFailed)
+                    .await;
+                false
+            }
+        }
+    }
+
     fn need_removing_observer(&self, service_triple: ServiceTriple) -> bool {
         self.retries
             .keys()
@@ -1426,14 +1410,9 @@ mod tests {
         assert_matches!(result, Err(Error::AlreadyExists));
         assert_eq!(manager.schedules.len(), 1);
 
-        let schedule = schedule_for_test((0, 0, 0, 2).into(), now + Duration::seconds(PREP_SECS));
+        let schedule = schedule_for_test((0, 0, 0, 2).into(), now);
         let result = manager.add_schedule(schedule);
-        assert_matches!(result, Err(Error::ProgramWillStartSoon));
-        assert_eq!(manager.schedules.len(), 1);
-
-        let schedule = schedule_for_test((0, 0, 0, 3).into(), now);
-        let result = manager.add_schedule(schedule);
-        assert_matches!(result, Err(Error::ProgramAlreadyStarted));
+        assert_matches!(result, Err(Error::ProgramEnded));
         assert_eq!(manager.schedules.len(), 1);
 
         let schedule =
@@ -1732,8 +1711,7 @@ pub(crate) mod stub {
             match msg.schedule.program_quad.eid().value() {
                 // 0 is reserved for Error::ProgramNotFound
                 1 => Ok(Err(Error::AlreadyExists)),
-                2 => Ok(Err(Error::ProgramAlreadyStarted)),
-                3 => Ok(Err(Error::ProgramWillStartSoon)),
+                2 => Ok(Err(Error::ProgramEnded)),
                 _ => Ok(Ok(Arc::new(msg.schedule))),
             }
         }
