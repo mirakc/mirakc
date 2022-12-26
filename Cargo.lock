@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "actlet"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actlet-derive",
  "async-trait",
@@ -16,7 +16,7 @@ dependencies = [
 
 [[package]]
 name = "actlet-derive"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "actlet",
  "proc-macro2",
@@ -142,7 +142,7 @@ dependencies = [
 
 [[package]]
 name = "axum-test-helper"
-version = "1.1.0-dev.0"
+version = "2.0.0-dev.0"
 dependencies = [
  "axum",
  "reqwest",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "mirakc"
-version = "1.1.0-dev.0"
+version = "2.0.0-dev.0"
 dependencies = [
  "actlet",
  "clap",
@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "mirakc-core"
-version = "1.1.0-dev.0"
+version = "2.0.0-dev.0"
 dependencies = [
  "actlet",
  "anyhow",
@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "mirakc-timeshift-fs"
-version = "1.1.0-dev.0"
+version = "2.0.0-dev.0"
 dependencies = [
  "assert_matches",
  "clap",
