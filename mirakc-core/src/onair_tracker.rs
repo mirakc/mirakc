@@ -140,6 +140,7 @@ impl<T, E> OnairTracker<T, E> {
                 self.entries.insert(service_triple, entry);
             }
         }
+        tracing::info!(%service_triple, name, "On-air program observer added");
     }
 }
 
@@ -171,7 +172,7 @@ impl<T, E> OnairTracker<T, E> {
         match self.entries.get_mut(&service_triple) {
             Some(entry) => {
                 if let Some(_) = entry.emitters.remove(&name) {
-                    tracing::info!(%service_triple, name, "Removed");
+                    tracing::info!(%service_triple, name, "On-air program observer removed");
                 } else {
                     tracing::warn!(%service_triple, name, "No observer added");
                 }
@@ -225,7 +226,7 @@ where
         {
             // Remove entries which have no observer.
             if entry.emitters.is_empty() {
-                tracing::info!(%service_triple, "Removed");
+                tracing::info!(%service_triple, "On-air program entry removed");
                 continue;
             }
 

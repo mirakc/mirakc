@@ -113,8 +113,8 @@ where
         let prep_secs = Duration::seconds(PREP_SECS);
         let now = Jst::now();
         while let Some(schedule) = self.schedules.peek() {
-            if schedule.start_at <= now {
-                tracing::warn!(%schedule.program_quad, "Expired, remove schedule");
+            if schedule.end_at - now <= prep_secs {
+                tracing::warn!(%schedule.program_quad, "Program will end soon, remove schedule");
                 self.schedule_map.remove(&schedule.program_quad);
                 self.schedules.pop();
             } else if schedule.start_at - now <= prep_secs {
@@ -1079,7 +1079,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 
     fn need_adding_observer(&self, service_triple: ServiceTriple) -> bool {
-        self.retries
+        !self.retries
             .keys()
             .any(|&quad| service_triple == quad.into())
     }
