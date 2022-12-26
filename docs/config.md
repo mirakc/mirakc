@@ -54,13 +54,13 @@ suitable for your environment.
 | [timeshift.recorders\[\].num-chunks]     |                                   |
 | [timeshift.recorders\[\].num-reserves]   | `!number 1`                       |
 | [timeshift.recorders\[\].priority]       | `128`                             |
-| [scripts.concurrency]                    | `1`                               |
-| [scripts.epg.programs-updated]           | `''`                              |
-| [scripts.recording.started]              | `''`                              |
-| [scripts.recording.stopped]              | `''`                              |
-| [scripts.recording.failed]               | `''`                              |
-| [scripts.recording.retried]              | `''`                              |
-| [scripts.recording.rescheduled]          | `''`                              |
+| [events.concurrency]                     | `1`                               |
+| [events.epg.programs-updated]            | `''`                              |
+| [events.recording.started]               | `''`                              |
+| [events.recording.stopped]               | `''`                              |
+| [events.recording.failed]                | `''`                              |
+| [events.recording.retried]               | `''`                              |
+| [events.recording.rescheduled]           | `''`                              |
 | [onair-trackers.local]                   | `mirakc-arib collect-eitpf --sids={{{sid}}}` |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
@@ -111,13 +111,13 @@ suitable for your environment.
 [timeshift.recorders\[\].num-chunks]: #timeshiftrecorders
 [timeshift.recorders\[\].num-reserves]: #timeshiftrecorders
 [timeshift.recorders\[\].priority]: #timeshiftrecorders
-[scripts.concurrency]: #scriptsconcurrency
-[scripts.epg.programs-updated]: #scriptsepgprograms-updated
-[scripts.recording.started]: #scriptsrecordingstarted
-[scripts.recording.stopped]: #scriptsrecordingstopped
-[scripts.recording.failed]: #scriptsrecordingfailed
-[scripts.recording.retried]: #scriptsrecordingretried
-[scripts.recording.rescheduled]: #scriptsrecordingrescheduled
+[events.concurrency]: #eventsconcurrency
+[events.epg.programs-updated]: #eventsepgprograms-updated
+[events.recording.started]: #eventsrecordingstarted
+[events.recording.stopped]: #eventsrecordingstopped
+[events.recording.failed]: #eventsrecordingfailed
+[events.recording.retried]: #eventsrecordingretried
+[events.recording.rescheduled]: #eventsrecordingrescheduled
 [onair-trackers.local]: #onair-trackerslocal
 [resource.strings-yaml]: #resourcestrings-yaml
 [resource.logos]: #resourcelogos
@@ -759,13 +759,13 @@ Definitions of timeshift recorders.
   * The priority of streaming
   * Should be larger than 0
 
-## scripts
+## events
 
 Definitions for scripts to be executed when a particular event occurs.
 
-### scripts.concurrency
+### events.concurrency
 
-The number of maximum concurrent scripts can be executed in parallel.
+The maximum number of scripts that can be executed in parallel.
 
 The following values can be specified:
 
@@ -780,7 +780,7 @@ concurrency: !num-cpus 0.5
 concurrency: !unlimited
 ```
 
-### scripts.epg.programs-updated
+### events.epg.programs-updated
 
 A script to be executed when EPG programs of a service are updated.
 
@@ -794,7 +794,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
   }
 }
 ```
-### scripts.recording.started
+### events.recording.started
 
 A script to be executed when recording for a program is started.
 
@@ -809,7 +809,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 }
 ```
 
-### scripts.recording.stopped
+### events.recording.stopped
 
 A script to be executed when recording for a program is stopped.
 
@@ -824,7 +824,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 }
 ```
 
-### scripts.recording.failed
+### events.recording.failed
 
 A script to be executed when recording for a program is failed.
 
@@ -867,7 +867,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 }
 ```
 
-### scripts.recording.retried
+### events.recording.retried
 
 A script to be executed when recording for a program is retried.
 
@@ -882,7 +882,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 }
 ```
 
-### scripts.recording.rescheduled
+### events.recording.rescheduled
 
 A script to be executed when recording for a program is rescheduled.
 

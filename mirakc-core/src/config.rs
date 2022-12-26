@@ -66,7 +66,7 @@ pub struct Config {
     #[serde(default)]
     pub timeshift: TimeshiftConfig,
     #[serde(default)]
-    pub scripts: ScriptsConfig,
+    pub events: EventsConfig,
     #[serde(default)]
     pub onair_trackers: OnairTrackersConfig,
     #[serde(default)]
@@ -896,20 +896,20 @@ impl TimeshiftRecorderConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(Debug))]
-pub struct ScriptsConfig {
+pub struct EventsConfig {
     #[serde(default)]
     pub concurrency: Concurrency,
     #[serde(default)]
-    pub epg: EpgScriptsConfig,
+    pub epg: EpgEventsConfig,
     #[serde(default)]
-    pub recording: RecordingScriptsConfig,
+    pub recording: RecordingEventsConfig,
 }
 
 #[derive(Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(Debug))]
-pub struct EpgScriptsConfig {
+pub struct EpgEventsConfig {
     #[serde(default)]
     pub programs_updated: String,
 }
@@ -918,7 +918,7 @@ pub struct EpgScriptsConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(Debug))]
-pub struct RecordingScriptsConfig {
+pub struct RecordingEventsConfig {
     #[serde(default)]
     pub started: String,
     #[serde(default)]
@@ -2891,46 +2891,46 @@ mod tests {
     }
 
     #[test]
-    fn test_scripts_config() {
+    fn test_events_config() {
         assert_eq!(
-            serde_yaml::from_str::<ScriptsConfig>("{}").unwrap(),
+            serde_yaml::from_str::<EventsConfig>("{}").unwrap(),
             Default::default()
         );
 
         assert_eq!(
-            serde_yaml::from_str::<ScriptsConfig>(
+            serde_yaml::from_str::<EventsConfig>(
                 r#"
                 concurrency: !number 2
             "#
             )
             .unwrap(),
-            ScriptsConfig {
+            EventsConfig {
                 concurrency: Concurrency::Number(2),
                 ..Default::default()
             }
         );
 
         assert_eq!(
-            serde_yaml::from_str::<ScriptsConfig>(
+            serde_yaml::from_str::<EventsConfig>(
                 r#"
                 concurrency: !num-cpus 0.5
             "#
             )
             .unwrap(),
-            ScriptsConfig {
+            EventsConfig {
                 concurrency: Concurrency::NumCpus(0.5),
                 ..Default::default()
             }
         );
 
         assert_eq!(
-            serde_yaml::from_str::<ScriptsConfig>(
+            serde_yaml::from_str::<EventsConfig>(
                 r#"
                 concurrency: !unlimited
             "#
             )
             .unwrap(),
-            ScriptsConfig {
+            EventsConfig {
                 concurrency: Concurrency::Unlimited,
                 ..Default::default()
             }

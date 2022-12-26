@@ -29,7 +29,7 @@ pub struct ScriptRunner<E, R> {
 
 impl<E, R> ScriptRunner<E, R> {
     pub fn new(config: Arc<Config>, epg: E, recording_manager: R) -> Self {
-        let concurrency = match config.scripts.concurrency {
+        let concurrency = match config.events.concurrency {
             Concurrency::Unlimited => Semaphore::MAX_PERMITS,
             Concurrency::Number(n) => n.max(1),
             Concurrency::NumCpus(r) => (num_cpus::get() as f32 * r).max(1.0) as usize,
@@ -43,27 +43,27 @@ impl<E, R> ScriptRunner<E, R> {
     }
 
     fn has_epg_programs_updated_script(&self) -> bool {
-        !self.config.scripts.epg.programs_updated.is_empty()
+        !self.config.events.epg.programs_updated.is_empty()
     }
 
     fn has_recording_started_script(&self) -> bool {
-        !self.config.scripts.recording.started.is_empty()
+        !self.config.events.recording.started.is_empty()
     }
 
     fn has_recording_stopped_script(&self) -> bool {
-        !self.config.scripts.recording.stopped.is_empty()
+        !self.config.events.recording.stopped.is_empty()
     }
 
     fn has_recording_failed_script(&self) -> bool {
-        !self.config.scripts.recording.failed.is_empty()
+        !self.config.events.recording.failed.is_empty()
     }
 
     fn has_recording_retried_script(&self) -> bool {
-        !self.config.scripts.recording.retried.is_empty()
+        !self.config.events.recording.retried.is_empty()
     }
 
     fn has_recording_rescheduled_script(&self) -> bool {
-        !self.config.scripts.recording.rescheduled.is_empty()
+        !self.config.events.recording.rescheduled.is_empty()
     }
 }
 
@@ -162,7 +162,7 @@ impl<E, R> ScriptRunner<E, R> {
         config: Arc<Config>,
         event: EpgProgramsUpdated,
     ) -> Result<ExitStatus, Error> {
-        let mut child = spawn_command(&config.scripts.epg.programs_updated)?;
+        let mut child = spawn_command(&config.events.epg.programs_updated)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &event).await?;
         drop(input);
@@ -197,7 +197,7 @@ impl<E, R> ScriptRunner<E, R> {
         config: Arc<Config>,
         event: RecordingStarted,
     ) -> Result<ExitStatus, Error> {
-        let mut child = spawn_command(&config.scripts.recording.started)?;
+        let mut child = spawn_command(&config.events.recording.started)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &event).await?;
         drop(input);
@@ -232,7 +232,7 @@ impl<E, R> ScriptRunner<E, R> {
         config: Arc<Config>,
         event: RecordingStopped,
     ) -> Result<ExitStatus, Error> {
-        let mut child = spawn_command(&config.scripts.recording.stopped)?;
+        let mut child = spawn_command(&config.events.recording.stopped)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &event).await?;
         drop(input);
@@ -267,7 +267,7 @@ impl<E, R> ScriptRunner<E, R> {
         config: Arc<Config>,
         event: RecordingFailed,
     ) -> Result<ExitStatus, Error> {
-        let mut child = spawn_command(&config.scripts.recording.failed)?;
+        let mut child = spawn_command(&config.events.recording.failed)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &event).await?;
         drop(input);
@@ -302,7 +302,7 @@ impl<E, R> ScriptRunner<E, R> {
         config: Arc<Config>,
         event: RecordingRetried,
     ) -> Result<ExitStatus, Error> {
-        let mut child = spawn_command(&config.scripts.recording.retried)?;
+        let mut child = spawn_command(&config.events.recording.retried)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &event).await?;
         drop(input);
@@ -340,7 +340,7 @@ impl<E, R> ScriptRunner<E, R> {
         config: Arc<Config>,
         event: RecordingRescheduled,
     ) -> Result<ExitStatus, Error> {
-        let mut child = spawn_command(&config.scripts.recording.rescheduled)?;
+        let mut child = spawn_command(&config.events.recording.rescheduled)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &event).await?;
         drop(input);
@@ -416,7 +416,7 @@ mod tests {
         };
 
         let mut config = Config::default();
-        config.scripts.epg.programs_updated = format!(
+        config.events.epg.programs_updated = format!(
             r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
             serde_json::to_string(&event).unwrap(),
         );
@@ -427,7 +427,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.epg.programs_updated = "sh -c 'cat; false'".to_string();
+        config.events.epg.programs_updated = "sh -c 'cat; false'".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_epg_programs_updated_script(config, event.clone()).await;
         assert_matches!(result, Ok(status) => {
@@ -435,7 +435,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.epg.programs_updated = "command-not-found".to_string();
+        config.events.epg.programs_updated = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_epg_programs_updated_script(config, event.clone()).await;
         assert_matches!(result, Err(_));
@@ -448,7 +448,7 @@ mod tests {
         };
 
         let mut config = Config::default();
-        config.scripts.recording.started = format!(
+        config.events.recording.started = format!(
             r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
             serde_json::to_string(&event).unwrap(),
         );
@@ -459,7 +459,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.started = "sh -c 'cat; false'".to_string();
+        config.events.recording.started = "sh -c 'cat; false'".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_started_script(config, event.clone()).await;
         assert_matches!(result, Ok(status) => {
@@ -467,7 +467,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.started = "command-not-found".to_string();
+        config.events.recording.started = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_started_script(config, event.clone()).await;
         assert_matches!(result, Err(_));
@@ -480,7 +480,7 @@ mod tests {
         };
 
         let mut config = Config::default();
-        config.scripts.recording.stopped = format!(
+        config.events.recording.stopped = format!(
             r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
             serde_json::to_string(&event).unwrap(),
         );
@@ -491,7 +491,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.stopped = "sh -c 'cat; false'".to_string();
+        config.events.recording.stopped = "sh -c 'cat; false'".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_stopped_script(config, event.clone()).await;
         assert_matches!(result, Ok(status) => {
@@ -499,7 +499,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.stopped = "command-not-found".to_string();
+        config.events.recording.stopped = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_stopped_script(config, event.clone()).await;
         assert_matches!(result, Err(_));
@@ -515,7 +515,7 @@ mod tests {
             },
         };
         let mut config = Config::default();
-        config.scripts.recording.failed = format!(
+        config.events.recording.failed = format!(
             r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
             serde_json::to_string(&event).unwrap(),
         );
@@ -530,7 +530,7 @@ mod tests {
             reason: recording::RecordingFailedReason::PipelineError { exit_code: 1 },
         };
         let mut config = Config::default();
-        config.scripts.recording.failed = format!(
+        config.events.recording.failed = format!(
             r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
             serde_json::to_string(&event).unwrap(),
         );
@@ -546,7 +546,7 @@ mod tests {
         };
 
         let mut config = Config::default();
-        config.scripts.recording.failed = format!(
+        config.events.recording.failed = format!(
             r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
             serde_json::to_string(&event).unwrap(),
         );
@@ -557,7 +557,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.failed = "sh -c 'cat; false'".to_string();
+        config.events.recording.failed = "sh -c 'cat; false'".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_failed_script(config, event.clone()).await;
         assert_matches!(result, Ok(status) => {
@@ -565,7 +565,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.failed = "command-not-found".to_string();
+        config.events.recording.failed = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_failed_script(config, event.clone()).await;
         assert_matches!(result, Err(_));
@@ -578,7 +578,7 @@ mod tests {
         };
 
         let mut config = Config::default();
-        config.scripts.recording.retried = format!(
+        config.events.recording.retried = format!(
             r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
             serde_json::to_string(&event).unwrap(),
         );
@@ -589,7 +589,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.retried = "sh -c 'cat; false'".to_string();
+        config.events.recording.retried = "sh -c 'cat; false'".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_retried_script(config, event.clone()).await;
         assert_matches!(result, Ok(status) => {
@@ -597,7 +597,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.retried = "command-not-found".to_string();
+        config.events.recording.retried = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_retried_script(config, event.clone()).await;
         assert_matches!(result, Err(_));
@@ -610,7 +610,7 @@ mod tests {
         };
 
         let mut config = Config::default();
-        config.scripts.recording.rescheduled = format!(
+        config.events.recording.rescheduled = format!(
             r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
             serde_json::to_string(&event).unwrap(),
         );
@@ -621,7 +621,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.rescheduled = "sh -c 'cat; false'".to_string();
+        config.events.recording.rescheduled = "sh -c 'cat; false'".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_rescheduled_script(config, event.clone()).await;
         assert_matches!(result, Ok(status) => {
@@ -629,7 +629,7 @@ mod tests {
         });
 
         let mut config = Config::default();
-        config.scripts.recording.rescheduled = "command-not-found".to_string();
+        config.events.recording.rescheduled = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_rescheduled_script(config, event.clone()).await;
         assert_matches!(result, Err(_));
