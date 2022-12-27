@@ -31,7 +31,7 @@ mustache = "0.9.0"
 num_cpus = "1.15.0"
 once_cell = "1.16.0"
 path-dedot = "3.0.18"
-serde = { version = "1.0.151", features = ["derive", "rc"] }
+serde = { version = "1.0.152", features = ["derive", "rc"] }
 serde_json = { version = "1.0.91", features = ["preserve_order"] }
 serde_yaml = "0.9.16"
 serde_qs = "0.10.1"
