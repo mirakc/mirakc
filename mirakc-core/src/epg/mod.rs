@@ -1089,7 +1089,7 @@ impl EpgSection {
     fn date(&self) -> Option<NaiveDate> {
         self.events
             .first()
-            .map(|event| event.start_time.date_naive())
+            .map(|event| event.start_time().unwrap().date_naive())
     }
 
     fn collect_programs(
@@ -1227,8 +1227,8 @@ impl EpgProgram {
     }
 
     pub fn update(&mut self, event: &EitEvent) {
-        self.start_at = event.start_time.clone();
-        self.duration = event.duration.clone();
+        self.start_at = event.start_time().unwrap().clone();
+        self.duration = event.duration().unwrap().clone();
         self.scrambled = event.scrambled;
         for desc in event.descriptors.iter() {
             match desc {
@@ -1579,16 +1579,18 @@ mod tests {
     }
 
     fn create_epg_section(date: NaiveDate) -> EpgSection {
+        let start_time = date
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_local_timezone(Jst)
+            .unwrap()
+            .timestamp_millis();
         EpgSection {
             version: 1,
             events: vec![EitEvent {
                 event_id: (date.day() as u16).into(),
-                start_time: date
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap()
-                    .and_local_timezone(Jst)
-                    .unwrap(),
-                duration: Duration::minutes(30),
+                start_time: Some(start_time),
+                duration: Some(30 * 60000),  // 30min
                 scrambled: false,
                 descriptors: Vec::new(),
             }],

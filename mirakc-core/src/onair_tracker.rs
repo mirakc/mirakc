@@ -374,11 +374,15 @@ impl From<(ServiceTriple, Option<&EitSection>, Option<&EitSection>)> for OnairPr
                 .1
                 .map(|section| section.events.get(0))
                 .flatten()
+                .filter(|event| event.start_time.is_some()) // start_time may be None
+                .filter(|event| event.duration.is_some()) // duration may be None
                 .map(|event| Arc::new(EpgProgram::from((data.0, event)))),
             following: data
                 .2
                 .map(|section| section.events.get(0))
                 .flatten()
+                .filter(|event| event.start_time.is_some()) // start_time may be None
+                .filter(|event| event.duration.is_some()) // duration may be None
                 .map(|event| Arc::new(EpgProgram::from((data.0, event)))),
         }
     }
@@ -637,8 +641,8 @@ mod tests {
             version_number: 0,
             events: vec![EitEvent {
                 event_id: 0.into(),
-                start_time: Jst::now(),
-                duration: chrono::Duration::minutes(1),
+                start_time: Some(Jst::now().timestamp_millis()),
+                duration: Some(60000),
                 scrambled: false,
                 descriptors: vec![],
             }],

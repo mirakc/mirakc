@@ -208,7 +208,31 @@ where
         let mut num_sections = 0;
         let mut triples = HashSet::new();
         while reader.read_line(&mut json).await? > 0 {
-            let section = serde_json::from_str::<EitSection>(&json)?;
+            let section = match serde_json::from_str::<EitSection>(&json) {
+                Ok(mut section) => {
+                    // We assume that events in EIT[schedule] always have
+                    // non-null values of the `start_time` and `duration`
+                    // properties.
+                    section.events.retain(|event| {
+                        if event.start_time.is_none() {
+                            tracing::warn!(%channel, %event.event_id,
+                                           "Ignore event which has no start_time");
+                            return false;
+                        }
+                        if event.duration.is_none() {
+                            tracing::warn!(%channel, %event.event_id,
+                                           "Ignore event which has no duration");
+                            return false;
+                        }
+                        true
+                    });
+                    section
+                }
+                Err(err) => {
+                    tracing::warn!(%err, %channel, "Ignore broken EIT section");
+                    continue;
+                }
+            };
             if section.is_valid() {
                 let triple = section.service_triple();
                 if !triples.contains(&triple) {
@@ -222,7 +246,7 @@ where
                 json.clear();
                 num_sections += 1;
             } else {
-                tracing::warn!(section.table_id, "Invalid table_id");
+                tracing::warn!(%channel, section.table_id, "Invalid table_id");
             }
         }
 

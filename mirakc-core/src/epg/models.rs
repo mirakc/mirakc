@@ -1,10 +1,9 @@
 use chrono::DateTime;
 use chrono::Duration;
+use chrono::NaiveDateTime;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::datetime_ext::serde_duration_in_millis;
-use crate::datetime_ext::serde_jst;
 use crate::datetime_ext::Jst;
 use crate::models::EventId;
 use crate::models::NetworkId;
@@ -72,21 +71,30 @@ impl EitSection {
 #[serde(rename_all = "camelCase")]
 pub struct EitEvent {
     pub event_id: EventId,
-    #[serde(with = "serde_jst")]
-    pub start_time: DateTime<Jst>,
-    #[serde(with = "serde_duration_in_millis")]
-    pub duration: Duration,
+    pub start_time: Option<i64>, // UNIX time in milliseconds
+    pub duration: Option<i64>, // milliseconds
     pub scrambled: bool,
     pub descriptors: Vec<EitDescriptor>,
 }
 
 impl EitEvent {
-    pub fn end_time(&self) -> DateTime<Jst> {
-        self.start_time + self.duration
+    pub fn start_time(&self) -> Option<DateTime<Jst>> {
+        self.start_time.map(|v| DateTime::from_utc(NaiveDateTime::from_timestamp_millis(v).unwrap(), Jst))
+    }
+
+    pub fn duration(&self) -> Option<Duration> {
+        self.duration.map(|v| Duration::milliseconds(v))
+    }
+
+    pub fn end_time(&self) -> Option<DateTime<Jst>> {
+        match (self.start_time(), self.duration()) {
+            (Some(start_time), Some(duration)) => Some(start_time + duration),
+            _ => None,
+        }
     }
 
     pub fn is_overnight_event(&self, midnight: DateTime<Jst>) -> bool {
-        self.start_time < midnight && self.end_time() > midnight
+        self.start_time().unwrap() < midnight && self.end_time().unwrap() > midnight
     }
 }
 
