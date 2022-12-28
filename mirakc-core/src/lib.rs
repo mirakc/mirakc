@@ -2,7 +2,6 @@ pub mod airtime_tracker;
 pub mod broadcaster;
 pub mod command_util;
 pub mod config;
-pub mod datetime_ext;
 pub mod epg;
 pub mod error;
 pub mod filter;

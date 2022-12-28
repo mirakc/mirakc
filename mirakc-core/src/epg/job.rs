@@ -6,9 +6,9 @@ use std::time::Instant;
 use actlet::*;
 use async_trait::async_trait;
 use chrono::DateTime;
+use chrono_jst::Jst;
 
 use crate::config::Config;
-use crate::datetime_ext::*;
 use crate::epg::clock_synchronizer::ClockSynchronizer;
 use crate::epg::eit_feeder::FeedEitSections;
 use crate::epg::service_scanner::ServiceScanner;

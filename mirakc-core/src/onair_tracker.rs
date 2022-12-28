@@ -401,7 +401,7 @@ impl From<(ServiceTriple, &EitEvent)> for EpgProgram {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::datetime_ext::Jst;
+    use chrono_jst::Jst;
     use crate::epg::stub::EpgStub;
     use crate::tuner::stub::TunerManagerStub;
     use assert_matches::assert_matches;

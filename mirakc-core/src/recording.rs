@@ -9,6 +9,8 @@ use actlet::*;
 use async_trait::async_trait;
 use chrono::DateTime;
 use chrono::Duration;
+use chrono_jst::Jst;
+use chrono_jst::serde::ts_milliseconds;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::Deserialize;
@@ -20,8 +22,6 @@ use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipeline;
 use crate::command_util::CommandPipelineProcessModel;
 use crate::config::Config;
-use crate::datetime_ext::serde_jst;
-use crate::datetime_ext::Jst;
 use crate::epg;
 use crate::epg::EpgProgram;
 use crate::epg::EpgService;
@@ -1079,7 +1079,8 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 
     fn need_adding_observer(&self, service_triple: ServiceTriple) -> bool {
-        !self.retries
+        !self
+            .retries
             .keys()
             .any(|&quad| service_triple == quad.into())
     }
@@ -1279,9 +1280,9 @@ impl<T, E, O> RecordingManager<T, E, O> {
 #[derive(Clone, Debug, Deserialize, Eq, Serialize)]
 pub struct Schedule {
     pub program_quad: ProgramQuad,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     pub start_at: DateTime<Jst>,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     pub end_at: DateTime<Jst>,
     pub content_path: PathBuf,
     pub priority: i32,

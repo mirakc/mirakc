@@ -217,6 +217,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono-jst"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "clap"
 version = "4.0.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1040,6 +1049,7 @@ dependencies = [
  "axum-test-helper",
  "bytes",
  "chrono",
+ "chrono-jst",
  "cron",
  "fs2",
  "futures",

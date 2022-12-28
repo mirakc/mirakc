@@ -10,6 +10,8 @@ use std::sync::Arc;
 use actlet::*;
 use async_trait::async_trait;
 use chrono::DateTime;
+use chrono_jst::Jst;
+use chrono_jst::serde::ts_milliseconds;
 use fs2::FileExt;
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -28,7 +30,6 @@ use tokio_util::io::ReaderStream;
 
 use crate::command_util::*;
 use crate::config::*;
-use crate::datetime_ext::*;
 use crate::epg::*;
 use crate::error::Error;
 use crate::filter::*;
@@ -1133,7 +1134,7 @@ struct TimeshiftRecorderEventMessage {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct TimeshiftPoint {
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     pub timestamp: DateTime<Jst>,
     pub pos: u64,
 }
@@ -1488,7 +1489,6 @@ impl TimeshiftLockfile {
 mod tests {
     use super::*;
     use crate::broadcaster::BroadcasterStream;
-    use crate::datetime_ext::Jst;
     use chrono::TimeZone;
     use tokio::sync::watch;
 

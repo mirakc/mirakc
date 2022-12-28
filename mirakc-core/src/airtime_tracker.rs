@@ -1,13 +1,15 @@
 use actlet::*;
 use chrono::DateTime;
 use chrono::Duration;
+use chrono_jst::Jst;
+use chrono_jst::serde::duration_milliseconds;
+use chrono_jst::serde::ts_milliseconds;
 use serde::Deserialize;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncRead;
 use tokio::io::BufReader;
 
 use crate::command_util;
-use crate::datetime_ext::*;
 use crate::epg::*;
 use crate::error::Error;
 use crate::models::*;
@@ -113,9 +115,9 @@ struct TsAirtime {
     tsid: TransportStreamId,
     sid: ServiceId,
     eid: EventId,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     start_time: DateTime<Jst>,
-    #[serde(with = "serde_duration_in_millis")]
+    #[serde(with = "duration_milliseconds")]
     duration: Duration,
 }
 

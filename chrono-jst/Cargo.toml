@@ -1,0 +1,12 @@
+[package]
+name = "chrono-jst"
+version = "0.0.0"
+authors = ["Contributors of mirakc"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+chrono = { version = "0.4.23", default-features = false, features = ["clock", "serde"] }
+serde = { version = "1.0.152", features = ["derive"] }
+serde_json = "1.0.91"

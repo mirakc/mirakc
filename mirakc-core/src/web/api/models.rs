@@ -10,15 +10,15 @@ use axum::http::header::USER_AGENT;
 use axum::http::request::Parts;
 use chrono::DateTime;
 use chrono::Duration;
+use chrono_jst::Jst;
+use chrono_jst::serde::duration_milliseconds;
+use chrono_jst::serde::ts_milliseconds;
 use serde::Deserialize;
 use serde::Serialize;
 use utoipa::IntoParams;
 use utoipa::ToSchema;
 
 use crate::command_util::CommandPipelineProcessModel;
-use crate::datetime_ext::serde_duration_in_millis;
-use crate::datetime_ext::serde_jst;
-use crate::datetime_ext::Jst;
 use crate::models::ChannelType;
 use crate::models::MirakurunProgram;
 use crate::models::MirakurunProgramId;
@@ -50,10 +50,10 @@ pub(in crate::web) struct Status {}
 pub(in crate::web) struct WebRecordingSchedule {
     #[schema(value_type = u64)]
     pub program_id: MirakurunProgramId,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     #[schema(value_type = u64)]
     pub start_at: DateTime<Jst>,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     #[schema(value_type = u64)]
     pub end_at: DateTime<Jst>,
     #[schema(value_type = String)]
@@ -103,10 +103,10 @@ pub(in crate::web) struct WebRecordingScheduleInput {
 pub(in crate::web) struct WebRecordingRecorder {
     #[schema(value_type = u64)]
     pub program_id: MirakurunProgramId,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     #[schema(value_type = u64)]
     pub started_at: DateTime<Jst>,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     #[schema(value_type = u64)]
     pub end_at: DateTime<Jst>,
     #[schema(value_type = String)]
@@ -140,10 +140,10 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
 pub(in crate::web) struct WebTimeshiftRecorder {
     pub name: String,
     pub service: MirakurunService,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     #[schema(value_type = i64)]
     pub start_time: DateTime<Jst>,
-    #[serde(with = "serde_duration_in_millis")]
+    #[serde(with = "duration_milliseconds")]
     #[schema(value_type = i64)]
     pub duration: Duration,
     pub pipeline: Vec<WebProcessModel>,
@@ -189,10 +189,10 @@ pub(in crate::web) struct WebTimeshiftRecord {
     #[schema(value_type = u32)]
     pub id: TimeshiftRecordId,
     pub program: MirakurunProgram,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     #[schema(value_type = i64)]
     pub start_time: DateTime<Jst>,
-    #[serde(with = "serde_duration_in_millis")]
+    #[serde(with = "duration_milliseconds")]
     #[schema(value_type = i64)]
     pub duration: Duration,
     pub size: u64,

@@ -20,6 +20,9 @@ use chrono::DateTime;
 use chrono::Duration;
 use chrono::NaiveDate;
 use chrono::TimeZone;
+use chrono_jst::Jst;
+use chrono_jst::serde::duration_milliseconds;
+use chrono_jst::serde::ts_milliseconds;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
@@ -28,7 +31,6 @@ use serde::Serialize;
 
 use crate::config::ChannelConfig;
 use crate::config::Config;
-use crate::datetime_ext::*;
 use crate::error::Error;
 use crate::models::*;
 use crate::tuner::*;
@@ -1185,9 +1187,9 @@ impl Into<MirakurunChannelService> for EpgService {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EpgProgram {
     pub quad: ProgramQuad,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     pub start_at: DateTime<Jst>,
-    #[serde(with = "serde_duration_in_millis")]
+    #[serde(with = "duration_milliseconds")]
     pub duration: Duration,
     pub scrambled: bool,
     pub name: Option<String>,
@@ -1590,7 +1592,7 @@ mod tests {
             events: vec![EitEvent {
                 event_id: (date.day() as u16).into(),
                 start_time: Some(start_time),
-                duration: Some(30 * 60000),  // 30min
+                duration: Some(30 * 60000), // 30min
                 scrambled: false,
                 descriptors: Vec::new(),
             }],

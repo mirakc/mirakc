@@ -6,8 +6,8 @@ use axum::extract::Host;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
+use chrono_jst::Jst;
 
-use crate::datetime_ext::Jst;
 use crate::string_table::StringTable;
 
 use crate::web::api::stream::determine_stream_content_type;

@@ -2,6 +2,9 @@ use std::fmt;
 
 use chrono::DateTime;
 use chrono::Duration;
+use chrono_jst::jst::Jst;
+use chrono_jst::serde::duration_milliseconds;
+use chrono_jst::serde::ts_milliseconds;
 use indexmap::IndexMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -9,9 +12,6 @@ use smallstr::SmallString;
 use utoipa::ToSchema;
 
 use crate::config::ResourceConfig;
-use crate::datetime_ext::serde_duration_in_millis;
-use crate::datetime_ext::serde_jst;
-use crate::datetime_ext::Jst;
 use crate::epg::AudioComponentDescriptor;
 use crate::epg::ComponentDescriptor;
 use crate::epg::EpgChannel;
@@ -671,10 +671,10 @@ pub struct MirakurunProgram {
     pub transport_stream_id: TransportStreamId, // incompatible with Mirakurun
     #[schema(value_type = u16)]
     pub network_id: NetworkId,
-    #[serde(with = "serde_jst")]
+    #[serde(with = "ts_milliseconds")]
     #[schema(value_type = i64)]
     pub start_at: DateTime<Jst>,
-    #[serde(with = "serde_duration_in_millis")]
+    #[serde(with = "duration_milliseconds")]
     #[schema(value_type = i64)]
     pub duration: Duration,
     pub is_free: bool,

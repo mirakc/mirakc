@@ -1,10 +1,10 @@
 use chrono::DateTime;
 use chrono::Duration;
 use chrono::NaiveDateTime;
+use chrono_jst::Jst;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::datetime_ext::Jst;
 use crate::models::EventId;
 use crate::models::NetworkId;
 use crate::models::ServiceId;
@@ -72,14 +72,15 @@ impl EitSection {
 pub struct EitEvent {
     pub event_id: EventId,
     pub start_time: Option<i64>, // UNIX time in milliseconds
-    pub duration: Option<i64>, // milliseconds
+    pub duration: Option<i64>,   // milliseconds
     pub scrambled: bool,
     pub descriptors: Vec<EitDescriptor>,
 }
 
 impl EitEvent {
     pub fn start_time(&self) -> Option<DateTime<Jst>> {
-        self.start_time.map(|v| DateTime::from_utc(NaiveDateTime::from_timestamp_millis(v).unwrap(), Jst))
+        self.start_time
+            .map(|v| DateTime::from_utc(NaiveDateTime::from_timestamp_millis(v).unwrap(), Jst))
     }
 
     pub fn duration(&self) -> Option<Duration> {
