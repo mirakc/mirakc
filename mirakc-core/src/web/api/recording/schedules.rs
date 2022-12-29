@@ -89,20 +89,20 @@ where
     R: Call<recording::AddRecordingSchedule>,
     R: Call<recording::QueryRecordingSchedule>,
 {
-    if input.content_path.is_absolute() {
+    if input.options.content_path.is_absolute() {
         let err = Error::InvalidPath;
-        tracing::error!(%err, ?input.content_path);
+        tracing::error!(%err, ?input.options.content_path);
         return Err(err);
     }
 
     let contents_dir = state.config.recording.contents_dir.as_ref().unwrap();
     if !contents_dir
-        .join(&input.content_path)
+        .join(&input.options.content_path)
         .parse_dot()?
         .starts_with(contents_dir)
     {
         let err = Error::InvalidPath;
-        tracing::error!(%err, ?input.content_path);
+        tracing::error!(%err, ?input.options.content_path);
         return Err(err);
     }
 
@@ -115,10 +115,7 @@ where
         program_quad: program.quad,
         start_at: program.start_at,
         end_at: program.end_at(),
-        content_path: input.content_path,
-        priority: input.priority,
-        pre_filters: input.pre_filters,
-        post_filters: input.post_filters,
+        options: input.options,
         tags: input.tags,
     };
     let schedule = state

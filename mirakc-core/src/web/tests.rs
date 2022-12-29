@@ -11,6 +11,7 @@ use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
 
 use crate::epg::stub::EpgStub;
+use crate::recording::RecordingOptions;
 use crate::recording::stub::RecordingManagerStub;
 use crate::timeshift::stub::TimeshiftManagerStub;
 use crate::tuner::stub::TunerManagerStub;
@@ -349,10 +350,12 @@ async fn test_create_recording_schedule() {
     // Error::ProgramNotFound
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 0).into(),
-        content_path: "0.m2ts".into(),
-        priority: 1,
-        pre_filters: vec![],
-        post_filters: vec![],
+        options: RecordingOptions {
+            content_path: "0.m2ts".into(),
+            priority: 1,
+            pre_filters: vec![],
+            post_filters: vec![],
+        },
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -361,10 +364,12 @@ async fn test_create_recording_schedule() {
     // Error::AlreadyExists
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 1).into(),
-        content_path: "1.m2ts".into(),
-        priority: 1,
-        pre_filters: vec![],
-        post_filters: vec![],
+        options: RecordingOptions {
+            content_path: "1.m2ts".into(),
+            priority: 1,
+            pre_filters: vec![],
+            post_filters: vec![],
+        },
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -373,10 +378,12 @@ async fn test_create_recording_schedule() {
     // Error::ProgramAlreadyStarted
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 2).into(),
-        content_path: "2.m2ts".into(),
-        priority: 1,
-        pre_filters: vec![],
-        post_filters: vec![],
+        options: RecordingOptions {
+            content_path: "2.m2ts".into(),
+            priority: 1,
+            pre_filters: vec![],
+            post_filters: vec![],
+        },
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -385,10 +392,12 @@ async fn test_create_recording_schedule() {
     // Ok
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 4).into(),
-        content_path: "4.m2ts".into(),
-        priority: 1,
-        pre_filters: vec![],
-        post_filters: vec![],
+        options: RecordingOptions {
+            content_path: "4.m2ts".into(),
+            priority: 1,
+            pre_filters: vec![],
+            post_filters: vec![],
+        },
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -397,10 +406,12 @@ async fn test_create_recording_schedule() {
     // Error::InvalidPath
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 4).into(),
-        content_path: "/4.m2ts".into(),
-        priority: 1,
-        pre_filters: vec![],
-        post_filters: vec![],
+        options: RecordingOptions {
+            content_path: "/4.m2ts".into(),
+            priority: 1,
+            pre_filters: vec![],
+            post_filters: vec![],
+        },
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -409,10 +420,12 @@ async fn test_create_recording_schedule() {
     // Error::InvalidPath
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 4).into(),
-        content_path: "../4.m2ts".into(),
-        priority: 1,
-        pre_filters: vec![],
-        post_filters: vec![],
+        options: RecordingOptions {
+            content_path: "../4.m2ts".into(),
+            priority: 1,
+            pre_filters: vec![],
+            post_filters: vec![],
+        },
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -456,10 +469,12 @@ async fn test_get_recording_recorders() {
 async fn test_create_recording_recorder() {
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 1).into(),
-        content_path: "program.m2ts".into(),
-        priority: 1,
-        pre_filters: vec![],
-        post_filters: vec![],
+        options: RecordingOptions {
+            content_path: "program.m2ts".into(),
+            priority: 1,
+            pre_filters: vec![],
+            post_filters: vec![],
+        },
         tags: Default::default(),
     };
     let res = post("/api/recording/recorders", input).await;
@@ -467,10 +482,12 @@ async fn test_create_recording_recorder() {
 
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 0).into(),
-        content_path: "program.m2ts".into(),
-        priority: 1,
-        pre_filters: vec![],
-        post_filters: vec![],
+        options: RecordingOptions {
+            content_path: "program.m2ts".into(),
+            priority: 1,
+            pre_filters: vec![],
+            post_filters: vec![],
+        },
         tags: Default::default(),
     };
     let res = post("/api/recording/recorders", input).await;

@@ -91,10 +91,7 @@ where
         program_quad: program.quad,
         start_at: program.start_at,
         end_at: program.end_at(),
-        content_path: input.content_path,
-        priority: input.priority,
-        pre_filters: input.pre_filters,
-        post_filters: input.post_filters,
+        options: input.options,
         tags: input.tags,
     });
     let recorder = state

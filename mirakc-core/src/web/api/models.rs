@@ -29,6 +29,7 @@ use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
 use crate::models::TunerUserPriority;
 use crate::recording;
+use crate::recording::RecordingOptions;
 use crate::timeshift::TimeshiftRecordModel;
 use crate::timeshift::TimeshiftRecorderModel;
 
@@ -56,11 +57,7 @@ pub(in crate::web) struct WebRecordingSchedule {
     #[serde(with = "ts_milliseconds")]
     #[schema(value_type = u64)]
     pub end_at: DateTime<Jst>,
-    #[schema(value_type = String)]
-    pub content_path: PathBuf,
-    pub priority: i32,
-    pub pre_filters: Vec<String>,
-    pub post_filters: Vec<String>,
+    pub options: RecordingOptions,
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
 }
@@ -71,10 +68,7 @@ impl From<Arc<recording::Schedule>> for WebRecordingSchedule {
             program_id: value.program_quad.into(),
             start_at: value.start_at,
             end_at: value.end_at,
-            content_path: value.content_path.clone(),
-            priority: value.priority,
-            pre_filters: value.pre_filters.clone(),
-            post_filters: value.post_filters.clone(),
+            options: value.options.clone(),
             tags: value.tags.clone(),
         }
     }
@@ -85,14 +79,7 @@ impl From<Arc<recording::Schedule>> for WebRecordingSchedule {
 pub(in crate::web) struct WebRecordingScheduleInput {
     #[schema(value_type = u64)]
     pub program_id: MirakurunProgramId,
-    #[schema(value_type = String)]
-    pub content_path: PathBuf,
-    #[serde(default)]
-    pub priority: i32,
-    #[serde(default)]
-    pub pre_filters: Vec<String>,
-    #[serde(default)]
-    pub post_filters: Vec<String>,
+    pub options: RecordingOptions,
     #[serde(default)]
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
@@ -123,8 +110,8 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
             program_id: value.schedule.program_quad.into(),
             started_at: value.started_at,
             end_at: value.schedule.end_at,
-            content_path: value.schedule.content_path.clone(),
-            priority: value.schedule.priority,
+            content_path: value.schedule.options.content_path.clone(),
+            priority: value.schedule.options.priority,
             pipeline: value
                 .pipeline
                 .into_iter()

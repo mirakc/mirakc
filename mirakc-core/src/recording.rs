@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::BufWriter;
 use tokio_util::sync::CancellationToken;
+use utoipa::ToSchema;
 
 use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipeline;
@@ -49,8 +50,15 @@ pub struct RecordingManager<T, E, O> {
     tuner_manager: T,
     epg: E,
     onair_tracker: O,
-    schedules: BinaryHeap<Arc<Schedule>>,
-    schedule_map: HashMap<ProgramQuad, Arc<Schedule>>,
+    // We use two types for managing recording schedules.  `std` provides
+    // `BTreeMap` for representing an ordered map, but it cannot provides the
+    // following two functionalities:
+    //
+    // * A ordered queue sorted by the start time of each recording schedule
+    // * A hash map for a quick access to each recording schedule by a program
+    //   quad
+    ordered_schedules: BinaryHeap<OrderedSchedule>,
+    schedules: HashMap<ProgramQuad, Arc<Schedule>>,
     recorders: HashMap<ProgramQuad, Recorder>,
     retries: HashMap<ProgramQuad, Arc<Schedule>>,
     timer_token: Option<CancellationToken>,
@@ -81,8 +89,8 @@ where
             tuner_manager,
             epg,
             onair_tracker,
+            ordered_schedules: Default::default(),
             schedules: Default::default(),
-            schedule_map: Default::default(),
             recorders: Default::default(),
             retries: Default::default(),
             timer_token: None,
@@ -95,45 +103,18 @@ where
     }
 
     fn update_services(&mut self, services: Arc<IndexMap<ServiceTriple, EpgService>>) {
-        let mut schedules = BinaryHeap::new();
-        for schedule in self.schedules.drain() {
+        self.schedules.retain(|_, schedule| {
             let triple = ServiceTriple::from(schedule.program_quad);
             if services.contains_key(&triple) {
-                schedules.push(schedule);
+                true
             } else {
                 tracing::warn!(%schedule.program_quad, "Invalidated");
-                self.schedule_map.remove(&schedule.program_quad);
+                false
             }
-        }
-        self.schedules = schedules;
-        assert_eq!(self.schedules.len(), self.schedule_map.len());
-    }
-
-    async fn check_schedules(&mut self, ctx: &Context<Self>) {
-        let prep_secs = Duration::seconds(PREP_SECS);
-        let now = Jst::now();
-        while let Some(schedule) = self.schedules.peek() {
-            if schedule.end_at - now <= prep_secs {
-                tracing::warn!(%schedule.program_quad, "Program will end soon, remove schedule");
-                self.schedule_map.remove(&schedule.program_quad);
-                self.schedules.pop();
-            } else if schedule.start_at - now <= prep_secs {
-                self.schedule_map.remove(&schedule.program_quad);
-                let schedule = self.schedules.pop().unwrap();
-                match self.start_recording(schedule.clone(), ctx).await {
-                    Ok(_) => {
-                        tracing::info!(%schedule.program_quad, "Start recording");
-                    }
-                    Err(err) => {
-                        tracing::error!(%err, %schedule.program_quad, "Failed to start recording");
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-
-        assert_eq!(self.schedules.len(), self.schedule_map.len());
+        });
+        self.rebuild_ordered_schedules();
+        assert_eq!(self.ordered_schedules.len(), self.schedules.len());
+        // TODO: self.recorders, self.retries
     }
 
     async fn start_recording(
@@ -175,7 +156,7 @@ where
                     info: TunerUserInfo::Recorder {
                         name: format!("program#{}", program_quad),
                     },
-                    priority: schedule.priority.into(),
+                    priority: schedule.options.priority.into(),
                 },
             })
             .await??;
@@ -212,20 +193,20 @@ where
         let data = builder.build();
 
         let mut builder = FilterPipelineBuilder::new(data);
-        builder.add_pre_filters(&self.config.pre_filters, &schedule.pre_filters)?;
+        builder.add_pre_filters(&self.config.pre_filters, &schedule.options.pre_filters)?;
         if !stream.is_decoded() {
             builder.add_decode_filter(&self.config.filters.decode_filter)?;
         }
         builder.add_program_filter(&self.config.filters.program_filter)?;
-        builder.add_post_filters(&self.config.post_filters, &schedule.post_filters)?;
+        builder.add_post_filters(&self.config.post_filters, &schedule.options.post_filters)?;
         let (filters, _) = builder.build();
 
         let contents_dir = self.config.recording.contents_dir.as_ref().unwrap();
 
-        let content_path = if schedule.content_path.is_absolute() {
-            schedule.content_path.clone()
+        let content_path = if schedule.options.content_path.is_absolute() {
+            schedule.options.content_path.clone()
         } else {
-            contents_dir.join(&schedule.content_path)
+            contents_dir.join(&schedule.options.content_path)
         };
         // We assumed that schedule.content_path has already been normalized.
         if let Some(dir) = content_path.parent() {
@@ -307,7 +288,7 @@ where
         if let Some(token) = self.timer_token.take() {
             token.cancel();
         }
-        if let Some(schedule) = self.schedules.peek() {
+        if let Some(schedule) = self.ordered_schedules.peek() {
             let expires_at = schedule.start_at - Duration::seconds(PREP_SECS);
             let duration = match (expires_at - Jst::now()).to_std() {
                 Ok(duration) => {
@@ -414,7 +395,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         };
 
         let path = records_dir.join("schedules.json");
-        let schedules = self.schedule_map.values().collect_vec();
+        let schedules = self.schedules.values().collect_vec();
 
         match do_save(schedules, &path) {
             Ok(_) => tracing::info!(?path, "Saved"),
@@ -423,7 +404,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 }
 
-// query recording schedules
+// query recording ordered_schedules
 
 #[derive(Message)]
 #[reply("Vec<Arc<Schedule>>")]
@@ -456,13 +437,18 @@ where
 
 impl<T, E, O> RecordingManager<T, E, O> {
     fn query_schedules(&self) -> Vec<Arc<Schedule>> {
+        let mut schedules = Vec::with_capacity(self.ordered_schedules.len());
         // TODO: somewhat inefficient...
-        self.schedules
+        let quads = self.ordered_schedules
             .clone()
             .into_sorted_vec()
             .into_iter()
             .rev()
-            .collect_vec()
+            .map(|sched| sched.program_quad);
+        for quad in quads {
+            schedules.push(self.schedules.get(&quad).cloned().unwrap());
+        }
+        schedules
     }
 }
 
@@ -501,7 +487,7 @@ where
 
 impl<T, E, O> RecordingManager<T, E, O> {
     fn get_schedule(&self, program_quad: ProgramQuad) -> Result<Arc<Schedule>, Error> {
-        self.schedule_map
+        self.schedules
             .get(&program_quad)
             .cloned()
             .ok_or(Error::ScheduleNotFound)
@@ -539,11 +525,11 @@ where
         tracing::debug!(
             msg.name = "AddRecordingSchedule",
             %msg.schedule.program_quad,
-            ?msg.schedule.content_path,
-            %msg.schedule.priority,
-            ?msg.schedule.pre_filters,
-            ?msg.schedule.post_filters,
             %msg.schedule.start_at,
+            ?msg.schedule.options.content_path,
+            %msg.schedule.options.priority,
+            ?msg.schedule.options.pre_filters,
+            ?msg.schedule.options.post_filters,
         );
         let program_quad = msg.schedule.program_quad;
         self.add_schedule(msg.schedule)?;
@@ -557,7 +543,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
     fn add_schedule(&mut self, schedule: Schedule) -> Result<(), Error> {
         let deadline = Jst::now() + Duration::seconds(PREP_SECS);
         let program_quad = schedule.program_quad;
-        if self.schedule_map.contains_key(&program_quad) {
+        if self.schedules.contains_key(&program_quad) {
             let err = Error::AlreadyExists;
             tracing::warn!(%schedule.program_quad, %err);
             Err(err)
@@ -567,10 +553,13 @@ impl<T, E, O> RecordingManager<T, E, O> {
             Err(err)
         } else {
             tracing::info!(%schedule.program_quad, "Added");
-            let schedule = Arc::new(schedule);
-            self.schedules.push(schedule.clone());
-            self.schedule_map.insert(program_quad, schedule);
-            assert_eq!(self.schedules.len(), self.schedule_map.len());
+            self.ordered_schedules.push(OrderedSchedule {
+                program_quad: schedule.program_quad,
+                start_at: schedule.start_at,
+                priority: schedule.options.priority,
+            });
+            self.schedules.insert(program_quad, Arc::new(schedule));
+            assert_eq!(self.ordered_schedules.len(), self.schedules.len());
             Ok(())
         }
     }
@@ -605,9 +594,9 @@ where
         ctx: &mut Context<Self>,
     ) -> <RemoveRecordingSchedule as Message>::Reply {
         tracing::debug!(msg.name = "RemoveRecordingSchedule", %msg.program_quad);
-        match self.schedule_map.remove(&msg.program_quad) {
+        match self.schedules.remove(&msg.program_quad) {
             Some(schedule) => {
-                self.sync_schedules();
+                self.rebuild_ordered_schedules();
                 self.save_schedules();
                 self.set_timer(ctx);
                 Ok(schedule)
@@ -621,12 +610,16 @@ where
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    fn sync_schedules(&mut self) {
-        self.schedules.clear();
-        for schedule in self.schedule_map.values() {
-            self.schedules.push(schedule.clone());
+    fn rebuild_ordered_schedules(&mut self) {
+        self.ordered_schedules.clear();
+        for schedule in self.schedules.values() {
+            self.ordered_schedules.push(OrderedSchedule {
+                program_quad: schedule.program_quad,
+                start_at: schedule.start_at,
+                priority: schedule.options.priority,
+            });
         }
-        assert_eq!(self.schedules.len(), self.schedule_map.len());
+        assert_eq!(self.ordered_schedules.len(), self.schedules.len());
     }
 }
 
@@ -674,29 +667,29 @@ where
 impl<T, E, O> RecordingManager<T, E, O> {
     fn remove_schedules(&mut self, target: RemoveTarget) {
         match target {
-            RemoveTarget::All => self.clear_schedules(),
+            RemoveTarget::All => self.clear_ordered_schedules(),
             RemoveTarget::Tag(tag) => self.remove_schedules_by_tag(&tag),
         }
     }
 
-    fn clear_schedules(&mut self) {
-        tracing::info!("Remove all schedules");
-        self.schedule_map.clear();
+    fn clear_ordered_schedules(&mut self) {
+        tracing::info!("Remove all ordered_schedules");
         self.schedules.clear();
+        self.ordered_schedules.clear();
     }
 
     fn remove_schedules_by_tag(&mut self, tag: &str) {
         let start_soon = Jst::now() + Duration::seconds(PREP_SECS);
-        tracing::info!("Remove schedules tagged with {}", tag);
-        self.schedule_map.retain(|_, v| {
-            // Always retain schedules which will start soon
+        tracing::info!("Remove ordered_schedules tagged with {}", tag);
+        self.schedules.retain(|_, v| {
+            // Always retain ordered_schedules which will start soon
             // (or have already been expired).
             if v.start_at <= start_soon {
                 return true;
             }
             return !v.tags.contains(tag);
         });
-        self.sync_schedules();
+        self.rebuild_ordered_schedules();
     }
 }
 
@@ -801,10 +794,10 @@ where
         tracing::debug!(
             msg.name = "StartRecording",
             %msg.schedule.program_quad,
-            ?msg.schedule.content_path,
-            %msg.schedule.priority,
-            ?msg.schedule.pre_filters,
-            ?msg.schedule.post_filters,
+            ?msg.schedule.options.content_path,
+            %msg.schedule.options.priority,
+            ?msg.schedule.options.pre_filters,
+            ?msg.schedule.options.post_filters,
         );
         self.start_recording(msg.schedule, ctx).await
     }
@@ -890,9 +883,51 @@ where
 {
     async fn handle(&mut self, _msg: TimerExpired, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "TimerExpired");
-        self.check_schedules(ctx).await;
+        let now = Jst::now();
+        self.remove_ended_schedules(now);
+        let schedules = self.collect_next_schedules(now);
         self.save_schedules();
         self.set_timer(ctx);
+        for schedule in schedules.into_iter() {
+            match self.start_recording(schedule.clone(), ctx).await {
+                Ok(_) => {
+                    tracing::info!(%schedule.program_quad, "Start recording");
+                }
+                Err(err) => {
+                    tracing::error!(%err, %schedule.program_quad, "Failed to start recording");
+                }
+            }
+        }
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn remove_ended_schedules(&mut self, now: DateTime<Jst>) {
+        let prep_secs = Duration::seconds(PREP_SECS);
+        self.schedules.retain(|_, schedule| {
+            if schedule.end_at - now <= prep_secs {
+                tracing::warn!(%schedule.program_quad, "Program will end soon, remove schedule");
+                false
+            } else {
+                true
+            }
+        });
+        self.rebuild_ordered_schedules();
+    }
+
+    fn collect_next_schedules(&mut self, now: DateTime<Jst>) -> Vec<Arc<Schedule>> {
+        let mut schedules = vec![];
+        let prep_secs = Duration::seconds(PREP_SECS);
+        while let Some(schedule) = self.ordered_schedules.peek() {
+            if schedule.start_at - now <= prep_secs {
+                let schedule = self.ordered_schedules.pop().unwrap();
+                let schedule = self.schedules.remove(&schedule.program_quad).unwrap();
+                schedules.push(schedule);
+            } else {
+                break;
+            }
+        }
+        schedules
     }
 }
 
@@ -1245,10 +1280,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             program_quad: program.quad,
             start_at: program.start_at,
             end_at: program.end_at(),
-            content_path: schedule.content_path.clone(),
-            priority: schedule.priority,
-            pre_filters: schedule.pre_filters.clone(),
-            post_filters: schedule.post_filters.clone(),
+            options: schedule.options.clone(),
             tags: schedule.tags.clone(),
         });
         match result {
@@ -1277,21 +1309,14 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 // models
 
-#[derive(Clone, Debug, Deserialize, Eq, Serialize)]
-pub struct Schedule {
-    pub program_quad: ProgramQuad,
-    #[serde(with = "ts_milliseconds")]
-    pub start_at: DateTime<Jst>,
-    #[serde(with = "ts_milliseconds")]
-    pub end_at: DateTime<Jst>,
-    pub content_path: PathBuf,
-    pub priority: i32,
-    pub pre_filters: Vec<String>,
-    pub post_filters: Vec<String>,
-    pub tags: HashSet<String>,
+#[derive(Clone, Debug, Eq)]
+struct OrderedSchedule {
+    program_quad: ProgramQuad,
+    start_at: DateTime<Jst>,
+    priority: i32,
 }
 
-impl Ord for Schedule {
+impl Ord for OrderedSchedule {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.start_at
             .cmp(&other.start_at)
@@ -1300,16 +1325,44 @@ impl Ord for Schedule {
     }
 }
 
-impl PartialEq for Schedule {
+impl PartialEq for OrderedSchedule {
     fn eq(&self, other: &Self) -> bool {
         self.program_quad == other.program_quad
     }
 }
 
-impl PartialOrd for Schedule {
+impl PartialOrd for OrderedSchedule {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
+}
+
+#[derive(Clone, Debug)]
+#[derive(Deserialize, Serialize)]
+pub struct Schedule {
+    pub program_quad: ProgramQuad,
+    #[serde(with = "ts_milliseconds")]
+    pub start_at: DateTime<Jst>,
+    #[serde(with = "ts_milliseconds")]
+    pub end_at: DateTime<Jst>,
+    pub options: RecordingOptions,
+    pub tags: HashSet<String>,
+}
+
+#[derive(Clone, Debug)]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[derive(ToSchema)]
+#[schema(title = "RecordingOptions")]
+pub struct RecordingOptions {
+    #[schema(value_type = String)]
+    pub content_path: PathBuf,
+    #[serde(default)]
+    pub priority: i32,
+    #[serde(default)]
+    pub pre_filters: Vec<String>,
+    #[serde(default)]
+    pub post_filters: Vec<String>,
 }
 
 struct Recorder {
@@ -1391,25 +1444,25 @@ mod tests {
             schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.schedules.len(), 1);
+        assert_eq!(manager.ordered_schedules.len(), 1);
 
         let schedule =
             schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Err(Error::AlreadyExists));
-        assert_eq!(manager.schedules.len(), 1);
+        assert_eq!(manager.ordered_schedules.len(), 1);
 
         let schedule = schedule_for_test((0, 0, 0, 2).into(), now);
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Err(Error::ProgramEnded));
-        assert_eq!(manager.schedules.len(), 1);
+        assert_eq!(manager.ordered_schedules.len(), 1);
 
         let schedule =
             schedule_for_test((0, 0, 0, 4).into(), now + Duration::seconds(PREP_SECS + 2));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.schedules.len(), 2);
-        assert_matches!(manager.schedules.peek(), Some(schedule) => {
+        assert_eq!(manager.ordered_schedules.len(), 2);
+        assert_matches!(manager.ordered_schedules.peek(), Some(schedule) => {
             assert_eq!(schedule.program_quad, (0, 0, 0, 1).into());
         });
     }
@@ -1428,13 +1481,13 @@ mod tests {
             schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.schedules.len(), 1);
+        assert_eq!(manager.ordered_schedules.len(), 1);
 
         let schedule =
             schedule_for_test((0, 0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 2));
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.schedules.len(), 2);
+        assert_eq!(manager.ordered_schedules.len(), 2);
 
         let schedules = manager.query_schedules();
         assert_eq!(schedules.len(), 2);
@@ -1457,33 +1510,36 @@ mod tests {
         schedule.tags.insert("tag1".to_string());
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.schedules.len(), 1);
+        assert_eq!(manager.ordered_schedules.len(), 1);
 
         let mut schedule =
             schedule_for_test((0, 0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 1));
         schedule.tags.insert("tag2".to_string());
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.schedules.len(), 2);
+        assert_eq!(manager.ordered_schedules.len(), 2);
 
         manager.remove_schedules(RemoveTarget::Tag("tag2".to_string()));
-        assert!(manager.schedule_map.contains_key(&(0, 0, 0, 1).into()));
+        assert!(manager.schedules.contains_key(&(0, 0, 0, 1).into()));
 
         // Schedules which will start soon are always retained.
         let mut schedule =
             schedule_for_test((0, 0, 0, 3).into(), now + Duration::seconds(PREP_SECS - 1));
         schedule.tags.insert("tag1".to_string());
-        let schedule = Arc::new(schedule);
-        manager.schedules.push(schedule.clone());
-        manager.schedule_map.insert((0, 0, 0, 3).into(), schedule);
+        manager.ordered_schedules.push(OrderedSchedule {
+            program_quad: schedule.program_quad,
+            start_at: schedule.start_at,
+            priority: schedule.options.priority,
+        });
+        manager.schedules.insert((0, 0, 0, 3).into(), Arc::new(schedule));
         manager.remove_schedules(RemoveTarget::Tag("tag1".to_string()));
-        assert!(!manager.schedule_map.contains_key(&(0, 0, 0, 1).into()));
-        assert!(manager.schedule_map.contains_key(&(0, 0, 0, 3).into()));
+        assert!(!manager.schedules.contains_key(&(0, 0, 0, 1).into()));
+        assert!(manager.schedules.contains_key(&(0, 0, 0, 3).into()));
 
-        // Remove all schedules regardless of whether a schedule will start soon
+        // Remove all ordered_schedules regardless of whether a schedule will start soon
         // or not.
         manager.remove_schedules(RemoveTarget::All);
-        assert!(manager.schedules.is_empty());
+        assert!(manager.ordered_schedules.is_empty());
     }
 
     #[tokio::test]
@@ -1597,10 +1653,12 @@ mod tests {
                 program_quad: (0, 0, 1, 1).into(),
                 start_at: now,
                 end_at: now,
-                content_path: "1.m2ts".into(),
-                priority: 0,
-                pre_filters: vec![],
-                post_filters: vec![],
+                options: RecordingOptions {
+                    content_path: "1.m2ts".into(),
+                    priority: 0,
+                    pre_filters: vec![],
+                    post_filters: vec![],
+                },
                 tags: Default::default(),
             };
             let result = manager.call(AddRecordingSchedule { schedule }).await;
@@ -1613,10 +1671,12 @@ mod tests {
                 program_quad: (0, 0, 1, 2).into(),
                 start_at: now + Duration::seconds(1),
                 end_at: now + Duration::seconds(1),
-                content_path: "2.m2ts".into(),
-                priority: 0,
-                pre_filters: vec![],
-                post_filters: vec![],
+                options: RecordingOptions {
+                    content_path: "2.m2ts".into(),
+                    priority: 0,
+                    pre_filters: vec![],
+                    post_filters: vec![],
+                },
                 tags: Default::default(),
             };
             let result = manager.call(AddRecordingSchedule { schedule }).await;
@@ -1627,10 +1687,12 @@ mod tests {
                 program_quad: (0, 0, 1, 3).into(),
                 start_at: now + Duration::seconds(PREP_SECS + 1),
                 end_at: now + Duration::seconds(PREP_SECS + 1),
-                content_path: "3.m2ts".into(),
-                priority: 0,
-                pre_filters: vec![],
-                post_filters: vec![],
+                options: RecordingOptions {
+                    content_path: "3.m2ts".into(),
+                    priority: 0,
+                    pre_filters: vec![],
+                    post_filters: vec![],
+                },
                 tags: Default::default(),
             };
             let result = manager.call(AddRecordingSchedule { schedule }).await;
@@ -1654,9 +1716,9 @@ mod tests {
 
             let result = manager
                 .inspect(|actor| {
+                    assert_eq!(actor.ordered_schedules.len(), 1);
                     assert_eq!(actor.schedules.len(), 1);
-                    assert_eq!(actor.schedule_map.len(), 1);
-                    assert!(actor.schedule_map.contains_key(&(0, 0, 1, 3).into()));
+                    assert!(actor.schedules.contains_key(&(0, 0, 1, 3).into()));
                 })
                 .await;
             assert_matches!(result, Ok(_));
@@ -1676,10 +1738,12 @@ mod tests {
             program_quad,
             start_at,
             end_at: start_at,
-            content_path: format!("{}.m2ts", program_quad.eid().value()).into(),
-            priority: Default::default(),
-            pre_filters: Default::default(),
-            post_filters: Default::default(),
+            options: RecordingOptions {
+                content_path: format!("{}.m2ts", program_quad.eid().value()).into(),
+                priority: Default::default(),
+                pre_filters: Default::default(),
+                post_filters: Default::default(),
+            },
             tags: Default::default(),
         }
     }
@@ -1718,10 +1782,12 @@ pub(crate) mod stub {
                     program_quad: msg.program_quad,
                     start_at: Jst::now(),
                     end_at: Jst::now(),
-                    content_path: "test.m2ts".into(),
-                    priority: 1,
-                    pre_filters: vec![],
-                    post_filters: vec![],
+                    options: RecordingOptions {
+                        content_path: "test.m2ts".into(),
+                        priority: 1,
+                        pre_filters: vec![],
+                        post_filters: vec![],
+                    },
                     tags: Default::default(),
                 }))),
             }
@@ -1760,10 +1826,12 @@ pub(crate) mod stub {
                     program_quad: msg.program_quad,
                     start_at: Jst::now(),
                     end_at: Jst::now(),
-                    content_path: "test.m2ts".into(),
-                    priority: 1,
-                    pre_filters: vec![],
-                    post_filters: vec![],
+                    options: RecordingOptions {
+                        content_path: "test.m2ts".into(),
+                        priority: 1,
+                        pre_filters: vec![],
+                        post_filters: vec![],
+                    },
                     tags: Default::default(),
                 }))),
             }
@@ -1799,10 +1867,12 @@ pub(crate) mod stub {
                         program_quad: msg.program_quad,
                         start_at: Jst::now(),
                         end_at: Jst::now(),
-                        content_path: "test.m2ts".into(),
-                        priority: 1,
-                        pre_filters: vec![],
-                        post_filters: vec![],
+                        options: RecordingOptions {
+                            content_path: "test.m2ts".into(),
+                            priority: 1,
+                            pre_filters: vec![],
+                            post_filters: vec![],
+                        },
                         tags: Default::default(),
                     }),
                     started_at: Jst::now(),
