@@ -1366,18 +1366,6 @@ pub struct RecorderModel {
     pub pipeline: Vec<CommandPipelineProcessModel>,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct Record {
-    pub program: EpgProgram,
-    pub content_path: PathBuf,
-    pub content_type: String,
-    pub pre_filters: Vec<String>,
-    pub post_filters: Vec<String>,
-    pub tags: HashSet<String>,
-}
-
-pub struct RecordId(DateTime<Jst>, ProgramQuad);
-
 // <coverage:exclude>
 #[cfg(test)]
 mod tests {
