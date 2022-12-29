@@ -13,7 +13,7 @@ where
 {
     match *opt {
         Some(ref duration) => s.serialize_i64(duration.num_milliseconds()),
-        None => serializer.serialize_none(),
+        None => s.serialize_none(),
     }
 }
 
@@ -26,7 +26,7 @@ where
 
 struct OptionDurationVisitor;
 
-impl<'de> de::Visitor<'de> for OptionDurationVisitor {
+impl<'de> serde::de::Visitor<'de> for OptionDurationVisitor {
     type Value = Option<Duration>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
