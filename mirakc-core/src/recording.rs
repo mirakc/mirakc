@@ -58,9 +58,9 @@ pub struct RecordingManager<T, E, O> {
     // * A hash map for a quick access to each recording schedule by a program
     //   quad
     ordered_schedules: BinaryHeap<OrderedSchedule>,
-    schedules: HashMap<ProgramQuad, Arc<Schedule>>,
+    schedules: HashMap<ProgramQuad, Schedule>,
     recorders: HashMap<ProgramQuad, Recorder>,
-    retries: HashMap<ProgramQuad, Arc<Schedule>>,
+    retries: HashMap<ProgramQuad, Schedule>,
     timer_token: Option<CancellationToken>,
     recording_started_emitters: Vec<Emitter<RecordingStarted>>,
     recording_stopped_emitters: Vec<Emitter<RecordingStopped>>,
@@ -119,7 +119,7 @@ where
 
     async fn start_recording(
         &mut self,
-        schedule: Arc<Schedule>,
+        schedule: Schedule,
         ctx: &Context<Self>,
     ) -> Result<RecorderModel, Error> {
         let program_quad = schedule.program_quad;
@@ -383,7 +383,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 
     fn save_schedules(&self) {
-        fn do_save(schedules: Vec<&Arc<Schedule>>, path: &Path) -> Result<(), Error> {
+        fn do_save(schedules: Vec<&Schedule>, path: &Path) -> Result<(), Error> {
             let file = std::fs::File::create(path)?;
             serde_json::to_writer(file, &schedules)?;
             Ok(())
@@ -404,10 +404,10 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 }
 
-// query recording ordered_schedules
+// query recording schedules
 
 #[derive(Message)]
-#[reply("Vec<Arc<Schedule>>")]
+#[reply("Vec<Schedule>")]
 pub struct QueryRecordingSchedules;
 
 #[async_trait]
@@ -436,7 +436,7 @@ where
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    fn query_schedules(&self) -> Vec<Arc<Schedule>> {
+    fn query_schedules(&self) -> Vec<Schedule> {
         let mut schedules = Vec::with_capacity(self.ordered_schedules.len());
         // TODO: somewhat inefficient...
         let quads = self.ordered_schedules
@@ -455,7 +455,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 // query recording schedule
 
 #[derive(Message)]
-#[reply("Result<Arc<Schedule>, Error>")]
+#[reply("Result<Schedule, Error>")]
 pub struct QueryRecordingSchedule {
     pub program_quad: ProgramQuad,
 }
@@ -486,7 +486,7 @@ where
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    fn get_schedule(&self, program_quad: ProgramQuad) -> Result<Arc<Schedule>, Error> {
+    fn get_schedule(&self, program_quad: ProgramQuad) -> Result<Schedule, Error> {
         self.schedules
             .get(&program_quad)
             .cloned()
@@ -497,7 +497,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 // add recording schedule
 
 #[derive(Message)]
-#[reply("Result<Arc<Schedule>, Error>")]
+#[reply("Result<Schedule, Error>")]
 pub struct AddRecordingSchedule {
     pub schedule: Schedule,
 }
@@ -558,7 +558,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 start_at: schedule.start_at,
                 priority: schedule.options.priority,
             });
-            self.schedules.insert(program_quad, Arc::new(schedule));
+            self.schedules.insert(program_quad, schedule);
             assert_eq!(self.ordered_schedules.len(), self.schedules.len());
             Ok(())
         }
@@ -568,7 +568,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 // remove recording schedule
 
 #[derive(Message)]
-#[reply("Result<Arc<Schedule>, Error>")]
+#[reply("Result<Schedule, Error>")]
 pub struct RemoveRecordingSchedule {
     pub program_quad: ProgramQuad,
 }
@@ -667,22 +667,22 @@ where
 impl<T, E, O> RecordingManager<T, E, O> {
     fn remove_schedules(&mut self, target: RemoveTarget) {
         match target {
-            RemoveTarget::All => self.clear_ordered_schedules(),
+            RemoveTarget::All => self.clear_schedules(),
             RemoveTarget::Tag(tag) => self.remove_schedules_by_tag(&tag),
         }
     }
 
-    fn clear_ordered_schedules(&mut self) {
-        tracing::info!("Remove all ordered_schedules");
+    fn clear_schedules(&mut self) {
+        tracing::info!("Remove all schedules");
         self.schedules.clear();
         self.ordered_schedules.clear();
     }
 
     fn remove_schedules_by_tag(&mut self, tag: &str) {
         let start_soon = Jst::now() + Duration::seconds(PREP_SECS);
-        tracing::info!("Remove ordered_schedules tagged with {}", tag);
+        tracing::info!("Remove schedules tagged with {}", tag);
         self.schedules.retain(|_, v| {
-            // Always retain ordered_schedules which will start soon
+            // Always retain schedules which will start soon
             // (or have already been expired).
             if v.start_at <= start_soon {
                 return true;
@@ -768,7 +768,7 @@ where
 #[derive(Message)]
 #[reply("Result<RecorderModel, Error>")]
 pub struct StartRecording {
-    pub schedule: Arc<Schedule>,
+    pub schedule: Schedule,
 }
 
 #[async_trait]
@@ -915,7 +915,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         self.rebuild_ordered_schedules();
     }
 
-    fn collect_next_schedules(&mut self, now: DateTime<Jst>) -> Vec<Arc<Schedule>> {
+    fn collect_next_schedules(&mut self, now: DateTime<Jst>) -> Vec<Schedule> {
         let mut schedules = vec![];
         let prep_secs = Duration::seconds(PREP_SECS);
         while let Some(schedule) = self.ordered_schedules.peek() {
@@ -1108,7 +1108,7 @@ where
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    fn retry(&mut self, schedule: Arc<Schedule>) {
+    fn retry(&mut self, schedule: Schedule) {
         let program_quad = schedule.program_quad;
         self.retries.insert(program_quad, schedule);
     }
@@ -1366,7 +1366,7 @@ pub struct RecordingOptions {
 }
 
 struct Recorder {
-    schedule: Arc<Schedule>,
+    schedule: Schedule,
     started_at: DateTime<Jst>,
     pipeline: CommandPipeline<TunerSubscriptionId>,
     stop_trigger: Option<TunerStreamStopTrigger>,
@@ -1414,7 +1414,7 @@ impl Recorder {
 }
 
 pub struct RecorderModel {
-    pub schedule: Arc<Schedule>,
+    pub schedule: Schedule,
     pub started_at: DateTime<Jst>,
     pub pipeline: Vec<CommandPipelineProcessModel>,
 }
@@ -1531,7 +1531,7 @@ mod tests {
             start_at: schedule.start_at,
             priority: schedule.options.priority,
         });
-        manager.schedules.insert((0, 0, 0, 3).into(), Arc::new(schedule));
+        manager.schedules.insert((0, 0, 0, 3).into(), schedule);
         manager.remove_schedules(RemoveTarget::Tag("tag1".to_string()));
         assert!(!manager.schedules.contains_key(&(0, 0, 0, 1).into()));
         assert!(manager.schedules.contains_key(&(0, 0, 0, 3).into()));
@@ -1546,7 +1546,7 @@ mod tests {
     async fn test_recorder_check_retry() {
         let now = Jst::now();
         let program_quad = (0, 0, 1, 1).into();
-        let schedule = Arc::new(schedule_for_test(program_quad, now));
+        let schedule = schedule_for_test(program_quad, now);
 
         // exit(0)
         let pipeline = spawn_pipeline(vec!["true".to_string()], Default::default()).unwrap();
@@ -1605,7 +1605,7 @@ mod tests {
     async fn test_recorder_get_first_error() {
         let now = Jst::now();
         let program_quad = (0, 0, 1, 1).into();
-        let schedule = Arc::new(schedule_for_test(program_quad, now));
+        let schedule = schedule_for_test(program_quad, now);
 
         // exit(0)
         let pipeline = spawn_pipeline(vec!["true".to_string()], Default::default()).unwrap();
@@ -1765,7 +1765,7 @@ pub(crate) mod stub {
                 // 0 is reserved for Error::ProgramNotFound
                 1 => Ok(Err(Error::AlreadyExists)),
                 2 => Ok(Err(Error::ProgramEnded)),
-                _ => Ok(Ok(Arc::new(msg.schedule))),
+                _ => Ok(Ok(msg.schedule)),
             }
         }
     }
@@ -1778,7 +1778,7 @@ pub(crate) mod stub {
         ) -> Result<<QueryRecordingSchedule as Message>::Reply, actlet::Error> {
             match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::ProgramNotFound)),
-                _ => Ok(Ok(Arc::new(Schedule {
+                _ => Ok(Ok(Schedule {
                     program_quad: msg.program_quad,
                     start_at: Jst::now(),
                     end_at: Jst::now(),
@@ -1789,7 +1789,7 @@ pub(crate) mod stub {
                         post_filters: vec![],
                     },
                     tags: Default::default(),
-                }))),
+                })),
             }
         }
     }
@@ -1822,7 +1822,7 @@ pub(crate) mod stub {
         ) -> Result<<RemoveRecordingSchedule as Message>::Reply, actlet::Error> {
             match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::ScheduleNotFound)),
-                _ => Ok(Ok(Arc::new(Schedule {
+                _ => Ok(Ok(Schedule {
                     program_quad: msg.program_quad,
                     start_at: Jst::now(),
                     end_at: Jst::now(),
@@ -1833,7 +1833,7 @@ pub(crate) mod stub {
                         post_filters: vec![],
                     },
                     tags: Default::default(),
-                }))),
+                })),
             }
         }
     }
@@ -1863,7 +1863,7 @@ pub(crate) mod stub {
             match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::RecorderNotFound)),
                 _ => Ok(Ok(RecorderModel {
-                    schedule: Arc::new(Schedule {
+                    schedule: Schedule {
                         program_quad: msg.program_quad,
                         start_at: Jst::now(),
                         end_at: Jst::now(),
@@ -1874,7 +1874,7 @@ pub(crate) mod stub {
                             post_filters: vec![],
                         },
                         tags: Default::default(),
-                    }),
+                    },
                     started_at: Jst::now(),
                     pipeline: vec![],
                 })),

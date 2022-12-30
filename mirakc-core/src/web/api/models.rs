@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::extract::FromRequestParts;
@@ -52,22 +51,22 @@ pub(in crate::web) struct WebRecordingSchedule {
     #[schema(value_type = u64)]
     pub program_id: MirakurunProgramId,
     #[serde(with = "ts_milliseconds")]
-    #[schema(value_type = u64)]
-    pub start_at: DateTime<Jst>,
+    #[schema(value_type = i64)]
+    pub start_time: DateTime<Jst>,
     #[serde(with = "ts_milliseconds")]
-    #[schema(value_type = u64)]
-    pub end_at: DateTime<Jst>,
+    #[schema(value_type = i64)]
+    pub end_time: DateTime<Jst>,
     pub options: RecordingOptions,
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
 }
 
-impl From<Arc<recording::Schedule>> for WebRecordingSchedule {
-    fn from(value: Arc<recording::Schedule>) -> Self {
+impl From<recording::Schedule> for WebRecordingSchedule {
+    fn from(value: recording::Schedule) -> Self {
         WebRecordingSchedule {
             program_id: value.program_quad.into(),
-            start_at: value.start_at,
-            end_at: value.end_at,
+            start_time: value.start_at,
+            end_time: value.end_at,
             options: value.options.clone(),
             tags: value.tags.clone(),
         }
@@ -91,11 +90,11 @@ pub(in crate::web) struct WebRecordingRecorder {
     #[schema(value_type = u64)]
     pub program_id: MirakurunProgramId,
     #[serde(with = "ts_milliseconds")]
-    #[schema(value_type = u64)]
+    #[schema(value_type = i64)]
     pub started_at: DateTime<Jst>,
     #[serde(with = "ts_milliseconds")]
-    #[schema(value_type = u64)]
-    pub end_at: DateTime<Jst>,
+    #[schema(value_type = i64)]
+    pub end_time: DateTime<Jst>,
     #[schema(value_type = String)]
     pub content_path: PathBuf,
     pub priority: i32,
@@ -109,7 +108,7 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
         WebRecordingRecorder {
             program_id: value.schedule.program_quad.into(),
             started_at: value.started_at,
-            end_at: value.schedule.end_at,
+            end_time: value.schedule.end_at,
             content_path: value.schedule.options.content_path.clone(),
             priority: value.schedule.options.priority,
             pipeline: value

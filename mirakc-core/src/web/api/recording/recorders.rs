@@ -87,13 +87,13 @@ where
         .epg
         .call(epg::QueryProgram::ByMirakurunProgramId(input.program_id))
         .await??;
-    let schedule = Arc::new(Schedule {
+    let schedule = Schedule {
         program_quad: program.quad,
         start_at: program.start_at,
         end_at: program.end_at(),
         options: input.options,
         tags: input.tags,
-    });
+    };
     let recorder = state
         .recording_manager
         .call(recording::StartRecording { schedule })
