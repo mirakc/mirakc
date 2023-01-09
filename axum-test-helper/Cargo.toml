@@ -9,6 +9,6 @@ publish = false
 axum = "0.6.1"
 reqwest = { version = "0.11.13", default-features = false, features = ["json", "stream", "multipart"] }
 serde = { version = "1.0.152", features = ["derive"] }
-tokio = "1.24.0"
+tokio = "1.24.1"
 tower = { version = "0.4.13", default-features = false, features = ["make"] }
 tower-service = "0.3.2"
