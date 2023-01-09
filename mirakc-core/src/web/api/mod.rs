@@ -17,6 +17,8 @@ use crate::airtime_tracker;
 use crate::epg;
 use crate::filter::FilterPipelineBuilder;
 use crate::models::*;
+use crate::recording::RecordingOptions;
+use crate::recording::RecordingScheduleState;
 use crate::tuner;
 use crate::tuner::TunerStreamStopTrigger;
 
@@ -65,7 +67,6 @@ where
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
     R: Call<crate::recording::StartRecording>,
-    R: Call<crate::recording::StopRecording>,
     S: Send + Sync + 'static,
     S: Call<crate::timeshift::CreateTimeshiftLiveStreamSource>,
     S: Call<crate::timeshift::CreateTimeshiftRecordStreamSource>,
@@ -148,10 +149,6 @@ where
             .route(
                 "/recording/recorders/:id",
                 routing::get(recording::recorders::get),
-            )
-            .route(
-                "/recording/recorders/:id",
-                routing::delete(recording::recorders::delete),
             );
     };
 
@@ -216,7 +213,6 @@ where
         recording::recorders::list,
         recording::recorders::get,
         recording::recorders::create,
-        recording::recorders::delete,
         timeshift::list,
         timeshift::get,
         timeshift::stream,
@@ -239,6 +235,8 @@ where
             MirakurunProgram,
             MirakurunService,
             MirakurunTuner,
+            RecordingOptions,
+            RecordingScheduleState,
         ),
     ),
     modifiers(

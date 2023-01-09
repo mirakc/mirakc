@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use actlet::*;
+use actlet::prelude::*;
 use indexmap::IndexMap;
 use serde::Deserialize;
 use tokio::io::AsyncReadExt;

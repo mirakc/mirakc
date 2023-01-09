@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use actlet::*;
+use actlet::prelude::*;
 use clap::Parser;
 use clap::ValueEnum;
 use mirakc_core::error::Error;
@@ -54,8 +54,8 @@ async fn main() -> Result<(), Error> {
         .spawn_actor(epg::Epg::new(config.clone(), tuner_manager.clone()))
         .await;
 
-    let onair_tracker = system
-        .spawn_actor(onair_tracker::OnairTracker::new(
+    let onair_tracker_manager = system
+        .spawn_actor(onair::OnairProgramManager::new(
             config.clone(),
             tuner_manager.clone(),
             epg.clone(),
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Error> {
             config.clone(),
             tuner_manager.clone(),
             epg.clone(),
-            onair_tracker.clone(),
+            onair_tracker_manager.clone(),
         ))
         .await;
 

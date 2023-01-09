@@ -2,7 +2,9 @@ pub(in crate::web::api) mod stream;
 
 use super::*;
 
-/// Lists programs.
+/// Lists TV programs.
+///
+/// The list contains TV programs that have ended.
 #[utoipa::path(
     get,
     path = "/programs",
@@ -36,7 +38,7 @@ where
     Ok(result.into())
 }
 
-/// Gets a program.
+/// Gets a TV program.
 #[utoipa::path(
     get,
     path = "/programs/{id}",

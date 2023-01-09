@@ -30,7 +30,6 @@ Web API endpoints listed below have been implemented at this moment:
 | [GET /api/recording/recorders]                  |                            |
 | [POST /api/recording/recorders]                 |                            |
 | [GET /api/recording/recorders/{program_id}]     |                            |
-| [DELETE /api/recording/recorders/{program_id}]  |                            |
 | [GET /api/timeshift]                            |                            |
 | [GET /api/timeshift/{recorder}]                 |                            |
 | [GET /api/timeshift/{recorder}/records]         |                            |
@@ -62,7 +61,6 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 * [GET /api/recording/recorders]
 * [POST /api/recording/recorders]
 * [GET /api/recording/recorders/{program_id}]
-* [DELETE /api/recording/recorders/{program_id}]
 * [GET /api/timeshift]
 * [GET /api/timeshift/{recorder}]
 * [GET /api/timeshift/{recorder}/records]
@@ -96,7 +94,6 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [GET /api/recording/recorders]: #getapirecordingrecorders
 [POST /api/recording/recorders]: #postapirecordingrecorders
 [GET /api/recording/recorders/{program_id}]: #getapirecordingrecordersprogram_id
-[DELETE /api/recording/recorders/{program_id}]: #deleteapirecordingrecordersprogram_id
 [GET /api/timeshift]: #getapitimeshift
 [GET /api/timeshift/{recorder}]: #getapitimeshiftrecorder
 [GET /api/timeshift/{recorder}/records]: #getapitimeshiftrecorderrecords
@@ -321,10 +318,6 @@ Start recording for a specified program.
 ### GET /api/recording/recorders/{program_id}
 
 Returns a recorder for a specified program.
-
-### DELETE /api/recording/recorders/{program_id}
-
-Stop recording for a specified program.
 
 ## Web API endpoints for timeshift recording and playback
 

@@ -3,8 +3,8 @@ use std::fmt;
 use chrono::DateTime;
 use chrono::Duration;
 use chrono_jst::jst::Jst;
-use chrono_jst::serde::duration_milliseconds;
-use chrono_jst::serde::ts_milliseconds;
+use chrono_jst::serde::duration_milliseconds_option;
+use chrono_jst::serde::ts_milliseconds_option;
 use indexmap::IndexMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -20,7 +20,7 @@ use crate::epg::EpgService;
 use crate::epg::SeriesDescriptor;
 use crate::tuner::TunerSubscriptionId;
 
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, ToSchema)]
 pub enum ChannelType {
     GR,
     BS,
@@ -284,10 +284,10 @@ impl EpgGenre {
 
 // user
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum TunerUserInfo {
     Job { name: String },
-    OnairTracker(ServiceTriple),
+    OnairProgramTracker(String),
     Recorder { name: String },
     Tracker { stream_id: TunerSubscriptionId },
     Web { id: String, agent: Option<String> },
@@ -297,7 +297,7 @@ impl TunerUserInfo {
     fn get_mirakurun_model(&self) -> (String, Option<String>) {
         match self {
             Self::Job { name } => (format!("job:{}", name), None),
-            Self::OnairTracker(triple) => (format!("onair-tracker:{triple}"), None),
+            Self::OnairProgramTracker(name) => (format!("onair-program-tracker:{name}"), None),
             Self::Recorder { name } => (format!("recorder:{}", name), None),
             Self::Tracker { stream_id } => (format!("tracker:{}", stream_id), None),
             Self::Web { id, agent } => (id.clone(), agent.clone()),
@@ -309,7 +309,7 @@ impl fmt::Display for TunerUserInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Job { name } => write!(f, "Job({})", name),
-            Self::OnairTracker(triple) => write!(f, "OnairTracker({triple})"),
+            Self::OnairProgramTracker(name) => write!(f, "OnairProgramTracker({name})"),
             Self::Recorder { name } => write!(f, "Recorder({})", name),
             Self::Tracker { stream_id } => write!(f, "Tracker({})", stream_id),
             Self::Web { id, agent: None } => write!(f, r#"Web(id="{}")"#, id),
@@ -429,6 +429,12 @@ impl MirakurunServiceId {
 impl fmt::Display for MirakurunServiceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} ({} {})", self.0, self.nid(), self.sid())
+    }
+}
+
+impl From<u64> for MirakurunServiceId {
+    fn from(value: u64) -> Self {
+        MirakurunServiceId(value)
     }
 }
 
@@ -671,12 +677,12 @@ pub struct MirakurunProgram {
     pub transport_stream_id: TransportStreamId, // incompatible with Mirakurun
     #[schema(value_type = u16)]
     pub network_id: NetworkId,
-    #[serde(with = "ts_milliseconds")]
+    #[serde(with = "ts_milliseconds_option")]
     #[schema(value_type = i64)]
-    pub start_at: DateTime<Jst>,
-    #[serde(with = "duration_milliseconds")]
+    pub start_at: Option<DateTime<Jst>>,
+    #[serde(with = "duration_milliseconds_option")]
     #[schema(value_type = i64)]
-    pub duration: Duration,
+    pub duration: Option<Duration>,
     pub is_free: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -1010,26 +1016,6 @@ pub mod events {
             RecordingFailed {
                 program_id: msg.program_quad.into(),
                 reason: msg.reason,
-            }
-        }
-    }
-
-    #[derive(Clone, Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct RecordingRetried {
-        pub program_id: MirakurunProgramId,
-    }
-
-    impl RecordingRetried {
-        pub const fn name() -> &'static str {
-            "recording.retried"
-        }
-    }
-
-    impl From<crate::recording::RecordingRetried> for RecordingRetried {
-        fn from(msg: crate::recording::RecordingRetried) -> Self {
-            RecordingRetried {
-                program_id: msg.program_quad.into(),
             }
         }
     }

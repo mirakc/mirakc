@@ -3,14 +3,13 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::ExitStatus;
 use std::sync::Arc;
 
-use actlet::*;
-use async_trait::async_trait;
+use actlet::prelude::*;
 use chrono::DateTime;
 use chrono::Duration;
 use chrono_jst::Jst;
-use chrono_jst::serde::ts_milliseconds;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::Deserialize;
@@ -25,48 +24,818 @@ use crate::command_util::CommandPipelineProcessModel;
 use crate::config::Config;
 use crate::epg;
 use crate::epg::EpgProgram;
-use crate::epg::EpgService;
 use crate::epg::QueryClock;
-use crate::epg::QueryProgram;
+use crate::epg::QueryPrograms;
 use crate::epg::QueryService;
-use crate::epg::ServicesUpdated;
 use crate::error::Error;
 use crate::filter::FilterPipelineBuilder;
 use crate::models::ProgramQuad;
 use crate::models::ServiceTriple;
 use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
-use crate::onair_tracker::OnairProgramChanged;
+use crate::onair;
 use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
 use crate::tuner::TunerStreamStopTrigger;
 use crate::tuner::TunerSubscriptionId;
 
 const EXIT_RETRY: i32 = 222;
+
+// chrono::Duration has no const function which can be used for defining
+// compile-time constants.
 const PREP_SECS: i64 = 15;
+const MAX_DELAY_HOURS: i64 = 15;
 
 pub struct RecordingManager<T, E, O> {
     config: Arc<Config>,
     tuner_manager: T,
     epg: E,
-    onair_tracker: O,
+    onair_program_tracker: O,
+
     // We use two types for managing recording schedules.  `std` provides
     // `BTreeMap` for representing an ordered map, but it cannot provides the
     // following two functionalities:
     //
-    // * A ordered queue sorted by the start time of each recording schedule
+    // * A priority queue sorted by the start time of each recording schedule
     // * A hash map for a quick access to each recording schedule by a program
     //   quad
-    ordered_schedules: BinaryHeap<OrderedSchedule>,
-    schedules: HashMap<ProgramQuad, Schedule>,
+    queue: BinaryHeap<QueueItem>,
+    schedules: HashMap<ProgramQuad, RecordingSchedule>,
     recorders: HashMap<ProgramQuad, Recorder>,
-    retries: HashMap<ProgramQuad, Schedule>,
     timer_token: Option<CancellationToken>,
+
     recording_started_emitters: Vec<Emitter<RecordingStarted>>,
     recording_stopped_emitters: Vec<Emitter<RecordingStopped>>,
     recording_failed_emitters: Vec<Emitter<RecordingFailed>>,
-    recording_retried_emitters: Vec<Emitter<RecordingRetried>>,
     recording_rescheduled_emitters: Vec<Emitter<RecordingRescheduled>>,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    pub fn new(config: Arc<Config>, tuner_manager: T, epg: E, onair_program_tracker: O) -> Self {
+        RecordingManager {
+            config,
+            tuner_manager,
+            epg,
+            onair_program_tracker,
+            queue: Default::default(),
+            schedules: Default::default(),
+            recorders: Default::default(),
+            timer_token: None,
+            recording_started_emitters: Default::default(),
+            recording_stopped_emitters: Default::default(),
+            recording_failed_emitters: Default::default(),
+            recording_rescheduled_emitters: Default::default(),
+        }
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn load_schedules(&mut self) {
+        fn do_load(path: &Path) -> Result<Vec<RecordingSchedule>, Error> {
+            let file = std::fs::File::open(path)?;
+            Ok(serde_json::from_reader(file)?)
+        }
+
+        let basedir = match self.config.recording.basedir {
+            Some(ref basedir) => basedir,
+            None => return,
+        };
+
+        let path = basedir.join("schedules.json");
+        if !path.exists() {
+            return;
+        }
+
+        match do_load(&path) {
+            Ok(schedules) => {
+                tracing::info!(?path, "Loaded");
+                for schedule in schedules.into_iter() {
+                    let program_quad = schedule.program.quad;
+                    // Some of schedules may be expired, but `add_schedule()` doesn't check
+                    // that.
+                    match self.add_schedule(schedule) {
+                        Ok(_) => (),
+                        Err(err @ Error::AlreadyExists) => {
+                            // This error may happen when user changes schedules.json by hand.
+                            // We just output the warning message, ignore the schedule and
+                            // don't emit a RecordingFailed message.
+                            tracing::warn!(%err, %program_quad, "Already added, ignore");
+                        }
+                        Err(_) => unreachable!(),
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::warn!(%err, ?path, "Failed to load");
+            }
+        }
+    }
+
+    fn save_schedules(&self) {
+        fn do_save(schedules: Vec<&RecordingSchedule>, path: &Path) -> Result<(), Error> {
+            let file = std::fs::File::create(path)?;
+            serde_json::to_writer(file, &schedules)?;
+            Ok(())
+        }
+
+        let basedir = match self.config.recording.basedir {
+            Some(ref basedir) => basedir,
+            None => return,
+        };
+
+        let path = basedir.join("schedules.json");
+        let schedules = self.schedules.values().collect_vec();
+
+        match do_save(schedules, &path) {
+            Ok(_) => tracing::info!(?path, "Saved"),
+            Err(err) => tracing::error!(%err, ?path, "Failed to save"),
+        }
+    }
+
+    fn rebuild_queue(&mut self) {
+        self.queue.clear();
+        let schedules = self
+            .schedules
+            .values()
+            .filter(|schedule| schedule.is_ready_for_recording());
+        for schedule in schedules {
+            self.queue.push(QueueItem {
+                program_quad: schedule.program.quad,
+                start_at: schedule.program.start_at.unwrap(),
+                priority: schedule.options.priority,
+            });
+        }
+    }
+
+    fn set_timer<C>(&mut self, ctx: &C)
+    where
+        C: Spawn + EmitterFactory<ProcessRecording>,
+    {
+        if let Some(token) = self.timer_token.take() {
+            token.cancel();
+        }
+        if let Some(schedule) = self.queue.peek() {
+            let expires_at = schedule.start_at - Duration::seconds(PREP_SECS);
+            let duration = match (expires_at - Jst::now()).to_std() {
+                Ok(duration) => {
+                    tracing::debug!(%expires_at, "Set timer");
+                    duration
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        %expires_at,
+                        "Preparation time too short, \
+                         the beginning of some programs may not be recorded",
+                    );
+                    std::time::Duration::ZERO
+                }
+            };
+            let emitter = ctx.emitter();
+            let token = ctx.spawn_task(async move {
+                tokio::time::sleep(duration).await;
+                emitter.emit(ProcessRecording).await;
+            });
+            self.timer_token = Some(token);
+        }
+    }
+}
+
+// actor
+
+#[async_trait]
+impl<T, E, O> Actor for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn started(&mut self, ctx: &mut Context<Self>) {
+        tracing::debug!("Started");
+        self.epg
+            .call(epg::RegisterEmitter::ServicesUpdated(
+                ctx.address().clone().into(),
+            ))
+            .await
+            .expect("Failed to register emitter for epg::ServicesUpdated");
+        self.epg
+            .call(epg::RegisterEmitter::ProgramsUpdated(
+                ctx.address().clone().into(),
+            ))
+            .await
+            .expect("Failed to register emitter for epg::ProgramsUpdated");
+        self.onair_program_tracker
+            .call(onair::RegisterEmitter(ctx.address().clone().into()))
+            .await
+            .expect("Failed to register emitter for OnairProgramUpdated");
+        self.load_schedules();
+        self.rebuild_queue();
+        self.set_timer(ctx);
+    }
+
+    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!("Stopped");
+    }
+}
+
+// query recording schedules
+
+#[derive(Message)]
+#[reply("Vec<RecordingSchedule>")]
+pub struct QueryRecordingSchedules;
+
+#[async_trait]
+impl<T, E, O> Handler<QueryRecordingSchedules> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        _msg: QueryRecordingSchedules,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryRecordingSchedules as Message>::Reply {
+        tracing::debug!(msg.name = "QueryRecordingSchedules");
+        self.query_schedules()
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn query_schedules(&self) -> Vec<RecordingSchedule> {
+        self.schedules
+            .values()
+            .sorted_by(|s1, s2| {
+                let e1 = QueueItem {
+                    program_quad: s1.program.quad,
+                    start_at: s1.program.start_at.unwrap(),
+                    priority: s1.options.priority,
+                };
+                let e2 = QueueItem {
+                    program_quad: s2.program.quad,
+                    start_at: s2.program.start_at.unwrap(),
+                    priority: s2.options.priority,
+                };
+                e1.cmp(&e2).reverse()
+            })
+            .cloned()
+            .collect_vec()
+    }
+}
+
+// query recording schedule
+
+#[derive(Message)]
+#[reply("Result<RecordingSchedule, Error>")]
+pub struct QueryRecordingSchedule {
+    pub program_quad: ProgramQuad,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<QueryRecordingSchedule> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: QueryRecordingSchedule,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryRecordingSchedule as Message>::Reply {
+        tracing::debug!(msg.name = "QueryRecordingSchedule", %msg.program_quad);
+        self.query_schedule(msg.program_quad)
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn query_schedule(&self, program_quad: ProgramQuad) -> Result<RecordingSchedule, Error> {
+        self.schedules
+            .get(&program_quad)
+            .cloned()
+            .ok_or(Error::ScheduleNotFound)
+    }
+}
+
+// add recording schedule
+
+#[derive(Message)]
+#[reply("Result<RecordingSchedule, Error>")]
+pub struct AddRecordingSchedule {
+    pub schedule: RecordingSchedule,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<AddRecordingSchedule> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::QueryOnairProgram>,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: AddRecordingSchedule,
+        ctx: &mut Context<Self>,
+    ) -> <AddRecordingSchedule as Message>::Reply {
+        tracing::debug!(
+            msg.name = "AddRecordingSchedule",
+            %msg.schedule.program.quad,
+            ?msg.schedule.options.content_path,
+            %msg.schedule.options.priority,
+            ?msg.schedule.options.pre_filters,
+            ?msg.schedule.options.post_filters,
+        );
+        let program_quad = msg.schedule.program.quad;
+        self.add_schedule(msg.schedule)?;
+        // TODO: `schedule` should be updated before adding it.
+        self.update_schedule_with_onair_program(program_quad.into())
+            .await;
+        self.save_schedules();
+        self.rebuild_queue();
+        self.set_timer(ctx);
+        self.query_schedule(program_quad)
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O>
+where
+    O: Call<onair::QueryOnairProgram>,
+{
+    async fn update_schedule_with_onair_program(&mut self, service_triple: ServiceTriple) {
+        let msg = onair::QueryOnairProgram { service_triple };
+        match self.onair_program_tracker.call(msg).await {
+            Ok(Some(onair_program)) => {
+                if let Some(program) = onair_program.current {
+                    // The start time in EIT[p/f] may be undefined.
+                    if program.start_at.is_some() {
+                        self.update_schedule_by_onair_program(program).await;
+                    }
+                }
+                if let Some(program) = onair_program.next {
+                    // The start time in EIT[p/f] may be undefined.
+                    if program.start_at.is_some() {
+                        self.update_schedule_by_onair_program(program).await;
+                    }
+                }
+            }
+            Ok(None) => {
+                // No tracker, nothing to do.
+            }
+            Err(err) => {
+                tracing::error!(
+                    %err,
+                    %service_triple,
+                    "Failed to get on-air program",
+                );
+            }
+        }
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn add_schedule(&mut self, schedule: RecordingSchedule) -> Result<(), Error> {
+        let program_quad = schedule.program.quad;
+
+        if self.schedules.contains_key(&program_quad) {
+            let err = Error::AlreadyExists;
+            tracing::warn!(%err, %schedule.program.quad);
+            return Err(err);
+        }
+
+        // We don't check the start and end times of the TV program here and
+        // simply add a schedule for it.  Additional checks will be performed
+        // in later stages.
+        self.schedules.insert(program_quad, schedule);
+        tracing::info!(
+            schedule.program.quad = %program_quad,
+            "Added",
+        );
+
+        Ok(())
+    }
+}
+
+// remove recording schedule
+
+#[derive(Message)]
+#[reply("Result<RecordingSchedule, Error>")]
+pub struct RemoveRecordingSchedule {
+    pub program_quad: ProgramQuad,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<RemoveRecordingSchedule> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: RemoveRecordingSchedule,
+        ctx: &mut Context<Self>,
+    ) -> <RemoveRecordingSchedule as Message>::Reply {
+        tracing::debug!(msg.name = "RemoveRecordingSchedule", %msg.program_quad);
+        let program_quad = msg.program_quad;
+        match self.schedules.remove(&program_quad) {
+            Some(schedule) => {
+                if schedule.is_recording() {
+                    let _ = self.stop_recorder(program_quad);
+                }
+                self.save_schedules();
+                self.rebuild_queue();
+                self.set_timer(ctx);
+                Ok(schedule)
+            }
+            None => {
+                tracing::warn!(
+                    schedule.program.quad = %program_quad,
+                    "No such schedule added",
+                );
+                Err(Error::ScheduleNotFound)
+            }
+        }
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn stop_recorder(&mut self, program_quad: ProgramQuad) -> Result<(), Error> {
+        match self.recorders.get_mut(&program_quad) {
+            Some(recorder) => {
+                match recorder.stop_trigger.take() {
+                    Some(_) => {
+                        tracing::info!(
+                            schedule.program.quad = %program_quad,
+                            recorder.pipeline.id = %recorder.pipeline.id(),
+                            "Stop recorder pipeline",
+                        );
+                    }
+                    None => {
+                        tracing::warn!(
+                            schedule.program.quad = %program_quad,
+                            recorder.pipeline.id = %recorder.pipeline.id(),
+                            "Recorder pipeline already stopped",
+                        );
+                    }
+                }
+                Ok(())
+            }
+            None => {
+                tracing::error!(
+                    schedule.program.quad = %program_quad,
+                    "No such recorder found, maybe already stopped",
+                );
+                Err(Error::RecorderNotFound)
+            }
+        }
+    }
+}
+
+// remove recording schedules
+
+#[derive(Message)]
+#[reply("()")]
+pub struct RemoveRecordingSchedules {
+    pub target: RemovalTarget,
+}
+
+#[derive(Debug)]
+pub enum RemovalTarget {
+    All,
+    Tag(String),
+}
+
+#[async_trait]
+impl<T, E, O> Handler<RemoveRecordingSchedules> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: RemoveRecordingSchedules,
+        ctx: &mut Context<Self>,
+    ) -> <RemoveRecordingSchedules as Message>::Reply {
+        tracing::debug!(msg.name = "RemoveRecordingSchedules", ?msg.target);
+        self.remove_schedules(msg.target, Jst::now());
+        self.save_schedules();
+        self.rebuild_queue();
+        self.set_timer(ctx);
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn remove_schedules(&mut self, target: RemovalTarget, now: DateTime<Jst>) {
+        match target {
+            RemovalTarget::All => self.clear_schedules(),
+            RemovalTarget::Tag(tag) => self.remove_schedules_by_tag(&tag, now),
+        }
+    }
+
+    fn clear_schedules(&mut self) {
+        tracing::info!("Remove all schedules");
+        let schedules = std::mem::replace(&mut self.schedules, Default::default());
+        for schedule in schedules.into_values() {
+            if schedule.is_recording() {
+                let _ = self.stop_recorder(schedule.program.quad);
+            }
+        }
+    }
+
+    fn remove_schedules_by_tag(&mut self, tag: &str, now: DateTime<Jst>) {
+        use RecordingScheduleState::*;
+
+        // No notification message will be emitted.
+        // Users know what they are doing.
+
+        let prep_time = Duration::seconds(PREP_SECS);
+        tracing::info!(tag, "Remove tagged schedules");
+        self.schedules.retain(|_, schedule| {
+            if !schedule.tags.contains(tag) {
+                return true;
+            }
+            // Schedules in "Tracking" and "Recording" are retained.
+            match schedule.state {
+                Scheduled => {
+                    let start_time = schedule.program.start_at.unwrap();
+                    // Always retain schedules which will start soon
+                    // (or have already started).
+                    start_time - now <= prep_time
+                }
+                Tracking | Recording => {
+                    // Always retained.
+                    true
+                }
+                Rescheduling => {
+                    // Always removed.
+                    false
+                }
+            }
+        });
+    }
+}
+
+// query recording recorders
+
+#[derive(Message)]
+#[reply("Vec<RecorderModel>")]
+pub struct QueryRecordingRecorders;
+
+#[async_trait]
+impl<T, E, O> Handler<QueryRecordingRecorders> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        _msg: QueryRecordingRecorders,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryRecordingRecorders as Message>::Reply {
+        tracing::debug!(msg.name = "QueryRecordingRecorders");
+        self.recorders
+            .iter()
+            .map(|(&program_quad, recorder)| recorder.get_model(program_quad))
+            .collect()
+    }
+}
+
+// query recording recorder
+
+#[derive(Message)]
+#[reply("Result<RecorderModel, Error>")]
+pub struct QueryRecordingRecorder {
+    pub program_quad: ProgramQuad,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<QueryRecordingRecorder> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: QueryRecordingRecorder,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryRecordingRecorder as Message>::Reply {
+        tracing::debug!(msg.name = "QueryRecordingRecorder", %msg.program_quad);
+        self.recorders
+            .get(&msg.program_quad)
+            .map(|recorder| recorder.get_model(msg.program_quad))
+            .ok_or(Error::RecorderNotFound)
+    }
+}
+
+// start recording
+
+#[derive(Message)]
+#[reply("Result<RecorderModel, Error>")]
+pub struct StartRecording {
+    pub schedule: RecordingSchedule,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<StartRecording> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: StartRecording,
+        ctx: &mut Context<Self>,
+    ) -> <StartRecording as Message>::Reply {
+        tracing::debug!(
+            msg.name = "StartRecording",
+            %msg.schedule.program.quad,
+            ?msg.schedule.options.content_path,
+            %msg.schedule.options.priority,
+            ?msg.schedule.options.pre_filters,
+            ?msg.schedule.options.post_filters,
+        );
+        self.start_recording(msg.schedule.program.quad, ctx.address().clone(), ctx)
+            .await
+    }
+}
+
+// process recording
+
+#[derive(Message)]
+struct ProcessRecording;
+
+#[async_trait]
+impl<T, E, O> Handler<ProcessRecording> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(&mut self, _msg: ProcessRecording, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "ProcessRecording");
+        let now = Jst::now();
+
+        let mut changed = self.remove_expired_schedules(now).await;
+        if changed {
+            self.rebuild_queue();
+        }
+
+        let program_quads = self.dequeue_next_schedules(now);
+
+        for program_quad in program_quads.into_iter() {
+            match self
+                .start_recording(program_quad, ctx.address().clone(), ctx)
+                .await
+            {
+                Ok(_) => {
+                    tracing::info!(
+                        schedule.program.quad = %program_quad,
+                        "Start recording",
+                    );
+                }
+                Err(err) => {
+                    tracing::error!(
+                        %err,
+                        schedule.program.quad = %program_quad,
+                        "Failed to start recording",
+                    );
+                    self.emit_recording_failed(
+                        program_quad,
+                        RecordingFailedReason::StartRecordingFailed {
+                            message: format!("{}", err),
+                        },
+                    )
+                    .await;
+                    self.schedules.remove(&program_quad);
+                }
+            }
+            changed = true;
+        }
+
+        self.set_timer(ctx);
+        if changed {
+            self.save_schedules();
+        }
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn remove_expired_schedules(&mut self, now: DateTime<Jst>) -> bool {
+        let max_delay = Duration::hours(MAX_DELAY_HOURS);
+
+        let mut removed = vec![];
+
+        self.schedules.retain(|_, schedule| {
+            if schedule.is_recording() {
+                return true;
+            }
+            if schedule.program.start_at.unwrap() + max_delay >= now {
+                return true;
+            }
+            tracing::error!(
+                %schedule.program.quad,
+                "Schedule expired",
+            );
+            removed.push(schedule.program.quad);
+            false
+        });
+
+        for &program_quad in removed.iter() {
+            self.emit_recording_failed(program_quad, RecordingFailedReason::ScheduleExpired)
+                .await;
+        }
+
+        !removed.is_empty()
+    }
+
+    fn dequeue_next_schedules(&mut self, now: DateTime<Jst>) -> Vec<ProgramQuad> {
+        let mut program_quads = vec![];
+        let prep_secs = Duration::seconds(PREP_SECS);
+        while let Some(schedule) = self.queue.peek() {
+            if schedule.start_at - now <= prep_secs {
+                let schedule = self.queue.pop().unwrap();
+                debug_assert!(self.schedules.contains_key(&schedule.program_quad));
+                program_quads.push(schedule.program_quad);
+            } else {
+                break;
+            }
+        }
+        program_quads
+    }
 }
 
 impl<T, E, O> RecordingManager<T, E, O>
@@ -76,77 +845,33 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
-    E: Call<QueryProgram>,
+    E: Call<QueryPrograms>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
     O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
+    O: Call<onair::RegisterEmitter>,
 {
-    pub fn new(config: Arc<Config>, tuner_manager: T, epg: E, onair_tracker: O) -> Self {
-        RecordingManager {
-            config,
-            tuner_manager,
-            epg,
-            onair_tracker,
-            ordered_schedules: Default::default(),
-            schedules: Default::default(),
-            recorders: Default::default(),
-            retries: Default::default(),
-            timer_token: None,
-            recording_started_emitters: Default::default(),
-            recording_stopped_emitters: Default::default(),
-            recording_failed_emitters: Default::default(),
-            recording_retried_emitters: Default::default(),
-            recording_rescheduled_emitters: Default::default(),
-        }
-    }
-
-    fn update_services(&mut self, services: Arc<IndexMap<ServiceTriple, EpgService>>) {
-        self.schedules.retain(|_, schedule| {
-            let triple = ServiceTriple::from(schedule.program_quad);
-            if services.contains_key(&triple) {
-                true
-            } else {
-                tracing::warn!(%schedule.program_quad, "Invalidated");
-                false
-            }
-        });
-        self.rebuild_ordered_schedules();
-        assert_eq!(self.ordered_schedules.len(), self.schedules.len());
-        // TODO: self.recorders, self.retries
-    }
-
-    async fn start_recording(
+    async fn start_recording<C: Spawn>(
         &mut self,
-        schedule: Schedule,
-        ctx: &Context<Self>,
+        program_quad: ProgramQuad,
+        addr: Address<Self>,
+        ctx: &C,
     ) -> Result<RecorderModel, Error> {
-        let program_quad = schedule.program_quad;
-        let service_triple = schedule.program_quad.into();
-
         if self.recorders.contains_key(&program_quad) {
             return Err(Error::AlreadyExists);
         }
 
         // TODO: copied from web::program_stream_g().
 
-        let program = self
-            .epg
-            .call(QueryProgram::ByProgramQuad(program_quad))
-            .await??;
+        let service_triple = program_quad.into();
+        let schedule = self.schedules.get(&program_quad).unwrap();
 
         let service = self
             .epg
             .call(QueryService::ByServiceTriple(service_triple))
             .await??;
 
-        let clock = self
-            .epg
-            .call(QueryClock {
-                triple: service_triple,
-            })
-            .await??;
+        let clock = self.epg.call(QueryClock { service_triple }).await??;
 
         let stream = self
             .tuner_manager
@@ -166,13 +891,15 @@ where
         let stop_trigger =
             TunerStreamStopTrigger::new(stream.id(), self.tuner_manager.clone().into());
 
-        let video_tags: Vec<u8> = program
+        let video_tags: Vec<u8> = schedule
+            .program
             .video
             .iter()
             .map(|video| video.component_tag)
             .collect();
 
-        let audio_tags: Vec<u8> = program
+        let audio_tags: Vec<u8> = schedule
+            .program
             .audios
             .values()
             .map(|audio| audio.component_tag)
@@ -183,8 +910,8 @@ where
             .insert_str("channel_name", &service.channel.name)
             .insert("channel_type", &service.channel.channel_type)?
             .insert_str("channel", &service.channel.channel)
-            .insert("sid", &program.quad.sid().value())?
-            .insert("eid", &program.quad.eid().value())?
+            .insert("sid", &program_quad.sid().value())?
+            .insert("eid", &program_quad.eid().value())?
             .insert("clock_pid", &clock.pid)?
             .insert("clock_pcr", &clock.pcr)?
             .insert("clock_time", &clock.time)?
@@ -201,12 +928,12 @@ where
         builder.add_post_filters(&self.config.post_filters, &schedule.options.post_filters)?;
         let (filters, _) = builder.build();
 
-        let contents_dir = self.config.recording.contents_dir.as_ref().unwrap();
+        let basedir = self.config.recording.basedir.as_ref().unwrap();
 
         let content_path = if schedule.options.content_path.is_absolute() {
             schedule.options.content_path.clone()
         } else {
-            contents_dir.join(&schedule.options.content_path)
+            basedir.join(&schedule.options.content_path)
         };
         // We assumed that schedule.content_path has already been normalized.
         if let Some(dir) = content_path.parent() {
@@ -234,7 +961,6 @@ where
         };
         // Outer future emits messages to observers.
         let fut = {
-            let addr = ctx.address().clone();
             async move {
                 addr.emit(RecordingStarted { program_quad }).await;
                 let result = inner_fut.await;
@@ -253,681 +979,19 @@ where
         };
 
         let recorder = Recorder {
-            schedule,
             started_at: Jst::now(),
             pipeline,
             stop_trigger: Some(stop_trigger),
         };
-        let model = recorder.get_model();
+        let model = recorder.get_model(program_quad);
         self.recorders.insert(program_quad, recorder);
+        self.schedules.get_mut(&program_quad).unwrap().state = RecordingScheduleState::Recording;
 
         // Spawn the following task after the recorder is inserted so that
         // actors receiving RecordingStarted messages can access the recorder.
         ctx.spawn_task(fut);
 
         Ok(model)
-    }
-
-    fn stop_recording(&mut self, program_quad: ProgramQuad) -> Result<(), Error> {
-        match self.recorders.get_mut(&program_quad) {
-            Some(recorder) => {
-                match recorder.stop_trigger.take() {
-                    Some(_) => tracing::info!(%program_quad, "Stop recording"),
-                    None => tracing::warn!(%program_quad, "Already stopped"),
-                }
-                Ok(())
-            }
-            None => {
-                tracing::error!(%program_quad, "No such recorder, maybe already stopped");
-                Err(Error::RecorderNotFound)
-            }
-        }
-    }
-
-    fn set_timer(&mut self, ctx: &Context<Self>) {
-        if let Some(token) = self.timer_token.take() {
-            token.cancel();
-        }
-        if let Some(schedule) = self.ordered_schedules.peek() {
-            let expires_at = schedule.start_at - Duration::seconds(PREP_SECS);
-            let duration = match (expires_at - Jst::now()).to_std() {
-                Ok(duration) => {
-                    tracing::debug!(%expires_at, "Set timer");
-                    duration
-                }
-                Err(_) => {
-                    tracing::warn!(%expires_at, "Preparation time too small, the beginning of some programs may not be recorded");
-                    std::time::Duration::ZERO
-                }
-            };
-            let addr = ctx.address().clone();
-            let token = ctx.spawn_task(async move {
-                tokio::time::sleep(duration).await;
-                addr.emit(TimerExpired).await;
-            });
-            self.timer_token = Some(token);
-        }
-    }
-}
-
-// actor
-
-#[async_trait]
-impl<T, E, O> Actor for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn started(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!("Started");
-        self.load_schedules();
-        self.epg
-            .call(epg::RegisterEmitter::ServicesUpdated(
-                ctx.address().clone().into(),
-            ))
-            .await
-            .expect("Failed to register emitter for ServicesUpdated");
-    }
-
-    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        tracing::debug!("Stopped");
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn load_schedules(&mut self) {
-        fn do_load(path: &Path) -> Result<Vec<Schedule>, Error> {
-            let file = std::fs::File::open(path)?;
-            Ok(serde_json::from_reader(file)?)
-        }
-
-        let records_dir = match self.config.recording.records_dir {
-            Some(ref records_dir) => records_dir,
-            None => return,
-        };
-
-        let path = records_dir.join("schedules.json");
-        if !path.exists() {
-            return;
-        }
-
-        match do_load(&path) {
-            Ok(schedules) => {
-                tracing::info!(?path, "Loaded");
-                for schedule in schedules.into_iter() {
-                    let program_quad = schedule.program_quad;
-                    if let Err(err) = self.add_schedule(schedule) {
-                        tracing::error!(%err, %program_quad, "Recording failed");
-                        // TODO
-                        // ----
-                        // Should emit RecordingFailed messages when the
-                        // schedule has been expired.  However, no observer is
-                        // registered at this point.  Because this function is
-                        // called from Actor::started()...
-                    }
-                }
-            }
-            Err(err) => {
-                tracing::warn!(%err, ?path, "Failed to load");
-            }
-        }
-    }
-
-    fn save_schedules(&self) {
-        fn do_save(schedules: Vec<&Schedule>, path: &Path) -> Result<(), Error> {
-            let file = std::fs::File::create(path)?;
-            serde_json::to_writer(file, &schedules)?;
-            Ok(())
-        }
-
-        let records_dir = match self.config.recording.records_dir {
-            Some(ref records_dir) => records_dir,
-            None => return,
-        };
-
-        let path = records_dir.join("schedules.json");
-        let schedules = self.schedules.values().collect_vec();
-
-        match do_save(schedules, &path) {
-            Ok(_) => tracing::info!(?path, "Saved"),
-            Err(err) => tracing::error!(%err, ?path, "Failed to save"),
-        }
-    }
-}
-
-// query recording schedules
-
-#[derive(Message)]
-#[reply("Vec<Schedule>")]
-pub struct QueryRecordingSchedules;
-
-#[async_trait]
-impl<T, E, O> Handler<QueryRecordingSchedules> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        _msg: QueryRecordingSchedules,
-        _ctx: &mut Context<Self>,
-    ) -> <QueryRecordingSchedules as Message>::Reply {
-        tracing::debug!(msg.name = "QueryRecordingSchedules");
-        self.query_schedules()
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn query_schedules(&self) -> Vec<Schedule> {
-        let mut schedules = Vec::with_capacity(self.ordered_schedules.len());
-        // TODO: somewhat inefficient...
-        let quads = self.ordered_schedules
-            .clone()
-            .into_sorted_vec()
-            .into_iter()
-            .rev()
-            .map(|sched| sched.program_quad);
-        for quad in quads {
-            schedules.push(self.schedules.get(&quad).cloned().unwrap());
-        }
-        schedules
-    }
-}
-
-// query recording schedule
-
-#[derive(Message)]
-#[reply("Result<Schedule, Error>")]
-pub struct QueryRecordingSchedule {
-    pub program_quad: ProgramQuad,
-}
-
-#[async_trait]
-impl<T, E, O> Handler<QueryRecordingSchedule> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        msg: QueryRecordingSchedule,
-        _ctx: &mut Context<Self>,
-    ) -> <QueryRecordingSchedule as Message>::Reply {
-        tracing::debug!(msg.name = "QueryRecordingSchedule", %msg.program_quad);
-        self.get_schedule(msg.program_quad)
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn get_schedule(&self, program_quad: ProgramQuad) -> Result<Schedule, Error> {
-        self.schedules
-            .get(&program_quad)
-            .cloned()
-            .ok_or(Error::ScheduleNotFound)
-    }
-}
-
-// add recording schedule
-
-#[derive(Message)]
-#[reply("Result<Schedule, Error>")]
-pub struct AddRecordingSchedule {
-    pub schedule: Schedule,
-}
-
-#[async_trait]
-impl<T, E, O> Handler<AddRecordingSchedule> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        msg: AddRecordingSchedule,
-        ctx: &mut Context<Self>,
-    ) -> <AddRecordingSchedule as Message>::Reply {
-        tracing::debug!(
-            msg.name = "AddRecordingSchedule",
-            %msg.schedule.program_quad,
-            %msg.schedule.start_at,
-            ?msg.schedule.options.content_path,
-            %msg.schedule.options.priority,
-            ?msg.schedule.options.pre_filters,
-            ?msg.schedule.options.post_filters,
-        );
-        let program_quad = msg.schedule.program_quad;
-        self.add_schedule(msg.schedule)?;
-        self.save_schedules();
-        self.set_timer(ctx);
-        self.get_schedule(program_quad)
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn add_schedule(&mut self, schedule: Schedule) -> Result<(), Error> {
-        let deadline = Jst::now() + Duration::seconds(PREP_SECS);
-        let program_quad = schedule.program_quad;
-        if self.schedules.contains_key(&program_quad) {
-            let err = Error::AlreadyExists;
-            tracing::warn!(%schedule.program_quad, %err);
-            Err(err)
-        } else if schedule.end_at <= deadline {
-            let err = Error::ProgramEnded;
-            tracing::error!(%schedule.program_quad, %err);
-            Err(err)
-        } else {
-            tracing::info!(%schedule.program_quad, "Added");
-            self.ordered_schedules.push(OrderedSchedule {
-                program_quad: schedule.program_quad,
-                start_at: schedule.start_at,
-                priority: schedule.options.priority,
-            });
-            self.schedules.insert(program_quad, schedule);
-            assert_eq!(self.ordered_schedules.len(), self.schedules.len());
-            Ok(())
-        }
-    }
-}
-
-// remove recording schedule
-
-#[derive(Message)]
-#[reply("Result<Schedule, Error>")]
-pub struct RemoveRecordingSchedule {
-    pub program_quad: ProgramQuad,
-}
-
-#[async_trait]
-impl<T, E, O> Handler<RemoveRecordingSchedule> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        msg: RemoveRecordingSchedule,
-        ctx: &mut Context<Self>,
-    ) -> <RemoveRecordingSchedule as Message>::Reply {
-        tracing::debug!(msg.name = "RemoveRecordingSchedule", %msg.program_quad);
-        match self.schedules.remove(&msg.program_quad) {
-            Some(schedule) => {
-                self.rebuild_ordered_schedules();
-                self.save_schedules();
-                self.set_timer(ctx);
-                Ok(schedule)
-            }
-            None => {
-                tracing::warn!(%msg.program_quad, "No such schedule");
-                Err(Error::ScheduleNotFound)
-            }
-        }
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn rebuild_ordered_schedules(&mut self) {
-        self.ordered_schedules.clear();
-        for schedule in self.schedules.values() {
-            self.ordered_schedules.push(OrderedSchedule {
-                program_quad: schedule.program_quad,
-                start_at: schedule.start_at,
-                priority: schedule.options.priority,
-            });
-        }
-        assert_eq!(self.ordered_schedules.len(), self.schedules.len());
-    }
-}
-
-// remove recording schedule
-
-#[derive(Message)]
-#[reply("()")]
-pub struct RemoveRecordingSchedules {
-    pub target: RemoveTarget,
-}
-
-#[derive(Debug)]
-pub enum RemoveTarget {
-    All,
-    Tag(String),
-}
-
-#[async_trait]
-impl<T, E, O> Handler<RemoveRecordingSchedules> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        msg: RemoveRecordingSchedules,
-        ctx: &mut Context<Self>,
-    ) -> <RemoveRecordingSchedules as Message>::Reply {
-        tracing::debug!(msg.name = "RemoveRecordingSchedules", ?msg.target);
-        self.remove_schedules(msg.target);
-        self.save_schedules();
-        self.set_timer(ctx);
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn remove_schedules(&mut self, target: RemoveTarget) {
-        match target {
-            RemoveTarget::All => self.clear_schedules(),
-            RemoveTarget::Tag(tag) => self.remove_schedules_by_tag(&tag),
-        }
-    }
-
-    fn clear_schedules(&mut self) {
-        tracing::info!("Remove all schedules");
-        self.schedules.clear();
-        self.ordered_schedules.clear();
-    }
-
-    fn remove_schedules_by_tag(&mut self, tag: &str) {
-        let start_soon = Jst::now() + Duration::seconds(PREP_SECS);
-        tracing::info!("Remove schedules tagged with {}", tag);
-        self.schedules.retain(|_, v| {
-            // Always retain schedules which will start soon
-            // (or have already been expired).
-            if v.start_at <= start_soon {
-                return true;
-            }
-            return !v.tags.contains(tag);
-        });
-        self.rebuild_ordered_schedules();
-    }
-}
-
-// query recording recorders
-
-#[derive(Message)]
-#[reply("Vec<RecorderModel>")]
-pub struct QueryRecordingRecorders;
-
-#[async_trait]
-impl<T, E, O> Handler<QueryRecordingRecorders> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        _msg: QueryRecordingRecorders,
-        _ctx: &mut Context<Self>,
-    ) -> <QueryRecordingRecorders as Message>::Reply {
-        tracing::debug!(msg.name = "QueryRecordingRecorders");
-        self.recorders
-            .values()
-            .map(|recorder| recorder.get_model())
-            .collect()
-    }
-}
-
-// query recording recorder
-
-#[derive(Message)]
-#[reply("Result<RecorderModel, Error>")]
-pub struct QueryRecordingRecorder {
-    pub program_quad: ProgramQuad,
-}
-
-#[async_trait]
-impl<T, E, O> Handler<QueryRecordingRecorder> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        msg: QueryRecordingRecorder,
-        _ctx: &mut Context<Self>,
-    ) -> <QueryRecordingRecorder as Message>::Reply {
-        tracing::debug!(msg.name = "QueryRecordingRecorder", %msg.program_quad);
-        self.recorders
-            .get(&msg.program_quad)
-            .map(|recorder| recorder.get_model())
-            .ok_or(Error::RecorderNotFound)
-    }
-}
-
-// start recording
-
-#[derive(Message)]
-#[reply("Result<RecorderModel, Error>")]
-pub struct StartRecording {
-    pub schedule: Schedule,
-}
-
-#[async_trait]
-impl<T, E, O> Handler<StartRecording> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        msg: StartRecording,
-        ctx: &mut Context<Self>,
-    ) -> <StartRecording as Message>::Reply {
-        tracing::debug!(
-            msg.name = "StartRecording",
-            %msg.schedule.program_quad,
-            ?msg.schedule.options.content_path,
-            %msg.schedule.options.priority,
-            ?msg.schedule.options.pre_filters,
-            ?msg.schedule.options.post_filters,
-        );
-        self.start_recording(msg.schedule, ctx).await
-    }
-}
-
-// stop recording
-
-#[derive(Message)]
-#[reply("Result<(), Error>")]
-pub struct StopRecording {
-    pub program_quad: ProgramQuad,
-}
-
-#[async_trait]
-impl<T, E, O> Handler<StopRecording> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(
-        &mut self,
-        msg: StopRecording,
-        _ctx: &mut Context<Self>,
-    ) -> <StopRecording as Message>::Reply {
-        tracing::debug!(msg.name = "StopRecording", %msg.program_quad);
-        self.stop_recording(msg.program_quad)
-    }
-}
-
-// services updated
-
-#[async_trait]
-impl<T, E, O> Handler<ServicesUpdated> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(&mut self, msg: ServicesUpdated, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "ServicesUpdated");
-        self.update_services(msg.services);
-        self.save_schedules();
-        self.set_timer(ctx);
-    }
-}
-
-// timer expired
-
-#[derive(Message)]
-struct TimerExpired;
-
-#[async_trait]
-impl<T, E, O> Handler<TimerExpired> for RecordingManager<T, E, O>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-    E: Send + Sync + 'static,
-    E: Call<QueryClock>,
-    E: Call<QueryProgram>,
-    E: Call<QueryService>,
-    E: Call<epg::RegisterEmitter>,
-    O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
-{
-    async fn handle(&mut self, _msg: TimerExpired, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "TimerExpired");
-        let now = Jst::now();
-        self.remove_ended_schedules(now);
-        let schedules = self.collect_next_schedules(now);
-        self.save_schedules();
-        self.set_timer(ctx);
-        for schedule in schedules.into_iter() {
-            match self.start_recording(schedule.clone(), ctx).await {
-                Ok(_) => {
-                    tracing::info!(%schedule.program_quad, "Start recording");
-                }
-                Err(err) => {
-                    tracing::error!(%err, %schedule.program_quad, "Failed to start recording");
-                }
-            }
-        }
-    }
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn remove_ended_schedules(&mut self, now: DateTime<Jst>) {
-        let prep_secs = Duration::seconds(PREP_SECS);
-        self.schedules.retain(|_, schedule| {
-            if schedule.end_at - now <= prep_secs {
-                tracing::warn!(%schedule.program_quad, "Program will end soon, remove schedule");
-                false
-            } else {
-                true
-            }
-        });
-        self.rebuild_ordered_schedules();
-    }
-
-    fn collect_next_schedules(&mut self, now: DateTime<Jst>) -> Vec<Schedule> {
-        let mut schedules = vec![];
-        let prep_secs = Duration::seconds(PREP_SECS);
-        while let Some(schedule) = self.ordered_schedules.peek() {
-            if schedule.start_at - now <= prep_secs {
-                let schedule = self.ordered_schedules.pop().unwrap();
-                let schedule = self.schedules.remove(&schedule.program_quad).unwrap();
-                schedules.push(schedule);
-            } else {
-                break;
-            }
-        }
-        schedules
     }
 }
 
@@ -939,7 +1003,6 @@ pub enum RegisterEmitter {
     RecordingStarted(Emitter<RecordingStarted>),
     RecordingStopped(Emitter<RecordingStopped>),
     RecordingFailed(Emitter<RecordingFailed>),
-    RecordingRetried(Emitter<RecordingRetried>),
     RecordingRescheduled(Emitter<RecordingRescheduled>),
 }
 
@@ -951,12 +1014,11 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
-    E: Call<QueryProgram>,
+    E: Call<QueryPrograms>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
     O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
+    O: Call<onair::RegisterEmitter>,
 {
     async fn handle(
         &mut self,
@@ -973,9 +1035,6 @@ where
             RegisterEmitter::RecordingFailed(emitter) => {
                 self.recording_failed_emitters.push(emitter);
             }
-            RegisterEmitter::RecordingRetried(emitter) => {
-                self.recording_retried_emitters.push(emitter);
-            }
             RegisterEmitter::RecordingRescheduled(emitter) => {
                 self.recording_rescheduled_emitters.push(emitter);
             }
@@ -985,7 +1044,7 @@ where
 
 // recording started
 
-#[derive(Clone, Message)]
+#[derive(Message)]
 pub struct RecordingStarted {
     pub program_quad: ProgramQuad,
 }
@@ -998,24 +1057,33 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
-    E: Call<QueryProgram>,
+    E: Call<QueryPrograms>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
     O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
+    O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: RecordingStarted, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "RecordingStarted", %msg.program_quad);
+        self.handle_recording_started(msg.program_quad).await;
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn handle_recording_started(&self, program_quad: ProgramQuad) {
+        tracing::info!(
+            schedule.program.quad = %program_quad,
+            "Recording started",
+        );
         for emitter in self.recording_started_emitters.iter() {
-            emitter.emit(msg.clone()).await;
+            emitter.emit(RecordingStarted { program_quad }).await;
         }
     }
 }
 
 // recording stopped
 
-#[derive(Clone, Message)]
+#[derive(Message)]
 pub struct RecordingStopped {
     pub program_quad: ProgramQuad,
 }
@@ -1028,71 +1096,65 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
-    E: Call<QueryProgram>,
+    E: Call<QueryPrograms>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
     O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
+    O: Call<onair::RegisterEmitter>,
 {
-    async fn handle(&mut self, msg: RecordingStopped, ctx: &mut Context<Self>) {
+    async fn handle(&mut self, msg: RecordingStopped, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "RecordingStopped", %msg.program_quad);
-
-        for emitter in self.recording_stopped_emitters.iter() {
-            emitter.emit(msg.clone()).await;
+        let changed = self.handle_recording_stopped(msg.program_quad).await;
+        if changed {
+            self.save_schedules();
         }
+    }
+}
 
-        let recorder = self.recorders.remove(&msg.program_quad);
-        let retry_enabled = self.config.recording.max_start_delay.is_some();
-        match (recorder, retry_enabled) {
-            (Some(mut recorder), true) => {
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn handle_recording_stopped(&mut self, program_quad: ProgramQuad) -> bool {
+        // The schedule may have been removed before the recording stops.
+        // For example, `clear_schedules()` clears schedules before the
+        // recordings stop.
+        let maybe_schedule = self.schedules.remove(&program_quad);
+        let changed = maybe_schedule.is_some();
+
+        // Unlike the schedule, the recorder should be removed after the
+        // recording stopped.
+        let recorder = self.recorders.remove(&program_quad);
+        match recorder {
+            Some(mut recorder) => {
                 // Manually drop the stop trigger so that we get the exit code
                 // from the program-filter without killing its process.
                 if let Some(stop_trigger) = recorder.stop_trigger.take() {
                     drop(stop_trigger);
                 }
-                if recorder.check_retry().await {
-                    let program_quad = msg.program_quad;
-                    tracing::warn!(%program_quad, "Recording stopped before the program starts");
-                    let service_triple = program_quad.into();
-                    let result = if self.need_adding_observer(service_triple) {
-                        self.onair_tracker
-                            .call(crate::onair_tracker::AddObserver {
-                                service_triple,
-                                name: "recording",
-                                emitter: ctx.address().clone().into(),
-                            })
-                            .await
-                    } else {
-                        Ok(())
-                    };
-                    match result {
-                        Ok(_) => {
-                            tracing::info!(%program_quad, "Retry recording");
-                            self.retry(recorder.schedule);
-                            self.emit_recording_retried(program_quad).await;
-                        }
-                        Err(err) => {
-                            tracing::error!(%err, %program_quad, "Failed to retry recording");
-                            self.emit_recording_failed(
-                                program_quad,
-                                RecordingFailedReason::RetryFailed,
-                            )
-                            .await;
-                        }
+
+                let results = recorder.pipeline.wait().await;
+                if check_retry(&results) {
+                    tracing::error!(
+                        schedule.program.quad = %program_quad,
+                        "Recording stopped before the TV program starts",
+                    );
+                    if let Some(mut schedule) = maybe_schedule {
+                        tracing::warn!(
+                            %schedule.program.quad,
+                            "Need rescheduling",
+                        );
+                        schedule.state = RecordingScheduleState::Rescheduling;
+                        self.schedules.insert(program_quad, schedule);
+                        self.emit_recording_failed(
+                            program_quad,
+                            RecordingFailedReason::NeedRescheduling,
+                        )
+                        .await;
                     }
-                }
-            }
-            // Retry is disabled.
-            (Some(mut recorder), false) => {
-                // Manually drop the stop trigger so that we get the exit code
-                // from the program-filter without killing its process.
-                if let Some(stop_trigger) = recorder.stop_trigger.take() {
-                    drop(stop_trigger);
-                }
-                if let Some(exit_code) = recorder.get_first_error().await {
-                    let program_quad = msg.program_quad;
-                    tracing::error!(%program_quad, %exit_code, "Failed in the recording pipeline");
+                } else if let Some(exit_code) = get_first_error(&results) {
+                    tracing::error!(
+                        %exit_code,
+                        schedule.program.quad = %program_quad,
+                        "The recording pipeline terminated abnormally",
+                    );
                     self.emit_recording_failed(
                         program_quad,
                         RecordingFailedReason::PipelineError { exit_code },
@@ -1100,38 +1162,46 @@ where
                     .await;
                 }
             }
-            (None, _) => {
-                tracing::warn!(program_quad = %msg.program_quad, "Already removed");
+            None => {
+                tracing::debug!(
+                    schedule.program.quad = %program_quad,
+                    "INCONSNSTENT: The recorder stopped before the recording stopped",
+                );
             }
         }
-    }
-}
 
-impl<T, E, O> RecordingManager<T, E, O> {
-    fn retry(&mut self, schedule: Schedule) {
-        let program_quad = schedule.program_quad;
-        self.retries.insert(program_quad, schedule);
-    }
+        tracing::info!(
+            schedule.program.quad = %program_quad,
+            "Recording stopped",
+        );
 
-    fn need_adding_observer(&self, service_triple: ServiceTriple) -> bool {
-        !self
-            .retries
-            .keys()
-            .any(|&quad| service_triple == quad.into())
+        // Receivers cannot access any data about the schedule.
+        // It has already been removed.
+        //
+        // TODO: Save recording logs to a file.
+        for emitter in self.recording_stopped_emitters.iter() {
+            emitter.emit(RecordingStopped { program_quad }).await;
+        }
+
+        changed
     }
 }
 
 // recording failed
 
-#[derive(Clone, Message)]
+#[derive(Message)]
 pub struct RecordingFailed {
     pub program_quad: ProgramQuad,
     pub reason: RecordingFailedReason,
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "kebab-case")]
 pub enum RecordingFailedReason {
+    #[serde(rename_all = "camelCase")]
+    StartRecordingFailed {
+        message: String,
+    },
     #[serde(rename_all = "camelCase")]
     IoError {
         message: String,
@@ -1141,7 +1211,9 @@ pub enum RecordingFailedReason {
     PipelineError {
         exit_code: i32,
     },
-    RetryFailed,
+    NeedRescheduling,
+    ScheduleExpired,
+    RemovedFromEpg,
 }
 
 #[async_trait]
@@ -1152,12 +1224,11 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
-    E: Call<QueryProgram>,
+    E: Call<QueryPrograms>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
     O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
+    O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: RecordingFailed, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "RecordingFailed", %msg.program_quad, ?msg.reason);
@@ -1173,28 +1244,11 @@ impl<T, E, O> RecordingManager<T, E, O> {
         reason: RecordingFailedReason,
     ) {
         for emitter in self.recording_failed_emitters.iter() {
-            let reason = reason.clone();
-            emitter
-                .emit(RecordingFailed {
-                    program_quad,
-                    reason,
-                })
-                .await;
-        }
-    }
-}
-
-// recording retried
-
-#[derive(Clone, Message)]
-pub struct RecordingRetried {
-    pub program_quad: ProgramQuad,
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_recording_retried(&self, program_quad: ProgramQuad) {
-        for emitter in self.recording_retried_emitters.iter() {
-            emitter.emit(RecordingRetried { program_quad }).await;
+            let msg = RecordingFailed {
+                program_quad,
+                reason: reason.clone(),
+            };
+            emitter.emit(msg).await;
         }
     }
 }
@@ -1214,109 +1268,239 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 }
 
-// on-air program changed
+// services updated
 
 #[async_trait]
-impl<T, E, O> Handler<OnairProgramChanged> for RecordingManager<T, E, O>
+impl<T, E, O> Handler<epg::ServicesUpdated> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
-    E: Call<QueryProgram>,
+    E: Call<QueryPrograms>,
     E: Call<QueryService>,
     E: Call<epg::RegisterEmitter>,
     O: Clone + Send + Sync + 'static,
-    O: Call<crate::onair_tracker::AddObserver>,
-    O: Call<crate::onair_tracker::RemoveObserver>,
+    O: Call<onair::RegisterEmitter>,
 {
-    async fn handle(&mut self, msg: OnairProgramChanged, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "OnairProgramChanged", %msg.service_triple);
-
-        if let Some(program) = msg.present {
-            if let Some(schedule) = self.retries.remove(&program.quad) {
-                let rescheduled = self.reschedule(&schedule, &program).await;
-                if rescheduled {
-                    self.set_timer(ctx);
-                }
-            }
-        }
-
-        if let Some(program) = msg.following {
-            if let Some(schedule) = self.retries.remove(&program.quad) {
-                let rescheduled = self.reschedule(&schedule, &program).await;
-                if rescheduled {
-                    self.set_timer(ctx);
-                }
-            }
-        }
-
-        let now = Jst::now();
-        let duration = Duration::from_std(self.config.recording.max_start_delay.unwrap()).unwrap();
-        self.retries.retain(|_, schedule| {
-            let expired = schedule.start_at + duration > now;
-            if expired {
-                tracing::info!(%schedule.program_quad, "Retry expired");
-            }
-            expired
-        });
-
-        if self.need_removing_observer(msg.service_triple) {
-            let _ = self
-                .onair_tracker
-                .call(crate::onair_tracker::RemoveObserver {
-                    service_triple: msg.service_triple,
-                    name: "recording",
-                })
-                .await;
+    async fn handle(&mut self, msg: epg::ServicesUpdated, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "ServicesUpdated");
+        let changed = self.update_schedules_by_epg_services(&msg.services).await;
+        if changed {
+            self.save_schedules();
+            self.rebuild_queue();
+            self.set_timer(ctx);
         }
     }
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn reschedule(&mut self, schedule: &Schedule, program: &EpgProgram) -> bool {
-        let result = self.add_schedule(Schedule {
-            program_quad: program.quad,
-            start_at: program.start_at,
-            end_at: program.end_at(),
-            options: schedule.options.clone(),
-            tags: schedule.tags.clone(),
+    async fn update_schedules_by_epg_services(
+        &mut self,
+        services: &IndexMap<ServiceTriple, epg::EpgService>,
+    ) -> bool {
+        let mut removed = vec![];
+        self.schedules.retain(|&program_quad, schedule| {
+            if services.contains_key(&ServiceTriple::from(program_quad)) {
+                return true;
+            }
+            tracing::warn!(%schedule.program.quad, "Removed from EPG");
+            removed.push(program_quad);
+            false
         });
-        match result {
-            Ok(_) => {
-                tracing::info!(%program.quad, %program.start_at, "Rescheduled recording");
-                self.emit_recording_rescheduled(program.quad).await;
-                true
+
+        for &program_quad in removed.iter() {
+            if self.recorders.contains_key(&program_quad) {
+                let _ = self.stop_recorder(program_quad);
             }
-            Err(err) => {
-                tracing::error!(%err, %program.quad, "Retry failed");
-                self.emit_recording_failed(program.quad, RecordingFailedReason::RetryFailed)
-                    .await;
-                false
-            }
+            self.emit_recording_failed(program_quad, RecordingFailedReason::RemovedFromEpg)
+                .await;
+        }
+
+        !removed.is_empty()
+    }
+}
+
+// programs updated
+
+#[async_trait]
+impl<T, E, O> Handler<epg::ProgramsUpdated> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: epg::ProgramsUpdated, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "ProgramsUpdated", %msg.service_triple);
+        let now = Jst::now();
+        let changed = self
+            .update_schedules_by_epg_programs(now, msg.service_triple)
+            .await;
+        if changed {
+            self.save_schedules();
+            self.rebuild_queue();
+            self.set_timer(ctx);
         }
     }
+}
 
-    fn need_removing_observer(&self, service_triple: ServiceTriple) -> bool {
-        self.retries
-            .keys()
-            .filter(|&&quad| service_triple == quad.into())
-            .count()
-            == 0
+impl<T, E, O> RecordingManager<T, E, O>
+where
+    E: Call<QueryPrograms>,
+{
+    async fn update_schedules_by_epg_programs(
+        &mut self,
+        now: DateTime<Jst>,
+        service_triple: ServiceTriple,
+    ) -> bool {
+        let programs = match self.epg.call(QueryPrograms { service_triple }).await {
+            Ok(programs) => programs,
+            Err(err) => {
+                tracing::error!(%err, %service_triple, "Failed to update schedules");
+                return false;
+            }
+        };
+
+        let mut changed = false;
+        let mut removed = vec![];
+        let mut rescheduled = vec![];
+        self.schedules.retain(|&program_quad, schedule| {
+            if ServiceTriple::from(program_quad) != service_triple {
+                return true;
+            }
+            if !schedule.can_be_updated_by_epg() {
+                return true;
+            }
+            let program = match programs.get(&program_quad.eid()) {
+                Some(program) => program,
+                None => {
+                    tracing::warn!(%schedule.program.quad, "Removed from EPG");
+                    removed.push(program_quad);
+                    changed = true;
+                    return false;
+                }
+            };
+            if let Some(end_time) = program.end_at() {
+                // REMARK: `programs` contains TV programs already ended.
+                if end_time > now {
+                    if program.start_at != schedule.program.start_at {
+                        schedule.state = RecordingScheduleState::Scheduled;
+                        rescheduled.push(program_quad);
+                    }
+                    schedule.program = Arc::new(program.clone());
+                    changed = true;
+                }
+            }
+            true
+        });
+
+        for &program_quad in removed.iter() {
+            let reason = RecordingFailedReason::RemovedFromEpg;
+            self.emit_recording_failed(program_quad, reason).await;
+        }
+
+        for &program_quad in rescheduled.iter() {
+            self.emit_recording_rescheduled(program_quad).await;
+        }
+
+        changed
+    }
+}
+
+// on-air program changed
+
+#[async_trait]
+impl<T, E, O> Handler<onair::OnairProgramChanged> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: onair::OnairProgramChanged, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "OnairProgramChanged");
+
+        let mut changed = false;
+
+        // The start time in EIT[p/f] may be undefined.
+        if let Some(program) = msg.current {
+            if program.start_at.is_some() {
+                changed = self.update_schedule_by_onair_program(program).await;
+            }
+        }
+        if let Some(program) = msg.next {
+            if program.start_at.is_some() {
+                changed = self.update_schedule_by_onair_program(program).await;
+            }
+        }
+
+        if changed {
+            self.save_schedules();
+            self.rebuild_queue();
+            self.set_timer(ctx);
+        }
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn update_schedule_by_onair_program(&mut self, program: Arc<EpgProgram>) -> bool {
+        use RecordingScheduleState::*;
+
+        let mut rescheduled = false;
+
+        if let Some(mut schedule) = self.schedules.get_mut(&program.quad) {
+            match schedule.state {
+                Scheduled | Rescheduling => {
+                    rescheduled = schedule.program.start_at != program.start_at;
+                    schedule.program = program.clone();
+                    schedule.state = Tracking;
+                    tracing::info!(
+                        %schedule.program.quad,
+                        "Start tracking changes of the schedule",
+                    );
+                }
+                Tracking => {
+                    rescheduled = schedule.program.start_at != program.start_at;
+                    schedule.program = program.clone();
+                }
+                Recording => {
+                    schedule.program = program.clone();
+                }
+            }
+        }
+
+        if rescheduled {
+            self.emit_recording_rescheduled(program.quad).await;
+        }
+
+        rescheduled
     }
 }
 
 // models
 
-#[derive(Clone, Debug, Eq)]
-struct OrderedSchedule {
+#[derive(Debug, Eq)]
+struct QueueItem {
     program_quad: ProgramQuad,
     start_at: DateTime<Jst>,
     priority: i32,
 }
 
-impl Ord for OrderedSchedule {
+impl Ord for QueueItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.start_at
             .cmp(&other.start_at)
@@ -1325,32 +1509,71 @@ impl Ord for OrderedSchedule {
     }
 }
 
-impl PartialEq for OrderedSchedule {
+impl PartialEq for QueueItem {
     fn eq(&self, other: &Self) -> bool {
         self.program_quad == other.program_quad
     }
 }
 
-impl PartialOrd for OrderedSchedule {
+impl PartialOrd for QueueItem {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-#[derive(Clone, Debug)]
-#[derive(Deserialize, Serialize)]
-pub struct Schedule {
-    pub program_quad: ProgramQuad,
-    #[serde(with = "ts_milliseconds")]
-    pub start_at: DateTime<Jst>,
-    #[serde(with = "ts_milliseconds")]
-    pub end_at: DateTime<Jst>,
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RecordingSchedule {
+    pub state: RecordingScheduleState,
+    pub program: Arc<EpgProgram>,
     pub options: RecordingOptions,
     pub tags: HashSet<String>,
 }
 
-#[derive(Clone, Debug)]
-#[derive(Deserialize, Serialize)]
+impl RecordingSchedule {
+    fn can_be_updated_by_epg(&self) -> bool {
+        use RecordingScheduleState::*;
+        match self.state {
+            Scheduled | Rescheduling => true,
+            _ => false,
+        }
+    }
+
+    fn is_ready_for_recording(&self) -> bool {
+        use RecordingScheduleState::*;
+        match self.state {
+            Scheduled | Tracking => true,
+            _ => false,
+        }
+    }
+
+    fn is_recording(&self) -> bool {
+        use RecordingScheduleState::*;
+        match self.state {
+            Recording => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[derive(ToSchema)]
+#[schema(title = "RecordingScheduleState")]
+pub enum RecordingScheduleState {
+    Scheduled,
+    // This state is used only when on-air program manager is available for the
+    // service of the target TV program.  In this case, the state of the
+    // schedule always transits to `recording` via `tracking`.
+    Tracking,
+    Recording,
+    // When the recording fails, the schedule transits to this state.  If on-air
+    // program tracker is available, the schedule may be rescheduled when an EIT
+    // section ([schedule] or [p/f]) for the target TV program is emitted.
+    // Otherwise, it will be expired eventually.
+    Rescheduling,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[derive(ToSchema)]
 #[schema(title = "RecordingOptions")]
@@ -1366,105 +1589,220 @@ pub struct RecordingOptions {
 }
 
 struct Recorder {
-    schedule: Schedule,
     started_at: DateTime<Jst>,
     pipeline: CommandPipeline<TunerSubscriptionId>,
     stop_trigger: Option<TunerStreamStopTrigger>,
 }
 
 impl Recorder {
-    fn get_model(&self) -> RecorderModel {
+    fn get_model(&self, program_quad: ProgramQuad) -> RecorderModel {
         RecorderModel {
-            schedule: self.schedule.clone(),
+            program_quad,
             started_at: self.started_at,
             pipeline: self.pipeline.get_model(),
         }
     }
-
-    async fn check_retry(&mut self) -> bool {
-        assert!(self.stop_trigger.is_none());
-        self.pipeline
-            .wait()
-            .await
-            .iter()
-            .any(|result| match result {
-                Ok(status) => {
-                    if let Some(EXIT_RETRY) = status.code() {
-                        true
-                    } else {
-                        false
-                    }
-                }
-                _ => false,
-            })
-    }
-
-    async fn get_first_error(&mut self) -> Option<i32> {
-        assert!(self.stop_trigger.is_none());
-        self.pipeline
-            .wait()
-            .await
-            .iter()
-            .flat_map(|result| match result {
-                Ok(status) => status.code(),
-                _ => None,
-            })
-            .find(|&code| code != 0)
-    }
 }
 
 pub struct RecorderModel {
-    pub schedule: Schedule,
+    pub program_quad: ProgramQuad,
     pub started_at: DateTime<Jst>,
     pub pipeline: Vec<CommandPipelineProcessModel>,
 }
 
+// helpers
+
+fn check_retry(results: &[std::io::Result<ExitStatus>]) -> bool {
+    results.iter().any(|result| match result {
+        Ok(status) => {
+            if let Some(EXIT_RETRY) = status.code() {
+                true
+            } else {
+                false
+            }
+        }
+        _ => false,
+    })
+}
+
+fn get_first_error(results: &[std::io::Result<ExitStatus>]) -> Option<i32> {
+    results
+        .iter()
+        .flat_map(|result| match result {
+            Ok(status) => status.code(),
+            _ => None,
+        })
+        .find(|&code| code != 0)
+}
+
 // <coverage:exclude>
+#[cfg(test)]
+#[macro_use]
+mod test_macros {
+    macro_rules! options {
+        ($content_path:expr, $priority:expr) => {
+            RecordingOptions {
+                content_path: $content_path.into(),
+                priority: $priority.into(),
+                pre_filters: vec![],
+                post_filters: vec![],
+            }
+        };
+    }
+
+    macro_rules! schedule {
+        ($state:expr, $program:expr, $options:expr) => {
+            RecordingSchedule {
+                state: $state,
+                program: Arc::new($program),
+                options: $options,
+                tags: Default::default(),
+            }
+        };
+        ($state:expr, $program:expr, $options:expr, $tags:expr) => {
+            RecordingSchedule {
+                state: $state,
+                program: Arc::new($program),
+                options: $options,
+                tags: $tags,
+            }
+        };
+    }
+
+    macro_rules! recorder {
+        ($started_at:expr, $pipeline:expr) => {
+            Recorder {
+                started_at: $started_at,
+                pipeline: $pipeline,
+                stop_trigger: None,
+            }
+        };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::epg::stub::EpgStub;
-    use crate::onair_tracker::stub::OnairTrackerStub;
+    use crate::epg::EpgChannel;
+    use crate::epg::EpgService;
+    use crate::models::ChannelType;
+    use crate::onair::stub::OnairProgramManagerStub;
     use crate::tuner::stub::TunerManagerStub;
     use assert_matches::assert_matches;
-    use static_assertions::const_assert;
+    use indexmap::indexmap;
+    use maplit::hashset;
     use tempfile::TempDir;
 
     #[test]
-    fn test_add_schedule() {
+    fn test_save_and_load() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut manager = RecordingManager::new(
+            config.clone(),
+            TunerManagerStub,
+            EpgStub,
+            OnairProgramManagerStub,
+        );
+
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 1), now, "1h"),
+            options!("1.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let schedule = schedule!(
+            RecordingScheduleState::Tracking,
+            program!((0, 0, 1, 2), now, "1h"),
+            options!("2.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let schedule = schedule!(
+            RecordingScheduleState::Recording,
+            program!((0, 0, 1, 3), now - Duration::hours(1), "2h"),
+            options!("3.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let num_schedules = manager.schedules.len();
+
+        manager.save_schedules();
+        assert!(temp_dir.path().join("schedules.json").is_file());
+
+        let mut manager = RecordingManager::new(
+            config.clone(),
+            TunerManagerStub,
+            EpgStub,
+            OnairProgramManagerStub,
+        );
+        manager.load_schedules();
+        assert_eq!(manager.schedules.len(), num_schedules);
+        assert!(manager.schedules.contains_key(&(0, 0, 1, 1).into()));
+        assert!(manager.schedules.contains_key(&(0, 0, 1, 2).into()));
+        assert!(manager.schedules.contains_key(&(0, 0, 1, 3).into()));
+    }
+
+    #[test]
+    fn test_rebuild_queue() {
         let now = Jst::now();
 
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
         let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairTrackerStub);
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
 
-        let schedule =
-            schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 1), now + Duration::hours(1)),
+            options!("1.m2ts", 0)
+        );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.ordered_schedules.len(), 1);
 
-        let schedule =
-            schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
-        let result = manager.add_schedule(schedule);
-        assert_matches!(result, Err(Error::AlreadyExists));
-        assert_eq!(manager.ordered_schedules.len(), 1);
-
-        let schedule = schedule_for_test((0, 0, 0, 2).into(), now);
-        let result = manager.add_schedule(schedule);
-        assert_matches!(result, Err(Error::ProgramEnded));
-        assert_eq!(manager.ordered_schedules.len(), 1);
-
-        let schedule =
-            schedule_for_test((0, 0, 0, 4).into(), now + Duration::seconds(PREP_SECS + 2));
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 2), now),
+            options!("2.m2ts", 0)
+        );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.ordered_schedules.len(), 2);
-        assert_matches!(manager.ordered_schedules.peek(), Some(schedule) => {
-            assert_eq!(schedule.program_quad, (0, 0, 0, 1).into());
+
+        let schedule = schedule!(
+            RecordingScheduleState::Tracking,
+            program!((0, 0, 1, 3), now),
+            options!("3.m2ts", 1)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let schedule = schedule!(
+            RecordingScheduleState::Recording,
+            program!((0, 0, 1, 4), now - Duration::minutes(30)),
+            options!("4.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        manager.rebuild_queue();
+        assert_matches!(manager.queue.pop(), Some(item) => {
+            assert_eq!(item.program_quad, (0, 0, 1, 3).into());
         });
+        assert_matches!(manager.queue.pop(), Some(item) => {
+            assert_eq!(item.program_quad, (0, 0, 1, 2).into());
+        });
+        assert_matches!(manager.queue.pop(), Some(item) => {
+            assert_eq!(item.program_quad, (0, 0, 1, 1).into());
+        });
+        assert_matches!(manager.queue.pop(), None);
     }
 
     #[test]
@@ -1475,25 +1813,132 @@ mod tests {
         let config = config_for_test(temp_dir.path());
 
         let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairTrackerStub);
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
 
-        let schedule =
-            schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 1), now + Duration::hours(1)),
+            options!("1.m2ts", 0)
+        );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.ordered_schedules.len(), 1);
 
-        let schedule =
-            schedule_for_test((0, 0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 2));
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 2), now),
+            options!("2.m2ts", 0)
+        );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.ordered_schedules.len(), 2);
+
+        let schedule = schedule!(
+            RecordingScheduleState::Tracking,
+            program!((0, 0, 1, 3), now),
+            options!("3.m2ts", 1)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let schedule = schedule!(
+            RecordingScheduleState::Recording,
+            program!((0, 0, 1, 4), now - Duration::minutes(30)),
+            options!("4.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        assert_eq!(manager.schedules.len(), 4);
 
         let schedules = manager.query_schedules();
-        assert_eq!(schedules.len(), 2);
+        assert_eq!(schedules.len(), 4);
         assert_matches!(schedules.get(0), Some(schedule) => {
-            assert_eq!(schedule.program_quad, (0, 0, 0, 1).into());
+            assert_eq!(schedule.program.quad, (0, 0, 1, 4).into());
         });
+        assert_matches!(schedules.get(1), Some(schedule) => {
+            assert_eq!(schedule.program.quad, (0, 0, 1, 3).into());
+        });
+        assert_matches!(schedules.get(2), Some(schedule) => {
+            assert_eq!(schedule.program.quad, (0, 0, 1, 2).into());
+        });
+        assert_matches!(schedules.get(3), Some(schedule) => {
+            assert_eq!(schedule.program.quad, (0, 0, 1, 1).into());
+        });
+    }
+
+    #[test]
+    fn test_query_schedule() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 1), now),
+            options!("1.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        assert_matches!(manager.query_schedule((0, 0, 1, 1).into()), Ok(schedule) => {
+            assert_eq!(schedule.program.quad, (0, 0, 1, 1).into());
+        });
+        assert_matches!(manager.query_schedule((0, 0, 1, 2).into()), Err(err) => {
+            assert_matches!(err, Error::ScheduleNotFound);
+        });
+    }
+
+    #[test]
+    fn test_add_schedule() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 1), now, "1h"),
+            options!("1.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 1);
+
+        // Schedule already exists.
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 1), now, "1h"),
+            options!("1.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Err(Error::AlreadyExists));
+        assert_eq!(manager.schedules.len(), 1);
+
+        // Adding a schedule for an ended program is allowed.
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 2), now - Duration::hours(1), "3h"),
+            options!("2.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 2);
+
+        // Adding a schedule for a program already started is allowed.
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 3), now - Duration::hours(1), "30m"),
+            options!("3.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 3);
     }
 
     #[test]
@@ -1503,248 +1948,445 @@ mod tests {
         let config = config_for_test("/tmp");
 
         let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairTrackerStub);
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
 
-        let mut schedule =
-            schedule_for_test((0, 0, 0, 1).into(), now + Duration::seconds(PREP_SECS + 1));
-        schedule.tags.insert("tag1".to_string());
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 1), now + Duration::seconds(PREP_SECS + 1), "1h"),
+            options!("1.m2ts", 0),
+            hashset!["tag1".to_string()]
+        );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.ordered_schedules.len(), 1);
 
-        let mut schedule =
-            schedule_for_test((0, 0, 0, 2).into(), now + Duration::seconds(PREP_SECS + 1));
-        schedule.tags.insert("tag2".to_string());
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 2), now + Duration::seconds(PREP_SECS + 1), "1h"),
+            options!("2.m2ts", 0),
+            hashset!["tag2".to_string()]
+        );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
-        assert_eq!(manager.ordered_schedules.len(), 2);
-
-        manager.remove_schedules(RemoveTarget::Tag("tag2".to_string()));
-        assert!(manager.schedules.contains_key(&(0, 0, 0, 1).into()));
 
         // Schedules which will start soon are always retained.
-        let mut schedule =
-            schedule_for_test((0, 0, 0, 3).into(), now + Duration::seconds(PREP_SECS - 1));
-        schedule.tags.insert("tag1".to_string());
-        manager.ordered_schedules.push(OrderedSchedule {
-            program_quad: schedule.program_quad,
-            start_at: schedule.start_at,
-            priority: schedule.options.priority,
-        });
-        manager.schedules.insert((0, 0, 0, 3).into(), schedule);
-        manager.remove_schedules(RemoveTarget::Tag("tag1".to_string()));
-        assert!(!manager.schedules.contains_key(&(0, 0, 0, 1).into()));
-        assert!(manager.schedules.contains_key(&(0, 0, 0, 3).into()));
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 3), now + Duration::seconds(PREP_SECS - 1), "1h"),
+            options!("3.m2ts", 0),
+            hashset!["tag1".to_string()]
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
 
-        // Remove all ordered_schedules regardless of whether a schedule will start soon
-        // or not.
-        manager.remove_schedules(RemoveTarget::All);
-        assert!(manager.ordered_schedules.is_empty());
+        // Schedules in "Tracking" are always retained.
+        let schedule = schedule!(
+            RecordingScheduleState::Tracking,
+            program!((0, 0, 1, 4), now, "1h"),
+            options!("4.m2ts", 0),
+            hashset!["tag2".to_string()]
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        // Schedules in "Recording" are always retained.
+        let schedule = schedule!(
+            RecordingScheduleState::Recording,
+            program!((0, 0, 1, 5), now, "1h"),
+            options!("5.m2ts", 0),
+            hashset!["tag2".to_string()]
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        // Schedules in "Rescheduling" are always removed.
+        let schedule = schedule!(
+            RecordingScheduleState::Rescheduling,
+            program!((0, 0, 1, 6), now, "1h"),
+            options!("6.m2ts", 0),
+            hashset!["tag2".to_string()]
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        assert_eq!(manager.schedules.len(), 6);
+
+        manager.remove_schedules(RemovalTarget::Tag("tag2".to_string()), now);
+        assert_eq!(manager.schedules.len(), 4);
+        assert!(manager.schedules.contains_key(&(0, 0, 1, 1).into()));
+        assert!(manager.schedules.contains_key(&(0, 0, 1, 3).into()));
+        assert!(manager.schedules.contains_key(&(0, 0, 1, 4).into()));
+        assert!(manager.schedules.contains_key(&(0, 0, 1, 5).into()));
+
+        manager.remove_schedules(RemovalTarget::All, now);
+        assert!(manager.schedules.is_empty());
     }
 
     #[tokio::test]
-    async fn test_recorder_check_retry() {
+    async fn test_handle_recording_stopped() {
         let now = Jst::now();
-        let program_quad = (0, 0, 1, 1).into();
-        let schedule = schedule_for_test(program_quad, now);
 
-        // exit(0)
-        let pipeline = spawn_pipeline(vec!["true".to_string()], Default::default()).unwrap();
-        let mut recorder = Recorder {
-            schedule: schedule.clone(),
-            started_at: now,
-            pipeline,
-            stop_trigger: None,
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+
+        let mut stopped = MockRecordingStoppedValidator::new();
+        stopped.expect_emit().times(1).returning(|msg| {
+            assert_eq!(msg.program_quad, (0, 0, 1, 1).into());
+        });
+        manager
+            .recording_stopped_emitters
+            .push(Emitter::new(stopped));
+
+        let mut failed = MockRecordingFailedValidator::new();
+        failed.expect_emit().never();
+        manager.recording_failed_emitters.push(Emitter::new(failed));
+
+        let start_time = now - Duration::minutes(30);
+
+        let schedule = schedule!(
+            RecordingScheduleState::Recording,
+            program!((0, 0, 1, 1), start_time, "1h"),
+            options!("1.m2ts", 0),
+            hashset!["tag1".to_string()]
+        );
+        manager.schedules.insert((0, 0, 1, 1).into(), schedule);
+
+        let recorder = recorder!(start_time, pipeline!["true"]);
+        manager.recorders.insert((0, 0, 1, 1).into(), recorder);
+
+        let changed = manager.handle_recording_stopped((0, 0, 1, 1).into()).await;
+        assert!(changed);
+        assert!(manager.recorders.get(&(0, 0, 1, 1).into()).is_none());
+        assert_matches!(manager.schedules.get(&(0, 0, 1, 1).into()), None);
+    }
+
+    #[tokio::test]
+    async fn test_handle_recording_stopped_retry() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+
+        let mut stopped = MockRecordingStoppedValidator::new();
+        stopped.expect_emit().times(1).returning(|msg| {
+            assert_eq!(msg.program_quad, (0, 0, 1, 1).into());
+        });
+        manager
+            .recording_stopped_emitters
+            .push(Emitter::new(stopped));
+
+        let mut failed = MockRecordingFailedValidator::new();
+        failed.expect_emit().times(1).returning(|msg| {
+            assert_eq!(msg.program_quad, (0, 0, 1, 1).into());
+            assert_matches!(msg.reason, RecordingFailedReason::NeedRescheduling);
+        });
+        manager.recording_failed_emitters.push(Emitter::new(failed));
+
+        let start_time = now - Duration::minutes(30);
+
+        let schedule = schedule!(
+            RecordingScheduleState::Recording,
+            program!((0, 0, 1, 1), start_time, "1h"),
+            options!("1.m2ts", 0),
+            hashset!["tag1".to_string()]
+        );
+        manager.schedules.insert((0, 0, 1, 1).into(), schedule);
+
+        let recorder = recorder!(
+            start_time,
+            pipeline![format!("sh -c 'exit {}'", EXIT_RETRY)]
+        );
+        manager.recorders.insert((0, 0, 1, 1).into(), recorder);
+
+        let changed = manager.handle_recording_stopped((0, 0, 1, 1).into()).await;
+        assert!(changed);
+        assert!(manager.recorders.get(&(0, 0, 1, 1).into()).is_none());
+        assert_matches!(manager.schedules.get(&(0, 0, 1, 1).into()), Some(schedule) => {
+            assert_matches!(schedule.state, RecordingScheduleState::Rescheduling);
+        });
+    }
+
+    #[tokio::test]
+    async fn test_handle_recording_stopped_pipeline_error() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+
+        let mut stopped = MockRecordingStoppedValidator::new();
+        stopped.expect_emit().times(1).returning(|msg| {
+            assert_eq!(msg.program_quad, (0, 0, 1, 1).into());
+        });
+        manager
+            .recording_stopped_emitters
+            .push(Emitter::new(stopped));
+
+        let mut failed = MockRecordingFailedValidator::new();
+        failed.expect_emit().times(1).returning(|msg| {
+            assert_eq!(msg.program_quad, (0, 0, 1, 1).into());
+            assert_matches!(
+                msg.reason,
+                RecordingFailedReason::PipelineError { exit_code: 1 }
+            );
+        });
+        manager.recording_failed_emitters.push(Emitter::new(failed));
+
+        let start_time = now - Duration::minutes(30);
+
+        let schedule = schedule!(
+            RecordingScheduleState::Recording,
+            program!((0, 0, 1, 1), start_time, "1h"),
+            options!("1.m2ts", 0),
+            hashset!["tag1".to_string()]
+        );
+        manager.schedules.insert((0, 0, 1, 1).into(), schedule);
+
+        let recorder = recorder!(start_time, pipeline!["false"]);
+        manager.recorders.insert((0, 0, 1, 1).into(), recorder);
+
+        let changed = manager.handle_recording_stopped((0, 0, 1, 1).into()).await;
+        assert!(changed);
+        assert!(manager.recorders.get(&(0, 0, 1, 1).into()).is_none());
+        assert_matches!(manager.schedules.get(&(0, 0, 1, 1).into()), None);
+    }
+
+    #[tokio::test]
+    async fn test_update_schedules_by_epg_services() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut mock = MockRecordingFailedValidator::new();
+        mock.expect_emit().times(1).returning(|msg| {
+            assert_eq!(msg.program_quad, (0, 0, 2, 1).into());
+            assert_matches!(msg.reason, RecordingFailedReason::RemovedFromEpg);
+        });
+        manager.recording_failed_emitters.push(Emitter::new(mock));
+
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 1), now),
+            options!("1.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 2, 1), now),
+            options!("2.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let services = indexmap! {
+            (0, 0, 1).into() => service!((0, 0, 1), "test", gr!("gr", "1")),
         };
-        let retry = recorder.check_retry().await;
-        assert!(!retry);
+        let changed = manager.update_schedules_by_epg_services(&services).await;
+        assert!(changed);
+        assert_eq!(manager.schedules.len(), 1);
+        assert!(manager.schedules.contains_key(&(0, 0, 1, 1).into()));
+        assert!(!manager.schedules.contains_key(&(0, 0, 2, 1).into()));
+
+        let changed = manager.update_schedules_by_epg_services(&services).await;
+        assert!(!changed);
+    }
+
+    #[tokio::test]
+    async fn test_update_schedules_by_epg_programs() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut epg = MockEpg::new();
+        {
+            let now = now;
+            epg.expect_call().returning(move |_| {
+                Ok(Arc::new(indexmap! {
+                    1.into() => program!((0, 0, 1, 1), now, "1h"),
+                }))
+            });
+        }
+
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, epg, OnairProgramManagerStub);
+        let mut failed_mock = MockRecordingFailedValidator::new();
+        failed_mock.expect_emit().times(1).returning(|msg| {
+            assert_eq!(msg.program_quad, (0, 0, 1, 2).into());
+            assert_matches!(msg.reason, RecordingFailedReason::RemovedFromEpg);
+        });
+        manager
+            .recording_failed_emitters
+            .push(Emitter::new(failed_mock));
+
+        let mut rescheduled_mock = MockRecordingRescheduledValidator::new();
+        rescheduled_mock.expect_emit().never();
+        manager
+            .recording_rescheduled_emitters
+            .push(Emitter::new(rescheduled_mock));
+
+        let schedule = schedule!(
+            RecordingScheduleState::Rescheduling,
+            program!((0, 0, 1, 1), now),
+            options!("1.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 0, 1, 2), now),
+            options!("2.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let changed = manager
+            .update_schedules_by_epg_programs(now, (0, 0, 1).into())
+            .await;
+        assert!(changed);
+        assert_eq!(manager.schedules.len(), 1);
+        assert!(manager.schedules.contains_key(&(0, 0, 1, 1).into()));
+        assert!(!manager.schedules.contains_key(&(0, 0, 1, 2).into()));
+
+        let changed = manager
+            .update_schedules_by_epg_programs(now, (0, 0, 0).into())
+            .await;
+        assert!(!changed);
+    }
+
+    #[tokio::test]
+    async fn test_update_schedules_by_epg_programs_rescheduled() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let mut epg = MockEpg::new();
+        {
+            let now = now;
+            epg.expect_call().returning(move |_| {
+                Ok(Arc::new(indexmap! {
+                    1.into() => program!((0, 0, 1, 1), now, "1h"),
+                }))
+            });
+        }
+
+        let mut manager =
+            RecordingManager::new(config, TunerManagerStub, epg, OnairProgramManagerStub);
+
+        let mut mock = MockRecordingRescheduledValidator::new();
+        mock.expect_emit().times(1).returning(|msg| {
+            assert_eq!(msg.program_quad, (0, 0, 1, 1).into());
+        });
+        manager
+            .recording_rescheduled_emitters
+            .push(Emitter::new(mock));
+
+        let schedule = schedule!(
+            RecordingScheduleState::Rescheduling,
+            program!((0, 0, 1, 1), now - Duration::minutes(30), "1h"),
+            options!("1.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+
+        let changed = manager
+            .update_schedules_by_epg_programs(now, (0, 0, 1).into())
+            .await;
+        assert!(changed);
+        assert_eq!(manager.schedules.len(), 1);
+        assert_matches!(manager.schedules.get(&(0, 0, 1, 1).into()), Some(schedule) => {
+            assert_matches!(schedule.state, RecordingScheduleState::Scheduled);
+        });
+    }
+
+    #[tokio::test]
+    async fn test_check_retry() {
+        // exit(0)
+        let mut pipeline: CommandPipeline<u8> = pipeline!["true"];
+        let results = pipeline.wait().await;
+        assert!(!check_retry(&results));
 
         // exit(1)
-        let pipeline = spawn_pipeline(vec!["false".to_string()], Default::default()).unwrap();
-        let mut recorder = Recorder {
-            schedule: schedule.clone(),
-            started_at: now,
-            pipeline,
-            stop_trigger: None,
-        };
-        let retry = recorder.check_retry().await;
-        assert!(!retry);
+        let mut pipeline: CommandPipeline<u8> = pipeline!["false"];
+        let results = pipeline.wait().await;
+        assert!(!check_retry(&results));
 
         // no such command
-        let pipeline = spawn_pipeline(
-            vec!["sh -c 'command_not_found'".to_string()],
-            Default::default(),
-        )
-        .unwrap();
-        let mut recorder = Recorder {
-            schedule: schedule.clone(),
-            started_at: now,
-            pipeline,
-            stop_trigger: None,
-        };
-        let retry = recorder.check_retry().await;
-        assert!(!retry);
+        let mut pipeline: CommandPipeline<u8> = pipeline!["sh -c 'command_not_fond'"];
+        let results = pipeline.wait().await;
+        assert!(!check_retry(&results));
 
         // retry
-        let pipeline = spawn_pipeline(
-            vec![format!("sh -c 'exit {}'", EXIT_RETRY)],
-            Default::default(),
-        )
-        .unwrap();
-        let mut recorder = Recorder {
-            schedule: schedule.clone(),
-            started_at: now,
-            pipeline,
-            stop_trigger: None,
-        };
-        let retry = recorder.check_retry().await;
-        assert!(retry);
+        let mut pipeline: CommandPipeline<u8> = pipeline![format!("sh -c 'exit {}'", EXIT_RETRY)];
+        let results = pipeline.wait().await;
+        assert!(check_retry(&results));
     }
 
     #[tokio::test]
     async fn test_recorder_get_first_error() {
-        let now = Jst::now();
-        let program_quad = (0, 0, 1, 1).into();
-        let schedule = schedule_for_test(program_quad, now);
-
         // exit(0)
-        let pipeline = spawn_pipeline(vec!["true".to_string()], Default::default()).unwrap();
-        let mut recorder = Recorder {
-            schedule: schedule.clone(),
-            started_at: now,
-            pipeline,
-            stop_trigger: None,
-        };
-        let code = recorder.get_first_error().await;
-        assert_matches!(code, None);
+        let mut pipeline: CommandPipeline<u8> = pipeline!["true"];
+        let results = pipeline.wait().await;
+        assert_matches!(get_first_error(&results), None);
 
         // exit(1)
-        let pipeline = spawn_pipeline(vec!["false".to_string()], Default::default()).unwrap();
-        let mut recorder = Recorder {
-            schedule: schedule.clone(),
-            started_at: now,
-            pipeline,
-            stop_trigger: None,
-        };
-        let code = recorder.get_first_error().await;
-        assert_matches!(code, Some(1));
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_recording() {
-        let now = Jst::now();
-
-        let temp_dir = TempDir::new().unwrap();
-
-        let system = System::new();
-        {
-            let manager = system
-                .spawn_actor(RecordingManager::new(
-                    config_for_test(&temp_dir),
-                    TunerManagerStub,
-                    EpgStub,
-                    OnairTrackerStub,
-                ))
-                .await;
-
-            // Schedules for programs already started will be ignored.
-            let schedule = Schedule {
-                program_quad: (0, 0, 1, 1).into(),
-                start_at: now,
-                end_at: now,
-                options: RecordingOptions {
-                    content_path: "1.m2ts".into(),
-                    priority: 0,
-                    pre_filters: vec![],
-                    post_filters: vec![],
-                },
-                tags: Default::default(),
-            };
-            let result = manager.call(AddRecordingSchedule { schedule }).await;
-            assert_matches!(result, Ok(Ok(_)));
-
-            // Schedules for programs start within PREP_SECS will be performed.
-            assert_matches!(result, Ok(_));
-            const_assert!(PREP_SECS >= 1);
-            let schedule = Schedule {
-                program_quad: (0, 0, 1, 2).into(),
-                start_at: now + Duration::seconds(1),
-                end_at: now + Duration::seconds(1),
-                options: RecordingOptions {
-                    content_path: "2.m2ts".into(),
-                    priority: 0,
-                    pre_filters: vec![],
-                    post_filters: vec![],
-                },
-                tags: Default::default(),
-            };
-            let result = manager.call(AddRecordingSchedule { schedule }).await;
-            assert_matches!(result, Ok(Ok(_)));
-
-            // Schedules for programs start after PREP_SECS will be kept.
-            let schedule = Schedule {
-                program_quad: (0, 0, 1, 3).into(),
-                start_at: now + Duration::seconds(PREP_SECS + 1),
-                end_at: now + Duration::seconds(PREP_SECS + 1),
-                options: RecordingOptions {
-                    content_path: "3.m2ts".into(),
-                    priority: 0,
-                    pre_filters: vec![],
-                    post_filters: vec![],
-                },
-                tags: Default::default(),
-            };
-            let result = manager.call(AddRecordingSchedule { schedule }).await;
-            assert_matches!(result, Ok(Ok(_)));
-
-            let start_time = std::time::Instant::now();
-            loop {
-                let schedules = manager.call(QueryRecordingSchedules).await.unwrap();
-                let recorders = manager.call(QueryRecordingRecorders).await.unwrap();
-                if !schedules.is_empty() && recorders.is_empty() {
-                    assert_eq!(schedules.len(), 1);
-                    break;
-                }
-                assert!(start_time.elapsed().as_secs() < 1);
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-
-            assert!(!temp_dir.path().join("1.m2ts").exists());
-            assert!(temp_dir.path().join("2.m2ts").is_file());
-            assert!(!temp_dir.path().join("3.m2ts").exists());
-
-            let result = manager
-                .inspect(|actor| {
-                    assert_eq!(actor.ordered_schedules.len(), 1);
-                    assert_eq!(actor.schedules.len(), 1);
-                    assert!(actor.schedules.contains_key(&(0, 0, 1, 3).into()));
-                })
-                .await;
-            assert_matches!(result, Ok(_));
-        }
-        system.stop();
+        let mut pipeline: CommandPipeline<u8> = pipeline!["false"];
+        let results = pipeline.wait().await;
+        assert_matches!(get_first_error(&results), Some(1));
     }
 
     fn config_for_test<P: AsRef<Path>>(dir: P) -> Arc<Config> {
         let mut config = Config::default();
-        config.recording.records_dir = Some(dir.as_ref().to_owned());
-        config.recording.contents_dir = config.recording.records_dir.clone();
+        config.recording.basedir = Some(dir.as_ref().to_owned());
         Arc::new(config)
     }
 
-    fn schedule_for_test(program_quad: ProgramQuad, start_at: DateTime<Jst>) -> Schedule {
-        Schedule {
-            program_quad,
-            start_at,
-            end_at: start_at,
-            options: RecordingOptions {
-                content_path: format!("{}.m2ts", program_quad.eid().value()).into(),
-                priority: Default::default(),
-                pre_filters: Default::default(),
-                post_filters: Default::default(),
-            },
-            tags: Default::default(),
+    mockall::mock! {
+        Epg {}
+
+        #[async_trait]
+        impl Call<QueryPrograms> for Epg {
+            async fn call(&self, msg: QueryPrograms) -> actlet::Result<<QueryPrograms as Message>::Reply>;
+        }
+    }
+
+    mockall::mock! {
+        RecordingStoppedValidator {}
+
+        #[async_trait]
+        impl Emit<RecordingStopped> for RecordingStoppedValidator {
+            async fn emit(&self, msg: RecordingStopped);
+        }
+    }
+
+    mockall::mock! {
+        RecordingFailedValidator {}
+
+        #[async_trait]
+        impl Emit<RecordingFailed> for RecordingFailedValidator {
+            async fn emit(&self, msg: RecordingFailed);
+        }
+    }
+
+    mockall::mock! {
+        RecordingRescheduledValidator {}
+
+        #[async_trait]
+        impl Emit<RecordingRescheduled> for RecordingRescheduledValidator {
+            async fn emit(&self, msg: RecordingRescheduled);
         }
     }
 }
@@ -1760,8 +2402,8 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: AddRecordingSchedule,
-        ) -> Result<<AddRecordingSchedule as Message>::Reply, actlet::Error> {
-            match msg.schedule.program_quad.eid().value() {
+        ) -> actlet::Result<<AddRecordingSchedule as Message>::Reply> {
+            match msg.schedule.program.quad.eid().value() {
                 // 0 is reserved for Error::ProgramNotFound
                 1 => Ok(Err(Error::AlreadyExists)),
                 2 => Ok(Err(Error::ProgramEnded)),
@@ -1775,21 +2417,17 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: QueryRecordingSchedule,
-        ) -> Result<<QueryRecordingSchedule as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<QueryRecordingSchedule as Message>::Reply> {
+            let mut program = EpgProgram::new(msg.program_quad);
+            program.start_at = Some(Jst::now());
+            program.duration = Some(Duration::minutes(1));
             match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::ProgramNotFound)),
-                _ => Ok(Ok(Schedule {
-                    program_quad: msg.program_quad,
-                    start_at: Jst::now(),
-                    end_at: Jst::now(),
-                    options: RecordingOptions {
-                        content_path: "test.m2ts".into(),
-                        priority: 1,
-                        pre_filters: vec![],
-                        post_filters: vec![],
-                    },
-                    tags: Default::default(),
-                })),
+                _ => Ok(Ok(schedule!(
+                    RecordingScheduleState::Scheduled,
+                    program!(msg.program_quad, Jst::now(), "1m"),
+                    options!("test.m2ts", 1)
+                ))),
             }
         }
     }
@@ -1799,7 +2437,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             _msg: QueryRecordingSchedules,
-        ) -> Result<<QueryRecordingSchedules as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<QueryRecordingSchedules as Message>::Reply> {
             Ok(vec![])
         }
     }
@@ -1809,7 +2447,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             _msg: RegisterEmitter,
-        ) -> Result<<RegisterEmitter as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<RegisterEmitter as Message>::Reply> {
             Ok(())
         }
     }
@@ -1819,21 +2457,17 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: RemoveRecordingSchedule,
-        ) -> Result<<RemoveRecordingSchedule as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<RemoveRecordingSchedule as Message>::Reply> {
+            let mut program = EpgProgram::new(msg.program_quad);
+            program.start_at = Some(Jst::now());
+            program.duration = Some(Duration::minutes(1));
             match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::ScheduleNotFound)),
-                _ => Ok(Ok(Schedule {
-                    program_quad: msg.program_quad,
-                    start_at: Jst::now(),
-                    end_at: Jst::now(),
-                    options: RecordingOptions {
-                        content_path: "test.m2ts".into(),
-                        priority: 1,
-                        pre_filters: vec![],
-                        post_filters: vec![],
-                    },
-                    tags: Default::default(),
-                })),
+                _ => Ok(Ok(schedule!(
+                    RecordingScheduleState::Scheduled,
+                    program!(msg.program_quad, Jst::now(), "1m"),
+                    options!("test.m2ts", 1)
+                ))),
             }
         }
     }
@@ -1843,10 +2477,10 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: RemoveRecordingSchedules,
-        ) -> Result<<RemoveRecordingSchedules as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<RemoveRecordingSchedules as Message>::Reply> {
             match msg.target {
-                RemoveTarget::All => Ok(()),
-                RemoveTarget::Tag(tag) => {
+                RemovalTarget::All => Ok(()),
+                RemovalTarget::Tag(tag) => {
                     assert_eq!(tag, "tag");
                     Ok(())
                 }
@@ -1859,22 +2493,11 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: QueryRecordingRecorder,
-        ) -> Result<<QueryRecordingRecorder as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<QueryRecordingRecorder as Message>::Reply> {
             match msg.program_quad.eid().value() {
                 0 => Ok(Err(Error::RecorderNotFound)),
                 _ => Ok(Ok(RecorderModel {
-                    schedule: Schedule {
-                        program_quad: msg.program_quad,
-                        start_at: Jst::now(),
-                        end_at: Jst::now(),
-                        options: RecordingOptions {
-                            content_path: "test.m2ts".into(),
-                            priority: 1,
-                            pre_filters: vec![],
-                            post_filters: vec![],
-                        },
-                        tags: Default::default(),
-                    },
+                    program_quad: msg.program_quad,
                     started_at: Jst::now(),
                     pipeline: vec![],
                 })),
@@ -1887,7 +2510,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             _msg: QueryRecordingRecorders,
-        ) -> Result<<QueryRecordingRecorders as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<QueryRecordingRecorders as Message>::Reply> {
             Ok(vec![])
         }
     }
@@ -1897,27 +2520,14 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: StartRecording,
-        ) -> Result<<StartRecording as Message>::Reply, actlet::Error> {
-            match msg.schedule.program_quad.eid().value() {
+        ) -> actlet::Result<<StartRecording as Message>::Reply> {
+            match msg.schedule.program.quad.eid().value() {
                 0 => Ok(Err(Error::RecorderNotFound)),
                 _ => Ok(Ok(RecorderModel {
-                    schedule: msg.schedule,
+                    program_quad: msg.schedule.program.quad,
                     started_at: Jst::now(),
                     pipeline: vec![],
                 })),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl Call<StopRecording> for RecordingManagerStub {
-        async fn call(
-            &self,
-            msg: StopRecording,
-        ) -> Result<<StopRecording as Message>::Reply, actlet::Error> {
-            match msg.program_quad.eid().value() {
-                0 => Ok(Err(Error::RecorderNotFound)),
-                _ => Ok(Ok(())),
             }
         }
     }

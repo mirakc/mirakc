@@ -109,7 +109,9 @@ where
     }
 }
 
-/// Gets programs of a service.
+/// Lists TV programs of a service.
+///
+/// The list contains TV programs that have ended.
 #[utoipa::path(
     get,
     path = "/services/{id}/programs",

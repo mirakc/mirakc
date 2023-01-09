@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use actlet::*;
+use actlet::prelude::*;
 use serde::Deserialize;
 use tokio::io::AsyncReadExt;
 

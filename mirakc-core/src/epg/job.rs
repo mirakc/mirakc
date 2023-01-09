@@ -3,8 +3,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use actlet::*;
-use async_trait::async_trait;
+use actlet::prelude::*;
 use chrono::DateTime;
 use chrono_jst::Jst;
 

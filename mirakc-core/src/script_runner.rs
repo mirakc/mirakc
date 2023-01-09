@@ -3,8 +3,7 @@ use std::process::ExitStatus;
 use std::process::Stdio;
 use std::sync::Arc;
 
-use actlet::*;
-use async_trait::async_trait;
+use actlet::prelude::*;
 use serde::Serialize;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
@@ -58,10 +57,6 @@ impl<E, R> ScriptRunner<E, R> {
         !self.config.events.recording.failed.is_empty()
     }
 
-    fn has_recording_retried_script(&self) -> bool {
-        !self.config.events.recording.retried.is_empty()
-    }
-
     fn has_recording_rescheduled_script(&self) -> bool {
         !self.config.events.recording.rescheduled.is_empty()
     }
@@ -108,14 +103,6 @@ where
                 ))
                 .await
                 .expect("Failed to register emitter for recording::RecordingFailed");
-        }
-        if self.has_recording_retried_script() {
-            self.recording_manager
-                .call(recording::RegisterEmitter::RecordingRetried(
-                    ctx.address().clone().into(),
-                ))
-                .await
-                .expect("Failed to register emitter for recording::RecordingRetried");
         }
         if self.has_recording_rescheduled_script() {
             self.recording_manager
@@ -268,41 +255,6 @@ impl<E, R> ScriptRunner<E, R> {
         event: RecordingFailed,
     ) -> Result<ExitStatus, Error> {
         let mut child = spawn_command(&config.events.recording.failed)?;
-        let mut input = child.stdin.take().unwrap();
-        write_line(&mut input, &event).await?;
-        drop(input);
-        Ok(child.wait().await?)
-    }
-}
-
-// recording::RecordingRetried
-
-#[async_trait]
-impl<E, R> Handler<recording::RecordingRetried> for ScriptRunner<E, R>
-where
-    E: Send + Sync + 'static,
-    E: Call<epg::RegisterEmitter>,
-    R: Send + Sync + 'static,
-    R: Call<recording::RegisterEmitter>,
-{
-    async fn handle(&mut self, msg: recording::RecordingRetried, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingRetried", %msg.program_quad);
-        ctx.spawn_task(self.create_recording_retried_task(msg.into()));
-    }
-}
-
-impl<E, R> ScriptRunner<E, R> {
-    fn create_recording_retried_task(&self, event: RecordingRetried) -> impl Future<Output = ()> {
-        let span = tracing::info_span!(RecordingRetried::name(), %event.program_id);
-        let fut = Self::run_recording_retried_script(self.config.clone(), event);
-        wrap(self.semaphore.clone(), fut).instrument(span)
-    }
-
-    async fn run_recording_retried_script(
-        config: Arc<Config>,
-        event: RecordingRetried,
-    ) -> Result<ExitStatus, Error> {
-        let mut child = spawn_command(&config.events.recording.retried)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &event).await?;
         drop(input);
@@ -542,7 +494,7 @@ mod tests {
 
         let event = RecordingFailed {
             program_id: (1, 2, 3).into(),
-            reason: recording::RecordingFailedReason::RetryFailed,
+            reason: recording::RecordingFailedReason::ScheduleExpired,
         };
 
         let mut config = Config::default();
@@ -568,38 +520,6 @@ mod tests {
         config.events.recording.failed = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_failed_script(config, event.clone()).await;
-        assert_matches!(result, Err(_));
-    }
-
-    #[tokio::test]
-    async fn test_run_recording_retried_script() {
-        let event = RecordingRetried {
-            program_id: (1, 2, 3).into(),
-        };
-
-        let mut config = Config::default();
-        config.events.recording.retried = format!(
-            r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
-            serde_json::to_string(&event).unwrap(),
-        );
-        let config = Arc::new(config);
-        let result = TestTarget::run_recording_retried_script(config, event.clone()).await;
-        assert_matches!(result, Ok(status) => {
-            assert_matches!(status.code(), Some(0));
-        });
-
-        let mut config = Config::default();
-        config.events.recording.retried = "sh -c 'cat; false'".to_string();
-        let config = Arc::new(config);
-        let result = TestTarget::run_recording_retried_script(config, event.clone()).await;
-        assert_matches!(result, Ok(status) => {
-            assert_matches!(status.code(), Some(1));
-        });
-
-        let mut config = Config::default();
-        config.events.recording.retried = "command-not-found".to_string();
-        let config = Arc::new(config);
-        let result = TestTarget::run_recording_retried_script(config, event.clone()).await;
         assert_matches!(result, Err(_));
     }
 

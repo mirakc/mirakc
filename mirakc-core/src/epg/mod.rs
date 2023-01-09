@@ -14,15 +14,13 @@ use std::io::BufReader;
 use std::io::BufWriter;
 use std::sync::Arc;
 
-use actlet::*;
-use async_trait::async_trait;
+use actlet::prelude::*;
 use chrono::DateTime;
 use chrono::Duration;
 use chrono::NaiveDate;
-use chrono::TimeZone;
+use chrono_jst::serde::duration_milliseconds_option;
+use chrono_jst::serde::ts_milliseconds_option;
 use chrono_jst::Jst;
-use chrono_jst::serde::duration_milliseconds;
-use chrono_jst::serde::ts_milliseconds;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
@@ -567,7 +565,7 @@ where
 #[derive(Message)]
 #[reply("Result<Clock, Error>")]
 pub struct QueryClock {
-    pub triple: ServiceTriple,
+    pub service_triple: ServiceTriple,
 }
 
 #[async_trait]
@@ -582,9 +580,9 @@ where
         msg: QueryClock,
         _ctx: &mut Context<Self>,
     ) -> <QueryClock as Message>::Reply {
-        tracing::debug!(msg.name = "QueryClock", %msg.triple);
+        tracing::debug!(msg.name = "QueryClock", %msg.service_triple);
         self.clocks
-            .get(&msg.triple)
+            .get(&msg.service_triple)
             .cloned()
             .ok_or(Error::ClockNotSynced)
     }
@@ -657,8 +655,8 @@ where
             .cloned()
             .map(|mut prog| {
                 if let Some(airtime) = self.airtimes.get(&prog.quad) {
-                    prog.start_at = airtime.start_time;
-                    prog.duration = airtime.duration;
+                    prog.start_at = Some(airtime.start_time);
+                    prog.duration = Some(airtime.duration);
                 }
                 prog
             })
@@ -1099,7 +1097,15 @@ impl EpgSection {
         triple: ServiceTriple,
         programs: &mut IndexMap<EventId, EpgProgram>,
     ) {
-        for event in self.events.iter() {
+        let events = self
+            .events
+            .iter()
+            // Remove programs with undefined start time.
+            .filter(|event| event.start_time.is_some())
+            // Remove programs with undefined duration.
+            // TODO: Undefined duration in EIT[schedule] might be allowed?
+            .filter(|event| event.duration.is_some());
+        for event in events {
             let quad = ProgramQuad::from((triple, EventId::from(event.event_id)));
             programs
                 .entry(event.event_id)
@@ -1187,10 +1193,10 @@ impl Into<MirakurunChannelService> for EpgService {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EpgProgram {
     pub quad: ProgramQuad,
-    #[serde(with = "ts_milliseconds")]
-    pub start_at: DateTime<Jst>,
-    #[serde(with = "duration_milliseconds")]
-    pub duration: Duration,
+    #[serde(with = "ts_milliseconds_option")]
+    pub start_at: Option<DateTime<Jst>>,
+    #[serde(with = "duration_milliseconds_option")]
+    pub duration: Option<Duration>,
     pub scrambled: bool,
     pub name: Option<String>,
     pub description: Option<String>,
@@ -1206,8 +1212,8 @@ impl EpgProgram {
     pub fn new(quad: ProgramQuad) -> Self {
         Self {
             quad,
-            start_at: Jst.timestamp_opt(0, 0).unwrap(),
-            duration: Duration::minutes(0),
+            start_at: None,
+            duration: None,
             scrambled: false,
             name: None,
             description: None,
@@ -1224,13 +1230,17 @@ impl EpgProgram {
         self.name.as_deref().unwrap_or("NO TITLE")
     }
 
-    pub fn end_at(&self) -> DateTime<Jst> {
-        self.start_at + self.duration
+    pub fn end_at(&self) -> Option<DateTime<Jst>> {
+        self.start_at
+            .zip(self.duration)
+            .map(|(start_at, duration)| start_at + duration)
     }
 
     pub fn update(&mut self, event: &EitEvent) {
-        self.start_at = event.start_time().unwrap().clone();
-        self.duration = event.duration().unwrap().clone();
+        debug_assert!(event.start_time().is_some());
+        debug_assert!(event.duration().is_some());
+        self.start_at = event.start_time();
+        self.duration = event.duration();
         self.scrambled = event.scrambled;
         for desc in event.descriptors.iter() {
             match desc {

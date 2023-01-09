@@ -11,8 +11,8 @@ use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
 
 use crate::epg::stub::EpgStub;
-use crate::recording::RecordingOptions;
 use crate::recording::stub::RecordingManagerStub;
+use crate::recording::RecordingOptions;
 use crate::timeshift::stub::TimeshiftManagerStub;
 use crate::tuner::stub::TunerManagerStub;
 use api::models::*;
@@ -504,15 +504,6 @@ async fn test_get_recording_recorder() {
 }
 
 #[tokio::test]
-async fn test_delete_recording_recorder() {
-    let res = delete("/api/recording/recorders/1").await;
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let res = delete("/api/recording/recorders/0").await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
 async fn test_get_timeshift_recorders() {
     let res = get("/api/timeshift").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -968,7 +959,7 @@ fn config_for_test() -> Arc<Config> {
             content-type: video/mp4
         recording:
           # Enable endpoints for recording
-          records-dir: /tmp
+          basedir: /tmp
           # Disable tracking airtime
           track-airtime-command: true
         # Enable endpoints for timeshift recording

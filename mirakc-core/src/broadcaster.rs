@@ -4,8 +4,7 @@ use std::pin::Pin;
 use std::time::Duration;
 use std::time::Instant;
 
-use actlet::*;
-use async_trait::async_trait;
+use actlet::prelude::*;
 use bytes::Bytes;
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
@@ -61,7 +60,7 @@ impl Broadcaster {
                     }
                     Err(err) => {
                         tracing::error!("{}: Error, stop: {}", id, err);
-                        addr.emit(Stop).await;
+                        addr.emit(actlet::Stop).await;
                         break;
                     }
                 }
@@ -290,7 +289,7 @@ mod tests {
                 .unwrap();
 
             broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
-            broadcaster.emit(Stop).await;
+            broadcaster.emit(actlet::Stop).await;
 
             let chunk = stream1.next().await;
             assert!(chunk.is_some());
@@ -330,7 +329,7 @@ mod tests {
                 .await;
 
             broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
-            broadcaster.emit(Stop).await;
+            broadcaster.emit(actlet::Stop).await;
 
             let chunk = stream1.next().await;
             assert!(chunk.is_none());
@@ -357,7 +356,7 @@ mod tests {
                 .unwrap();
 
             broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
-            broadcaster.emit(Stop).await;
+            broadcaster.emit(actlet::Stop).await;
 
             let chunk = stream1.next().await;
             assert!(chunk.is_some());

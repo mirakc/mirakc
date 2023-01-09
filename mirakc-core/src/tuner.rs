@@ -4,8 +4,7 @@ use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use actlet::*;
-use async_trait::async_trait;
+use actlet::prelude::*;
 
 use crate::broadcaster::*;
 use crate::command_util::spawn_pipeline;
@@ -107,7 +106,18 @@ impl TunerManager {
             .iter()
             .filter(|config| !config.disabled)
             .enumerate()
-            .map(|(i, config)| Tuner::new(i, config))
+            .map(|(i, config)| match config.dedicated_for {
+                Some(ref name) => {
+                    let dedicated_for = self
+                        .config
+                        .onair_program_trackers
+                        .get(name)
+                        .map(|_| TunerUserInfo::OnairProgramTracker(name.to_string()));
+                    (i, config, dedicated_for)
+                }
+                None => (i, config, None),
+            })
+            .map(|(i, config, dedicated_for)| Tuner::new(i, config, dedicated_for))
             .collect();
         tracing::info!("Loaded {} tuners", tuners.len());
         self.tuners = tuners;
@@ -122,6 +132,9 @@ impl TunerManager {
     where
         C: Spawn,
     {
+        // Clone the config in order to avoid compile errors caused by the borrow checker.
+        let config = self.config.clone();
+
         if let TunerUserInfo::Tracker { stream_id } = user.info {
             let tuner = &mut self.tuners[stream_id.session_id.tuner_index];
             if tuner.is_active() {
@@ -133,21 +146,35 @@ impl TunerManager {
         let found = self
             .tuners
             .iter_mut()
-            .find(|tuner| tuner.is_reuseable(&channel));
+            .find(|tuner| tuner.is_dedicated_for(&user));
         if let Some(tuner) = found {
-            tracing::info!(tuner.index, %channel, "Reuse tuner already activated");
+            tracing::info!(tuner.index, %channel, %user.info, "Use dedicated tuner");
+            if !tuner.is_active() {
+                tracing::info!(tuner.index, %channel, %user.info, "Activate");
+                let filters =
+                    Self::make_filter_commands(&tuner, &channel, &config.filters.tuner_filter)?;
+                tuner.activate(channel, filters, ctx).await?;
+            }
             return Ok(tuner.subscribe(user));
         }
-
-        // Clone the config in order to avoid compile errors from the borrow checker.
-        let config = self.config.clone();
 
         let found = self
             .tuners
             .iter_mut()
+            .filter(|tuner| tuner.dedicated_for.is_none())
+            .find(|tuner| tuner.is_reuseable(&channel));
+        if let Some(tuner) = found {
+            tracing::info!(tuner.index, %channel, %user.info, "Reuse tuner already activated");
+            return Ok(tuner.subscribe(user));
+        }
+
+        let found = self
+            .tuners
+            .iter_mut()
+            .filter(|tuner| tuner.dedicated_for.is_none())
             .find(|tuner| tuner.is_available_for(&channel));
         if let Some(tuner) = found {
-            tracing::info!(tuner.index, %channel, "Activate");
+            tracing::info!(tuner.index, %channel, %user.info, "Activate");
             let filters =
                 Self::make_filter_commands(&tuner, &channel, &config.filters.tuner_filter)?;
             tuner.activate(channel, filters, ctx).await?;
@@ -159,10 +186,11 @@ impl TunerManager {
         let found = self
             .tuners
             .iter_mut()
+            .filter(|tuner| tuner.dedicated_for.is_none())
             .filter(|tuner| tuner.is_supported_type(&channel))
             .find(|tuner| tuner.can_grab(user.priority));
         if let Some(tuner) = found {
-            tracing::info!(tuner.index, %channel, "Grab tuner, reactivate");
+            tracing::info!(tuner.index, %channel, %user.info, %user.priority, "Grab tuner, reactivate");
             let filters =
                 Self::make_filter_commands(&tuner, &channel, &config.filters.tuner_filter)?;
             tuner.deactivate();
@@ -326,11 +354,12 @@ struct Tuner {
     command: String,
     time_limit: u64,
     decoded: bool,
+    dedicated_for: Option<TunerUserInfo>,
     activity: TunerActivity,
 }
 
 impl Tuner {
-    fn new(index: usize, config: &TunerConfig) -> Self {
+    fn new(index: usize, config: &TunerConfig, dedicated_for: Option<TunerUserInfo>) -> Self {
         Tuner {
             index,
             name: config.name.clone(),
@@ -338,6 +367,7 @@ impl Tuner {
             command: config.command.clone(),
             time_limit: config.time_limit,
             decoded: config.decoded,
+            dedicated_for,
             activity: TunerActivity::Inactive,
         }
     }
@@ -360,6 +390,14 @@ impl Tuner {
 
     fn is_reuseable(&self, channel: &EpgChannel) -> bool {
         self.activity.is_reuseable(channel)
+    }
+
+    fn is_dedicated_for(&self, user: &TunerUser) -> bool {
+        if let Some(ref dedicated_user) = self.dedicated_for {
+            dedicated_user.eq(&user.info)
+        } else {
+            false
+        }
     }
 
     fn can_grab(&self, priority: TunerUserPriority) -> bool {
@@ -656,6 +694,14 @@ mod tests {
                     types: [GR]
                     command: >-
                       sleep 1
+                  - name: dedicated
+                    types: [GR]
+                    dedicated-for: tracker
+                    command: >-
+                      sleep 1
+                onair-program-trackers:
+                  tracker: !local
+                    channel-types: [GR]
                 "#,
                 )
                 .unwrap(),
@@ -706,6 +752,21 @@ mod tests {
                 assert_eq!(stream.id().session_id.tuner_index, 1);
                 assert_ne!(stream.id().session_id, stream1.id().session_id);
             });
+
+            // Dedicated tuner
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: TunerUser {
+                        info: TunerUserInfo::OnairProgramTracker("tracker".to_string()),
+                        priority: 0.into(),
+                    },
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 2);
+                assert_ne!(stream.id().session_id, stream1.id().session_id);
+            });
         }
         system.stop();
     }
@@ -715,7 +776,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config);
+            let mut tuner = Tuner::new(0, &config, None);
 
             assert!(!tuner.is_active());
 
@@ -731,7 +792,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config);
+            let mut tuner = Tuner::new(0, &config, None);
             let result = tuner.activate(create_channel("1"), vec![], &system).await;
             assert!(result.is_ok());
             tokio::task::yield_now().await;
@@ -739,7 +800,7 @@ mod tests {
 
         {
             let config = create_config("cmd '".to_string());
-            let mut tuner = Tuner::new(0, &config);
+            let mut tuner = Tuner::new(0, &config, None);
             let result = tuner.activate(create_channel("1"), vec![], &system).await;
             assert_matches!(
                 result,
@@ -750,7 +811,7 @@ mod tests {
 
         {
             let config = create_config("no-such-command".to_string());
-            let mut tuner = Tuner::new(0, &config);
+            let mut tuner = Tuner::new(0, &config, None);
             let result = tuner.activate(create_channel("1"), vec![], &system).await;
             assert_matches!(
                 result,
@@ -766,7 +827,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(1, &config);
+            let mut tuner = Tuner::new(1, &config, None);
             let result = tuner.stop_streaming(Default::default()).await;
             assert_matches!(result, Err(Error::SessionNotFound));
 
@@ -796,7 +857,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config);
+            let mut tuner = Tuner::new(0, &config, None);
             assert!(tuner.can_grab(0.into()));
 
             tuner
@@ -834,7 +895,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config);
+            let mut tuner = Tuner::new(0, &config, None);
             tuner
                 .activate(create_channel("1"), vec![], &system)
                 .await
@@ -859,6 +920,7 @@ mod tests {
             time_limit: 10 * 1000,
             disabled: false,
             decoded: false,
+            dedicated_for: None,
         }
     }
 
@@ -894,10 +956,7 @@ pub(crate) mod stub {
 
     #[async_trait]
     impl Call<QueryTuners> for TunerManagerStub {
-        async fn call(
-            &self,
-            _msg: QueryTuners,
-        ) -> Result<<QueryTuners as Message>::Reply, actlet::Error> {
+        async fn call(&self, _msg: QueryTuners) -> actlet::Result<<QueryTuners as Message>::Reply> {
             Ok(vec![])
         }
     }
@@ -907,7 +966,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: StartStreaming,
-        ) -> Result<<StartStreaming as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<StartStreaming as Message>::Reply> {
             if msg.channel.channel == "ch" {
                 let (tx, stream) = BroadcasterStream::new_for_test();
                 let _ = tx.try_send(Bytes::from("hi"));

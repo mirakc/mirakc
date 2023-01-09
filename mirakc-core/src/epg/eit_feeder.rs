@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use actlet::*;
-use async_trait::async_trait;
+use actlet::prelude::*;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
 

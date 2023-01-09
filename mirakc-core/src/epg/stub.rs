@@ -7,20 +7,14 @@ pub(crate) struct EpgStub;
 
 #[async_trait]
 impl Call<QueryChannels> for EpgStub {
-    async fn call(
-        &self,
-        _msg: QueryChannels,
-    ) -> Result<<QueryChannels as Message>::Reply, actlet::Error> {
+    async fn call(&self, _msg: QueryChannels) -> actlet::Result<<QueryChannels as Message>::Reply> {
         Ok(vec![])
     }
 }
 
 #[async_trait]
 impl Call<QueryChannel> for EpgStub {
-    async fn call(
-        &self,
-        msg: QueryChannel,
-    ) -> Result<<QueryChannel as Message>::Reply, actlet::Error> {
+    async fn call(&self, msg: QueryChannel) -> actlet::Result<<QueryChannel as Message>::Reply> {
         if msg.channel == "0" {
             Ok(Err(Error::ChannelNotFound))
         } else {
@@ -38,10 +32,7 @@ impl Call<QueryChannel> for EpgStub {
 
 #[async_trait]
 impl Call<QueryServices> for EpgStub {
-    async fn call(
-        &self,
-        _msg: QueryServices,
-    ) -> Result<<QueryServices as Message>::Reply, actlet::Error> {
+    async fn call(&self, _msg: QueryServices) -> actlet::Result<<QueryServices as Message>::Reply> {
         Ok(Arc::new(indexmap! {
             (0, 0, 1).into() => EpgService {
                 nid: 0.into(),
@@ -66,10 +57,7 @@ impl Call<QueryServices> for EpgStub {
 
 #[async_trait]
 impl Call<QueryService> for EpgStub {
-    async fn call(
-        &self,
-        msg: QueryService,
-    ) -> Result<<QueryService as Message>::Reply, actlet::Error> {
+    async fn call(&self, msg: QueryService) -> actlet::Result<<QueryService as Message>::Reply> {
         match msg {
             QueryService::ByMirakurunServiceId(id) => {
                 if id.sid().value() == 0 {
@@ -125,8 +113,8 @@ impl Call<QueryService> for EpgStub {
 
 #[async_trait]
 impl Call<QueryClock> for EpgStub {
-    async fn call(&self, msg: QueryClock) -> Result<<QueryClock as Message>::Reply, actlet::Error> {
-        match msg.triple.sid().value() {
+    async fn call(&self, msg: QueryClock) -> actlet::Result<<QueryClock as Message>::Reply> {
+        match msg.service_triple.sid().value() {
             0 => Ok(Err(Error::ClockNotSynced)),
             _ => Ok(Ok(Clock {
                 pid: 0,
@@ -139,20 +127,20 @@ impl Call<QueryClock> for EpgStub {
 
 #[async_trait]
 impl Call<QueryPrograms> for EpgStub {
-    async fn call(
-        &self,
-        _msg: QueryPrograms,
-    ) -> Result<<QueryPrograms as Message>::Reply, actlet::Error> {
-        Ok(Default::default())
+    async fn call(&self, msg: QueryPrograms) -> actlet::Result<<QueryPrograms as Message>::Reply> {
+        let now = Jst::now();
+        match msg.service_triple.sid().value() {
+            0 => Ok(Default::default()),
+            _ => Ok(Arc::new(indexmap! {
+                1.into() => program!((msg.service_triple, 1.into()), now, "1h"),
+            })),
+        }
     }
 }
 
 #[async_trait]
 impl Call<QueryProgram> for EpgStub {
-    async fn call(
-        &self,
-        msg: QueryProgram,
-    ) -> Result<<QueryProgram as Message>::Reply, actlet::Error> {
+    async fn call(&self, msg: QueryProgram) -> actlet::Result<<QueryProgram as Message>::Reply> {
         match msg {
             QueryProgram::ByMirakurunProgramId(id) => {
                 if id.eid().value() == 0 {
@@ -170,20 +158,14 @@ impl Call<QueryProgram> for EpgStub {
 
 #[async_trait]
 impl Call<UpdateAirtime> for EpgStub {
-    async fn call(
-        &self,
-        _msg: UpdateAirtime,
-    ) -> Result<<UpdateAirtime as Message>::Reply, actlet::Error> {
+    async fn call(&self, _msg: UpdateAirtime) -> actlet::Result<<UpdateAirtime as Message>::Reply> {
         Ok(())
     }
 }
 
 #[async_trait]
 impl Call<RemoveAirtime> for EpgStub {
-    async fn call(
-        &self,
-        _msg: RemoveAirtime,
-    ) -> Result<<RemoveAirtime as Message>::Reply, actlet::Error> {
+    async fn call(&self, _msg: RemoveAirtime) -> actlet::Result<<RemoveAirtime as Message>::Reply> {
         Ok(())
     }
 }
@@ -193,7 +175,7 @@ impl Call<RegisterEmitter> for EpgStub {
     async fn call(
         &self,
         _msg: RegisterEmitter,
-    ) -> Result<<RegisterEmitter as Message>::Reply, actlet::Error> {
+    ) -> actlet::Result<<RegisterEmitter as Message>::Reply> {
         Ok(())
     }
 }

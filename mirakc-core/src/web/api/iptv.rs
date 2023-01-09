@@ -214,14 +214,14 @@ where
         for pg in programs
             .values()
             .filter(|pg| pg.name.is_some())
-            .filter(|pg| pg.start_at < start_before && pg.end_at() > end_after)
+            .filter(|pg| pg.start_at.unwrap() < start_before && pg.end_at().unwrap() > end_after)
         {
             let id = MirakurunServiceId::from(pg.quad);
             write!(
                 buf,
                 r#"<programme start="{}" stop="{}" channel="{}">"#,
-                pg.start_at.format(DATETIME_FORMAT),
-                pg.end_at().format(DATETIME_FORMAT),
+                pg.start_at.unwrap().format(DATETIME_FORMAT),
+                pg.end_at().unwrap().format(DATETIME_FORMAT),
                 id.value()
             )?;
             if let Some(name) = pg.name.as_ref() {

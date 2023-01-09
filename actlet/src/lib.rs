@@ -21,7 +21,7 @@ pub enum Error {
     Recv,
 }
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// An actor system.
 pub struct System {
@@ -132,6 +132,30 @@ impl<A> Spawn for Context<A> {
             }
         });
         token
+    }
+}
+
+impl<A, M> CallerFactory<M> for Context<A>
+where
+    A: Handler<M>,
+    M: Action,
+    // An message will be converted into `Box<dyn Dispatch>`.
+    M: 'static,
+{
+    fn caller(&self) -> Caller<M> {
+        self.address().clone().into()
+    }
+}
+
+impl<A, M> EmitterFactory<M> for Context<A>
+where
+    A: Handler<M>,
+    M: Signal,
+    // An message will be converted into `Box<dyn Dispatch>`.
+    M: 'static,
+{
+    fn emitter(&self) -> Emitter<M> {
+        self.address().clone().into()
     }
 }
 
@@ -383,6 +407,22 @@ pub trait Spawn: Sized {
     fn spawn_task<F>(&self, fut: F) -> CancellationToken
     where
         F: Future<Output = ()> + Send + 'static;
+}
+
+/// A trait to create a caller.
+pub trait CallerFactory<M>
+where
+    M: Action,
+{
+    fn caller(&self) -> Caller<M>;
+}
+
+/// A trait to create an emitter.
+pub trait EmitterFactory<M>
+where
+    M: Signal,
+{
+    fn emitter(&self) -> Emitter<M>;
 }
 
 /// A trait that every message must implement.
@@ -657,4 +697,28 @@ mod promoter {
             self.spawn(msg.0, ctx)
         }
     }
+}
+
+pub mod prelude {
+    // types
+    pub use crate::Address;
+    pub use crate::Caller;
+    pub use crate::Context;
+    pub use crate::Emitter;
+    pub use crate::System;
+
+    // traits
+    pub use crate::Action;
+    pub use crate::Actor;
+    pub use crate::Call;
+    pub use crate::CallerFactory;
+    pub use crate::Emit;
+    pub use crate::EmitterFactory;
+    pub use crate::Handler;
+    pub use crate::Message;
+    pub use crate::Signal;
+    pub use crate::Spawn;
+
+    // dependencies
+    pub use async_trait::async_trait;
 }

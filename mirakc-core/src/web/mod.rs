@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use actlet::*;
+use actlet::prelude::*;
 use axum::extract::State;
 use axum::http::header::CACHE_CONTROL;
 use axum::http::header::CONNECTION;
@@ -82,7 +82,6 @@ where
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
     R: Call<crate::recording::StartRecording>,
-    R: Call<crate::recording::StopRecording>,
     S: Send + Sync + 'static,
     S: Call<crate::timeshift::CreateTimeshiftLiveStreamSource>,
     S: Call<crate::timeshift::CreateTimeshiftRecordStreamSource>,
@@ -178,7 +177,6 @@ where
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
     R: Call<crate::recording::StartRecording>,
-    R: Call<crate::recording::StopRecording>,
     S: Send + Sync + 'static,
     S: Call<crate::timeshift::CreateTimeshiftLiveStreamSource>,
     S: Call<crate::timeshift::CreateTimeshiftRecordStreamSource>,

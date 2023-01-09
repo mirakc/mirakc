@@ -13,6 +13,7 @@ suitable for your environment.
 | [server.stream-chunk-size]               | `32768` (32KiB)                   |
 | [server.stream-max-chunks]               | `1000`                            |
 | [server.stream-time-limit]               | `16000` (16s)                     |
+| [server.program-stream-max-start-delay]  | `None`                            |
 | [server.mounts]                          | `{}`                              |
 | [server.folder-view-template-path]       | `None`                            |
 | [channels\[\].name]                      |                                   |
@@ -28,6 +29,7 @@ suitable for your environment.
 | [tuners\[\].time-limit]                  | `30000` (30s)                     |
 | [tuners\[\].disabled]                    | `false`                           |
 | [tuners\[\].decoded]                     | `false`                           |
+| [tuners\[\].dedicated-for]               | `None`                            |
 | [filters.tuner-filter.command]           | `''`                              |
 | [filters.service-filter.command]         | `mirakc-arib filter-service --sid={{{sid}}}` |
 | [filters.decode-filter.command]          | `''`                              |
@@ -43,9 +45,7 @@ suitable for your environment.
 | [jobs.update-schedules.command]          | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.update-schedules.schedule]         | `'0 21 6,18 * * * *'` (execute at 06:21 and 18:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
-| [recording.records-dir]                  | `None`                            |
-| [recording.contents-dir]                 | `None`                            |
-| [recording.max-start-delay]              | `None`                            |
+| [recording.basedir]                      | `None`                            |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
 | [timeshift.recorders\[\].service-triple] |                                   |
 | [timeshift.recorders\[\].ts-file]        |                                   |
@@ -59,9 +59,8 @@ suitable for your environment.
 | [events.recording.started]               | `''`                              |
 | [events.recording.stopped]               | `''`                              |
 | [events.recording.failed]                | `''`                              |
-| [events.recording.retried]               | `''`                              |
 | [events.recording.rescheduled]           | `''`                              |
-| [onair-trackers.local]                   | `mirakc-arib collect-eitpf --sids={{{sid}}}` |
+| [onair-program-trackers]                 | `{}`                              |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
 
@@ -70,6 +69,7 @@ suitable for your environment.
 [server.stream-chunk-size]: #serverstream-chunk-size
 [server.stream-max-chunks]: #serverstream-max-chunks
 [server.stream-time-limit]: #serverstream-time-limit
+[server.program-stream-max-start-delay]: #serverprogram-stream-max-start-delay
 [server.mounts]: #servermounts
 [server.folder-view-template-path]: #serverfolder-view-template-path
 [channels\[\].name]: #channels
@@ -100,9 +100,7 @@ suitable for your environment.
 [jobs.update-schedules.command]: #jobsupdate-schedules
 [jobs.update-schedules.schedule]: #jobsupdate-schedules
 [jobs.update-schedules.disabled]: #jobsupdate-schedules
-[recording.records-dir]: #recordingrecords-dir
-[recording.contents-dir]: #recordingcontents-dir
-[recording.max-start-delay]: #recordingmax-start-delay
+[recording.basedir]: #recordingbasedir
 [timeshift.command]: #timeshift
 [timeshift.recorders\[\].service-triple]: #timeshiftrecorders
 [timeshift.recorders\[\].ts-file]: #timeshiftrecorders
@@ -116,9 +114,8 @@ suitable for your environment.
 [events.recording.started]: #eventsrecordingstarted
 [events.recording.stopped]: #eventsrecordingstopped
 [events.recording.failed]: #eventsrecordingfailed
-[events.recording.retried]: #eventsrecordingretried
 [events.recording.rescheduled]: #eventsrecordingrescheduled
-[onair-trackers.local]: #onair-trackerslocal
+[onair-program-trackers]: #onair-program-trackers
 [resource.strings-yaml]: #resourcestrings-yaml
 [resource.logos]: #resourcelogos
 
@@ -211,13 +208,32 @@ server:
 The value must be larger than `prepTime` defined in [EPGStation](https://github.com/l3tnun/EPGStation/blob/v1.6.9/src/server/Model/Operator/Recording/RecordingManageModel.ts#L45),
 which is `15000` (15s) in v1.6.9.
 
-
 ### Historical Notes
 
 This property is needed for avoiding the issue#1313 in actix-web in a streaming
 request for a TV program.  In this case, no data is sent to the client until the
 first TS packet comes from the streaming pipeline.  actix-web cannot detect the
 client disconnect all that time due to the issue#1313.
+
+### server.program-stream-max-start-delay
+
+`program-stream-max-start-delay` can be used to specify a maximum delay for the start
+time of a TV program in [a human-friendly format](https://github.com/tailhook/humantime).
+
+```yaml
+server:
+  program-stream-max-start-delay: 3h
+```
+
+The value must be less than `24h`.  The value will be converted into the number
+of whole seconds and its fractional part will be ignored.
+
+Streaming with `mirakc-arib filter-program` will wait the start of a TV program
+for an amount of time specified with `program-stream-max-start-delay` if it's
+specified.  In the meantime, `mirakc-arib filter-program` keeps a tuner device
+open.
+
+`program-stream-max-start-delay` is disabled by default.
 
 ## server.mounts
 
@@ -414,6 +430,9 @@ Definitions of tuners.  At least, one tuner must be defined.
   * Disable the tuner
 * decoded (optional)
   * PES packets are decoded by the tuner command
+* dedicated-for (optional)
+  * Specify the name of a user who uses the tuner exclusively
+  * See [this section](#LocalTracker) for details
 
 Command template variables:
 
@@ -659,57 +678,43 @@ Command template variables:
 
 ## recording
 
-### recording.records-dir
+### recording.basedir
 
-`recording.records-dir` specifies an absolute path to a directory which is used
-for storing information about recording schedules and metadata of recorded
-contents.  Additionally, specifying an absolute path to an existing directory
-enables web endpoints for recording functions.
+`recording.basedir` specifies an absolute path to the base directory which is:
 
-The following files are stored in the directory specified by this property:
+* Used for storing information about recording schedules
+* Used as a base path in order to resolve relative paths in the
+  `options.contentPath` property used in the Web endpoints for recording
+
+Additionally, specifying an absolute path to an existing directory enables web
+endpoints for recording functions.
+
+The following files are stored in the base directory specified by this property:
 
 * `schedules.json` contains recording schedules
 
-### recording.contents-dir
-
-`recording.contents-dir` specifies an absolute path to a directory which is used
-for recorded contents.
-
-`recording.records-dir` is used instead if this property is undefined.
-
-A directory specified by this property contains recorded contents.  The filename
-of each recorded content can be specified in the `contentPath` property in a
-JSON data used in the following Web endpoints:
+You can specify multiple nested directories in the `options.contentPath`
+property in a JSON data used in the following Web endpoints:
 
 * [POST /api/recording/schedules](./web-api.md#postapirecordingschedules)
-* [POST /api/recording/recorders](./web-api.md#postapirecordingrecorders)
 
-This property can be used if you want to save recorded contents into another
-location, such as a shared folder on a NAS server.
+You can use this feature in order to output recorded content files to a
+particular folder.
 
-### recording.max-start-delay
+For example, the following JSON data sent to the Web endpoints above
 
-`recording.max-start-delay` can be used to specify a maximum delay for the start
-time of a TV program in [a human-friendly format](https://github.com/tailhook/humantime).
-
-```yaml
-recording:
-  max-start-delay: 3h
+```json
+{
+  "programId": 327360102415397,
+  "options": {
+    "contentPath": "videos/path/to/filename.m2ts"
+  }
+}
 ```
 
-The value must be less than `24h`.  The value will be converted into the number
-of whole seconds and its fractional part will be ignored.
-
-Streaming with `mirakc-arib filter-program` will wait the start of a TV program
-for an amount of time specified with `recording.max-start-delay` if it's
-specified.  In the meantime, `mirakc-arib filter-program` keeps a tuner device
-open.
-
-When a recording schedule for a TV program fails before the TV program starts,
-the recording will be rescheduled if the TV program will start within the value
-of `recording.max-start-delay`.
-
-`recording.max-start-delay` is disabled by default.
+will record the content of the TV program under in the
+`<recording.basedir>/videos` folder.  If you mount a shared folder on a NAS
+server onto `<recording.basedir>/videos`, the content will be saved on the NAS.
 
 ## timeshift
 
@@ -837,47 +842,54 @@ A JSON defined in the following schema is passed to the script via STDIN:
     "programId": { "type": "number" },  // MirakurunProgramId
     "reason": {
       "oneOf": [
-        // IoError
+        // start-recording-failed
         {
           "type": "object",
           "properties": {
-            "type": { "type": "string", "const": "IoError" },
+            "type": { "type": "string", "const": "start-recording-failed" },
+            "message": { "type": "string" },
+          }
+        },
+        // io-error
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "io-error" },
             "message": { "type": "string" },
             "osError": { "type": ["number", null] }
           }
         },
-        // PipelineError
+        // pipeline-error
         {
           "type": "object",
           "properties": {
-            "type": { "type": "string", "const": "PipelineError" },
+            "type": { "type": "string", "const": "pipeline-error" },
             "exitCode": { "type": "number" }
           }
         },
-        // RetryFailed
+        // need-rescheduling
         {
           "type": "object",
           "properties": {
-            "type": { "type": "string", "const": "RetryFailed" }
+            "type": { "type": "string", "const": "need-rescheduling" },
           }
-        }
+        },
+        // schedule-expired
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "schedule-expired" },
+          }
+        },
+        // removed-from-epg
+        {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "removed-from-epg" },
+          }
+        },
       ]
     }
-  }
-}
-```
-
-### events.recording.retried
-
-A script to be executed when recording for a program is retried.
-
-A JSON defined in the following schema is passed to the script via STDIN:
-
-```json5
-{
-  "type": "object",
-  "properties": {
-    "programId": { "type": "number" }  // MirakurunProgramId
   }
 }
 ```
@@ -897,21 +909,66 @@ A JSON defined in the following schema is passed to the script via STDIN:
 }
 ```
 
-## onair-trackers
+## onair-program-trackers
 
-Definitions of On-Air TV program trackers which can use used for tracking the
+Definitions of On-Air TV program trackers which can be used for tracking the
 current and next TV programs of a particular service.
 
-### onair-trackers.local
+At this point, the following trackers are available:
 
-A Mustache template string of a command which collects EIT[p/f] sections in
-NDJSON from a TS stream.  See the description of `mirakc-arib collect-eitpf -h`
-for details of the JSON format.
+* Local trackers
 
-Command template variables:
+### Local Tracker
+
+A local tracker tracks On-Air TV programs by collecting EIT [p/f] sections of a
+service every minute using a local tuner.
+
+It's **strongly** recommended to assign a dedicated tuner for a local tracker
+in order to make sure it always works.
+
+```yaml
+tuners:
+  # The `gr-tracker` tuner is used only by the `gr` local tracker.
+  - name: gr-tracker
+    types: [GR]
+    dedicated-for: gr
+    command: >-
+      recpt1 --device /dev/px4video2 {{{channel}}} {{{duration}}} -
+
+onair-program-trackers:
+  # The `gr` local tracker tracks on-air programs of every services
+  # found by `jobs.scan-services` executed on `GR` channels.
+  gr: !local
+    channel-types: [GR]
+```
+
+The following properties can be specified:
+
+* channel-types (required)
+  * A list of channel types that the local tracker handles
+* services (default: an empty list)
+  * A list of Mirakurun Service IDs that the local tracker handles
+* excluded-services (default: an empty list)
+  * A list of Mirakurun Service IDs that then local tracker doesn't handles
+* command (default: `mirakc-arib collect-eitpf --sids={{{sid}}}`)
+  * A Mustache template string of a command which collects EIT[p/f] sections in
+    NDJSON from a TS stream
+  * See the description of `mirakc-arib collect-eitpf -h` for details of the
+    JSON format
+
+Template variables for `command`:
 
 * sid
   * The 16-bit integer identifier of a service (SID)
+
+As described above, a local tracker checks on-air TV programs **every minute**.
+So, the `command` **SHOULD** be done within 1 minute.  If an execution of the
+`command` takes more than 1 minute, the next periodic execution will be skipped.
+You can use the `services` and `excluded-services` properties to limit services
+handling by a tracker in order to reduce the execution time of the `command`.
+
+Note that many logs will be output if you use a local tracker because it
+executes the `command` every minute.
 
 ## resource
 

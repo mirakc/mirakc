@@ -56,7 +56,7 @@ where
     let clock = state
         .epg
         .call(epg::QueryClock {
-            triple: service.triple(),
+            service_triple: service.triple(),
         })
         .await??;
 
@@ -97,13 +97,13 @@ where
         .insert("clock_time", &clock.time)?
         .insert("video_tags", &video_tags)?
         .insert("audio_tags", &audio_tags)?;
-    if let Some(max_start_delay) = state.config.recording.max_start_delay {
+    if let Some(max_start_delay) = state.config.server.program_stream_max_start_delay {
         // Round off the fractional (nanosecond) part of the duration.
         //
         // The value can be safely converted into i64 because the value is less
         // than 24h.
         let duration = Duration::seconds(max_start_delay.as_secs() as i64);
-        let wait_until = program.start_at + duration;
+        let wait_until = program.start_at.unwrap() + duration;
         builder = builder.insert("wait_until", &wait_until.timestamp_millis())?;
     }
     let data = builder.build();
@@ -192,7 +192,7 @@ where
     let _clock = state
         .epg
         .call(epg::QueryClock {
-            triple: service.triple(),
+            service_triple: service.triple(),
         })
         .await??;
 

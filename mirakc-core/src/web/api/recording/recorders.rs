@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::recording::Schedule;
+use crate::recording::{RecordingSchedule, RecordingScheduleState};
 
 /// Lists recorders.
 #[utoipa::path(
@@ -63,7 +63,11 @@ where
     Ok(Json(recorder.into()))
 }
 
-/// Starts recording.
+/// Starts recording immediately.
+///
+/// > **Warning**: Use `POST /api/recording/schedules` instead.
+/// > The recording will start even if the TV program has not started.
+/// > In this case, the recording will always fail.
 #[utoipa::path(
     post,
     path = "/recording/recorders",
@@ -87,10 +91,9 @@ where
         .epg
         .call(epg::QueryProgram::ByMirakurunProgramId(input.program_id))
         .await??;
-    let schedule = Schedule {
-        program_quad: program.quad,
-        start_at: program.start_at,
-        end_at: program.end_at(),
+    let schedule = RecordingSchedule {
+        state: RecordingScheduleState::Recording,
+        program: Arc::new(program),
         options: input.options,
         tags: input.tags,
     };
@@ -99,39 +102,4 @@ where
         .call(recording::StartRecording { schedule })
         .await??;
     Ok((StatusCode::CREATED, Json(recorder.into())))
-}
-
-/// Stops recording.
-#[utoipa::path(
-    delete,
-    path = "/recording/recorders/{program_id}",
-    params(
-        ("program_id" = u64, Path, description = "Mirakurun program ID"),
-    ),
-    responses(
-        (status = 200, description = "OK"),
-        (status = 401, description = "Bad Request"),
-        (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
-    ),
-)]
-pub(in crate::web::api) async fn delete<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
-    Path(program_id): Path<MirakurunProgramId>,
-) -> Result<(), Error>
-where
-    E: Call<epg::QueryProgram>,
-    R: Call<recording::StopRecording>,
-{
-    let program = state
-        .epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(program_id))
-        .await??;
-    state
-        .recording_manager
-        .call(recording::StopRecording {
-            program_quad: program.quad,
-        })
-        .await??;
-    Ok(())
 }

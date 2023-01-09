@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use path_dedot::ParseDot;
 
-use crate::recording::Schedule;
+use crate::recording::{RecordingSchedule, RecordingScheduleState};
 
 /// Lists recording schedules.
 #[utoipa::path(
@@ -95,11 +95,11 @@ where
         return Err(err);
     }
 
-    let contents_dir = state.config.recording.contents_dir.as_ref().unwrap();
-    if !contents_dir
+    let basedir = state.config.recording.basedir.as_ref().unwrap();
+    if !basedir
         .join(&input.options.content_path)
         .parse_dot()?
-        .starts_with(contents_dir)
+        .starts_with(basedir)
     {
         let err = Error::InvalidPath;
         tracing::error!(%err, ?input.options.content_path);
@@ -111,10 +111,9 @@ where
         .call(epg::QueryProgram::ByMirakurunProgramId(input.program_id))
         .await??;
 
-    let schedule = Schedule {
-        program_quad: program.quad,
-        start_at: program.start_at,
-        end_at: program.end_at(),
+    let schedule = RecordingSchedule {
+        state: RecordingScheduleState::Scheduled,
+        program: Arc::new(program),
         options: input.options,
         tags: input.tags,
     };
@@ -168,8 +167,13 @@ where
 /// tagged with the specified name will be deleted.  Otherwise, all recording
 /// schedules will be deleted.
 ///
-/// When deleting recording schedules by a tag, a recording schedule won't be
-/// deleted if the recording will be started soon.
+/// When deleting recording schedules by a tag, recording schedules that meet
+/// any of the following conditions won't be deleted:
+///
+///   * Recording schedules without the specified tag
+///   * Recording schedules in the `tracing` or `recording` state
+///   * Recording schedules in the `scheduled` state and will start recording
+///     soon
 #[utoipa::path(
     delete,
     path = "/recording/schedules",
@@ -189,8 +193,8 @@ where
     R: Call<recording::RemoveRecordingSchedules>,
 {
     let target = match query.get("tag") {
-        Some(tag) => crate::recording::RemoveTarget::Tag(tag.clone()),
-        None => crate::recording::RemoveTarget::All,
+        Some(tag) => crate::recording::RemovalTarget::Tag(tag.clone()),
+        None => crate::recording::RemovalTarget::All,
     };
     state
         .recording_manager

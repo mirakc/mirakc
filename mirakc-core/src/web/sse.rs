@@ -52,13 +52,6 @@ where
 
     state
         .recording_manager
-        .call(crate::recording::RegisterEmitter::RecordingRetried(
-            feeder.clone().into(),
-        ))
-        .await?;
-
-    state
-        .recording_manager
         .call(crate::recording::RegisterEmitter::RecordingRescheduled(
             feeder.clone().into(),
         ))
@@ -97,5 +90,4 @@ impl_emit!(crate::epg::ProgramsUpdated, EpgProgramsUpdated);
 impl_emit!(crate::recording::RecordingStarted, RecordingStarted);
 impl_emit!(crate::recording::RecordingStopped, RecordingStopped);
 impl_emit!(crate::recording::RecordingFailed, RecordingFailed);
-impl_emit!(crate::recording::RecordingRetried, RecordingRetried);
 impl_emit!(crate::recording::RecordingRescheduled, RecordingRescheduled);

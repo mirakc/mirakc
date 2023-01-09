@@ -7,11 +7,10 @@ use std::io::Write;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use actlet::*;
-use async_trait::async_trait;
+use actlet::prelude::*;
 use chrono::DateTime;
-use chrono_jst::Jst;
 use chrono_jst::serde::ts_milliseconds;
+use chrono_jst::Jst;
 use fs2::FileExt;
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -1714,7 +1713,7 @@ mod tests {
         async fn call(
             &self,
             _msg: StartStreaming,
-        ) -> Result<<StartStreaming as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<StartStreaming as Message>::Reply> {
             let (tx, stream) = BroadcasterStream::new_for_test();
             let mut rx = self.0.clone();
             tokio::spawn(async move {
@@ -1798,7 +1797,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             _msg: QueryTimeshiftRecorders,
-        ) -> Result<<QueryTimeshiftRecorders as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<QueryTimeshiftRecorders as Message>::Reply> {
             Ok(Ok(vec![]))
         }
     }
@@ -1808,7 +1807,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: QueryTimeshiftRecorder,
-        ) -> Result<<QueryTimeshiftRecorder as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<QueryTimeshiftRecorder as Message>::Reply> {
             match msg.recorder {
                 TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
                     Ok(Ok(TimeshiftRecorderModel {
@@ -1847,7 +1846,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             _msg: QueryTimeshiftRecords,
-        ) -> Result<<QueryTimeshiftRecords as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<QueryTimeshiftRecords as Message>::Reply> {
             Ok(Ok(vec![]))
         }
     }
@@ -1857,7 +1856,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: QueryTimeshiftRecord,
-        ) -> Result<<QueryTimeshiftRecord as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<QueryTimeshiftRecord as Message>::Reply> {
             if msg.record_id == 1u32.into() {
                 Ok(Ok(TimeshiftRecordModel {
                     id: msg.record_id,
@@ -1878,7 +1877,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: CreateTimeshiftLiveStreamSource,
-        ) -> Result<<CreateTimeshiftLiveStreamSource as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<CreateTimeshiftLiveStreamSource as Message>::Reply> {
             match msg.recorder {
                 TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
                     Ok(Ok(TimeshiftLiveStreamSource::new_for_test(name)))
@@ -1893,7 +1892,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             msg: CreateTimeshiftRecordStreamSource,
-        ) -> Result<<CreateTimeshiftRecordStreamSource as Message>::Reply, actlet::Error> {
+        ) -> actlet::Result<<CreateTimeshiftRecordStreamSource as Message>::Reply> {
             match msg.recorder {
                 TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
                     Ok(Ok(TimeshiftRecordStreamSource::new_for_test(name)))

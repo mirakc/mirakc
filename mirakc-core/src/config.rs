@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
@@ -68,7 +69,7 @@ pub struct Config {
     #[serde(default)]
     pub events: EventsConfig,
     #[serde(default)]
-    pub onair_trackers: OnairTrackersConfig,
+    pub onair_program_trackers: HashMap<String, OnairProgramTrackerConfig>,
     #[serde(default)]
     pub resource: ResourceConfig,
 }
@@ -77,7 +78,6 @@ impl Config {
     pub fn normalize(mut self) -> Self {
         self.channels = ChannelConfig::normalize(self.channels);
         self.jobs = JobsConfig::normalize(self.jobs);
-        self.recording = RecordingConfig::normalize(self.recording);
         self
     }
 
@@ -99,10 +99,15 @@ impl Config {
         //            .unique()
         //            .count(),
         //            "config.channels: `name` must be a unique");
-        self.tuners
-            .iter()
-            .enumerate()
-            .for_each(|(i, config)| config.validate(i));
+        self.tuners.iter().enumerate().for_each(|(i, config)| {
+            config.validate(i);
+            if let Some(ref name) = config.dedicated_for {
+                assert!(
+                    self.onair_program_trackers.contains_key(name),
+                    "config.tuners: `dedicated-for` must hold an existing name"
+                );
+            }
+        });
         assert_eq!(
             self.tuners.len(),
             self.tuners
@@ -122,6 +127,9 @@ impl Config {
         self.jobs.validate();
         self.recording.validate();
         self.timeshift.validate();
+        self.onair_program_trackers
+            .iter()
+            .for_each(|(name, config)| config.validate(name));
         self.resource.validate();
     }
 }
@@ -157,6 +165,8 @@ pub struct ServerConfig {
     pub stream_chunk_size: usize,
     #[serde(default = "ServerConfig::default_stream_time_limit")]
     pub stream_time_limit: u64,
+    #[serde(default, with = "humantime_serde")]
+    pub program_stream_max_start_delay: Option<Duration>,
     #[serde(default)]
     pub mounts: IndexMap<String, MountConfig>, // keeps the insertion order
     #[serde(default)]
@@ -207,6 +217,15 @@ impl ServerConfig {
             "config.server: `stream_time_limit` must be larger than or equal to {}",
             SERVER_STREAM_TIME_LIMIT_MIN
         );
+
+        if let Some(max_start_delay) = self.program_stream_max_start_delay {
+            assert!(
+                max_start_delay < Duration::from_secs(24 * 3600),
+                "config.server: `program-stream-max-start-delay` \
+                 must not be less than 24h"
+            );
+        }
+
         self.addrs.iter().for_each(|addr| addr.validate());
         self.mounts
             .iter()
@@ -228,6 +247,7 @@ impl Default for ServerConfig {
             stream_max_chunks: Self::default_stream_max_chunks(),
             stream_chunk_size: Self::default_stream_chunk_size(),
             stream_time_limit: Self::default_stream_time_limit(),
+            program_stream_max_start_delay: None,
             mounts: Default::default(),
             folder_view_template_path: None,
         }
@@ -391,6 +411,8 @@ pub struct TunerConfig {
     pub disabled: bool,
     #[serde(default)]
     pub decoded: bool,
+    #[serde(default)]
+    pub dedicated_for: Option<String>,
 }
 
 impl TunerConfig {
@@ -655,61 +677,31 @@ impl JobConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct RecordingConfig {
-    pub records_dir: Option<PathBuf>,
-    pub contents_dir: Option<PathBuf>,
+    pub basedir: Option<PathBuf>,
     #[serde(default = "RecordingConfig::default_track_airtime_command")]
     pub track_airtime_command: String,
-    #[serde(default, with = "humantime_serde")]
-    pub max_start_delay: Option<Duration>,
 }
 
 impl RecordingConfig {
     pub fn is_enabled(&self) -> bool {
-        self.records_dir.is_some()
-    }
-
-    fn normalize(mut self) -> Self {
-        if self.records_dir.is_some() {
-            if self.contents_dir.is_none() {
-                self.contents_dir = self.records_dir.clone();
-            }
-        } else {
-            self.contents_dir = None;
-        }
-        self
+        self.basedir.is_some()
     }
 
     fn validate(&self) {
-        if let Some(ref records_dir) = self.records_dir {
+        if let Some(ref basedir) = self.basedir {
             assert!(
-                records_dir.is_absolute(),
-                "config.recording: `records_dir` must be an absolute path"
+                basedir.is_absolute(),
+                "config.recording: `basedir` must be an absolute path"
             );
             assert!(
-                records_dir.is_dir(),
-                "config.recording: `records_dir` must be a path to an existing directory"
-            );
-        }
-        if let Some(ref contents_dir) = self.contents_dir {
-            assert!(
-                contents_dir.is_absolute(),
-                "config.recording: `contents_dir` must be an absolute path"
-            );
-            assert!(
-                contents_dir.is_dir(),
-                "config.recording: `contents_dir` must be a path to an existing directory"
+                basedir.is_dir(),
+                "config.recording: `basedir` must be a path to an existing directory"
             );
         }
         assert!(
             !self.track_airtime_command.is_empty(),
             "config.recording: `track-airtime-command` must be a non-empty string"
         );
-        if let Some(max_start_delay) = self.max_start_delay {
-            assert!(
-                max_start_delay < Duration::from_secs(24 * 3600),
-                "config.recording: `max-start-delay` must not be less than 24h"
-            );
-        }
     }
 
     fn default_track_airtime_command() -> String {
@@ -720,10 +712,8 @@ impl RecordingConfig {
 impl Default for RecordingConfig {
     fn default() -> Self {
         RecordingConfig {
-            records_dir: None,
-            contents_dir: None,
+            basedir: None,
             track_airtime_command: Self::default_track_airtime_command(),
-            max_start_delay: Default::default(),
         }
     }
 }
@@ -926,8 +916,6 @@ pub struct RecordingEventsConfig {
     #[serde(default)]
     pub failed: String,
     #[serde(default)]
-    pub retried: String,
-    #[serde(default)]
     pub rescheduled: String,
 }
 
@@ -950,22 +938,48 @@ impl Default for Concurrency {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(Debug))]
-pub struct OnairTrackersConfig {
-    #[serde(default = "OnairTrackersConfig::default_local")]
-    pub local: String,
+pub enum OnairProgramTrackerConfig {
+    Local(Arc<LocalOnairProgramTrackerConfig>),
 }
 
-impl OnairTrackersConfig {
-    fn default_local() -> String {
-        "mirakc-arib collect-eitpf --sids={{{sid}}}".to_string()
+impl OnairProgramTrackerConfig {
+    fn validate(&self, name: &str) {
+        match self {
+            Self::Local(config) => config.validate(name),
+        }
     }
 }
 
-impl Default for OnairTrackersConfig {
-    fn default() -> Self {
-        OnairTrackersConfig {
-            local: Self::default_local(),
-        }
+#[derive(Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
+pub struct LocalOnairProgramTrackerConfig {
+    pub channel_types: HashSet<ChannelType>,
+    #[serde(default)]
+    pub services: HashSet<MirakurunServiceId>,
+    #[serde(default)]
+    pub excluded_services: HashSet<MirakurunServiceId>,
+    #[serde(default = "LocalOnairProgramTrackerConfig::default_command")]
+    pub command: String,
+}
+
+impl LocalOnairProgramTrackerConfig {
+    fn default_command() -> String {
+        "mirakc-arib collect-eitpf --sids={{{sid}}}".to_string()
+    }
+
+    fn validate(&self, name: &str) {
+        assert!(
+            !self.channel_types.is_empty(),
+            "config.onair-program-trackers[{name}]: \
+             `channel-types` must be a non-empty list"
+        );
+        assert!(
+            !self.command.is_empty(),
+            "config.onair-program-trackers[{name}]: \
+             `command` must be a non-empty string"
+        );
     }
 }
 
@@ -1041,6 +1055,7 @@ mod tests {
     use super::*;
     use indexmap::indexmap;
     use maplit::hashmap;
+    use maplit::hashset;
 
     #[test]
     fn test_config() {
@@ -1098,6 +1113,22 @@ mod tests {
                 command: test
             resource:
               strings-yaml: /bin/sh
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_config_validate_tuner_dedicated_for() {
+        let config = serde_yaml::from_str::<Config>(
+            r#"
+            tuners:
+              - name: test
+                types: [GR]
+                dedicated-for: test
+                command: test
         "#,
         )
         .unwrap();
@@ -1166,6 +1197,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                program_stream_max_start_delay: None,
                 mounts: Default::default(),
                 folder_view_template_path: None,
             }
@@ -1184,6 +1216,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                program_stream_max_start_delay: None,
                 mounts: Default::default(),
                 folder_view_template_path: None,
             }
@@ -1206,6 +1239,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                program_stream_max_start_delay: None,
                 mounts: Default::default(),
                 folder_view_template_path: None,
             }
@@ -1223,6 +1257,7 @@ mod tests {
                 stream_max_chunks: 1000,
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                program_stream_max_start_delay: None,
                 mounts: Default::default(),
                 folder_view_template_path: None,
             }
@@ -1240,6 +1275,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: 10000,
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                program_stream_max_start_delay: None,
                 mounts: Default::default(),
                 folder_view_template_path: None,
             }
@@ -1257,6 +1293,25 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: 10000,
+                program_stream_max_start_delay: None,
+                mounts: Default::default(),
+                folder_view_template_path: None,
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<ServerConfig>(
+                r#"
+                program-stream-max-start-delay: 1h
+            "#
+            )
+            .unwrap(),
+            ServerConfig {
+                addrs: ServerConfig::default_addrs(),
+                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
+                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
+                stream_time_limit: ServerConfig::default_stream_time_limit(),
+                program_stream_max_start_delay: Some(Duration::from_secs(3600)),
                 mounts: Default::default(),
                 folder_view_template_path: None,
             }
@@ -1282,6 +1337,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                program_stream_max_start_delay: None,
                 mounts: indexmap! {
                     "/ui".to_string() => MountConfig {
                         path: "/path/to/ui".into(),
@@ -1315,6 +1371,7 @@ mod tests {
                 stream_max_chunks: ServerConfig::default_stream_max_chunks(),
                 stream_chunk_size: ServerConfig::default_stream_chunk_size(),
                 stream_time_limit: ServerConfig::default_stream_time_limit(),
+                program_stream_max_start_delay: None,
                 mounts: Default::default(),
                 folder_view_template_path: Some("/path/to/listing.html.mustache".into()),
             }
@@ -1340,6 +1397,37 @@ mod tests {
     fn test_server_config_validate_stream_time_limit() {
         let mut config = ServerConfig::default();
         config.stream_time_limit = 1;
+        config.validate();
+    }
+
+    #[test]
+    fn test_server_config_validate_max_start_delay() {
+        let config = serde_yaml::from_str::<ServerConfig>(
+            r#"
+            program-stream-max-start-delay: 1h
+        "#,
+        )
+        .unwrap();
+        config.validate();
+
+        let config = serde_yaml::from_str::<ServerConfig>(
+            r#"
+            program-stream-max-start-delay: 23h 59m 59s
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_server_config_validate_max_start_delay_less_than_24h() {
+        let config = serde_yaml::from_str::<ServerConfig>(
+            r#"
+            program-stream-max-start-delay: 24h
+        "#,
+        )
+        .unwrap();
         config.validate();
     }
 
@@ -1765,6 +1853,7 @@ mod tests {
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: false,
                 decoded: false,
+                dedicated_for: None,
             }
         );
 
@@ -1790,6 +1879,7 @@ mod tests {
                 time_limit: 1,
                 disabled: false,
                 decoded: false,
+                dedicated_for: None,
             }
         );
 
@@ -1815,6 +1905,7 @@ mod tests {
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: true,
                 decoded: false,
+                dedicated_for: None,
             }
         );
 
@@ -1840,6 +1931,33 @@ mod tests {
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: false,
                 decoded: true,
+                dedicated_for: None,
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<TunerConfig>(
+                r#"
+                name: x
+                types: [GR, BS, CS, SKY]
+                command: open tuner
+                dedicated-for: user
+            "#
+            )
+            .unwrap(),
+            TunerConfig {
+                name: "x".to_string(),
+                channel_types: vec![
+                    ChannelType::GR,
+                    ChannelType::BS,
+                    ChannelType::CS,
+                    ChannelType::SKY
+                ],
+                command: "open tuner".to_string(),
+                time_limit: TunerConfig::default_time_limit(),
+                disabled: false,
+                decoded: false,
+                dedicated_for: Some("user".to_string()),
             }
         );
 
@@ -1870,6 +1988,7 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: false,
             decoded: false,
+            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -1884,6 +2003,7 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: false,
             decoded: false,
+            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -1898,6 +2018,7 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: false,
             decoded: false,
+            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -1912,6 +2033,7 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: false,
             decoded: false,
+            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -1925,6 +2047,7 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: true,
             decoded: false,
+            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -2346,38 +2469,12 @@ mod tests {
         assert_eq!(
             serde_yaml::from_str::<RecordingConfig>(
                 r#"
-                records-dir: /tmp
+                basedir: /tmp
             "#
             )
             .unwrap(),
             RecordingConfig {
-                records_dir: Some("/tmp".into()),
-                ..Default::default()
-            }
-        );
-
-        assert_eq!(
-            serde_yaml::from_str::<RecordingConfig>(
-                r#"
-                contents-dir: /tmp
-            "#
-            )
-            .unwrap(),
-            RecordingConfig {
-                contents_dir: Some("/tmp".into()),
-                ..Default::default()
-            }
-        );
-
-        assert_eq!(
-            serde_yaml::from_str::<RecordingConfig>(
-                r#"
-                max-start-delay: 1h
-            "#
-            )
-            .unwrap(),
-            RecordingConfig {
-                max_start_delay: Some(Duration::from_secs(3600)),
+                basedir: Some("/tmp".into()),
                 ..Default::default()
             }
         );
@@ -2389,7 +2486,7 @@ mod tests {
 
         assert!(serde_yaml::from_str::<RecordingConfig>(
             r#"
-                records-dir: /tmp
+                basedir: /tmp
             "#
         )
         .unwrap()
@@ -2397,52 +2494,10 @@ mod tests {
     }
 
     #[test]
-    fn test_recording_config_normalize() {
+    fn test_recording_config_validate_basedir() {
         let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
-            records-dir: /tmp
-        "#,
-        )
-        .unwrap();
-        assert_eq!(
-            config.normalize(),
-            RecordingConfig {
-                records_dir: Some("/tmp".into()),
-                contents_dir: Some("/tmp".into()),
-                ..Default::default()
-            }
-        );
-
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            contents-dir: /tmp
-        "#,
-        )
-        .unwrap();
-        assert_eq!(config.normalize(), Default::default());
-
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            records-dir: /tmp
-            contents-dir: /var
-        "#,
-        )
-        .unwrap();
-        assert_eq!(
-            config.normalize(),
-            RecordingConfig {
-                records_dir: Some("/tmp".into()),
-                contents_dir: Some("/var".into()),
-                ..Default::default()
-            }
-        );
-    }
-
-    #[test]
-    fn test_recording_config_validate_records_dir() {
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            records-dir: /tmp
+            basedir: /tmp
         "#,
         )
         .unwrap();
@@ -2451,10 +2506,10 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_recording_config_validate_records_dir_relative() {
+    fn test_recording_config_validate_basedir_relative() {
         let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
-            records-dir: relative/dir
+            basedir: relative/dir
         "#,
         )
         .unwrap();
@@ -2463,76 +2518,10 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_recording_config_validate_records_dir_not_existing() {
+    fn test_recording_config_validate_basedir_not_existing() {
         let config = serde_yaml::from_str::<RecordingConfig>(
             r#"
-            records-dir: /no/such/dir
-        "#,
-        )
-        .unwrap();
-        config.validate();
-    }
-
-    #[test]
-    fn test_recording_config_validate_contents_dir() {
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            contents-dir: /tmp
-        "#,
-        )
-        .unwrap();
-        config.validate();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_recording_config_validate_contents_dir_relative() {
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            contents-dir: relative/dir
-        "#,
-        )
-        .unwrap();
-        config.validate();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_recording_config_validate_contents_dir_not_existing() {
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            contents-dir: /no/such/dir
-        "#,
-        )
-        .unwrap();
-        config.validate();
-    }
-
-    #[test]
-    fn test_recording_config_validate_max_start_delay() {
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            max-start-delay: 1h
-        "#,
-        )
-        .unwrap();
-        config.validate();
-
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            max-start-delay: 23h 59m 59s
-        "#,
-        )
-        .unwrap();
-        config.validate();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_recording_config_validate_max_start_delay_less_than_24h() {
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            max-start-delay: 24h
+            basedir: /no/such/dir
         "#,
         )
         .unwrap();
@@ -2935,6 +2924,85 @@ mod tests {
                 ..Default::default()
             }
         );
+    }
+
+    #[test]
+    fn test_local_onair_program_tracker_config() {
+        assert_eq!(
+            serde_yaml::from_str::<LocalOnairProgramTrackerConfig>(
+                r#"
+                channel-types: [GR]
+            "#
+            )
+            .unwrap(),
+            LocalOnairProgramTrackerConfig {
+                channel_types: hashset![ChannelType::GR],
+                services: Default::default(),
+                excluded_services: Default::default(),
+                command: LocalOnairProgramTrackerConfig::default_command(),
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<LocalOnairProgramTrackerConfig>(
+                r#"
+                channel-types: [GR]
+                services: [1]
+                excluded-services: [2]
+                command: "true"
+            "#
+            )
+            .unwrap(),
+            LocalOnairProgramTrackerConfig {
+                channel_types: hashset![ChannelType::GR],
+                services: hashset![1.into()],
+                excluded_services: hashset![2.into()],
+                command: "true".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_local_onair_program_tracker_config_validate() {
+        let config = LocalOnairProgramTrackerConfig {
+            channel_types: hashset![ChannelType::GR],
+            services: hashset![],
+            excluded_services: hashset![],
+            command: LocalOnairProgramTrackerConfig::default_command(),
+        };
+        config.validate("test");
+
+        let config = LocalOnairProgramTrackerConfig {
+            channel_types: hashset![ChannelType::GR],
+            services: hashset![1.into()],
+            excluded_services: hashset![2.into()],
+            command: "true".to_string(),
+        };
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_local_onair_program_tracker_config_validate_channel_types() {
+        let config = LocalOnairProgramTrackerConfig {
+            channel_types: hashset![],
+            services: hashset![],
+            excluded_services: hashset![],
+            command: LocalOnairProgramTrackerConfig::default_command(),
+        };
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_local_onair_program_tracker_config_validate_command() {
+        let config = LocalOnairProgramTrackerConfig {
+            channel_types: hashset![ChannelType::GR],
+            services: hashset![],
+            excluded_services: hashset![],
+            command: "".to_string(),
+        };
+        config.validate("test");
     }
 
     #[test]

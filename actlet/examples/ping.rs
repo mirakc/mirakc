@@ -1,5 +1,4 @@
-use actlet::*;
-use async_trait::async_trait;
+use actlet::prelude::*;
 
 struct MyActor {
     count: usize,
@@ -27,7 +26,7 @@ impl Handler<Ping> for MyActor {
 struct Ping(usize);
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> actlet::Result<()> {
     let system = System::new();
     let actor = MyActor::new(10);
     let addr = system.spawn_actor(actor).await;
