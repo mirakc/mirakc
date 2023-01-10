@@ -18,8 +18,14 @@ use mirakc_core::error::Error;
 use mirakc_core::models::*;
 use mirakc_core::timeshift::*;
 
+pub struct TimeshiftFilesystemConfig {
+    pub uid: u32,
+    pub gid: u32,
+}
+
 pub struct TimeshiftFilesystem {
     config: Arc<Config>,
+    fs_config: TimeshiftFilesystemConfig,
     caches: HashMap<usize, Cache>,
     open_contexts: HashMap<u64, OpenContext>,
     next_handle: u64,
@@ -29,9 +35,11 @@ impl TimeshiftFilesystem {
     const MAX_TITLE_SIZE: usize = 200;
     const TTL: std::time::Duration = std::time::Duration::from_secs(1);
 
-    pub fn new(config: Arc<Config>) -> Self {
+    pub fn new(config: Arc<Config>, fs_config: TimeshiftFilesystemConfig) -> Self {
+        tracing::info!(fs_config.uid, fs_config.gid, "Create a timeshift filesystem");
         TimeshiftFilesystem {
             config,
+            fs_config,
             caches: HashMap::new(),
             open_contexts: HashMap::new(),
             next_handle: 1,
@@ -100,8 +108,8 @@ impl TimeshiftFilesystem {
                     kind: fuser::FileType::Directory,
                     perm: 0o555,
                     nlink: 2,
-                    uid: 0,
-                    gid: 0,
+                    uid: self.fs_config.uid,
+                    gid: self.fs_config.gid,
                     rdev: 0,
                     blksize: 512,
                     flags: 0,
@@ -235,8 +243,8 @@ impl TimeshiftFilesystem {
                 kind: fuser::FileType::RegularFile,
                 perm: 0o444,
                 nlink: 1,
-                uid: 0,
-                gid: 0,
+                uid: self.fs_config.uid,
+                gid: self.fs_config.gid,
                 rdev: 0,
                 blksize: 512,
                 flags: 0,
@@ -365,8 +373,8 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 kind: fuser::FileType::Directory,
                 perm: 0o555,
                 nlink: 2,
-                uid: 0,
-                gid: 0,
+                uid: self.fs_config.uid,
+                gid: self.fs_config.gid,
                 rdev: 0,
                 flags: 0,
                 blksize: 512,

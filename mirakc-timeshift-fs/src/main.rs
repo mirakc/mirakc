@@ -10,9 +10,10 @@ use std::path::PathBuf;
 use clap::Parser;
 use clap::ValueEnum;
 
-use crate::filesystem::TimeshiftFilesystem;
-use crate::mount_options::parse_options_from_args;
 use mirakc_core::error::Error;
+use crate::filesystem::TimeshiftFilesystem;
+use crate::filesystem::TimeshiftFilesystemConfig;
+use crate::mount_options::parse_options_from_args;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -23,8 +24,20 @@ struct Opt {
     /// specified.  Its value has to be an absolute path.
     ///
     /// See docs/config.md for details of the YAML format.
-    #[structopt(short, long, env = "MIRAKC_CONFIG")]
+    #[arg(short, long, env = "MIRAKC_CONFIG")]
     config: PathBuf,
+
+    /// Owner's numeric UID.
+    ///
+    /// UID of the user running the process is used by default.
+    #[arg(short, long)]
+    uid: Option<u32>,
+
+    /// Owner's numeric GID.
+    ///
+    /// GID of the user running the process is used by default.
+    #[arg(short, long)]
+    gid: Option<u32>,
 
     /// Logging format.
     #[arg(long, value_enum, env = "MIRAKC_LOG_FORMAT", default_value = "text")]
@@ -58,7 +71,11 @@ fn main() -> Result<(), Error> {
 
     let config = mirakc_core::config::load(&opt.config);
 
-    let fs = TimeshiftFilesystem::new(config);
+    let fs_config = TimeshiftFilesystemConfig {
+        uid: opt.uid.unwrap_or(unsafe { libc::getuid() }),
+        gid: opt.gid.unwrap_or(unsafe { libc::getgid() }),
+    };
+    let fs = TimeshiftFilesystem::new(config, fs_config);
 
     let mut options = parse_options_from_args(&opt.options);
     options.push(fuser::MountOption::FSName("mirakc-timeshift".to_string()));
