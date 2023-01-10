@@ -4,6 +4,7 @@ use std::io;
 use std::io::Read;
 use std::io::SeekFrom;
 use std::io::Write;
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -450,17 +451,28 @@ impl TimeshiftRecorder {
                 }
             }
             Err(err) => {
-                tracing::warn!(
-                    "{}: Failed to load saved data from {}: {}",
-                    self.name,
-                    self.config().data_file,
-                    err
+                tracing::error!(
+                    %err,
+                    recorder.name = self.name,
+                    recorder.data_file = self.config().data_file,
+                    "Failed to load saved metadata",
                 );
+                tracing::error!(
+                    recorder.name = self.name,
+                    recorder.data_file = self.config().data_file,
+                    "Recover or simply remove the data file",
+                );
+                std::process::exit(libc::EXIT_FAILURE);
+                // never reach here
             }
         }
     }
 
     fn do_load_data(&mut self) -> Result<usize, Error> {
+        if !Path::new(&self.config().data_file).exists() {
+            return Ok(0);
+        }
+
         // Read all bytes, then deserialize records, in order to reduce the lock time.
         let mut buf = Vec::with_capacity(4096 * 1_000);
         {
@@ -475,17 +487,46 @@ impl TimeshiftRecorder {
             tracing::debug!("{}: Unlocked {}", self.name, self.config().data_file);
             // It's guaranteed that the lockfile will be unlocked after the file is closed.
         }
-        let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
-        if self.service.triple() == data.service.triple()
-            && self.config().chunk_size == data.chunk_size
-            && self.config().max_chunks() == data.max_chunks
-        {
-            self.records = data.records;
-            self.points = data.points; // Don't remove the last item here.
-            Ok(self.records.len())
-        } else {
-            Ok(0)
+
+        if dbg!(buf.is_empty()) {
+            return Ok(0);
         }
+
+        let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
+        let mut invalid = false;
+        if self.service.triple() != data.service.triple() {
+            tracing::error!(
+                recorder.data_file = %self.config().data_file,
+                recorder.service_triple =  %self.service.triple(),
+                data.service_triple = %data.service.triple(),
+                "Not matched",
+            );
+            invalid = true;
+        }
+        if self.config().chunk_size != data.chunk_size {
+            tracing::error!(
+                recorder.data_file = %self.config().data_file,
+                recorder.chunk_size =  self.config().chunk_size,
+                data.chunk_size,
+                "Not matched",
+            );
+            invalid = true;
+        }
+        if self.config().max_chunks() != data.max_chunks {
+            tracing::error!(
+                recorder.data_file = %self.config().data_file,
+                recorder.max_chunks = self.config().max_chunks(),
+                data.max_chunks,
+                "Not matched",
+            );
+            invalid = true;
+        }
+        if invalid {
+            return Err(Error::TimeshiftConfigInconsistent);
+        }
+        self.records = data.records;
+        self.points = data.points; // Don't remove the last item here.
+        Ok(self.records.len())
     }
 
     fn save_data(&self) {
@@ -1489,16 +1530,18 @@ mod tests {
     use super::*;
     use crate::broadcaster::BroadcasterStream;
     use chrono::TimeZone;
+    use tempfile::TempDir;
     use tokio::sync::watch;
 
     #[tokio::test]
     async fn test_timeshift_record_purge_expired_records() {
         let activator = ReactivatorStub;
 
+        let temp_dir = TempDir::new().unwrap();
         let mut recorder = TimeshiftRecorder {
             index: 0,
             name: "test".to_string(),
-            config: create_config(),
+            config: create_config(temp_dir.path()),
             activator: activator.clone().into(),
             service: create_epg_service(),
             records: indexmap::indexmap! {
@@ -1525,10 +1568,11 @@ mod tests {
         recorder.purge_expired_records();
         assert!(recorder.records.is_empty());
 
+        let temp_dir = TempDir::new().unwrap();
         let mut recorder = TimeshiftRecorder {
             index: 0,
             name: "test".to_string(),
-            config: create_config(),
+            config: create_config(temp_dir.path()),
             activator: activator.clone().into(),
             service: create_epg_service(),
             records: indexmap::indexmap! {
@@ -1592,11 +1636,12 @@ mod tests {
         let tuner_manager = TunerManagerStub(pipeline_rx);
         let activator = TimeshiftManagerStub(reactivate_tx).into();
 
+        let temp_dir = TempDir::new().unwrap();
         let recorder = system
             .spawn_actor(TimeshiftRecorder::new(
                 0,
                 "test".to_string(),
-                create_config(),
+                create_config(temp_dir.path()),
                 activator,
             ))
             .await;
@@ -1640,11 +1685,12 @@ mod tests {
         let tuner_manager = TunerManagerStub(pipeline_rx);
         let activator = ReactivatorStub.into();
 
+        let temp_dir = TempDir::new().unwrap();
         let recorder = system
             .spawn_actor(TimeshiftRecorder::new(
                 0,
                 "test".to_string(),
-                create_config(),
+                create_config(temp_dir.path()),
                 activator,
             ))
             .await;
@@ -1667,20 +1713,24 @@ mod tests {
         system.stop();
     }
 
-    fn create_config() -> Arc<Config> {
+    fn create_config<P: AsRef<Path>>(dir: P) -> Arc<Config> {
+        let ts_file = dir.as_ref().join("ts-file.m2ts");
+        let data_file = dir.as_ref().join("data-file.json");
         Arc::new(
-            serde_yaml::from_str::<Config>(
+            serde_yaml::from_str::<Config>(&format!(
                 r#"
-          timeshift:
-            command: true
-            recorders:
-              test:
-                service-triple: [1, 2, 3]
-                ts-file: /dev/null
-                data-file: /dev/null
-                num-chunks: 100
-        "#,
-            )
+                timeshift:
+                  command: true
+                  recorders:
+                    test:
+                      service-triple: [1, 2, 3]
+                      ts-file: {}
+                      data-file: {}
+                      num-chunks: 100
+                "#,
+                ts_file.display(),
+                data_file.display()
+            ))
             .unwrap(),
         )
     }

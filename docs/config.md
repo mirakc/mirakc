@@ -753,8 +753,8 @@ Definitions of timeshift recorders.
   * Size of a data chunk
   * Must be a multiple of `8192 * 188`
 * num-chunks
-  * The maximum number of chunks in the file
-    * The maximum size of the file is computed by `chunk-size * num-chunks`
+  * The number of chunks in the ts-file
+    * The maximum size of the ts-file is computed by `chunk-size * num-chunks`
   * Must be larger than 2
 * num-reserves
   * The number of chunks in the gap between the head and the tail of the ring buffer
@@ -763,6 +763,23 @@ Definitions of timeshift recorders.
 * priority
   * The priority of streaming
   * Should be larger than 0
+
+The following values are stored in the `data-file`:
+
+* service-triple
+* chunk-size
+* `num-chunks - num-reserves` (The maximum number of available chunks in the ts-file)
+
+If the values above don't match ones in the recorder's configuration, mirakc
+output error messages and terminates before the recorder starts.  In this case,
+you have to select one of the following solutions, and then relaunch mirakc with
+new configuration values:
+
+1. Remove the data-file
+2. Recover the data-file by using a tool and the ts-file
+
+There is no tool for the solution#2 at this point.  We have a plan to provide it
+in the future.
 
 ## events
 

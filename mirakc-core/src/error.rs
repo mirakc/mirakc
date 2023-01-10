@@ -36,6 +36,8 @@ pub enum Error {
     ProgramEnded,
     #[error("Invalid path")]
     InvalidPath,
+    #[error("Timeshift config inconsistent")]
+    TimeshiftConfigInconsistent,
     #[error("Command failed: {0}")]
     CommandFailed(command_util::Error),
     #[error("std::fmt error: {0}")]
