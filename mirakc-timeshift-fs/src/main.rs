@@ -1,11 +1,17 @@
 mod filesystem;
 
+// `fuser::mount()` was deprecatged, but `fuser::mnt::mount_options::parse_options_from_args()`
+// is still private.  So, there is no way to parse mount options specified in the command line...
+// We copied mnt/mount_options.rs from cberner/fuser.
+mod mount_options;
+
 use std::path::PathBuf;
 
 use clap::Parser;
 use clap::ValueEnum;
 
 use crate::filesystem::TimeshiftFilesystem;
+use crate::mount_options::parse_options_from_args;
 use mirakc_core::error::Error;
 
 #[derive(Parser)]
@@ -54,14 +60,10 @@ fn main() -> Result<(), Error> {
 
     let fs = TimeshiftFilesystem::new(config);
 
-    let mut options = vec![
-        fuser::MountOption::FSName("mirakc-timeshift".to_string()),
-        fuser::MountOption::RO,
-        fuser::MountOption::NoAtime,
-    ];
-    for option in opt.options.iter() {
-        options.push(fuser::MountOption::CUSTOM(option.clone()));
-    }
+    let mut options = parse_options_from_args(&opt.options);
+    options.push(fuser::MountOption::FSName("mirakc-timeshift".to_string()));
+    options.push(fuser::MountOption::RO);
+    options.push(fuser::MountOption::NoAtime);
 
     // fuser::MountOption::AutoMount does NOT work properly when the process terminates by signals
     // like SIGTERM.  Because the process terminates before fuser::Session<FS>::drop() is called.
