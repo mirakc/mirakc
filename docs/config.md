@@ -50,7 +50,7 @@ suitable for your environment.
 | [timeshift.recorders\[\].service-triple] |                                   |
 | [timeshift.recorders\[\].ts-file]        |                                   |
 | [timeshift.recorders\[\].data-file]      |                                   |
-| [timeshift.recorders\[\].chunk-size]     | `163840000` (~160MB)              |
+| [timeshift.recorders\[\].chunk-size]     | `154009600` (~154MB)              |
 | [timeshift.recorders\[\].num-chunks]     |                                   |
 | [timeshift.recorders\[\].num-reserves]   | `!number 1`                       |
 | [timeshift.recorders\[\].priority]       | `128`                             |
@@ -736,7 +736,7 @@ timeshift:
       service-triple: [4, 16625, 101]  # BS1
       ts-file: /path/to/bs1.timeshift.m2ts
       data-file: /path/to/bs1.timeshift.data
-      num-chunks: 4000  # about 640GB
+      num-chunks: 4000  # about 616GB
 ```
 
 ### timeshift.recorders
@@ -751,7 +751,7 @@ Definitions of timeshift recorders.
   * A path to a file to save data like records encoded with JSON
 * chunk-size
   * Size of a data chunk
-  * Must be a multiple of 8192
+  * Must be a multiple of `8192 * 188`
 * num-chunks
   * The maximum number of chunks in the file
     * The maximum size of the file is computed by `chunk-size * num-chunks`
