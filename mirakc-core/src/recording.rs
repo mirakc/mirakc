@@ -689,7 +689,7 @@ where
 // start recording
 
 #[derive(Message)]
-#[reply("Result<RecorderModel, Error>")]
+#[reply("Result<(), Error>")]
 pub struct StartRecording {
     pub schedule: RecordingSchedule,
 }
@@ -721,8 +721,12 @@ where
             ?msg.schedule.options.pre_filters,
             ?msg.schedule.options.post_filters,
         );
-        self.start_recording(msg.schedule.program.quad, ctx.address().clone(), ctx)
-            .await
+        let program_quad = msg.schedule.program.quad;
+        self.add_schedule(msg.schedule)?;
+        self.start_recording(program_quad, ctx.address().clone(), ctx)
+            .await?;
+        self.save_schedules();
+        Ok(())
     }
 }
 
@@ -856,7 +860,7 @@ where
         program_quad: ProgramQuad,
         addr: Address<Self>,
         ctx: &C,
-    ) -> Result<RecorderModel, Error> {
+    ) -> Result<(), Error> {
         if self.recorders.contains_key(&program_quad) {
             return Err(Error::AlreadyExists);
         }
@@ -983,7 +987,6 @@ where
             pipeline,
             stop_trigger: Some(stop_trigger),
         };
-        let model = recorder.get_model(program_quad);
         self.recorders.insert(program_quad, recorder);
         self.schedules.get_mut(&program_quad).unwrap().state = RecordingScheduleState::Recording;
 
@@ -991,7 +994,7 @@ where
         // actors receiving RecordingStarted messages can access the recorder.
         ctx.spawn_task(fut);
 
-        Ok(model)
+        Ok(())
     }
 }
 
@@ -2523,11 +2526,7 @@ pub(crate) mod stub {
         ) -> actlet::Result<<StartRecording as Message>::Reply> {
             match msg.schedule.program.quad.eid().value() {
                 0 => Ok(Err(Error::RecorderNotFound)),
-                _ => Ok(Ok(RecorderModel {
-                    program_quad: msg.schedule.program.quad,
-                    started_at: Jst::now(),
-                    pipeline: vec![],
-                })),
+                _ => Ok(Ok(())),
             }
         }
     }

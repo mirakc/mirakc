@@ -73,7 +73,7 @@ where
     path = "/recording/recorders",
     request_body = WebRecordingScheduleInput,
     responses(
-        (status = 201, description = "Created", body = WebRecordingRecorder),
+        (status = 201, description = "Created"),
         (status = 401, description = "Bad Request"),
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
@@ -82,7 +82,7 @@ where
 pub(in crate::web::api) async fn create<T, E, R, S>(
     State(state): State<Arc<AppState<T, E, R, S>>>,
     Json(input): Json<WebRecordingScheduleInput>,
-) -> Result<(StatusCode, Json<WebRecordingRecorder>), Error>
+) -> Result<StatusCode, Error>
 where
     E: Call<epg::QueryProgram>,
     R: Call<recording::StartRecording>,
@@ -97,9 +97,9 @@ where
         options: input.options,
         tags: input.tags,
     };
-    let recorder = state
+    state
         .recording_manager
         .call(recording::StartRecording { schedule })
         .await??;
-    Ok((StatusCode::CREATED, Json(recorder.into())))
+    Ok(StatusCode::CREATED)
 }
