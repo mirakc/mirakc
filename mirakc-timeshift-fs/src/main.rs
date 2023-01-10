@@ -10,10 +10,10 @@ use std::path::PathBuf;
 use clap::Parser;
 use clap::ValueEnum;
 
-use mirakc_core::error::Error;
 use crate::filesystem::TimeshiftFilesystem;
 use crate::filesystem::TimeshiftFilesystemConfig;
 use crate::mount_options::parse_options_from_args;
+use mirakc_core::error::Error;
 
 #[derive(Parser)]
 #[command(author, version, about)]

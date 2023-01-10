@@ -36,7 +36,11 @@ impl TimeshiftFilesystem {
     const TTL: std::time::Duration = std::time::Duration::from_secs(1);
 
     pub fn new(config: Arc<Config>, fs_config: TimeshiftFilesystemConfig) -> Self {
-        tracing::info!(fs_config.uid, fs_config.gid, "Create a timeshift filesystem");
+        tracing::info!(
+            fs_config.uid,
+            fs_config.gid,
+            "Create a timeshift filesystem"
+        );
         TimeshiftFilesystem {
             config,
             fs_config,
