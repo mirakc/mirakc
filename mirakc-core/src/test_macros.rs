@@ -47,7 +47,7 @@ macro_rules! program {
         program
     }};
     ($quad:expr) => {
-        EpgProgram::new($quad)
+        EpgProgram::new($quad.into())
     };
 }
 

@@ -1039,6 +1039,26 @@ pub mod events {
             }
         }
     }
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct OnairProgramChanged {
+        pub service_id: MirakurunServiceId,
+    }
+
+    impl OnairProgramChanged {
+        pub const fn name() -> &'static str {
+            "onair.program-changed"
+        }
+    }
+
+    impl From<crate::onair::OnairProgramChanged> for OnairProgramChanged {
+        fn from(msg: crate::onair::OnairProgramChanged) -> Self {
+            OnairProgramChanged {
+                service_id: msg.service_triple.into(),
+            }
+        }
+    }
 }
 
 #[cfg(test)]

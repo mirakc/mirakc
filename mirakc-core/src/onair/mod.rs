@@ -6,6 +6,7 @@ use std::sync::Arc;
 use actlet::prelude::*;
 
 use crate::epg::EpgProgram;
+use crate::models::ServiceTriple;
 
 pub use manager::OnairProgram;
 pub use manager::OnairProgramManager;
@@ -20,6 +21,7 @@ pub(crate) use manager::stub;
 
 #[derive(Clone, Message)]
 pub struct OnairProgramChanged {
+    pub service_triple: ServiceTriple,
     pub current: Option<Arc<EpgProgram>>,
     pub next: Option<Arc<EpgProgram>>,
 }

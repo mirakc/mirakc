@@ -84,6 +84,7 @@ async fn main() -> Result<(), Error> {
             config.clone(),
             epg.clone(),
             recording_manager.clone(),
+            onair_manager.clone(),
         ))
         .await;
 

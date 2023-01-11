@@ -60,6 +60,7 @@ suitable for your environment.
 | [events.recording.stopped]               | `''`                              |
 | [events.recording.failed]                | `''`                              |
 | [events.recording.rescheduled]           | `''`                              |
+| [events.onair.program-changed]           | `''`                              |
 | [onair-program-trackers]                 | `{}`                              |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
@@ -115,6 +116,7 @@ suitable for your environment.
 [events.recording.stopped]: #eventsrecordingstopped
 [events.recording.failed]: #eventsrecordingfailed
 [events.recording.rescheduled]: #eventsrecordingrescheduled
+[events.onair.program-changed]: #eventsonairprogram-changed
 [onair-program-trackers]: #onair-program-trackers
 [resource.strings-yaml]: #resourcestrings-yaml
 [resource.logos]: #resourcelogos
@@ -922,6 +924,21 @@ A JSON defined in the following schema is passed to the script via STDIN:
   "type": "object",
   "properties": {
     "programId": { "type": "number" }  // MirakurunProgramId
+  }
+}
+```
+
+### events.onair.program-changed
+
+A script to be executed when an on-air TV program of a service is changed.
+
+A JSON defined in the following schema is passed to the script via STDIN:
+
+```json5
+{
+  "type": "object",
+  "properties": {
+    "serviceId": { "type": "number" }  // MirakurunServiceId
   }
 }
 ```

@@ -17,17 +17,19 @@ use crate::config::Config;
 use crate::epg;
 use crate::error::Error;
 use crate::models::events::*;
+use crate::onair;
 use crate::recording;
 
-pub struct ScriptRunner<E, R> {
+pub struct ScriptRunner<E, R, O> {
     config: Arc<Config>,
     epg: E,
     recording_manager: R,
+    onair_manager: O,
     semaphore: Arc<Semaphore>,
 }
 
-impl<E, R> ScriptRunner<E, R> {
-    pub fn new(config: Arc<Config>, epg: E, recording_manager: R) -> Self {
+impl<E, R, O> ScriptRunner<E, R, O> {
+    pub fn new(config: Arc<Config>, epg: E, recording_manager: R, onair_manager: O) -> Self {
         let concurrency = match config.events.concurrency {
             Concurrency::Unlimited => Semaphore::MAX_PERMITS,
             Concurrency::Number(n) => n.max(1),
@@ -37,6 +39,7 @@ impl<E, R> ScriptRunner<E, R> {
             config,
             epg,
             recording_manager,
+            onair_manager,
             semaphore: Arc::new(Semaphore::new(concurrency)),
         }
     }
@@ -60,15 +63,21 @@ impl<E, R> ScriptRunner<E, R> {
     fn has_recording_rescheduled_script(&self) -> bool {
         !self.config.events.recording.rescheduled.is_empty()
     }
+
+    fn has_onair_program_changed_script(&self) -> bool {
+        !self.config.events.onair.program_changed.is_empty()
+    }
 }
 
 #[async_trait]
-impl<E, R> Actor for ScriptRunner<E, R>
+impl<E, R, O> Actor for ScriptRunner<E, R, O>
 where
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
     R: Send + Sync + 'static,
     R: Call<recording::RegisterEmitter>,
+    O: Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
@@ -112,6 +121,12 @@ where
                 .await
                 .expect("Failed to register emitter for recording::RecordingRescheduled");
         }
+        if self.has_onair_program_changed_script() {
+            self.onair_manager
+                .call(onair::RegisterEmitter(ctx.address().clone().into()))
+                .await
+                .expect("Failed to register emitter for onair::OnairProgramChanged");
+        }
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
@@ -122,12 +137,14 @@ where
 // epg::ProgramsUpdated
 
 #[async_trait]
-impl<E, R> Handler<epg::ProgramsUpdated> for ScriptRunner<E, R>
+impl<E, R, O> Handler<epg::ProgramsUpdated> for ScriptRunner<E, R, O>
 where
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
     R: Send + Sync + 'static,
     R: Call<recording::RegisterEmitter>,
+    O: Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: epg::ProgramsUpdated, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "ProgramsUpdated", %msg.service_triple);
@@ -135,7 +152,7 @@ where
     }
 }
 
-impl<E, R> ScriptRunner<E, R> {
+impl<E, R, O> ScriptRunner<E, R, O> {
     fn create_epg_programs_updated_task(
         &self,
         event: EpgProgramsUpdated,
@@ -160,12 +177,14 @@ impl<E, R> ScriptRunner<E, R> {
 // recording::RecordingStarted
 
 #[async_trait]
-impl<E, R> Handler<recording::RecordingStarted> for ScriptRunner<E, R>
+impl<E, R, O> Handler<recording::RecordingStarted> for ScriptRunner<E, R, O>
 where
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
     R: Send + Sync + 'static,
     R: Call<recording::RegisterEmitter>,
+    O: Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingStarted, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "RecordingStarted", %msg.program_quad);
@@ -173,7 +192,7 @@ where
     }
 }
 
-impl<E, R> ScriptRunner<E, R> {
+impl<E, R, O> ScriptRunner<E, R, O> {
     fn create_recording_started_task(&self, event: RecordingStarted) -> impl Future<Output = ()> {
         let span = tracing::info_span!(RecordingStarted::name(), %event.program_id);
         let fut = Self::run_recording_started_script(self.config.clone(), event);
@@ -195,12 +214,14 @@ impl<E, R> ScriptRunner<E, R> {
 // recording::RecordingStopped
 
 #[async_trait]
-impl<E, R> Handler<recording::RecordingStopped> for ScriptRunner<E, R>
+impl<E, R, O> Handler<recording::RecordingStopped> for ScriptRunner<E, R, O>
 where
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
     R: Send + Sync + 'static,
     R: Call<recording::RegisterEmitter>,
+    O: Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingStopped, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "RecordingStopped", %msg.program_quad);
@@ -208,7 +229,7 @@ where
     }
 }
 
-impl<E, R> ScriptRunner<E, R> {
+impl<E, R, O> ScriptRunner<E, R, O> {
     fn create_recording_stopped_task(&self, event: RecordingStopped) -> impl Future<Output = ()> {
         let span = tracing::info_span!(RecordingStopped::name(), %event.program_id);
         let fut = Self::run_recording_stopped_script(self.config.clone(), event);
@@ -230,12 +251,14 @@ impl<E, R> ScriptRunner<E, R> {
 // recording::RecordingFailed
 
 #[async_trait]
-impl<E, R> Handler<recording::RecordingFailed> for ScriptRunner<E, R>
+impl<E, R, O> Handler<recording::RecordingFailed> for ScriptRunner<E, R, O>
 where
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
     R: Send + Sync + 'static,
     R: Call<recording::RegisterEmitter>,
+    O: Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingFailed, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "RecordingFailed", %msg.program_quad, ?msg.reason);
@@ -243,7 +266,7 @@ where
     }
 }
 
-impl<E, R> ScriptRunner<E, R> {
+impl<E, R, O> ScriptRunner<E, R, O> {
     fn create_recording_failed_task(&self, event: RecordingFailed) -> impl Future<Output = ()> {
         let span = tracing::info_span!(RecordingFailed::name(), %event.program_id);
         let fut = Self::run_recording_failed_script(self.config.clone(), event);
@@ -265,12 +288,14 @@ impl<E, R> ScriptRunner<E, R> {
 // recording::RecordingRescheduled
 
 #[async_trait]
-impl<E, R> Handler<recording::RecordingRescheduled> for ScriptRunner<E, R>
+impl<E, R, O> Handler<recording::RecordingRescheduled> for ScriptRunner<E, R, O>
 where
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
     R: Send + Sync + 'static,
     R: Call<recording::RegisterEmitter>,
+    O: Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingRescheduled, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "RecordingRescheduled", %msg.program_quad);
@@ -278,7 +303,7 @@ where
     }
 }
 
-impl<E, R> ScriptRunner<E, R> {
+impl<E, R, O> ScriptRunner<E, R, O> {
     fn create_recording_rescheduled_task(
         &self,
         event: RecordingRescheduled,
@@ -293,6 +318,46 @@ impl<E, R> ScriptRunner<E, R> {
         event: RecordingRescheduled,
     ) -> Result<ExitStatus, Error> {
         let mut child = spawn_command(&config.events.recording.rescheduled)?;
+        let mut input = child.stdin.take().unwrap();
+        write_line(&mut input, &event).await?;
+        drop(input);
+        Ok(child.wait().await?)
+    }
+}
+
+// onair::OnairProgramChanged
+
+#[async_trait]
+impl<E, R, O> Handler<onair::OnairProgramChanged> for ScriptRunner<E, R, O>
+where
+    E: Send + Sync + 'static,
+    E: Call<epg::RegisterEmitter>,
+    R: Send + Sync + 'static,
+    R: Call<recording::RegisterEmitter>,
+    O: Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: onair::OnairProgramChanged, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "OnairProgramChanged", %msg.service_triple);
+        ctx.spawn_task(self.create_onair_program_changed_task(msg.into()));
+    }
+}
+
+impl<E, R, O> ScriptRunner<E, R, O> {
+    fn create_onair_program_changed_task(
+        &self,
+        event: OnairProgramChanged,
+    ) -> impl Future<Output = ()> {
+        let span = tracing::info_span!(OnairProgramChanged::name(), %event.service_id);
+        let fut = Self::run_onair_program_changed_script(self.config.clone(), event);
+        wrap(self.semaphore.clone(), fut).instrument(span)
+    }
+
+    async fn run_onair_program_changed_script(
+        config: Arc<Config>,
+        event: OnairProgramChanged,
+    ) -> Result<ExitStatus, Error> {
+        let mut child = spawn_command(&config.events.onair.program_changed)?;
         let mut input = child.stdin.take().unwrap();
         write_line(&mut input, &event).await?;
         drop(input);
@@ -356,10 +421,11 @@ where
 mod tests {
     use super::*;
     use crate::epg::stub::EpgStub;
+    use crate::onair::stub::OnairProgramManagerStub;
     use crate::recording::stub::RecordingManagerStub;
     use assert_matches::assert_matches;
 
-    type TestTarget = ScriptRunner<EpgStub, RecordingManagerStub>;
+    type TestTarget = ScriptRunner<EpgStub, RecordingManagerStub, OnairProgramManagerStub>;
 
     #[tokio::test]
     async fn test_run_epg_programs_updated_script() {
@@ -552,6 +618,38 @@ mod tests {
         config.events.recording.rescheduled = "command-not-found".to_string();
         let config = Arc::new(config);
         let result = TestTarget::run_recording_rescheduled_script(config, event.clone()).await;
+        assert_matches!(result, Err(_));
+    }
+
+    #[tokio::test]
+    async fn test_run_onair_program_changed_script() {
+        let event = OnairProgramChanged {
+            service_id: (1, 2).into(),
+        };
+
+        let mut config = Config::default();
+        config.events.onair.program_changed = format!(
+            r#"env EXPECTED='{}' sh -c 'test "$(cat)" = "$EXPECTED"'"#,
+            serde_json::to_string(&event).unwrap(),
+        );
+        let config = Arc::new(config);
+        let result = TestTarget::run_onair_program_changed_script(config, event.clone()).await;
+        assert_matches!(result, Ok(status) => {
+            assert_matches!(status.code(), Some(0));
+        });
+
+        let mut config = Config::default();
+        config.events.onair.program_changed = "sh -c 'cat; false'".to_string();
+        let config = Arc::new(config);
+        let result = TestTarget::run_onair_program_changed_script(config, event.clone()).await;
+        assert_matches!(result, Ok(status) => {
+            assert_matches!(status.code(), Some(1));
+        });
+
+        let mut config = Config::default();
+        config.events.onair.program_changed = "command-not-found".to_string();
+        let config = Arc::new(config);
+        let result = TestTarget::run_onair_program_changed_script(config, event.clone()).await;
         assert_matches!(result, Err(_));
     }
 }

@@ -94,6 +94,7 @@ where
     O: Clone + Send + Sync + 'static,
     O: Call<crate::onair::QueryOnairProgram>,
     O: Call<crate::onair::QueryOnairPrograms>,
+    O: Call<crate::onair::RegisterEmitter>,
 {
     // Disable caching.
     let mut default_headers = HeaderMap::new();
@@ -193,6 +194,7 @@ where
     O: Clone + Send + Sync + 'static,
     O: Call<crate::onair::QueryOnairProgram>,
     O: Call<crate::onair::QueryOnairPrograms>,
+    O: Call<crate::onair::RegisterEmitter>,
 {
     let mut router = Router::new()
         .nest("/api", api::build_api(config))

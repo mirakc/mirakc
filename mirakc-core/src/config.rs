@@ -895,6 +895,8 @@ pub struct EventsConfig {
     pub epg: EpgEventsConfig,
     #[serde(default)]
     pub recording: RecordingEventsConfig,
+    #[serde(default)]
+    pub onair: OnairEventsConfig,
 }
 
 #[derive(Clone, Default, Deserialize, PartialEq)]
@@ -919,6 +921,15 @@ pub struct RecordingEventsConfig {
     pub failed: String,
     #[serde(default)]
     pub rescheduled: String,
+}
+
+#[derive(Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
+pub struct OnairEventsConfig {
+    #[serde(default)]
+    pub program_changed: String,
 }
 
 #[derive(Clone, Deserialize, PartialEq)]

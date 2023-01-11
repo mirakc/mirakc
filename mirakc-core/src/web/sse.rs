@@ -10,13 +10,15 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::models::events::*;
 
-pub(super) async fn events<E, R>(
+pub(super) async fn events<E, R, O>(
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
+    State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error>
 where
     E: Call<crate::epg::RegisterEmitter>,
     R: Call<crate::recording::RegisterEmitter>,
+    O: Call<crate::onair::RegisterEmitter>,
 {
     let (sender, receiver) = mpsc::channel(32);
 
@@ -49,6 +51,10 @@ where
         .call(crate::recording::RegisterEmitter::RecordingRescheduled(
             feeder.clone().into(),
         ))
+        .await?;
+
+    onair_manager
+        .call(crate::onair::RegisterEmitter(feeder.clone().into()))
         .await?;
 
     Ok(Sse::new(ReceiverStream::new(receiver)).keep_alive(Default::default()))
@@ -85,3 +91,4 @@ impl_emit!(crate::recording::RecordingStarted, RecordingStarted);
 impl_emit!(crate::recording::RecordingStopped, RecordingStopped);
 impl_emit!(crate::recording::RecordingFailed, RecordingFailed);
 impl_emit!(crate::recording::RecordingRescheduled, RecordingRescheduled);
+impl_emit!(crate::onair::OnairProgramChanged, OnairProgramChanged);

@@ -222,6 +222,7 @@ where
         if changed {
             let entry = self.entries.get(&service_triple).unwrap();
             let msg = OnairProgramChanged {
+                service_triple,
                 current: entry
                     .current
                     .as_ref()
