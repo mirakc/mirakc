@@ -49,13 +49,14 @@ mod uds;
 #[cfg(test)]
 mod tests;
 
-pub async fn serve<T, E, R, S>(
+pub async fn serve<T, E, R, S, O>(
     config: Arc<Config>,
     string_table: Arc<StringTable>,
     tuner_manager: T,
     epg: E,
     recording_manager: R,
     timeshift_manager: S,
+    onair_manager: O,
 ) -> Result<(), Error>
 where
     T: Clone + Send + Sync + 'static,
@@ -90,6 +91,9 @@ where
     S: Call<crate::timeshift::QueryTimeshiftRecords>,
     S: Call<crate::timeshift::QueryTimeshiftRecorder>,
     S: Call<crate::timeshift::QueryTimeshiftRecorders>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair::QueryOnairProgram>,
+    O: Call<crate::onair::QueryOnairPrograms>,
 {
     // Disable caching.
     let mut default_headers = HeaderMap::new();
@@ -104,6 +108,7 @@ where
             epg,
             recording_manager,
             timeshift_manager,
+            onair_manager,
         }));
 
     let http_servers = config
@@ -151,7 +156,7 @@ const X_MIRAKURUN_TUNER_USER_ID: &'static str = "x-mirakurun-tuner-user-id";
 
 // endpoints
 
-fn build_app<T, E, R, S>(config: &Config) -> Router<Arc<AppState<T, E, R, S>>>
+fn build_app<T, E, R, S, O>(config: &Config) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<crate::tuner::QueryTuners>,
@@ -185,6 +190,9 @@ where
     S: Call<crate::timeshift::QueryTimeshiftRecords>,
     S: Call<crate::timeshift::QueryTimeshiftRecorder>,
     S: Call<crate::timeshift::QueryTimeshiftRecorders>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair::QueryOnairProgram>,
+    O: Call<crate::onair::QueryOnairPrograms>,
 {
     let mut router = Router::new()
         .nest("/api", api::build_api(config))
@@ -211,72 +219,84 @@ where
 
 // state and extractors
 
-struct AppState<T, E, R, S> {
+struct AppState<T, E, R, S, O> {
     config: Arc<Config>,
     string_table: Arc<StringTable>,
     tuner_manager: T,
     epg: E,
     recording_manager: R,
     timeshift_manager: S,
+    onair_manager: O,
 }
 
 struct ConfigExtractor(Arc<Config>);
 
-impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for ConfigExtractor {
-    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+impl<T, E, R, S, O> FromRef<Arc<AppState<T, E, R, S, O>>> for ConfigExtractor {
+    fn from_ref(state: &Arc<AppState<T, E, R, S, O>>) -> Self {
         Self(state.config.clone())
     }
 }
 
 struct StringTableExtractor(Arc<StringTable>);
 
-impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for StringTableExtractor {
-    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+impl<T, E, R, S, O> FromRef<Arc<AppState<T, E, R, S, O>>> for StringTableExtractor {
+    fn from_ref(state: &Arc<AppState<T, E, R, S, O>>) -> Self {
         Self(state.string_table.clone())
     }
 }
 
 struct TunerManagerExtractor<T>(T);
 
-impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for TunerManagerExtractor<T>
+impl<T, E, R, S, O> FromRef<Arc<AppState<T, E, R, S, O>>> for TunerManagerExtractor<T>
 where
     T: Clone,
 {
-    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+    fn from_ref(state: &Arc<AppState<T, E, R, S, O>>) -> Self {
         Self(state.tuner_manager.clone())
     }
 }
 
 struct EpgExtractor<E>(E);
 
-impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for EpgExtractor<E>
+impl<T, E, R, S, O> FromRef<Arc<AppState<T, E, R, S, O>>> for EpgExtractor<E>
 where
     E: Clone,
 {
-    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+    fn from_ref(state: &Arc<AppState<T, E, R, S, O>>) -> Self {
         Self(state.epg.clone())
     }
 }
 
 struct RecordingManagerExtractor<R>(R);
 
-impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for RecordingManagerExtractor<R>
+impl<T, E, R, S, O> FromRef<Arc<AppState<T, E, R, S, O>>> for RecordingManagerExtractor<R>
 where
     R: Clone,
 {
-    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+    fn from_ref(state: &Arc<AppState<T, E, R, S, O>>) -> Self {
         Self(state.recording_manager.clone())
     }
 }
 
 struct TimeshiftManagerExtractor<S>(S);
 
-impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for TimeshiftManagerExtractor<S>
+impl<T, E, R, S, O> FromRef<Arc<AppState<T, E, R, S, O>>> for TimeshiftManagerExtractor<S>
 where
     S: Clone,
 {
-    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+    fn from_ref(state: &Arc<AppState<T, E, R, S, O>>) -> Self {
         Self(state.timeshift_manager.clone())
+    }
+}
+
+struct OnairProgramManagerExtractor<S>(S);
+
+impl<T, E, R, S, O> FromRef<Arc<AppState<T, E, R, S, O>>> for OnairProgramManagerExtractor<O>
+where
+    O: Clone,
+{
+    fn from_ref(state: &Arc<AppState<T, E, R, S, O>>) -> Self {
+        Self(state.onair_manager.clone())
     }
 }
 

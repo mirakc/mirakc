@@ -392,7 +392,7 @@ where
     async fn update_schedule_with_onair_program(&mut self, service_triple: ServiceTriple) {
         let msg = onair::QueryOnairProgram { service_triple };
         match self.onair_program_tracker.call(msg).await {
-            Ok(Some(onair_program)) => {
+            Ok(Ok(onair_program)) => {
                 if let Some(program) = onair_program.current {
                     // The start time in EIT[p/f] may be undefined.
                     if program.start_at.is_some() {
@@ -406,7 +406,7 @@ where
                     }
                 }
             }
-            Ok(None) => {
+            Ok(Err(_)) => {
                 // No tracker, nothing to do.
             }
             Err(err) => {

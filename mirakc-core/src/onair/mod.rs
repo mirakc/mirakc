@@ -10,6 +10,7 @@ use crate::epg::EpgProgram;
 pub use manager::OnairProgram;
 pub use manager::OnairProgramManager;
 pub use manager::QueryOnairProgram;
+pub use manager::QueryOnairPrograms;
 pub use manager::RegisterEmitter;
 
 #[cfg(test)]

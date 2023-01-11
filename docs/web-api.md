@@ -23,6 +23,8 @@ Web API endpoints listed below have been implemented at this moment:
 | [GET /api/iptv/channel.m3u8]                    |                            |
 | [GET /api/iptv/epg]                             |                            |
 | [GET /api/iptv/xmltv]                           | :heavy_check_mark:         |
+| [GET /onair]                                    |                            |
+| [GET /onair/{service_id}]                       |                            |
 | [GET /api/recording/schedules]                  |                            |
 | [POST /api/recording/schedules]                 |                            |
 | [GET /api/recording/schedules/{program_id}]     |                            |
@@ -54,6 +56,8 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 
 * [GET /api/services/{id}/programs]
 * [GET /api/iptv/playlist]
+* [GET /api/onair]
+* [GET /api/onair/{service_id}]
 * [GET /api/recording/schedules]
 * [POST /api/recording/schedules]
 * [GET /api/recording/schedules/{program_id}]
@@ -87,6 +91,8 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [GET /api/iptv/channel.m3u8]: #getapiiptvchannelm3u8
 [GET /api/iptv/epg]: #getapiiptvepg
 [GET /api/iptv/xmltv]: #getapiiptvxmltv
+[GET /api/onair]: #getapionair
+[GET /api/onair/{service_id}]: #getapionairservice_id
 [GET /api/recording/schedules]: #getapirecordingschedules
 [POST /api/recording/schedules]: #postapirecordingschedules
 [GET /api/recording/schedules/{program_id}]: #getapirecordingschedulesprogram_id
@@ -162,6 +168,14 @@ Returns a service.
 Returns a logo image if available.
 
 Support GET and HEAD methods so that IPTV Simple Client in Kodi works properly.
+
+## GET /api/onair
+
+Returns a list of on-air programs.
+
+## GET /api/onair/{service_id}
+
+returns an on-air program of a specified service.
 
 ## GET /api/services/{id}/programs
 

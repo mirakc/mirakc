@@ -21,11 +21,14 @@ use crate::models::ChannelType;
 use crate::models::MirakurunProgram;
 use crate::models::MirakurunProgramId;
 use crate::models::MirakurunService;
+use crate::models::MirakurunServiceId;
 use crate::models::ServiceId;
+use crate::models::ServiceTriple;
 use crate::models::TimeshiftRecordId;
 use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
 use crate::models::TunerUserPriority;
+use crate::onair::OnairProgram;
 use crate::recording;
 use crate::recording::RecordingOptions;
 use crate::recording::RecordingScheduleState;
@@ -175,6 +178,24 @@ impl From<TimeshiftRecordModel> for WebTimeshiftRecord {
             duration: model.end_time - model.start_time,
             size: model.size,
             recording: model.recording,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(in crate::web) struct WebOnairProgram {
+    pub service_id: MirakurunServiceId,
+    pub current: Option<MirakurunProgram>,
+    pub next: Option<MirakurunProgram>,
+}
+
+impl From<(ServiceTriple, OnairProgram)> for WebOnairProgram {
+    fn from((triple, data): (ServiceTriple, OnairProgram)) -> Self {
+        Self {
+            service_id: triple.into(),
+            current: data.current.map(|p| p.as_ref().clone().into()),
+            next: data.next.map(|p| p.as_ref().clone().into()),
         }
     }
 }

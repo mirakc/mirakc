@@ -30,6 +30,7 @@ use super::X_MIRAKURUN_TUNER_USER_ID;
 
 mod channels;
 mod iptv;
+mod onair;
 mod programs;
 mod recording;
 mod services;
@@ -42,7 +43,7 @@ mod version;
 pub(super) mod models;
 use models::*;
 
-pub(super) fn build_api<T, E, R, S>(config: &Config) -> Router<Arc<AppState<T, E, R, S>>>
+pub(super) fn build_api<T, E, R, S, O>(config: &Config) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<crate::tuner::QueryTuners>,
@@ -74,6 +75,9 @@ where
     S: Call<crate::timeshift::QueryTimeshiftRecords>,
     S: Call<crate::timeshift::QueryTimeshiftRecorder>,
     S: Call<crate::timeshift::QueryTimeshiftRecorders>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<crate::onair::QueryOnairProgram>,
+    O: Call<crate::onair::QueryOnairPrograms>,
 {
     // As described in the `axum` documentation, a request handler registered
     // by `routing::get()` can be also used for HEAD requests.
@@ -113,7 +117,9 @@ where
         .route("/iptv/channel.m3u8", routing::get(iptv::playlist))
         .route("/iptv/epg", routing::get(iptv::epg))
         // For compatibility with Mirakurun
-        .route("/iptv/xmltv", routing::get(iptv::xmltv));
+        .route("/iptv/xmltv", routing::get(iptv::xmltv))
+        .route("/onair", routing::get(onair::list))
+        .route("/onair/:service_id", routing::get(onair::get));
 
     if config.recording.is_enabled() {
         tracing::info!("Enable endpoints for recording");
@@ -205,6 +211,8 @@ where
         iptv::playlist,
         iptv::epg,
         iptv::xmltv,
+        onair::list,
+        onair::get,
         recording::schedules::list,
         recording::schedules::get,
         recording::schedules::create,
@@ -224,6 +232,7 @@ where
         schemas(
             models::Status,
             models::Version,
+            models::WebOnairProgram,
             models::WebProcessModel,
             models::WebRecordingRecorder,
             models::WebRecordingSchedule,

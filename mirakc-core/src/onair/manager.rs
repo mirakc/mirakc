@@ -8,6 +8,7 @@ use crate::config::LocalOnairProgramTrackerConfig;
 use crate::config::OnairProgramTrackerConfig;
 use crate::epg;
 use crate::epg::EpgProgram;
+use crate::error::Error;
 use crate::models::ServiceTriple;
 use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
@@ -110,10 +111,36 @@ where
     }
 }
 
+// query on-air programs
+
+#[derive(Message)]
+#[reply("HashMap<ServiceTriple, OnairProgram>")]
+pub struct QueryOnairPrograms;
+
+#[async_trait]
+impl<T, E> Handler<QueryOnairPrograms> for OnairProgramManager<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryServices>,
+    E: Call<epg::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        _msg: QueryOnairPrograms,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryOnairPrograms as Message>::Reply {
+        tracing::debug!(msg.name = "QueryOnairPrograms");
+        self.cache.clone()
+    }
+}
+
 // query on-air program
 
 #[derive(Message)]
-#[reply("Option<OnairProgram>")]
+#[reply("Result<OnairProgram, Error>")]
 pub struct QueryOnairProgram {
     pub service_triple: ServiceTriple,
 }
@@ -134,7 +161,10 @@ where
         _ctx: &mut Context<Self>,
     ) -> <QueryOnairProgram as Message>::Reply {
         tracing::debug!(msg.name = "QueryOnairProgram", %msg.service_triple);
-        self.cache.get(&msg.service_triple).cloned()
+        self.cache
+            .get(&msg.service_triple)
+            .cloned()
+            .ok_or(Error::ServiceNotFound)
     }
 }
 
@@ -241,13 +271,29 @@ pub(crate) mod stub {
     pub(crate) struct OnairProgramManagerStub;
 
     #[async_trait]
+    impl Call<QueryOnairPrograms> for OnairProgramManagerStub {
+        async fn call(
+            &self,
+            _msg: QueryOnairPrograms,
+        ) -> actlet::Result<<QueryOnairPrograms as Message>::Reply> {
+            // TODO
+            Ok(Default::default())
+        }
+    }
+
+    #[async_trait]
     impl Call<QueryOnairProgram> for OnairProgramManagerStub {
         async fn call(
             &self,
-            _msg: QueryOnairProgram,
+            msg: QueryOnairProgram,
         ) -> actlet::Result<<QueryOnairProgram as Message>::Reply> {
-            // TODO
-            Ok(None)
+            match msg.service_triple.sid().value() {
+                0 => Ok(Err(Error::ServiceNotFound)),
+                _ => Ok(Ok(OnairProgram {
+                    current: None,
+                    next: None,
+                })),
+            }
         }
     }
 

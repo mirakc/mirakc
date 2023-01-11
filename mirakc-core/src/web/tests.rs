@@ -11,6 +11,7 @@ use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
 
 use crate::epg::stub::EpgStub;
+use crate::onair::stub::OnairProgramManagerStub;
 use crate::recording::stub::RecordingManagerStub;
 use crate::recording::RecordingOptions;
 use crate::timeshift::stub::TimeshiftManagerStub;
@@ -620,6 +621,21 @@ async fn test_get_iptv_xmltv() {
 }
 
 #[tokio::test]
+async fn test_list_onair() {
+    let res = get("/api/onair").await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_get_onair() {
+    let res = get("/api/onair/1").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = get("/api/onair/0").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_get_docs() {
     let res = get("/api/docs").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -887,6 +903,7 @@ async fn get_with_peer_addr(url: &str, addr: Option<SocketAddr>) -> TestResponse
             epg: EpgStub,
             recording_manager: RecordingManagerStub,
             timeshift_manager: TimeshiftManagerStub,
+            onair_manager: OnairProgramManagerStub,
         }));
     TestClient::new(app).get(url).send().await
 }
@@ -923,6 +940,7 @@ fn create_app() -> Router {
         epg: EpgStub,
         recording_manager: RecordingManagerStub,
         timeshift_manager: TimeshiftManagerStub,
+        onair_manager: OnairProgramManagerStub,
     }))
 }
 

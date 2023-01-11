@@ -22,15 +22,16 @@ use crate::config::MountConfig;
 const DEFAULT_FOLDER_VIEW_HTML_TEMPLATE_STR: &'static str =
     include_str!("default_folder_view.html.mustache");
 
-pub(super) fn mount_entries<T, E, R, S>(
+pub(super) fn mount_entries<T, E, R, S, O>(
     config: &Config,
-    router: Router<Arc<AppState<T, E, R, S>>>,
-) -> Router<Arc<AppState<T, E, R, S>>>
+    router: Router<Arc<AppState<T, E, R, S, O>>>,
+) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Send + Sync + 'static,
     E: Send + Sync + 'static,
     R: Send + Sync + 'static,
     S: Send + Sync + 'static,
+    O: Send + Sync + 'static,
 {
     let template = load_template(config);
     let mut router = router;
@@ -61,17 +62,18 @@ fn load_template(config: &Config) -> Arc<mustache::Template> {
     )
 }
 
-fn mount_entry<T, E, R, S>(
+fn mount_entry<T, E, R, S, O>(
     template: Arc<mustache::Template>,
-    router: Router<Arc<AppState<T, E, R, S>>>,
+    router: Router<Arc<AppState<T, E, R, S, O>>>,
     mount_point: &str,
     mount: &MountConfig,
-) -> Router<Arc<AppState<T, E, R, S>>>
+) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Send + Sync + 'static,
     E: Send + Sync + 'static,
     R: Send + Sync + 'static,
     S: Send + Sync + 'static,
+    O: Send + Sync + 'static,
 {
     if mount.path.is_dir() {
         tracing::info!(mount_point, ?mount.path, ?mount.index, mount.listing, "Mount directory");
@@ -85,16 +87,17 @@ where
     }
 }
 
-fn mount_dir<T, E, R, S>(
+fn mount_dir<T, E, R, S, O>(
     template: Arc<mustache::Template>,
     mount_point: &str,
     mount: &MountConfig,
-) -> Router<Arc<AppState<T, E, R, S>>>
+) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Send + Sync + 'static,
     E: Send + Sync + 'static,
     R: Send + Sync + 'static,
     S: Send + Sync + 'static,
+    O: Send + Sync + 'static,
 {
     let service = ServeDir::new(&mount.path)
         .append_index_html_on_directories(false)
@@ -102,12 +105,13 @@ where
     Router::new().fallback_service(routing::get_service(service).handle_error(convert_error))
 }
 
-fn mount_file<T, E, R, S>(mount: &MountConfig) -> Router<Arc<AppState<T, E, R, S>>>
+fn mount_file<T, E, R, S, O>(mount: &MountConfig) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Send + Sync + 'static,
     E: Send + Sync + 'static,
     R: Send + Sync + 'static,
     S: Send + Sync + 'static,
+    O: Send + Sync + 'static,
 {
     let service = ServeFile::new_with_mime(&mount.path, &mime::TEXT_HTML_UTF_8);
     Router::new().fallback_service(routing::get_service(service).handle_error(convert_error))

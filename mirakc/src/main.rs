@@ -54,7 +54,7 @@ async fn main() -> Result<(), Error> {
         .spawn_actor(epg::Epg::new(config.clone(), tuner_manager.clone()))
         .await;
 
-    let onair_tracker_manager = system
+    let onair_manager = system
         .spawn_actor(onair::OnairProgramManager::new(
             config.clone(),
             tuner_manager.clone(),
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Error> {
             config.clone(),
             tuner_manager.clone(),
             epg.clone(),
-            onair_tracker_manager.clone(),
+            onair_manager.clone(),
         ))
         .await;
 
@@ -91,7 +91,7 @@ async fn main() -> Result<(), Error> {
     let mut sigterm = signal(SignalKind::terminate())?;
 
     tokio::select! {
-        result = web::serve(config, string_table, tuner_manager, epg, recording_manager, timeshift_manager) => result?,
+        result = web::serve(config, string_table, tuner_manager, epg, recording_manager, timeshift_manager, onair_manager) => result?,
         _ = sigint.recv() => {
             tracing::info!("SIGINT received");
         }
