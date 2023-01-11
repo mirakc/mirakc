@@ -530,33 +530,21 @@ impl TimeshiftRecorder {
     }
 
     fn save_data(&self) {
-        match self.do_save_data() {
-            Ok(n) => {
-                if n == 0 {
-                    tracing::debug!("{}: No records to save", self.name);
-                } else {
-                    tracing::info!("{}: Saved {} records successfully", self.name, n);
-                }
-            }
-            Err(err) => {
-                tracing::error!(
-                    "{}: Failed to save data into {}: {}",
-                    self.name,
-                    self.config().data_file,
-                    err
-                );
-            }
-        }
-    }
-
-    fn do_save_data(&self) -> Result<usize, Error> {
-        if self.records.is_empty() {
-            return Ok(0);
-        }
         let service = &self.service;
+        let data_file = &self.config().data_file;
         let chunk_size = self.config().chunk_size;
         let max_chunks = self.config().max_chunks();
+
         let records = &self.records;
+        if records.is_empty() {
+            tracing::debug!(
+                recorder.name = self.name,
+                recorder.data_file = data_file,
+                "No records to save",
+            );
+            return;
+        }
+
         // The last item will be used as a sentinel and removed before recording starts.
         let points = &self.points;
         let data = TimeshiftRecorderDataForSave {
@@ -566,23 +554,125 @@ impl TimeshiftRecorder {
             records,
             points,
         };
-        // Serialize records, then write all bytes, in order to reduce the lock time.
-        let buf = serde_json::to_vec(&data)?;
+
+        // Serialize records in advance in order to improve error traceability.
+        let buf = match serde_json::to_vec(&data) {
+            Ok(buf) => buf,
+            Err(err) => {
+                tracing::error!(
+                    %err,
+                    recorder.name = self.name,
+                    recorder.data_file = data_file,
+                    "Failed to serialize records",
+                );
+                return;
+            }
+        };
+
+        // issue#676
+        // ---------
+        // In order to keep records as much as possible, we perform the following steps
+        //
+        //   1. Create <data-file>.new file and write the serialized data to it
+        //   2. Rename <data-file>.new to <data-file>
+        //
+        // If this function fails, inconsistency between <data-file> and <ts-file> happens.
+        // mirakc cannot recover this situation by itself and this must be resolved by
+        // the user.  For example, the user might have to remove some files in order to
+        // make enough space in the filesystem.
+        //
+        // If mirakc restarts before resolving the inconsistent situation, mirakc will
+        // start timeshift recording based on the *old* data file.  As a result, newer
+        // records will be lost.  Additionally, TS packets for older records will be
+        // lost if a wrap-around occurred in the TS file.
+
+        // Write the serialized records to the temporal .new file.
+        let new_file = format!("{}.new", data_file);
         {
-            // Lock before opening the data file in order to prevent TimeshiftFilesystem from
-            // reading the truncated file.
-            let _lockfile = TimeshiftLockfile::lock_exclusive(&self.config().data_file)?;
-            tracing::debug!(
-                "{}: Locked {} for write...",
-                self.name,
-                self.config().data_file
-            );
-            let mut file = std::fs::File::create(&self.config().data_file)?;
-            file.write_all(&buf)?;
-            tracing::debug!("{}: Unlocked {}", self.name, self.config().data_file);
-            // It's guaranteed that the lockfile will be unlocked after the file is closed.
+            let mut file = match std::fs::File::create(&new_file) {
+                Ok(file) => {
+                    tracing::debug!(
+                        recorder.name = self.name,
+                        recorder.data_file = data_file,
+                        "Created .new file for saving data",
+                    );
+                    file
+                }
+                Err(err) => {
+                    tracing::error!(
+                        %err,
+                        recorder.name = self.name,
+                        recorder.data_file = data_file,
+                        "Failed to create .new file",
+                    );
+                    return;
+                }
+            };
+            match file.write_all(&buf) {
+                Ok(_) => {
+                    tracing::debug!(
+                        nwritten = buf.len(),
+                        recorder.name = self.name,
+                        recorder.data_file = data_file,
+                        "Wrote data to .new file",
+                    );
+                }
+                Err(err) => {
+                    tracing::error!(
+                        %err,
+                        recorder.name = self.name,
+                        recorder.data_file = data_file,
+                        "Failed to write data",
+                    );
+                    return;
+                }
+            }
+            match file.sync_all() {
+                Ok(_) => {
+                    tracing::debug!(
+                        recorder.name = self.name,
+                        recorder.data_file = data_file,
+                        "Sync .new file to disk",
+                    );
+                }
+                Err(err) => {
+                    tracing::error!(
+                        %err,
+                        recorder.name = self.name,
+                        recorder.data_file = data_file,
+                        "Failed to sync .new file to disk",
+                    );
+                    return;
+                }
+            }
         }
-        Ok(data.records.len())
+
+        // Then, replace the old file with the new file.
+        match std::fs::rename(&new_file, &data_file) {
+            Ok(_) => {
+                tracing::debug!(
+                    recorder.name = self.name,
+                    recorder.data_file = data_file,
+                    "Replace the data file",
+                );
+            }
+            Err(err) => {
+                tracing::error!(
+                    %err,
+                    recorder.name = self.name,
+                    recorder.data_file = data_file,
+                    "Failed to replace the data file",
+                );
+                return;
+            }
+        }
+
+        tracing::info!(
+            recorder.name = self.name,
+            recorder.data_file = data_file,
+            recorder.records.len = records.len(),
+            "Saved records successfully",
+        );
     }
 
     fn deactivate(&mut self) {
