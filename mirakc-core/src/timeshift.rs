@@ -443,22 +443,27 @@ impl TimeshiftRecorder {
         match self.do_load_data() {
             Ok(n) => {
                 if n == 0 {
-                    tracing::debug!("{}: No records saved", self.name);
+                    tracing::debug!(
+                        recorder.name = self.name,
+                        "No records saved",
+                    );
                 } else {
-                    tracing::info!("{}: Loaded {} records successfully", self.name, n);
+                    tracing::info!(
+                        recorder.name = self.name,
+                        recorder.records.len = n,
+                        "Loaded records from <data-file> successfully",
+                    );
                 }
             }
             Err(err) => {
                 tracing::error!(
                     %err,
                     recorder.name = self.name,
-                    recorder.data_file = self.config().data_file,
-                    "Failed to load saved metadata",
+                    "Failed to load records from <data-file>",
                 );
                 tracing::error!(
                     recorder.name = self.name,
-                    recorder.data_file = self.config().data_file,
-                    "Recover or simply remove the data file",
+                    "Recover or simply remove <data-file>",
                 );
                 std::process::exit(libc::EXIT_FAILURE);
                 // never reach here
@@ -472,6 +477,8 @@ impl TimeshiftRecorder {
         }
 
         let file = std::fs::File::open(&self.config().data_file)?;
+        // If the file is empty, serde_json::from_reader() always causes a parse
+        // error even though serde_json reads no data actually.
         if file.metadata()?.len() == 0 {
             return Ok(0);
         }
@@ -523,7 +530,6 @@ impl TimeshiftRecorder {
         if records.is_empty() {
             tracing::debug!(
                 recorder.name = self.name,
-                recorder.data_file = data_file,
                 "No records to save",
             );
             return;
@@ -541,12 +547,17 @@ impl TimeshiftRecorder {
 
         // Serialize records in advance in order to improve error traceability.
         let buf = match serde_json::to_vec(&data) {
-            Ok(buf) => buf,
+            Ok(buf) => {
+                tracing::debug!(
+                    recorder.name = self.name,
+                    "Serialized records successfully",
+                );
+                buf
+            }
             Err(err) => {
                 tracing::error!(
                     %err,
                     recorder.name = self.name,
-                    recorder.data_file = data_file,
                     "Failed to serialize records",
                 );
                 return;
@@ -577,8 +588,7 @@ impl TimeshiftRecorder {
                 Ok(file) => {
                     tracing::debug!(
                         recorder.name = self.name,
-                        recorder.data_file = data_file,
-                        "Created .new file for saving data",
+                        "Created <data-file>.new file for saving data",
                     );
                     file
                 }
@@ -586,8 +596,7 @@ impl TimeshiftRecorder {
                     tracing::error!(
                         %err,
                         recorder.name = self.name,
-                        recorder.data_file = data_file,
-                        "Failed to create .new file",
+                        "Failed to create <data-file>.new file",
                     );
                     return;
                 }
@@ -597,16 +606,14 @@ impl TimeshiftRecorder {
                     tracing::debug!(
                         nwritten = buf.len(),
                         recorder.name = self.name,
-                        recorder.data_file = data_file,
-                        "Wrote data to .new file",
+                        "Wrote data to <data-file>.new file",
                     );
                 }
                 Err(err) => {
                     tracing::error!(
                         %err,
                         recorder.name = self.name,
-                        recorder.data_file = data_file,
-                        "Failed to write data",
+                        "Failed to write data to <data-file>.new",
                     );
                     return;
                 }
@@ -615,16 +622,14 @@ impl TimeshiftRecorder {
                 Ok(_) => {
                     tracing::debug!(
                         recorder.name = self.name,
-                        recorder.data_file = data_file,
-                        "Sync .new file to disk",
+                        "Sync <data-file>.new file to disk",
                     );
                 }
                 Err(err) => {
                     tracing::error!(
                         %err,
                         recorder.name = self.name,
-                        recorder.data_file = data_file,
-                        "Failed to sync .new file to disk",
+                        "Failed to sync <data-file>.new file to disk",
                     );
                     return;
                 }
@@ -636,16 +641,14 @@ impl TimeshiftRecorder {
             Ok(_) => {
                 tracing::debug!(
                     recorder.name = self.name,
-                    recorder.data_file = data_file,
-                    "Replace the data file",
+                    "Renamed <data-file>.new to <data-file>",
                 );
             }
             Err(err) => {
                 tracing::error!(
                     %err,
                     recorder.name = self.name,
-                    recorder.data_file = data_file,
-                    "Failed to replace the data file",
+                    "Failed to rename <data-file>.new to <data-file>",
                 );
                 return;
             }
@@ -653,9 +656,8 @@ impl TimeshiftRecorder {
 
         tracing::info!(
             recorder.name = self.name,
-            recorder.data_file = data_file,
             recorder.records.len = records.len(),
-            "Saved records successfully",
+            "Saved records to <data-file> successfully",
         );
     }
 
