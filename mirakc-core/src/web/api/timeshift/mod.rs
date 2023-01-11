@@ -18,14 +18,13 @@ use crate::web::api::stream::streaming;
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn list<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn list<S>(
+    State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
 ) -> Result<Json<Vec<WebTimeshiftRecorder>>, Error>
 where
     S: Call<timeshift::QueryTimeshiftRecorders>,
 {
-    state
-        .timeshift_manager
+    timeshift_manager
         .call(timeshift::QueryTimeshiftRecorders)
         .await?
         .map(|recorders| {
@@ -50,8 +49,8 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn get<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn get<S>(
+    State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
     Path(recorder): Path<String>,
 ) -> Result<Json<WebTimeshiftRecorder>, Error>
 where
@@ -60,8 +59,7 @@ where
     let msg = timeshift::QueryTimeshiftRecorder {
         recorder: TimeshiftRecorderQuery::ByName(recorder),
     };
-    state
-        .timeshift_manager
+    timeshift_manager
         .call(msg)
         .await?
         .map(WebTimeshiftRecorder::from)
@@ -84,8 +82,9 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn stream<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn stream<S>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
     Path(recorder_id): Path<String>,
     record_id: Option<Query<TimeshiftRecordId>>,
     user: TunerUser,
@@ -98,13 +97,13 @@ where
     let msg = timeshift::QueryTimeshiftRecorder {
         recorder: TimeshiftRecorderQuery::ByName(recorder_id.clone()),
     };
-    let recorder = state.timeshift_manager.call(msg).await??;
+    let recorder = timeshift_manager.call(msg).await??;
 
     let msg = timeshift::CreateTimeshiftLiveStreamSource {
         recorder: TimeshiftRecorderQuery::ByName(recorder_id.clone()),
         record_id: record_id.map(|Query(id)| id),
     };
-    let src = state.timeshift_manager.call(msg).await??;
+    let src = timeshift_manager.call(msg).await??;
 
     let (stream, stop_trigger) = src.create_stream().await?;
 
@@ -116,18 +115,10 @@ where
         .build();
 
     let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(&state.config.pre_filters, &filter_setting.pre_filters)?;
+    builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
     // The stream has already been decoded.
-    builder.add_post_filters(&state.config.post_filters, &filter_setting.post_filters)?;
+    builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    streaming(
-        &state.config,
-        user,
-        stream,
-        filters,
-        content_type,
-        stop_trigger,
-    )
-    .await
+    streaming(&config, user, stream, filters, content_type, stop_trigger).await
 }

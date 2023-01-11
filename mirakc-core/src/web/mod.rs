@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use actlet::prelude::*;
+use axum::extract::FromRef;
 use axum::extract::State;
 use axum::http::header::CACHE_CONTROL;
 use axum::http::header::CONNECTION;
@@ -72,7 +73,7 @@ where
     E: Call<crate::epg::RegisterEmitter>,
     E: Call<crate::epg::RemoveAirtime>,
     E: Call<crate::epg::UpdateAirtime>,
-    R: Send + Sync + 'static,
+    R: Clone + Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingRecorder>,
     R: Call<crate::recording::QueryRecordingRecorders>,
@@ -82,7 +83,7 @@ where
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
     R: Call<crate::recording::StartRecording>,
-    S: Send + Sync + 'static,
+    S: Clone + Send + Sync + 'static,
     S: Call<crate::timeshift::CreateTimeshiftLiveStreamSource>,
     S: Call<crate::timeshift::CreateTimeshiftRecordStreamSource>,
     S: Call<crate::timeshift::QueryTimeshiftRecord>,
@@ -167,7 +168,7 @@ where
     E: Call<crate::epg::RegisterEmitter>,
     E: Call<crate::epg::RemoveAirtime>,
     E: Call<crate::epg::UpdateAirtime>,
-    R: Send + Sync + 'static,
+    R: Clone + Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingRecorder>,
     R: Call<crate::recording::QueryRecordingRecorders>,
@@ -177,7 +178,7 @@ where
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
     R: Call<crate::recording::StartRecording>,
-    S: Send + Sync + 'static,
+    S: Clone + Send + Sync + 'static,
     S: Call<crate::timeshift::CreateTimeshiftLiveStreamSource>,
     S: Call<crate::timeshift::CreateTimeshiftRecordStreamSource>,
     S: Call<crate::timeshift::QueryTimeshiftRecord>,
@@ -208,7 +209,7 @@ where
     router
 }
 
-// state
+// state and extractors
 
 struct AppState<T, E, R, S> {
     config: Arc<Config>,
@@ -217,6 +218,66 @@ struct AppState<T, E, R, S> {
     epg: E,
     recording_manager: R,
     timeshift_manager: S,
+}
+
+struct ConfigExtractor(Arc<Config>);
+
+impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for ConfigExtractor {
+    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+        Self(state.config.clone())
+    }
+}
+
+struct StringTableExtractor(Arc<StringTable>);
+
+impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for StringTableExtractor {
+    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+        Self(state.string_table.clone())
+    }
+}
+
+struct TunerManagerExtractor<T>(T);
+
+impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for TunerManagerExtractor<T>
+where
+    T: Clone,
+{
+    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+        Self(state.tuner_manager.clone())
+    }
+}
+
+struct EpgExtractor<E>(E);
+
+impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for EpgExtractor<E>
+where
+    E: Clone,
+{
+    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+        Self(state.epg.clone())
+    }
+}
+
+struct RecordingManagerExtractor<R>(R);
+
+impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for RecordingManagerExtractor<R>
+where
+    R: Clone,
+{
+    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+        Self(state.recording_manager.clone())
+    }
+}
+
+struct TimeshiftManagerExtractor<S>(S);
+
+impl<T, E, R, S> FromRef<Arc<AppState<T, E, R, S>>> for TimeshiftManagerExtractor<S>
+where
+    S: Clone,
+{
+    fn from_ref(state: &Arc<AppState<T, E, R, S>>) -> Self {
+        Self(state.timeshift_manager.clone())
+    }
 }
 
 // helpers

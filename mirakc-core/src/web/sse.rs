@@ -2,7 +2,6 @@ use std::convert::Infallible;
 
 use super::*;
 
-use async_trait::async_trait;
 use axum::response::sse::Event;
 use axum::response::sse::Sse;
 use futures::stream::Stream;
@@ -11,8 +10,9 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::models::events::*;
 
-pub(super) async fn events<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(super) async fn events<E, R>(
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error>
 where
     E: Call<crate::epg::RegisterEmitter>,
@@ -22,36 +22,30 @@ where
 
     let feeder = EventFeeder(sender);
 
-    state
-        .epg
-        .call(crate::epg::RegisterEmitter::ProgramsUpdated(
-            feeder.clone().into(),
-        ))
-        .await?;
+    epg.call(crate::epg::RegisterEmitter::ProgramsUpdated(
+        feeder.clone().into(),
+    ))
+    .await?;
 
-    state
-        .recording_manager
+    recording_manager
         .call(crate::recording::RegisterEmitter::RecordingStarted(
             feeder.clone().into(),
         ))
         .await?;
 
-    state
-        .recording_manager
+    recording_manager
         .call(crate::recording::RegisterEmitter::RecordingStopped(
             feeder.clone().into(),
         ))
         .await?;
 
-    state
-        .recording_manager
+    recording_manager
         .call(crate::recording::RegisterEmitter::RecordingFailed(
             feeder.clone().into(),
         ))
         .await?;
 
-    state
-        .recording_manager
+    recording_manager
         .call(crate::recording::RegisterEmitter::RecordingRescheduled(
             feeder.clone().into(),
         ))

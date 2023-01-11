@@ -28,8 +28,10 @@ use crate::web::api::stream::do_head_stream;
     // mirakurun.Client properly.
     operation_id = "getServiceStreamByChannel",
 )]
-pub(in crate::web::api) async fn get<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn get<T, E>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     Path(path): Path<ChannelServicePath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -40,8 +42,7 @@ where
     T: Into<Emitter<tuner::StopStreaming>>,
     E: Call<epg::QueryChannel>,
 {
-    let channel = state
-        .epg
+    let channel = epg
         .call(epg::QueryChannel {
             channel_type: path.channel_type,
             channel: path.channel,
@@ -49,8 +50,8 @@ where
         .await??;
 
     do_get_service_stream(
-        &state.config,
-        &state.tuner_manager,
+        &config,
+        &tuner_manager,
         channel,
         path.sid,
         user,
@@ -80,8 +81,9 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn head<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn head<E>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     Path(path): Path<ChannelServicePath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -89,8 +91,7 @@ pub(in crate::web::api) async fn head<T, E, R, S>(
 where
     E: Call<epg::QueryChannel>,
 {
-    let _channel = state
-        .epg
+    let _channel = epg
         .call(epg::QueryChannel {
             channel_type: path.channel_type,
             channel: path.channel,
@@ -100,5 +101,5 @@ where
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
     // will success or not until actually starting streaming.
-    do_head_stream(&state.config, &user, &filter_setting)
+    do_head_stream(&config, &user, &filter_setting)
 }

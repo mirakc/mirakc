@@ -15,15 +15,13 @@ use super::*;
     // mirakurun.Client properly.
     operation_id = "getChannels",
 )]
-pub(super) async fn list<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(super) async fn list<E>(
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
 ) -> Result<Json<Vec<MirakurunChannel>>, Error>
 where
     E: Call<epg::QueryChannels>,
 {
-    state
-        .epg
-        .call(epg::QueryChannels)
+    epg.call(epg::QueryChannels)
         .await
         .map(Json::from)
         .map_err(Error::from)

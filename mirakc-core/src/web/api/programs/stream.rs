@@ -26,8 +26,10 @@ use crate::web::api::stream::streaming;
     // mirakurun.Client properly.
     operation_id = "getProgramStream",
 )]
-pub(in crate::web::api) async fn get<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn get<T, E>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     Path(id): Path<MirakurunProgramId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -43,25 +45,21 @@ where
     E: Call<epg::RemoveAirtime>,
     E: Call<epg::UpdateAirtime>,
 {
-    let program = state
-        .epg
+    let program = epg
         .call(epg::QueryProgram::ByMirakurunProgramId(id))
         .await??;
 
-    let service = state
-        .epg
+    let service = epg
         .call(epg::QueryService::ByMirakurunServiceId(id.into()))
         .await??;
 
-    let clock = state
-        .epg
+    let clock = epg
         .call(epg::QueryClock {
             service_triple: service.triple(),
         })
         .await??;
 
-    let stream = state
-        .tuner_manager
+    let stream = tuner_manager
         .call(tuner::StartStreaming {
             channel: service.channel.clone(),
             user: user.clone(),
@@ -71,7 +69,7 @@ where
     // stream_stop_trigger must be created here in order to stop streaming when
     // an error occurs.
     let stream_stop_trigger =
-        TunerStreamStopTrigger::new(stream.id(), state.tuner_manager.clone().into());
+        TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().into());
 
     let video_tags: Vec<u8> = program
         .video
@@ -97,7 +95,7 @@ where
         .insert("clock_time", &clock.time)?
         .insert("video_tags", &video_tags)?
         .insert("audio_tags", &audio_tags)?;
-    if let Some(max_start_delay) = state.config.server.program_stream_max_start_delay {
+    if let Some(max_start_delay) = config.server.program_stream_max_start_delay {
         // Round off the fractional (nanosecond) part of the duration.
         //
         // The value can be safely converted into i64 because the value is less
@@ -109,35 +107,27 @@ where
     let data = builder.build();
 
     let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(&state.config.pre_filters, &filter_setting.pre_filters)?;
+    builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
     if !stream.is_decoded() && filter_setting.decode {
-        builder.add_decode_filter(&state.config.filters.decode_filter)?;
+        builder.add_decode_filter(&config.filters.decode_filter)?;
     }
-    builder.add_program_filter(&state.config.filters.program_filter)?;
-    builder.add_post_filters(&state.config.post_filters, &filter_setting.post_filters)?;
+    builder.add_program_filter(&config.filters.program_filter)?;
+    builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
     let tracker_stop_trigger = airtime_tracker::track_airtime(
-        &state.config.recording.track_airtime_command,
+        &config.recording.track_airtime_command,
         &service.channel,
         &program,
         stream.id(),
-        state.tuner_manager.clone(),
-        state.epg.clone(),
+        tuner_manager.clone(),
+        epg.clone(),
     )
     .await?;
 
     let stop_triggers = vec![stream_stop_trigger, tracker_stop_trigger];
 
-    let result = streaming(
-        &state.config,
-        user,
-        stream,
-        filters,
-        content_type,
-        stop_triggers,
-    )
-    .await;
+    let result = streaming(&config, user, stream, filters, content_type, stop_triggers).await;
 
     match result {
         Err(Error::ProgramNotFound) => {
@@ -168,8 +158,9 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn head<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn head<E>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     Path(id): Path<MirakurunProgramId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -179,18 +170,15 @@ where
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
 {
-    let _program = state
-        .epg
+    let _program = epg
         .call(epg::QueryProgram::ByMirakurunProgramId(id))
         .await??;
 
-    let service = state
-        .epg
+    let service = epg
         .call(epg::QueryService::ByMirakurunServiceId(id.into()))
         .await??;
 
-    let _clock = state
-        .epg
+    let _clock = epg
         .call(epg::QueryClock {
             service_triple: service.triple(),
         })
@@ -199,5 +187,5 @@ where
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
     // will success or not until actually starting streaming.
-    do_head_stream(&state.config, &user, &filter_setting)
+    do_head_stream(&config, &user, &filter_setting)
 }

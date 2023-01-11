@@ -11,16 +11,14 @@ use crate::recording::{RecordingSchedule, RecordingScheduleState};
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn list<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn list<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
 ) -> Result<Json<Vec<WebRecordingRecorder>>, Error>
 where
-    E: Call<epg::QueryProgram>,
     R: Call<recording::QueryRecordingRecorders>,
 {
     let mut results = vec![];
-    let recorders = state
-        .recording_manager
+    let recorders = recording_manager
         .call(recording::QueryRecordingRecorders)
         .await?;
     for recorder in recorders.into_iter() {
@@ -42,20 +40,19 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn get<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn get<E, R>(
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     Path(program_id): Path<MirakurunProgramId>,
 ) -> Result<Json<WebRecordingRecorder>, Error>
 where
     E: Call<epg::QueryProgram>,
     R: Call<recording::QueryRecordingRecorder>,
 {
-    let program = state
-        .epg
+    let program = epg
         .call(epg::QueryProgram::ByMirakurunProgramId(program_id))
         .await??;
-    let recorder = state
-        .recording_manager
+    let recorder = recording_manager
         .call(recording::QueryRecordingRecorder {
             program_quad: program.quad,
         })
@@ -79,16 +76,16 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn create<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn create<E, R>(
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     Json(input): Json<WebRecordingScheduleInput>,
 ) -> Result<StatusCode, Error>
 where
     E: Call<epg::QueryProgram>,
     R: Call<recording::StartRecording>,
 {
-    let program = state
-        .epg
+    let program = epg
         .call(epg::QueryProgram::ByMirakurunProgramId(input.program_id))
         .await??;
     let schedule = RecordingSchedule {
@@ -97,8 +94,7 @@ where
         options: input.options,
         tags: input.tags,
     };
-    state
-        .recording_manager
+    recording_manager
         .call(recording::StartRecording { schedule })
         .await??;
     Ok(StatusCode::CREATED)

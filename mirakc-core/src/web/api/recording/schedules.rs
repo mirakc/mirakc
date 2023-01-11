@@ -15,16 +15,14 @@ use crate::recording::{RecordingSchedule, RecordingScheduleState};
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn list<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn list<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
 ) -> Result<Json<Vec<WebRecordingSchedule>>, Error>
 where
-    E: Call<epg::QueryProgram>,
     R: Call<recording::QueryRecordingSchedules>,
 {
     let mut results = vec![];
-    let schedules = state
-        .recording_manager
+    let schedules = recording_manager
         .call(recording::QueryRecordingSchedules)
         .await?;
     for schedule in schedules.into_iter() {
@@ -47,20 +45,19 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn get<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn get<E, R>(
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     Path(program_id): Path<MirakurunProgramId>,
 ) -> Result<Json<WebRecordingSchedule>, Error>
 where
     E: Call<epg::QueryProgram>,
     R: Call<recording::QueryRecordingSchedule>,
 {
-    let program = state
-        .epg
+    let program = epg
         .call(epg::QueryProgram::ByMirakurunProgramId(program_id))
         .await??;
-    let schedule = state
-        .recording_manager
+    let schedule = recording_manager
         .call(recording::QueryRecordingSchedule {
             program_quad: program.quad,
         })
@@ -80,8 +77,10 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn create<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn create<E, R>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     Json(input): Json<WebRecordingScheduleInput>,
 ) -> Result<(StatusCode, Json<WebRecordingSchedule>), Error>
 where
@@ -95,7 +94,7 @@ where
         return Err(err);
     }
 
-    let basedir = state.config.recording.basedir.as_ref().unwrap();
+    let basedir = config.recording.basedir.as_ref().unwrap();
     if !basedir
         .join(&input.options.content_path)
         .parse_dot()?
@@ -106,8 +105,7 @@ where
         return Err(err);
     }
 
-    let program = state
-        .epg
+    let program = epg
         .call(epg::QueryProgram::ByMirakurunProgramId(input.program_id))
         .await??;
 
@@ -117,8 +115,7 @@ where
         options: input.options,
         tags: input.tags,
     };
-    let schedule = state
-        .recording_manager
+    let schedule = recording_manager
         .call(recording::AddRecordingSchedule { schedule })
         .await??;
 
@@ -139,21 +136,20 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn delete<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn delete<E, R>(
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     Path(program_id): Path<MirakurunProgramId>,
 ) -> Result<(), Error>
 where
     E: Call<epg::QueryProgram>,
     R: Call<recording::RemoveRecordingSchedule>,
 {
-    let program = state
-        .epg
+    let program = epg
         .call(epg::QueryProgram::ByMirakurunProgramId(program_id))
         .await??;
 
-    state
-        .recording_manager
+    recording_manager
         .call(recording::RemoveRecordingSchedule {
             program_quad: program.quad,
         })
@@ -185,8 +181,8 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn clear<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn clear<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<(), Error>
 where
@@ -196,8 +192,7 @@ where
         Some(tag) => crate::recording::RemovalTarget::Tag(tag.clone()),
         None => crate::recording::RemovalTarget::All,
     };
-    state
-        .recording_manager
+    recording_manager
         .call(recording::RemoveRecordingSchedules { target })
         .await?;
     Ok(())

@@ -26,8 +26,10 @@ use crate::web::api::stream::do_head_stream;
     // mirakurun.Client properly.
     operation_id = "getServiceStream",
 )]
-pub(in crate::web::api) async fn get<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn get<T, E>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     Path(id): Path<MirakurunServiceId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -38,14 +40,13 @@ where
     T: Into<Emitter<tuner::StopStreaming>>,
     E: Call<epg::QueryService>,
 {
-    let service = state
-        .epg
+    let service = epg
         .call(epg::QueryService::ByMirakurunServiceId(id))
         .await??;
 
     do_get_service_stream(
-        &state.config,
-        &state.tuner_manager,
+        &config,
+        &tuner_manager,
         service.channel,
         service.sid,
         user,
@@ -74,8 +75,9 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn head<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(in crate::web::api) async fn head<E>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     Path(id): Path<MirakurunServiceId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -83,13 +85,12 @@ pub(in crate::web::api) async fn head<T, E, R, S>(
 where
     E: Call<epg::QueryService>,
 {
-    let _service = state
-        .epg
+    let _service = epg
         .call(epg::QueryService::ByMirakurunServiceId(id))
         .await??;
 
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
     // will success or not until actually starting streaming.
-    do_head_stream(&state.config, &user, &filter_setting)
+    do_head_stream(&config, &user, &filter_setting)
 }

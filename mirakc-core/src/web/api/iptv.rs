@@ -21,15 +21,16 @@ use crate::web::escape::escape;
         (status = 200, description = "OK", content_type = "application/x-mpegURL", body = String),
     ),
 )]
-pub(super) async fn playlist<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(super) async fn playlist<E>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     Host(host): Host,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> impl IntoResponse
 where
     E: Call<epg::QueryServices>,
 {
-    do_playlist(&state.config, &state.epg, &host, filter_setting).await
+    do_playlist(&config, &epg, &host, filter_setting).await
 }
 
 async fn do_playlist<E>(
@@ -126,8 +127,10 @@ where
         (status = 200, description = "OK", content_type = "application/xml", body = String),
     ),
 )]
-pub(super) async fn epg<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(super) async fn epg<E>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(StringTableExtractor(string_table)): State<StringTableExtractor>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     Host(host): Host,
     Query(query): Query<IptvEpgQuery>,
 ) -> impl IntoResponse
@@ -135,7 +138,7 @@ where
     E: Call<epg::QueryPrograms>,
     E: Call<epg::QueryServices>,
 {
-    do_epg(&state.config, &state.string_table, &state.epg, &host, query).await
+    do_epg(&config, &string_table, &epg, &host, query).await
 }
 
 /// Gets an XMLTV document containing all TV program information.
@@ -148,8 +151,10 @@ where
         (status = 200, description = "OK", content_type = "application/xml", body = String),
     ),
 )]
-pub(super) async fn xmltv<T, E, R, S>(
-    State(state): State<Arc<AppState<T, E, R, S>>>,
+pub(super) async fn xmltv<E>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(StringTableExtractor(string_table)): State<StringTableExtractor>,
+    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     Host(host): Host,
 ) -> impl IntoResponse
 where
@@ -159,7 +164,7 @@ where
     // Mirakurun doesn't support the days query parameter and returns all
     // programs.
     let query = IptvEpgQuery { days: 10 };
-    do_epg(&state.config, &state.string_table, &state.epg, &host, query).await
+    do_epg(&config, &string_table, &epg, &host, query).await
 }
 
 async fn do_epg<E>(

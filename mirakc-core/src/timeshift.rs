@@ -1840,6 +1840,7 @@ mod tests {
 pub(crate) mod stub {
     use super::*;
 
+    #[derive(Clone)]
     pub(crate) struct TimeshiftManagerStub;
 
     #[async_trait]
