@@ -31,6 +31,8 @@ mustache = "0.9.0"
 num_cpus = "1.15.0"
 once_cell = "1.17.0"
 path-dedot = "3.0.18"
+reqwest = { version = "0.11.13", default-features = false, features = ["json"] }
+reqwest-eventsource = "0.4.0"
 serde = { version = "1.0.152", features = ["derive", "rc"] }
 serde_json = { version = "1.0.91", features = ["preserve_order"] }
 serde_yaml = "0.9.16"
@@ -45,6 +47,7 @@ tower = { version = "0.4.13", default-features = false, features = ["util", "mak
 tower-http = { version = "0.3.5", features = ["fs", "trace"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "json"] }
+url = { version = "2.3.1", features = ["serde"] }
 utoipa = { version = "2.4.2", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "3.0.1", features = ["axum"] }
 walkdir = "2.3.2"

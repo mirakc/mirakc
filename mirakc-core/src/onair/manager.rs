@@ -6,6 +6,7 @@ use actlet::prelude::*;
 use crate::config::Config;
 use crate::config::LocalOnairProgramTrackerConfig;
 use crate::config::OnairProgramTrackerConfig;
+use crate::config::RemoteOnairProgramTrackerConfig;
 use crate::epg;
 use crate::epg::EpgProgram;
 use crate::error::Error;
@@ -14,6 +15,7 @@ use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
 
 use super::local::LocalTracker;
+use super::remote::RemoteTracker;
 use super::OnairProgramChanged;
 
 pub struct OnairProgramManager<T, E> {
@@ -27,6 +29,7 @@ pub struct OnairProgramManager<T, E> {
 
 enum Tracker<T, E> {
     Local(Address<LocalTracker<T, E>>),
+    Remote(Address<RemoteTracker<E>>),
 }
 
 impl<T, E> OnairProgramManager<T, E>
@@ -55,6 +58,7 @@ where
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -64,6 +68,9 @@ where
             let tracker = match config {
                 OnairProgramTrackerConfig::Local(config) => {
                     self.spawn_local_tracker(name, config, ctx, emitter).await
+                }
+                OnairProgramTrackerConfig::Remote(config) => {
+                    self.spawn_remote_tracker(name, config, ctx, emitter).await
                 }
             };
             self.trackers.insert(name.to_string(), tracker);
@@ -88,6 +95,7 @@ where
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
     E: Call<epg::QueryServices>,
 {
     async fn spawn_local_tracker<C: Spawn>(
@@ -109,6 +117,25 @@ where
         tracing::info!(tracker.kind = "local", tracker.name = name, "Spawned",);
         Tracker::Local(tracker)
     }
+
+    async fn spawn_remote_tracker<C: Spawn>(
+        &self,
+        name: &str,
+        config: &Arc<RemoteOnairProgramTrackerConfig>,
+        ctx: &C,
+        emitter: Emitter<OnairProgramChanged>,
+    ) -> Tracker<T, E> {
+        let tracker = ctx
+            .spawn_actor(RemoteTracker::new(
+                name.to_string(),
+                config.clone(),
+                self.epg.clone(),
+                emitter,
+            ))
+            .await;
+        tracing::info!(tracker.kind = "remote", tracker.name = name, "Spawned",);
+        Tracker::Remote(tracker)
+    }
 }
 
 // query on-air programs
@@ -124,6 +151,7 @@ where
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -152,6 +180,7 @@ where
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -181,6 +210,7 @@ where
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -199,6 +229,7 @@ where
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -218,6 +249,7 @@ where
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {

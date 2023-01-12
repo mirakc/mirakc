@@ -1,5 +1,6 @@
 mod local;
 mod manager;
+mod remote;
 
 use std::sync::Arc;
 

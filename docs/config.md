@@ -945,7 +945,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 
 ## onair-program-trackers
 
-Definitions of On-Air TV program trackers which can be used for tracking the
+Definitions of on-air TV program trackers which can be used for tracking the
 current and next TV programs of a particular service.
 
 At this point, the following trackers are available:
@@ -954,7 +954,7 @@ At this point, the following trackers are available:
 
 ### Local Tracker
 
-A local tracker tracks On-Air TV programs by collecting EIT [p/f] sections of a
+A local tracker tracks on-air TV programs by collecting EIT [p/f] sections of a
 service every minute using a local tuner.
 
 It's **strongly** recommended to assign a dedicated tuner for a local tracker
@@ -1003,6 +1003,30 @@ handling by a tracker in order to reduce the execution time of the `command`.
 
 Note that many logs will be output if you use a local tracker because it
 executes the `command` every minute.
+
+### Remote Tracker
+
+A remote tracker tracks on-air TV programs by listening events from the `evets`
+Web endpoint.
+
+```yaml
+onair-program-trackers:
+  remote: !remote
+    url: !mirakc http://remote:40772/
+```
+
+The following properties can be specified:
+
+* url (required)
+  * An URL of a remote server which provides the `/events` and `/api/onair` Web
+    endpoints
+* services (default: an empty list)
+  * A list of Mirakurun Service IDs that the local tracker handles
+* excluded-services (default: an empty list)
+  * A list of Mirakurun Service IDs that then local tracker doesn't handles
+
+`MirakurunProgram` is not compatible with `EpgProgram`.  So, some of the
+information might be lost.
 
 ## resource
 

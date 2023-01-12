@@ -268,7 +268,7 @@ pub struct Clock {
     pub time: i64,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct EpgGenre {
     pub lv1: u8,
     pub lv2: u8,
@@ -663,7 +663,7 @@ impl From<EpgChannel> for MirakurunServiceChannel {
 
 // Don't use MirakurunProgram for saving information.
 // See MirakurunProgramRelatedItem::get_type().
-#[derive(Clone, Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(title = "Program")]
 pub struct MirakurunProgram {
@@ -748,7 +748,8 @@ impl From<EpgProgram> for MirakurunProgram {
                     .events
                     .iter()
                     .map(|event| MirakurunProgramRelatedItem {
-                        group_type: MirakurunProgramRelatedItem::get_type(event_group.group_type),
+                        group_type: MirakurunProgramRelatedItem::get_type(event_group.group_type)
+                            .to_string(),
                         network_id: event.original_network_id.clone(),
                         service_id: event.service_id,
                         event_id: event.event_id,
@@ -759,7 +760,7 @@ impl From<EpgProgram> for MirakurunProgram {
     }
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramVideo {
     #[serde(rename = "type")]
@@ -810,7 +811,7 @@ impl From<ComponentDescriptor> for MirakurunProgramVideo {
     }
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramAudio {
     component_type: u8,
@@ -863,7 +864,7 @@ impl From<AudioComponentDescriptor> for MirakurunProgramAudio {
     }
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramSeries {
     id: u16,
@@ -889,11 +890,11 @@ impl From<SeriesDescriptor> for MirakurunProgramSeries {
     }
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunProgramRelatedItem {
     #[serde(rename = "type")]
-    group_type: &'static str,
+    group_type: String,
     #[schema(value_type = Option<u16>)]
     network_id: Option<NetworkId>,
     #[schema(value_type = u16)]
@@ -914,7 +915,7 @@ impl MirakurunProgramRelatedItem {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 struct MirakurunLangCode(SmallString<[u8; 3]>); // ISO 639-3 language code
 
 impl From<u32> for MirakurunLangCode {
@@ -1040,7 +1041,7 @@ pub mod events {
         }
     }
 
-    #[derive(Clone, Serialize)]
+    #[derive(Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct OnairProgramChanged {
         pub service_id: MirakurunServiceId,

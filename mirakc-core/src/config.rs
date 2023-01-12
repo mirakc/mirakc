@@ -13,6 +13,7 @@ use std::time::SystemTime;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use serde::Deserialize;
+use url::Url;
 
 use crate::models::*;
 
@@ -953,12 +954,14 @@ impl Default for Concurrency {
 #[cfg_attr(test, derive(Debug))]
 pub enum OnairProgramTrackerConfig {
     Local(Arc<LocalOnairProgramTrackerConfig>),
+    Remote(Arc<RemoteOnairProgramTrackerConfig>),
 }
 
 impl OnairProgramTrackerConfig {
     fn validate(&self, name: &str) {
         match self {
             Self::Local(config) => config.validate(name),
+            Self::Remote(config) => config.validate(name),
         }
     }
 }
@@ -994,6 +997,53 @@ impl LocalOnairProgramTrackerConfig {
              `command` must be a non-empty string"
         );
     }
+}
+
+#[derive(Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
+pub struct RemoteOnairProgramTrackerConfig {
+    pub url: RemoteOnairProgramTrackerUrl,
+    #[serde(default)]
+    pub services: HashSet<MirakurunServiceId>,
+    #[serde(default)]
+    pub excluded_services: HashSet<MirakurunServiceId>,
+}
+
+impl RemoteOnairProgramTrackerConfig {
+    pub fn events_url(&self) -> Url {
+        use RemoteOnairProgramTrackerUrl::*;
+        match self.url {
+            Mirakc(ref baseurl) => baseurl.join("/events").unwrap(),
+        }
+    }
+
+    pub fn onair_url(&self) -> Url {
+        use RemoteOnairProgramTrackerUrl::*;
+        match self.url {
+            Mirakc(ref baseurl) => baseurl.join("/api/onair").unwrap(),
+        }
+    }
+
+    pub fn onair_url_of(&self, service_id: MirakurunServiceId) -> Url {
+        use RemoteOnairProgramTrackerUrl::*;
+        match self.url {
+            Mirakc(ref baseurl) => baseurl
+                .join(&format!("/api/onair/{}", service_id.value()))
+                .unwrap(),
+        }
+    }
+
+    fn validate(&self, _name: &str) {}
+}
+
+#[derive(Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
+pub enum RemoteOnairProgramTrackerUrl {
+    Mirakc(Url),
 }
 
 #[derive(Clone, Deserialize, PartialEq)]

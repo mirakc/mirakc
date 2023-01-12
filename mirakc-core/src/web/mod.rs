@@ -49,6 +49,8 @@ mod uds;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use api::models::WebOnairProgram;
+
 pub async fn serve<T, E, R, S, O>(
     config: Arc<Config>,
     string_table: Arc<StringTable>,

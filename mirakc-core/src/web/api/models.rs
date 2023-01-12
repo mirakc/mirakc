@@ -182,9 +182,9 @@ impl From<TimeshiftRecordModel> for WebTimeshiftRecord {
     }
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub(in crate::web) struct WebOnairProgram {
+pub(crate) struct WebOnairProgram {
     pub service_id: MirakurunServiceId,
     pub current: Option<MirakurunProgram>,
     pub next: Option<MirakurunProgram>,
