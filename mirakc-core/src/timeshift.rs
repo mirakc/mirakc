@@ -829,6 +829,7 @@ impl TimeshiftRecorder {
             .call(StartStreaming {
                 channel: channel.clone(),
                 user,
+                stream_id: None,
             })
             .await??;
 

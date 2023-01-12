@@ -21,13 +21,15 @@ use crate::tuner::StopStreaming;
 use crate::tuner::TunerStreamStopTrigger;
 
 use super::OnairProgramChanged;
+use super::TrackerStopped;
 
 pub struct LocalTracker<T, E> {
     name: String,
     config: Arc<LocalOnairProgramTrackerConfig>,
     tuner_manager: T,
     epg: E,
-    emitter: Emitter<OnairProgramChanged>,
+    changed_emitter: Emitter<OnairProgramChanged>,
+    stopped_emitter: Option<Emitter<TrackerStopped>>,
     entries: HashMap<ServiceTriple, Entry>,
 }
 
@@ -37,14 +39,16 @@ impl<T, E> LocalTracker<T, E> {
         config: Arc<LocalOnairProgramTrackerConfig>,
         tuner_manager: T,
         epg: E,
-        emitter: Emitter<OnairProgramChanged>,
+        changed_emitter: Emitter<OnairProgramChanged>,
+        stopped_emitter: Option<Emitter<TrackerStopped>>,
     ) -> Self {
         LocalTracker {
             name,
             config,
             tuner_manager,
             epg,
-            emitter,
+            changed_emitter,
+            stopped_emitter,
             entries: Default::default(),
         }
     }
@@ -63,11 +67,17 @@ where
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         self.set_timer(ctx);
-        tracing::debug!("Started");
+        tracing::debug!(tracker.name = self.name, "Started");
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        tracing::debug!("Stopped");
+        tracing::debug!(tracker.name = self.name, "Stopped");
+        if let Some(ref stopped) = self.stopped_emitter {
+            let msg = TrackerStopped {
+                tracker: self.name.clone(),
+            };
+            stopped.emit(msg).await;
+        }
     }
 }
 
@@ -108,15 +118,18 @@ where
     async fn handle(&mut self, _msg: UpdateOnairPrograms, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "UpdateOnairPrograms");
         let now = std::time::Instant::now();
-        self.update_onair_programs().await;
-        let elapsed = now.elapsed();
-        if elapsed >= std::time::Duration::from_secs(60) {
-            tracing::warn!(
-                elapsed = %humantime::format_duration(elapsed),
-                "Didn't finish within 60s",
-            );
+        if self.update_onair_programs().await {
+            let elapsed = now.elapsed();
+            if elapsed >= std::time::Duration::from_secs(60) {
+                tracing::warn!(
+                    elapsed = %humantime::format_duration(elapsed),
+                    "Didn't finish within 60s",
+                );
+            }
+            self.set_timer(ctx);
+        } else {
+            ctx.stop();
         }
-        self.set_timer(ctx);
     }
 }
 
@@ -128,7 +141,7 @@ where
     E: Clone + Send + Sync + 'static,
     E: Call<QueryServices>,
 {
-    async fn update_onair_programs(&mut self) {
+    async fn update_onair_programs(&mut self) -> bool {
         // Clone the config in order to avoid compile errors caused by the borrow checker.
         let config = self.config.clone();
 
@@ -136,7 +149,7 @@ where
             Ok(services) => services,
             Err(err) => {
                 tracing::error!(%err, "Failed to get services, Epg dead?");
-                return;
+                return true; // continue
             }
         };
 
@@ -144,14 +157,31 @@ where
             .iter()
             .filter(|(_, service)| config.matches(service));
         for (service_triple, service) in iter {
-            if let Err(err) = self.update_onair_program(service).await {
-                tracing::warn!(
-                    %err,
-                    %service_triple,
-                    "Failed to update on-air program",
-                );
+            let result = self.update_onair_program(service).await;
+            match (result, self.config.stream_id.is_some()) {
+                (Ok(_), _) => {
+                    // Finished successfully, process next.
+                }
+                (Err(Error::TunerUnavailable), true) => {
+                    tracing::info!(
+                        tracker.name = self.name,
+                        "Stop tracking",
+                    );
+                    return false; // stop
+                }
+                (Err(err), _) => {
+                    tracing::warn!(
+                        %err,
+                        tracker.name = self.name,
+                        %service_triple,
+                        "Failed to update on-air program",
+                    );
+                    // Ignore the error, process next.
+                }
             }
         }
+
+        true // continue
     }
 
     async fn update_onair_program(&mut self, service: &EpgService) -> Result<(), Error> {
@@ -167,6 +197,7 @@ where
             .call(StartStreaming {
                 channel: service.channel.clone().into(),
                 user,
+                stream_id: self.config.stream_id.clone(),
             })
             .await??;
 
@@ -234,7 +265,7 @@ where
                     .map(|section| section.extract_program())
                     .flatten(),
             };
-            self.emitter.emit(msg).await;
+            self.changed_emitter.emit(msg).await;
         }
 
         Ok(())
@@ -244,7 +275,7 @@ where
 // helpers
 
 impl LocalOnairProgramTrackerConfig {
-    fn matches(&self, service: &EpgService) -> bool {
+    pub fn matches(&self, service: &EpgService) -> bool {
         if !self.channel_types.contains(&service.channel.channel_type) {
             return false;
         }
@@ -340,9 +371,10 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command,
+            stream_id: None,
         });
-        let mut mock = MockEmitter::new();
-        mock.expect_emit().times(1).returning(|msg| {
+        let mut changed_mock = MockChangedEmitter::new();
+        changed_mock.expect_emit().times(1).returning(|msg| {
             assert_matches!(msg.current, Some(program) => {
                 assert_eq!(program.quad, (0, 0, 1, 4).into());
             });
@@ -355,7 +387,8 @@ mod tests {
             config,
             TunerManagerStub,
             EpgStub,
-            Emitter::new(mock),
+            Emitter::new(changed_mock),
+            None,
         );
 
         let service01 = service!(0, 1, ChannelType::GR);
@@ -377,6 +410,7 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: "".to_string(),
+            stream_id: None,
         };
         assert!(config.matches(&gr12));
         assert!(config.matches(&gr13));
@@ -388,6 +422,7 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: "".to_string(),
+            stream_id: None,
         };
         assert!(config.matches(&gr12));
         assert!(config.matches(&gr13));
@@ -399,6 +434,7 @@ mod tests {
             services: hashset![(1, 2).into()],
             excluded_services: hashset![],
             command: "".to_string(),
+            stream_id: None,
         };
         assert!(config.matches(&gr12));
         assert!(!config.matches(&gr13));
@@ -410,6 +446,7 @@ mod tests {
             services: hashset![(1, 2).into()],
             excluded_services: hashset![],
             command: "".to_string(),
+            stream_id: None,
         };
         assert!(config.matches(&gr12));
         assert!(!config.matches(&gr13));
@@ -421,6 +458,7 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![(1, 2).into()],
             command: "".to_string(),
+            stream_id: None,
         };
         assert!(!config.matches(&gr12));
         assert!(config.matches(&gr13));
@@ -432,6 +470,7 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![(1, 2).into()],
             command: "".to_string(),
+            stream_id: None,
         };
         assert!(!config.matches(&gr12));
         assert!(config.matches(&gr13));
@@ -443,6 +482,7 @@ mod tests {
             services: hashset![(1, 2).into()],
             excluded_services: hashset![(1, 2).into()],
             command: "".to_string(),
+            stream_id: None,
         };
         assert!(!config.matches(&gr12));
         assert!(!config.matches(&gr13));
@@ -454,6 +494,7 @@ mod tests {
             services: hashset![(1, 2).into()],
             excluded_services: hashset![(1, 2).into()],
             command: "".to_string(),
+            stream_id: None,
         };
         assert!(!config.matches(&gr12));
         assert!(!config.matches(&gr13));
@@ -537,10 +578,10 @@ mod tests {
     }
 
     mockall::mock! {
-        Emitter {}
+        ChangedEmitter {}
 
         #[async_trait]
-        impl Emit<OnairProgramChanged> for Emitter {
+        impl Emit<OnairProgramChanged> for ChangedEmitter {
             async fn emit(&self, msg: OnairProgramChanged);
         }
     }

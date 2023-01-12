@@ -86,6 +86,7 @@ where
             .call(StartStreaming {
                 channel: channel.clone().into(),
                 user,
+                stream_id: None,
             })
             .await??;
 

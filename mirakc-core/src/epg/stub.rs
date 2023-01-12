@@ -157,20 +157,6 @@ impl Call<QueryProgram> for EpgStub {
 }
 
 #[async_trait]
-impl Call<UpdateAirtime> for EpgStub {
-    async fn call(&self, _msg: UpdateAirtime) -> actlet::Result<<UpdateAirtime as Message>::Reply> {
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl Call<RemoveAirtime> for EpgStub {
-    async fn call(&self, _msg: RemoveAirtime) -> actlet::Result<<RemoveAirtime as Message>::Reply> {
-        Ok(())
-    }
-}
-
-#[async_trait]
 impl Call<RegisterEmitter> for EpgStub {
     async fn call(
         &self,

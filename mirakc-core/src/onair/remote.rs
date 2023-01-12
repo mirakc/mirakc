@@ -242,7 +242,7 @@ fn parse_message_data(data: &str) -> Result<MirakurunServiceId, serde_json::Erro
 }
 
 impl RemoteOnairProgramTrackerConfig {
-    fn matches(&self, service_id: MirakurunServiceId) -> bool {
+    pub fn matches(&self, service_id: MirakurunServiceId) -> bool {
         if !self.services.is_empty() {
             if !self.services.contains(&service_id) {
                 return false;

@@ -127,6 +127,7 @@ impl TunerManager {
         &mut self,
         channel: EpgChannel,
         user: TunerUser,
+        stream_id: Option<TunerSubscriptionId>,
         ctx: &C,
     ) -> Result<TunerSubscription, Error>
     where
@@ -135,9 +136,9 @@ impl TunerManager {
         // Clone the config in order to avoid compile errors caused by the borrow checker.
         let config = self.config.clone();
 
-        if let TunerUserInfo::Tracker { stream_id } = user.info {
+        if let Some(stream_id) = stream_id {
             let tuner = &mut self.tuners[stream_id.session_id.tuner_index];
-            if tuner.is_active() {
+            if tuner.is_subscribed(&stream_id) {
                 return Ok(tuner.subscribe(user));
             }
             return Err(Error::TunerUnavailable);
@@ -288,6 +289,7 @@ impl Handler<QueryTuners> for TunerManager {
 pub struct StartStreaming {
     pub channel: EpgChannel,
     pub user: TunerUser,
+    pub stream_id: Option<TunerSubscriptionId>,
 }
 
 #[async_trait]
@@ -299,7 +301,7 @@ impl Handler<StartStreaming> for TunerManager {
     ) -> <StartStreaming as Message>::Reply {
         tracing::debug!(msg.name = "StartStreaming", %msg.channel, %msg.user.info, %msg.user.priority);
 
-        let subscription = self.activate_tuner(msg.channel, msg.user, ctx).await?;
+        let subscription = self.activate_tuner(msg.channel, msg.user, msg.stream_id, ctx).await?;
 
         let result = subscription
             .broadcaster
@@ -370,6 +372,10 @@ impl Tuner {
             dedicated_for,
             activity: TunerActivity::Inactive,
         }
+    }
+
+    fn is_subscribed(&self, id: &TunerSubscriptionId) -> bool {
+        self.activity.is_subscribed(id)
     }
 
     fn is_active(&self) -> bool {
@@ -503,6 +509,13 @@ impl TunerActivity {
         *self = Self::Inactive;
     }
 
+    fn is_subscribed(&self, id: &TunerSubscriptionId) -> bool {
+        match self {
+            Self::Inactive => false,
+            Self::Active(session) => session.is_subscribed(id),
+        }
+    }
+
     fn is_active(&self) -> bool {
         match self {
             Self::Inactive => false,
@@ -596,6 +609,10 @@ impl TunerSession {
             subscribers: HashMap::new(),
             next_serial_number: 1,
         })
+    }
+
+    fn is_subscribed(&self, id: &TunerSubscriptionId) -> bool {
+        self.subscribers.contains_key(&id.serial_number)
     }
 
     fn is_reuseable(&self, channel: &EpgChannel) -> bool {
@@ -713,6 +730,7 @@ mod tests {
                 .call(StartStreaming {
                     channel: create_channel("0"),
                     user: create_user(0.into()),
+                    stream_id: None,
                 })
                 .await;
             let stream1 = assert_matches!(result, Ok(Ok(stream)) => {
@@ -725,6 +743,7 @@ mod tests {
                 .call(StartStreaming {
                     channel: create_channel("0"),
                     user: create_user(1.into()),
+                    stream_id: None,
                 })
                 .await;
             assert_matches!(result, Ok(Ok(stream)) => {
@@ -737,6 +756,7 @@ mod tests {
                 .call(StartStreaming {
                     channel: create_channel("1"),
                     user: create_user(1.into()),
+                    stream_id: None,
                 })
                 .await;
             assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
@@ -746,6 +766,7 @@ mod tests {
                 .call(StartStreaming {
                     channel: create_channel("1"),
                     user: create_user(2.into()),
+                    stream_id: None,
                 })
                 .await;
             assert_matches!(result, Ok(Ok(stream)) => {
@@ -761,12 +782,44 @@ mod tests {
                         info: TunerUserInfo::OnairProgramTracker("tracker".to_string()),
                         priority: 0.into(),
                     },
+                    stream_id: None,
                 })
                 .await;
             assert_matches!(result, Ok(Ok(stream)) => {
                 assert_eq!(stream.id().session_id.tuner_index, 2);
                 assert_ne!(stream.id().session_id, stream1.id().session_id);
             });
+        }
+        system.stop();
+    }
+
+    #[tokio::test]
+    async fn test_tuner_is_subscribed() {
+        let system = System::new();
+        {
+            let config = create_config("true".to_string());
+            let mut tuner = Tuner::new(0, &config, None);
+
+            let dummy_id = TunerSubscriptionId::new(TunerSessionId::new(0), 1);
+
+            assert!(!tuner.is_subscribed(&dummy_id));
+
+            let result = tuner.activate(create_channel("1"), vec![], &system).await;
+            assert!(result.is_ok());
+            assert!(!tuner.is_subscribed(&dummy_id));
+
+            let subscription = tuner.subscribe(TunerUser {
+                info: TunerUserInfo::Web {
+                    id: "".to_string(),
+                    agent: None,
+                },
+                priority: 0.into(),
+            });
+            assert!(tuner.is_subscribed(&subscription.id));
+
+            let result = tuner.stop_streaming(subscription.id.clone()).await;
+            assert!(result.is_ok());
+            assert!(!tuner.is_subscribed(&subscription.id));
         }
         system.stop();
     }

@@ -74,8 +74,6 @@ where
     E: Call<crate::epg::QueryService>,
     E: Call<crate::epg::QueryServices>,
     E: Call<crate::epg::RegisterEmitter>,
-    E: Call<crate::epg::RemoveAirtime>,
-    E: Call<crate::epg::UpdateAirtime>,
     R: Clone + Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingRecorder>,
@@ -97,6 +95,7 @@ where
     O: Call<crate::onair::QueryOnairProgram>,
     O: Call<crate::onair::QueryOnairPrograms>,
     O: Call<crate::onair::RegisterEmitter>,
+    O: Call<crate::onair::SpawnTemporalTracker>,
 {
     // Disable caching.
     let mut default_headers = HeaderMap::new();
@@ -174,8 +173,6 @@ where
     E: Call<crate::epg::QueryService>,
     E: Call<crate::epg::QueryServices>,
     E: Call<crate::epg::RegisterEmitter>,
-    E: Call<crate::epg::RemoveAirtime>,
-    E: Call<crate::epg::UpdateAirtime>,
     R: Clone + Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingRecorder>,
@@ -197,6 +194,7 @@ where
     O: Call<crate::onair::QueryOnairProgram>,
     O: Call<crate::onair::QueryOnairPrograms>,
     O: Call<crate::onair::RegisterEmitter>,
+    O: Call<crate::onair::SpawnTemporalTracker>,
 {
     let mut router = Router::new()
         .nest("/api", api::build_api(config))

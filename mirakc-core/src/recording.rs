@@ -887,6 +887,7 @@ where
                     },
                     priority: schedule.options.priority.into(),
                 },
+                stream_id: None,
             })
             .await??;
 

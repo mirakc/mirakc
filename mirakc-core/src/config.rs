@@ -16,6 +16,7 @@ use serde::Deserialize;
 use url::Url;
 
 use crate::models::*;
+use crate::tuner::TunerSubscriptionId;
 
 pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
     let config_path = config_path.as_ref();
@@ -679,8 +680,6 @@ impl JobConfig {
 #[serde(deny_unknown_fields)]
 pub struct RecordingConfig {
     pub basedir: Option<PathBuf>,
-    #[serde(default = "RecordingConfig::default_track_airtime_command")]
-    pub track_airtime_command: String,
 }
 
 impl RecordingConfig {
@@ -699,14 +698,6 @@ impl RecordingConfig {
                 "config.recording: `basedir` must be a path to an existing directory"
             );
         }
-        assert!(
-            !self.track_airtime_command.is_empty(),
-            "config.recording: `track-airtime-command` must be a non-empty string"
-        );
-    }
-
-    fn default_track_airtime_command() -> String {
-        "mirakc-arib track-airtime --sid={{{sid}}} --eid={{{eid}}}".to_string()
     }
 }
 
@@ -714,7 +705,6 @@ impl Default for RecordingConfig {
     fn default() -> Self {
         RecordingConfig {
             basedir: None,
-            track_airtime_command: Self::default_track_airtime_command(),
         }
     }
 }
@@ -978,10 +968,13 @@ pub struct LocalOnairProgramTrackerConfig {
     pub excluded_services: HashSet<MirakurunServiceId>,
     #[serde(default = "LocalOnairProgramTrackerConfig::default_command")]
     pub command: String,
+    // Internal properties
+    #[serde(default, skip)]
+    pub stream_id: Option<TunerSubscriptionId>,
 }
 
 impl LocalOnairProgramTrackerConfig {
-    fn default_command() -> String {
+    pub fn default_command() -> String {
         "mirakc-arib collect-eitpf --sids={{{sid}}}".to_string()
     }
 
@@ -3032,6 +3025,7 @@ mod tests {
                 services: Default::default(),
                 excluded_services: Default::default(),
                 command: LocalOnairProgramTrackerConfig::default_command(),
+                stream_id: None,
             }
         );
 
@@ -3050,6 +3044,7 @@ mod tests {
                 services: hashset![1.into()],
                 excluded_services: hashset![2.into()],
                 command: "true".to_string(),
+                stream_id: None,
             }
         );
     }
@@ -3061,6 +3056,7 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: LocalOnairProgramTrackerConfig::default_command(),
+            stream_id: None,
         };
         config.validate("test");
 
@@ -3069,6 +3065,7 @@ mod tests {
             services: hashset![1.into()],
             excluded_services: hashset![2.into()],
             command: "true".to_string(),
+            stream_id: None,
         };
         config.validate("test");
     }
@@ -3081,6 +3078,7 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: LocalOnairProgramTrackerConfig::default_command(),
+            stream_id: None,
         };
         config.validate("test");
     }
@@ -3093,6 +3091,7 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: "".to_string(),
+            stream_id: None,
         };
         config.validate("test");
     }

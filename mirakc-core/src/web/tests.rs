@@ -978,8 +978,6 @@ fn config_for_test() -> Arc<Config> {
         recording:
           # Enable endpoints for recording
           basedir: /tmp
-          # Disable tracking airtime
-          track-airtime-command: true
         # Enable endpoints for timeshift recording
         timeshift:
           recorders:

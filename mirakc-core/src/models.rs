@@ -18,7 +18,6 @@ use crate::epg::EpgChannel;
 use crate::epg::EpgProgram;
 use crate::epg::EpgService;
 use crate::epg::SeriesDescriptor;
-use crate::tuner::TunerSubscriptionId;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, ToSchema)]
 pub enum ChannelType {
@@ -289,7 +288,6 @@ pub enum TunerUserInfo {
     Job { name: String },
     OnairProgramTracker(String),
     Recorder { name: String },
-    Tracker { stream_id: TunerSubscriptionId },
     Web { id: String, agent: Option<String> },
 }
 
@@ -299,7 +297,6 @@ impl TunerUserInfo {
             Self::Job { name } => (format!("job:{}", name), None),
             Self::OnairProgramTracker(name) => (format!("onair-program-tracker:{name}"), None),
             Self::Recorder { name } => (format!("recorder:{}", name), None),
-            Self::Tracker { stream_id } => (format!("tracker:{}", stream_id), None),
             Self::Web { id, agent } => (id.clone(), agent.clone()),
         }
     }
@@ -311,7 +308,6 @@ impl fmt::Display for TunerUserInfo {
             Self::Job { name } => write!(f, "Job({})", name),
             Self::OnairProgramTracker(name) => write!(f, "OnairProgramTracker({name})"),
             Self::Recorder { name } => write!(f, "Recorder({})", name),
-            Self::Tracker { stream_id } => write!(f, "Tracker({})", stream_id),
             Self::Web { id, agent: None } => write!(f, r#"Web(id="{}")"#, id),
             Self::Web {
                 id,

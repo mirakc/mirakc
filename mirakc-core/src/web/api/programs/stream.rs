@@ -4,6 +4,18 @@ use crate::web::api::stream::do_head_stream;
 use crate::web::api::stream::streaming;
 
 /// Gets a media stream of a program.
+///
+/// ### A special hack for EPGStation
+///
+/// If the User-Agent header string starts with "EPGStation/", this endpoint
+/// creates a temporal on-air program tracker if there is no tracker defined in
+/// config.yml, which can be reused for tracking changes of the TV program
+/// metadata.
+///
+/// The temporal on-air program tracker will be stopped within 1 minute after
+/// the streaming stopped.
+///
+/// The metadata will be returned from [/programs/{id}](#/programs/getProgram).
 #[utoipa::path(
     get,
     path = "/programs/{id}/stream",
@@ -26,10 +38,12 @@ use crate::web::api::stream::streaming;
     // mirakurun.Client properly.
     operation_id = "getProgramStream",
 )]
-pub(in crate::web::api) async fn get<T, E>(
+pub(in crate::web::api) async fn get<T, E, O>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+    State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
+    user_agent: Option<TypedHeader<UserAgent>>,
     Path(id): Path<MirakurunProgramId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -42,8 +56,8 @@ where
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
     E: Call<epg::QueryClock>,
-    E: Call<epg::RemoveAirtime>,
-    E: Call<epg::UpdateAirtime>,
+    E: Clone + Send + Sync + 'static,
+    O: Call<onair::SpawnTemporalTracker>,
 {
     let program = epg
         .call(epg::QueryProgram::ByMirakurunProgramId(id))
@@ -63,6 +77,7 @@ where
         .call(tuner::StartStreaming {
             channel: service.channel.clone(),
             user: user.clone(),
+            stream_id: None,
         })
         .await??;
 
@@ -115,17 +130,16 @@ where
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    let tracker_stop_trigger = airtime_tracker::track_airtime(
-        &config.recording.track_airtime_command,
-        &service.channel,
-        &program,
-        stream.id(),
-        tuner_manager.clone(),
-        epg.clone(),
-    )
-    .await?;
+    if is_epgstation(&user_agent) {
+        // The temporal tracker will stop within 1 minute after the streaming stopped.
+        onair_manager.call(onair::SpawnTemporalTracker {
+            service,
+            stream_id: stream.id(),
+        })
+        .await?;
+    }
 
-    let stop_triggers = vec![stream_stop_trigger, tracker_stop_trigger];
+    let stop_triggers = vec![stream_stop_trigger];
 
     let result = streaming(&config, user, stream, filters, content_type, stop_triggers).await;
 

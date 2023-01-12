@@ -13,7 +13,6 @@ use itertools::Itertools;
 use utoipa::openapi::Server;
 use utoipa::OpenApi;
 
-use crate::airtime_tracker;
 use crate::epg;
 use crate::filter::FilterPipelineBuilder;
 use crate::models::*;
@@ -57,8 +56,6 @@ where
     E: Call<crate::epg::QueryPrograms>,
     E: Call<crate::epg::QueryService>,
     E: Call<crate::epg::QueryServices>,
-    E: Call<crate::epg::RemoveAirtime>,
-    E: Call<crate::epg::UpdateAirtime>,
     R: Clone + Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingRecorder>,
@@ -78,6 +75,7 @@ where
     O: Clone + Send + Sync + 'static,
     O: Call<crate::onair::QueryOnairProgram>,
     O: Call<crate::onair::QueryOnairPrograms>,
+    O: Call<crate::onair::SpawnTemporalTracker>,
 {
     // As described in the `axum` documentation, a request handler registered
     // by `routing::get()` can be also used for HEAD requests.

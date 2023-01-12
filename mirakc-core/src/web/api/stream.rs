@@ -39,6 +39,7 @@ where
         .call(tuner::StartStreaming {
             channel: channel.clone(),
             user: user.clone(),
+            stream_id: None,
         })
         .await??;
 

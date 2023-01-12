@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use actlet::prelude::*;
+use maplit::hashset;
 
 use crate::config::Config;
 use crate::config::LocalOnairProgramTrackerConfig;
@@ -9,14 +10,17 @@ use crate::config::OnairProgramTrackerConfig;
 use crate::config::RemoteOnairProgramTrackerConfig;
 use crate::epg;
 use crate::epg::EpgProgram;
+use crate::epg::EpgService;
 use crate::error::Error;
 use crate::models::ServiceTriple;
 use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
+use crate::tuner::TunerSubscriptionId;
 
 use super::local::LocalTracker;
 use super::remote::RemoteTracker;
 use super::OnairProgramChanged;
+use super::TrackerStopped;
 
 pub struct OnairProgramManager<T, E> {
     config: Arc<Config>,
@@ -24,6 +28,7 @@ pub struct OnairProgramManager<T, E> {
     epg: E,
     cache: HashMap<ServiceTriple, OnairProgram>,
     trackers: HashMap<String, Tracker<T, E>>,
+    temporal_services: HashMap<String, ServiceTriple>,
     emitters: Vec<Emitter<OnairProgramChanged>>,
 }
 
@@ -44,6 +49,7 @@ where
             epg,
             cache: Default::default(),
             trackers: Default::default(),
+            temporal_services: Default::default(),
             emitters: Default::default(),
         }
     }
@@ -64,13 +70,13 @@ where
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         for (name, config) in self.config.onair_program_trackers.iter() {
-            let emitter = ctx.address().clone().into();
+            let changed = ctx.address().clone().into();
             let tracker = match config {
                 OnairProgramTrackerConfig::Local(config) => {
-                    self.spawn_local_tracker(name, config, ctx, emitter).await
+                    self.spawn_local_tracker(name, config, ctx, changed, None).await
                 }
                 OnairProgramTrackerConfig::Remote(config) => {
-                    self.spawn_remote_tracker(name, config, ctx, emitter).await
+                    self.spawn_remote_tracker(name, config, ctx, changed).await
                 }
             };
             self.trackers.insert(name.to_string(), tracker);
@@ -103,7 +109,8 @@ where
         name: &str,
         config: &Arc<LocalOnairProgramTrackerConfig>,
         ctx: &C,
-        emitter: Emitter<OnairProgramChanged>,
+        changed: Emitter<OnairProgramChanged>,
+        stopped: Option<Emitter<TrackerStopped>>,
     ) -> Tracker<T, E> {
         let tracker = ctx
             .spawn_actor(LocalTracker::new(
@@ -111,7 +118,8 @@ where
                 config.clone(),
                 self.tuner_manager.clone(),
                 self.epg.clone(),
-                emitter,
+                changed,
+                stopped,
             ))
             .await;
         tracing::info!(tracker.kind = "local", tracker.name = name, "Spawned",);
@@ -123,14 +131,14 @@ where
         name: &str,
         config: &Arc<RemoteOnairProgramTrackerConfig>,
         ctx: &C,
-        emitter: Emitter<OnairProgramChanged>,
+        changed: Emitter<OnairProgramChanged>,
     ) -> Tracker<T, E> {
         let tracker = ctx
             .spawn_actor(RemoteTracker::new(
                 name.to_string(),
                 config.clone(),
                 self.epg.clone(),
-                emitter,
+                changed,
             ))
             .await;
         tracing::info!(tracker.kind = "remote", tracker.name = name, "Spawned",);
@@ -220,6 +228,86 @@ where
     }
 }
 
+// spawn temporal local tracker
+
+#[derive(Message)]
+#[reply("()")]
+pub struct SpawnTemporalTracker {
+    pub service: EpgService,
+    pub stream_id: TunerSubscriptionId,
+}
+
+#[async_trait]
+impl<T, E> Handler<SpawnTemporalTracker> for OnairProgramManager<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryServices>,
+    E: Call<epg::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: SpawnTemporalTracker,
+        ctx: &mut Context<Self>,
+    ) -> <SpawnTemporalTracker as Message>::Reply {
+        tracing::debug!(
+            msg.name = "SpawnTempralLocalTracker",
+            msg.service.triple = %msg.service.triple(),
+        );
+
+        let service_triple = msg.service.triple();
+        for config in self.config.onair_program_trackers.values() {
+            if config.matches(&msg.service) {
+                tracing::info!(
+                    service.triple = %service_triple,
+                    "Tracker for the service is already running",
+                );
+                return;
+            }
+        }
+
+        let name = format!(".{}", msg.stream_id);
+        if self.trackers.contains_key(&name) {
+            tracing::info!(
+                tracker.name = name,
+                "Temporal tracker is already running",
+            );
+            return;
+        }
+
+        // Multiple temporal trackers for the same service may be spawned.
+        let config = Arc::new(LocalOnairProgramTrackerConfig {
+            channel_types: hashset![msg.service.channel.channel_type],
+            services: hashset![service_triple.into()],
+            excluded_services: hashset![],
+            command: LocalOnairProgramTrackerConfig::default_command(),
+            stream_id: Some(msg.stream_id),
+        });
+        let changed = ctx.address().clone().into();
+        let stopped = Some(ctx.address().clone().into());
+        let tracker = self.spawn_local_tracker(&name, &config, ctx, changed, stopped).await;
+        self.trackers.insert(name.clone(), tracker);
+        self.temporal_services.insert(name.clone(), service_triple);
+        tracing::info!(
+            tracker.name = name,
+            %service_triple,
+            "Created temporal tracker",
+        );
+    }
+}
+
+impl OnairProgramTrackerConfig {
+    fn matches(&self, service: &EpgService) -> bool {
+        match self {
+            Self::Local(ref config) => config.matches(service),
+            Self::Remote(ref config) => config.matches(service.triple().into()),
+        }
+    }
+}
+
 // services updated
 
 #[async_trait]
@@ -283,6 +371,48 @@ impl<T, E> OnairProgramManager<T, E> {
     }
 }
 
+// tracker stopped
+
+#[async_trait]
+impl<T, E> Handler<TrackerStopped> for OnairProgramManager<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryServices>,
+    E: Call<epg::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: TrackerStopped, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "TrackerStopped", msg.tracker);
+        match self.trackers.remove(&msg.tracker) {
+            Some(_) => {
+                tracing::info!(
+                    tracker.name = msg.tracker,
+                    "Removed temporal tracker",
+                );
+            }
+            None => {
+                tracing::error!(
+                    tracker.name = msg.tracker,
+                    "INCONSISTENT: Temporal tracker has already been removed",
+                );
+            }
+        }
+        if let Some(service_triple) = self.temporal_services.remove(&msg.tracker) {
+            if !self.temporal_services.values().any(|&v| v == service_triple) {
+                let _ = self.cache.remove(&service_triple);
+                tracing::info!(
+                    tracker.name = msg.tracker,
+                    %service_triple,
+                    "Removed cache entry for temporal trackers",
+                );
+            }
+        }
+    }
+}
+
 // models
 
 #[derive(Clone, Debug, Default)]
@@ -334,6 +464,16 @@ pub(crate) mod stub {
         async fn call(
             &self,
             _msg: RegisterEmitter,
+        ) -> actlet::Result<<RegisterEmitter as Message>::Reply> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl Call<SpawnTemporalTracker> for OnairProgramManagerStub {
+        async fn call(
+            &self,
+            _msg: SpawnTemporalTracker,
         ) -> actlet::Result<<RegisterEmitter as Message>::Reply> {
             Ok(())
         }

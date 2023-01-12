@@ -55,12 +55,6 @@ pub struct Epg<T> {
     // Allocate EpgSchedule in the heap in order to avoid stack overflow in
     // serialization using serde_json.
     schedules: HashMap<ServiceTriple, Box<EpgSchedule>>,
-    airtimes: HashMap<ProgramQuad, Airtime>,
-}
-
-pub struct Airtime {
-    pub start_time: DateTime<Jst>,
-    pub duration: Duration,
 }
 
 impl<T> Epg<T> {
@@ -74,7 +68,6 @@ impl<T> Epg<T> {
             services: Default::default(),
             clocks: Default::default(),
             schedules: Default::default(),
-            airtimes: Default::default(),
         }
     }
 
@@ -653,13 +646,6 @@ where
             .programs
             .get(&eid)
             .cloned()
-            .map(|mut prog| {
-                if let Some(airtime) = self.airtimes.get(&prog.quad) {
-                    prog.start_at = Some(airtime.start_time);
-                    prog.duration = Some(airtime.duration);
-                }
-                prog
-            })
             .ok_or(Error::ProgramNotFound)
     }
 }
@@ -790,62 +776,6 @@ where
             Ok(_) => (),
             Err(err) => tracing::error!("Failed to save schedules: {}", err),
         }
-    }
-}
-
-// update airtime
-
-#[derive(Message)]
-#[reply("()")]
-pub struct UpdateAirtime {
-    pub quad: ProgramQuad,
-    pub airtime: Airtime,
-}
-
-#[async_trait]
-impl<T> Handler<UpdateAirtime> for Epg<T>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-{
-    async fn handle(
-        &mut self,
-        msg: UpdateAirtime,
-        _ctx: &mut Context<Self>,
-    ) -> <UpdateAirtime as Message>::Reply {
-        tracing::debug!(
-            msg.name = "UpdateAirtime",
-            %msg.quad,
-            %msg.airtime.start_time,
-            %msg.airtime.duration,
-        );
-        self.airtimes.insert(msg.quad, msg.airtime);
-    }
-}
-
-// remove airtime
-
-#[derive(Message)]
-#[reply("()")]
-pub struct RemoveAirtime {
-    pub quad: ProgramQuad,
-}
-
-#[async_trait]
-impl<T> Handler<RemoveAirtime> for Epg<T>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
-{
-    async fn handle(
-        &mut self,
-        msg: RemoveAirtime,
-        _ctx: &mut Context<Self>,
-    ) -> <RemoveAirtime as Message>::Reply {
-        tracing::debug!(msg.name = "RemoveAirtime", %msg.quad);
-        self.airtimes.remove(&msg.quad);
     }
 }
 
