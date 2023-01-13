@@ -300,17 +300,8 @@ impl TimeshiftFilesystem {
     }
 
     fn load_data(config: &TimeshiftRecorderConfig) -> Result<TimeshiftRecorderData, Error> {
-        // Read all bytes, then deserialize records, in order to reduce the lock time.
-        let mut buf = Vec::with_capacity(4096 * 1_000);
-        {
-            let _lockfile = TimeshiftLockfile::lock_shared(&config.data_file)?;
-            tracing::debug!("Locked {} for read...", config.data_file);
-            let mut file = std::fs::File::open(&config.data_file)?;
-            file.read_to_end(&mut buf)?;
-            tracing::debug!("Unlocked {}", config.data_file);
-            // It's guaranteed that the lockfile will be unlocked after the file is closed.
-        }
-        let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
+        let file = std::fs::File::open(&config.data_file)?;
+        let data: TimeshiftRecorderData = serde_json::from_reader(file)?;
         if data.service.triple() == config.service_triple.into()
             && data.chunk_size == config.chunk_size
             && data.max_chunks == config.max_chunks()

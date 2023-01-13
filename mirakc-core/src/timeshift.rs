@@ -1,9 +1,7 @@
 use std::fmt;
 use std::future::Future;
 use std::io;
-use std::io::Read;
 use std::io::SeekFrom;
-use std::io::Write;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -12,7 +10,6 @@ use actlet::prelude::*;
 use chrono::DateTime;
 use chrono_jst::serde::ts_milliseconds;
 use chrono_jst::Jst;
-use fs2::FileExt;
 use indexmap::IndexMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -32,6 +29,7 @@ use crate::command_util::*;
 use crate::config::*;
 use crate::epg::*;
 use crate::error::Error;
+use crate::file_util;
 use crate::filter::*;
 use crate::models::*;
 use crate::mpeg_ts_stream::*;
@@ -445,22 +443,24 @@ impl TimeshiftRecorder {
         match self.do_load_data() {
             Ok(n) => {
                 if n == 0 {
-                    tracing::debug!("{}: No records saved", self.name);
+                    tracing::debug!(recorder.name = self.name, "No records saved");
                 } else {
-                    tracing::info!("{}: Loaded {} records successfully", self.name, n);
+                    tracing::info!(
+                        recorder.name = self.name,
+                        recorder.records.len = n,
+                        "Loaded records from <data-file> successfully",
+                    );
                 }
             }
             Err(err) => {
                 tracing::error!(
                     %err,
                     recorder.name = self.name,
-                    recorder.data_file = self.config().data_file,
-                    "Failed to load saved metadata",
+                    "Failed to load records from <data-file>",
                 );
                 tracing::error!(
                     recorder.name = self.name,
-                    recorder.data_file = self.config().data_file,
-                    "Recover or simply remove the data file",
+                    "Recover or simply remove <data-file>",
                 );
                 std::process::exit(libc::EXIT_FAILURE);
                 // never reach here
@@ -473,26 +473,14 @@ impl TimeshiftRecorder {
             return Ok(0);
         }
 
-        // Read all bytes, then deserialize records, in order to reduce the lock time.
-        let mut buf = Vec::with_capacity(4096 * 1_000);
-        {
-            let _lockfile = TimeshiftLockfile::lock_shared(&self.config().data_file)?;
-            tracing::debug!(
-                "{}: Locked {} for read...",
-                self.name,
-                self.config().data_file
-            );
-            let mut file = std::fs::File::open(&self.config().data_file)?;
-            file.read_to_end(&mut buf)?;
-            tracing::debug!("{}: Unlocked {}", self.name, self.config().data_file);
-            // It's guaranteed that the lockfile will be unlocked after the file is closed.
-        }
-
-        if dbg!(buf.is_empty()) {
+        let file = std::fs::File::open(&self.config().data_file)?;
+        // If the file is empty, serde_json::from_reader() always causes a parse
+        // error even though serde_json reads no data actually.
+        if file.metadata()?.len() == 0 {
             return Ok(0);
         }
 
-        let data: TimeshiftRecorderData = serde_json::from_slice(&buf)?;
+        let data: TimeshiftRecorderData = serde_json::from_reader(file)?;
         let mut invalid = false;
         if self.service.triple() != data.service.triple() {
             tracing::error!(
@@ -530,33 +518,16 @@ impl TimeshiftRecorder {
     }
 
     fn save_data(&self) {
-        match self.do_save_data() {
-            Ok(n) => {
-                if n == 0 {
-                    tracing::debug!("{}: No records to save", self.name);
-                } else {
-                    tracing::info!("{}: Saved {} records successfully", self.name, n);
-                }
-            }
-            Err(err) => {
-                tracing::error!(
-                    "{}: Failed to save data into {}: {}",
-                    self.name,
-                    self.config().data_file,
-                    err
-                );
-            }
-        }
-    }
-
-    fn do_save_data(&self) -> Result<usize, Error> {
-        if self.records.is_empty() {
-            return Ok(0);
-        }
         let service = &self.service;
         let chunk_size = self.config().chunk_size;
         let max_chunks = self.config().max_chunks();
+
         let records = &self.records;
+        if records.is_empty() {
+            tracing::debug!(recorder.name = self.name, "No records to save");
+            return;
+        }
+
         // The last item will be used as a sentinel and removed before recording starts.
         let points = &self.points;
         let data = TimeshiftRecorderDataForSave {
@@ -566,23 +537,52 @@ impl TimeshiftRecorder {
             records,
             points,
         };
-        // Serialize records, then write all bytes, in order to reduce the lock time.
-        let buf = serde_json::to_vec(&data)?;
-        {
-            // Lock before opening the data file in order to prevent TimeshiftFilesystem from
-            // reading the truncated file.
-            let _lockfile = TimeshiftLockfile::lock_exclusive(&self.config().data_file)?;
-            tracing::debug!(
-                "{}: Locked {} for write...",
-                self.name,
-                self.config().data_file
+
+        // Serialize records in advance in order to improve error traceability.
+        let buf = match serde_json::to_vec(&data) {
+            Ok(buf) => {
+                tracing::debug!(recorder.name = self.name, "Serialized records successfully");
+                buf
+            }
+            Err(err) => {
+                tracing::error!(
+                    %err,
+                    recorder.name = self.name,
+                    "Failed to serialize records",
+                );
+                return;
+            }
+        };
+
+        // issue#676
+        // ---------
+        // In order to keep records as much as possible, we perform the following steps
+        //
+        //   1. Create <data-file>.new file and write the serialized data to it
+        //   2. Rename <data-file>.new to <data-file>
+        //
+        // If this function fails, inconsistency between <data-file> and <ts-file> happens.
+        // mirakc cannot recover this situation by itself and this must be resolved by
+        // the user.  For example, the user might have to remove some files in order to
+        // make enough space in the filesystem.
+        //
+        // If mirakc restarts before resolving the inconsistent situation, mirakc will
+        // start timeshift recording based on the *old* data file.  As a result, newer
+        // records will be lost.  Additionally, TS packets for older records will be
+        // lost if a wrap-around occurred in the TS file.
+        if !file_util::save_data(&buf, &self.config().data_file) {
+            tracing::error!(
+                recorder.name = self.name,
+                "Sync between <ts-file> and <data-file> was lost"
             );
-            let mut file = std::fs::File::create(&self.config().data_file)?;
-            file.write_all(&buf)?;
-            tracing::debug!("{}: Unlocked {}", self.name, self.config().data_file);
-            // It's guaranteed that the lockfile will be unlocked after the file is closed.
+            return;
         }
-        Ok(data.records.len())
+
+        tracing::info!(
+            recorder.name = self.name,
+            recorder.records.len = records.len(),
+            "Saved records to <data-file> successfully",
+        );
     }
 
     fn deactivate(&mut self) {
@@ -1506,24 +1506,6 @@ pub struct TimeshiftRecordModel {
     pub end_time: DateTime<Jst>,
     pub size: u64,
     pub recording: bool,
-}
-
-pub struct TimeshiftLockfile(std::fs::File);
-
-impl TimeshiftLockfile {
-    pub fn lock_exclusive(filepath: &str) -> io::Result<Self> {
-        let lockfile = format!("{}.lock", filepath);
-        let file = std::fs::File::create(lockfile)?;
-        file.lock_exclusive()?;
-        Ok(TimeshiftLockfile(file))
-    }
-
-    pub fn lock_shared(filepath: &str) -> io::Result<Self> {
-        let lockfile = format!("{}.lock", filepath);
-        let file = std::fs::File::create(lockfile)?;
-        file.lock_shared()?;
-        Ok(TimeshiftLockfile(file))
-    }
 }
 
 #[cfg(test)]
