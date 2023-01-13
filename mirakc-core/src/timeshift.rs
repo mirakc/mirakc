@@ -1166,9 +1166,9 @@ struct TimeshiftRecorderChunkMessage {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TimeshiftRecorderEventMessage {
-    original_network_id: NetworkId,
-    transport_stream_id: TransportStreamId,
-    service_id: ServiceId,
+    original_network_id: Nid,
+    transport_stream_id: Tsid,
+    service_id: Sid,
     event: EitEvent,
     record: TimeshiftPoint,
 }

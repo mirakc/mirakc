@@ -5,18 +5,18 @@ use chrono_jst::Jst;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::models::EventId;
-use crate::models::NetworkId;
-use crate::models::ServiceId;
+use crate::models::Eid;
+use crate::models::Nid;
 use crate::models::ServiceTriple;
-use crate::models::TransportStreamId;
+use crate::models::Sid;
+use crate::models::Tsid;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EitSection {
-    pub original_network_id: NetworkId,
-    pub transport_stream_id: TransportStreamId,
-    pub service_id: ServiceId,
+    pub original_network_id: Nid,
+    pub transport_stream_id: Tsid,
+    pub service_id: Sid,
     pub table_id: u16,
     pub section_number: u8,
     pub last_section_number: u8,
@@ -70,7 +70,7 @@ impl EitSection {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EitEvent {
-    pub event_id: EventId,
+    pub event_id: Eid,
     pub start_time: Option<i64>, // UNIX time in milliseconds
     pub duration: Option<i64>,   // milliseconds
     pub scrambled: bool,
@@ -177,9 +177,9 @@ pub struct EventGroupDescriptor {
 #[serde(rename_all = "camelCase")]
 pub struct EventGroupEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub original_network_id: Option<NetworkId>,
+    pub original_network_id: Option<Nid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub transport_stream_id: Option<TransportStreamId>,
-    pub service_id: ServiceId,
-    pub event_id: EventId,
+    pub transport_stream_id: Option<Tsid>,
+    pub service_id: Sid,
+    pub event_id: Eid,
 }

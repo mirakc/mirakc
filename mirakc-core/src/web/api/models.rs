@@ -22,8 +22,8 @@ use crate::models::MirakurunProgram;
 use crate::models::MirakurunProgramId;
 use crate::models::MirakurunService;
 use crate::models::MirakurunServiceId;
-use crate::models::ServiceId;
 use crate::models::ServiceTriple;
+use crate::models::Sid;
 use crate::models::TimeshiftRecordId;
 use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
@@ -212,7 +212,7 @@ pub(in crate::web) struct ChannelPath {
 pub(in crate::web) struct ChannelServicePath {
     pub channel_type: ChannelType,
     pub channel: String,
-    pub sid: ServiceId,
+    pub sid: Sid,
 }
 
 #[derive(Deserialize, IntoParams)]

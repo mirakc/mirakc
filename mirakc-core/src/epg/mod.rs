@@ -584,7 +584,7 @@ where
 // query programs
 
 #[derive(Message)]
-#[reply("Arc<IndexMap<EventId, EpgProgram>>")]
+#[reply("Arc<IndexMap<Eid, EpgProgram>>")]
 pub struct QueryPrograms {
     pub service_triple: ServiceTriple,
 }
@@ -856,7 +856,7 @@ struct EpgSchedule {
     #[serde(skip)]
     start_index: usize, // used for implementing a ring buffer on `units`.
     #[serde(skip)]
-    programs: Arc<IndexMap<EventId, EpgProgram>>,
+    programs: Arc<IndexMap<Eid, EpgProgram>>,
 }
 
 impl EpgSchedule {
@@ -941,11 +941,7 @@ impl EpgScheduleUnit {
         self.segments[i].update(section);
     }
 
-    fn collect_programs(
-        &self,
-        triple: ServiceTriple,
-        programs: &mut IndexMap<EventId, EpgProgram>,
-    ) {
+    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<Eid, EpgProgram>) {
         for segment in self.segments.iter() {
             segment.collect_programs(triple, programs)
         }
@@ -990,11 +986,7 @@ impl EpgSegment {
         sections[i] = Some(EpgSection::from(section));
     }
 
-    fn collect_programs(
-        &self,
-        triple: ServiceTriple,
-        programs: &mut IndexMap<EventId, EpgProgram>,
-    ) {
+    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<Eid, EpgProgram>) {
         let sections = self
             .extended_sections
             .iter()
@@ -1022,11 +1014,7 @@ impl EpgSection {
             .map(|event| event.start_time().unwrap().date_naive())
     }
 
-    fn collect_programs(
-        &self,
-        triple: ServiceTriple,
-        programs: &mut IndexMap<EventId, EpgProgram>,
-    ) {
+    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<Eid, EpgProgram>) {
         let events = self
             .events
             .iter()
@@ -1036,7 +1024,7 @@ impl EpgSection {
             // TODO: Undefined duration in EIT[schedule] might be allowed?
             .filter(|event| event.duration.is_some());
         for event in events {
-            let quad = ProgramQuad::from((triple, EventId::from(event.event_id)));
+            let quad = ProgramQuad::from((triple, Eid::from(event.event_id)));
             programs
                 .entry(event.event_id)
                 .or_insert(EpgProgram::new(quad))
@@ -1063,8 +1051,8 @@ pub struct EpgChannel {
     pub channel: String,
     #[serde(default)]
     pub extra_args: String,
-    pub services: Vec<ServiceId>,
-    pub excluded_services: Vec<ServiceId>,
+    pub services: Vec<Sid>,
+    pub excluded_services: Vec<Sid>,
 }
 
 impl fmt::Display for EpgChannel {
@@ -1089,9 +1077,9 @@ impl From<ChannelConfig> for EpgChannel {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpgService {
-    pub nid: NetworkId,
-    pub tsid: TransportStreamId,
-    pub sid: ServiceId,
+    pub nid: Nid,
+    pub tsid: Tsid,
+    pub sid: Sid,
     #[serde(rename = "type")]
     pub service_type: u16,
     #[serde(default)]

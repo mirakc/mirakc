@@ -135,9 +135,9 @@ where
 #[cfg_attr(test, derive(Serialize))]
 #[serde(rename_all = "camelCase")]
 struct TsService {
-    nid: NetworkId,
-    tsid: TransportStreamId,
-    sid: ServiceId,
+    nid: Nid,
+    tsid: Tsid,
+    sid: Sid,
     #[serde(rename = "type")]
     service_type: u16,
     #[serde(default)]

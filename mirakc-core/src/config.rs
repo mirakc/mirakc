@@ -330,9 +330,9 @@ pub struct ChannelConfig {
     #[serde(default)]
     pub extra_args: String,
     #[serde(default)]
-    pub services: Vec<ServiceId>,
+    pub services: Vec<Sid>,
     #[serde(default)]
-    pub excluded_services: Vec<ServiceId>,
+    pub excluded_services: Vec<Sid>,
     #[serde(default)]
     pub disabled: bool,
 }
@@ -753,7 +753,7 @@ impl Default for TimeshiftConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct TimeshiftRecorderConfig {
-    pub service_triple: (NetworkId, TransportStreamId, ServiceId),
+    pub service_triple: (Nid, Tsid, Sid),
     pub ts_file: String,
     pub data_file: String,
     #[serde(default = "TimeshiftRecorderConfig::default_chunk_size")]
@@ -1053,7 +1053,7 @@ pub struct ResourceConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct LogoConfig {
-    pub service_triple: (NetworkId, TransportStreamId, ServiceId),
+    pub service_triple: (Nid, Tsid, Sid),
     pub image: String,
 }
 

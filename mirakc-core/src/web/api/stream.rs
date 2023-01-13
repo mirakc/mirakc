@@ -26,7 +26,7 @@ pub(in crate::web::api) async fn do_get_service_stream<T>(
     config: &Config,
     tuner_manager: &T,
     channel: EpgChannel,
-    sid: ServiceId,
+    sid: Sid,
     user: TunerUser,
     filter_setting: FilterSetting,
 ) -> Result<Response, Error>

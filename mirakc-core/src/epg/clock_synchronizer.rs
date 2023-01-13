@@ -131,9 +131,9 @@ where
 #[cfg_attr(test, derive(Serialize))]
 #[serde(rename_all = "camelCase")]
 struct SyncClock {
-    nid: NetworkId,
-    tsid: TransportStreamId,
-    sid: ServiceId,
+    nid: Nid,
+    tsid: Tsid,
+    sid: Sid,
     clock: Clock,
 }
 
