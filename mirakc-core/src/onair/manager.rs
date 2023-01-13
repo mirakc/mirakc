@@ -256,10 +256,10 @@ where
     ) -> <SpawnTemporalTracker as Message>::Reply {
         tracing::debug!(
             msg.name = "SpawnTempralLocalTracker",
-            msg.service.id = %msg.service.id(),
+            %msg.service.id,
         );
 
-        let service_id = msg.service.id();
+        let service_id = msg.service.id;
         for config in self.config.onair_program_trackers.values() {
             if config.matches(&msg.service) {
                 tracing::info!(
@@ -303,7 +303,7 @@ impl OnairProgramTrackerConfig {
     fn matches(&self, service: &EpgService) -> bool {
         match self {
             Self::Local(ref config) => config.matches(service),
-            Self::Remote(ref config) => config.matches(service.id().into()),
+            Self::Remote(ref config) => config.matches(service.id),
         }
     }
 }

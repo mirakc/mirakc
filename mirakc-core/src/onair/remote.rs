@@ -9,7 +9,6 @@ use crate::config::RemoteOnairProgramTrackerConfig;
 use crate::epg::EpgProgram;
 use crate::epg::QueryProgram;
 use crate::models::MirakurunProgram;
-use crate::models::MirakurunServiceId;
 use crate::models::ServiceId;
 use crate::web::WebOnairProgram;
 
@@ -163,13 +162,7 @@ where
     // (ver.2).
     async fn convert_program(&self, program: Option<MirakurunProgram>) -> Option<Arc<EpgProgram>> {
         let program = program?;
-        let program_id = (
-            program.network_id,
-            program.transport_stream_id,
-            program.service_id,
-            program.event_id,
-        )
-            .into();
+        let program_id = program.id;
         let mut converted = EpgProgram::new(program_id);
         converted.start_at = program.start_at;
         converted.duration = program.duration;
@@ -179,7 +172,7 @@ where
         converted.extended = program.extended;
         converted.genres = program.genres;
         // Supplement properties with information in EPG.
-        if let Ok(Ok(epg)) = self.epg.call(QueryProgram::ByProgramId(program_id)).await {
+        if let Ok(Ok(epg)) = self.epg.call(QueryProgram { program_id }).await {
             let check: MirakurunProgram = epg.clone().into();
             if program.video != check.video {
                 tracing::debug!(
@@ -224,10 +217,7 @@ where
             .await
     }
 
-    async fn fetch_onair_program(
-        &self,
-        service_id: MirakurunServiceId,
-    ) -> reqwest::Result<WebOnairProgram> {
+    async fn fetch_onair_program(&self, service_id: ServiceId) -> reqwest::Result<WebOnairProgram> {
         reqwest::get(self.config.onair_url_of(service_id))
             .await?
             .json::<WebOnairProgram>()
@@ -235,14 +225,14 @@ where
     }
 }
 
-fn parse_message_data(data: &str) -> Result<MirakurunServiceId, serde_json::Error> {
+fn parse_message_data(data: &str) -> Result<ServiceId, serde_json::Error> {
     use crate::models::events::OnairProgramChanged;
     let event: OnairProgramChanged = serde_json::from_str(data)?;
     Ok(event.service_id)
 }
 
 impl RemoteOnairProgramTrackerConfig {
-    pub fn matches(&self, service_id: MirakurunServiceId) -> bool {
+    pub fn matches(&self, service_id: ServiceId) -> bool {
         if !self.services.is_empty() {
             if !self.services.contains(&service_id) {
                 return false;
@@ -264,17 +254,9 @@ impl WebOnairProgram {
 
     fn service_id(&self) -> ServiceId {
         if let Some(ref program) = self.current {
-            ServiceId::from((
-                program.network_id,
-                program.transport_stream_id,
-                program.service_id,
-            ))
+            program.id.into()
         } else if let Some(ref program) = self.next {
-            ServiceId::from((
-                program.network_id,
-                program.transport_stream_id,
-                program.service_id,
-            ))
+            program.id.into()
         } else {
             unreachable!()
         }

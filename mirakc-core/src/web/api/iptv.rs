@@ -54,7 +54,7 @@ where
     let mut buf = String::with_capacity(INITIAL_BUFSIZE);
     write!(buf, "#EXTM3U\n")?;
     for sv in services.values() {
-        let id = MirakurunServiceId::from(sv.id());
+        let id = sv.id;
         let logo_url = format!("http://{}/api/services/{}/logo", host, id.value());
         // The following format is compatible with EPGStation.
         // See API docs for the `/api/channel.m3u8` endpoint.
@@ -82,7 +82,7 @@ where
                     }
                 }
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
-                if config.resource.logos.contains_key(&sv.id()) {
+                if config.resource.logos.contains_key(&id) {
                     write!(buf, r#" tvg-logo="{}""#, logo_url)?;
                 }
                 write!(
@@ -94,7 +94,7 @@ where
             0x02 | 0xA2 | 0xA6 => {
                 // audio
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
-                if config.resource.logos.contains_key(&sv.id()) {
+                if config.resource.logos.contains_key(&id) {
                     write!(buf, r#" tvg-logo="{}""#, logo_url)?;
                 }
                 write!(
@@ -197,7 +197,7 @@ where
         escape(&server_name())
     )?;
     for sv in services.values() {
-        let id = MirakurunServiceId::from(sv.id());
+        let id = sv.id;
         let logo_url = format!("http://{}/api/services/{}/logo", host, id.value());
         write!(buf, r#"<channel id="{}">"#, id.value())?;
         write!(
@@ -205,7 +205,7 @@ where
             r#"<display-name lang="ja">{}</display-name>"#,
             escape(&sv.name)
         )?;
-        if config.resource.logos.contains_key(&sv.id()) {
+        if config.resource.logos.contains_key(&id) {
             write!(buf, r#"<icon src="{}" />"#, logo_url)?;
         }
         write!(buf, r#"</channel>"#)?;
@@ -217,13 +217,12 @@ where
             .filter(|pg| pg.name.is_some())
             .filter(|pg| pg.start_at.unwrap() < start_before && pg.end_at().unwrap() > end_after)
         {
-            let id = MirakurunServiceId::from(pg.id);
             write!(
                 buf,
                 r#"<programme start="{}" stop="{}" channel="{}">"#,
                 pg.start_at.unwrap().format(DATETIME_FORMAT),
                 pg.end_at().unwrap().format(DATETIME_FORMAT),
-                id.value()
+                service_id.value()
             )?;
             if let Some(name) = pg.name.as_ref() {
                 write!(buf, r#"<title lang="ja">{}</title>"#, escape(&name))?;

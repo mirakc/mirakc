@@ -45,22 +45,15 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn get<E, R>(
-    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+pub(in crate::web::api) async fn get<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
-    Path(program_id): Path<MirakurunProgramId>,
+    Path(program_id): Path<ProgramId>,
 ) -> Result<Json<WebRecordingSchedule>, Error>
 where
-    E: Call<epg::QueryProgram>,
     R: Call<recording::QueryRecordingSchedule>,
 {
-    let program = epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(program_id))
-        .await??;
     let schedule = recording_manager
-        .call(recording::QueryRecordingSchedule {
-            program_id: program.id,
-        })
+        .call(recording::QueryRecordingSchedule { program_id })
         .await??;
     Ok(Json(schedule.into()))
 }
@@ -106,7 +99,9 @@ where
     }
 
     let program = epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(input.program_id))
+        .call(epg::QueryProgram {
+            program_id: input.program_id,
+        })
         .await??;
 
     let schedule = RecordingSchedule {
@@ -136,23 +131,15 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn delete<E, R>(
-    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+pub(in crate::web::api) async fn delete<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
-    Path(program_id): Path<MirakurunProgramId>,
+    Path(program_id): Path<ProgramId>,
 ) -> Result<(), Error>
 where
-    E: Call<epg::QueryProgram>,
     R: Call<recording::RemoveRecordingSchedule>,
 {
-    let program = epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(program_id))
-        .await??;
-
     recording_manager
-        .call(recording::RemoveRecordingSchedule {
-            program_id: program.id,
-        })
+        .call(recording::RemoveRecordingSchedule { program_id })
         .await??;
     Ok(())
 }

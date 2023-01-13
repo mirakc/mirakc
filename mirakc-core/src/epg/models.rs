@@ -58,12 +58,7 @@ impl EitSection {
     }
 
     pub fn service_id(&self) -> ServiceId {
-        (
-            self.original_network_id,
-            self.transport_stream_id,
-            self.service_id,
-        )
-            .into()
+        ServiceId::new(self.original_network_id, self.service_id)
     }
 }
 

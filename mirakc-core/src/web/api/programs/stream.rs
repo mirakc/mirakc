@@ -44,7 +44,7 @@ pub(in crate::web::api) async fn get<T, E, O>(
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
     user_agent: Option<TypedHeader<UserAgent>>,
-    Path(id): Path<MirakurunProgramId>,
+    Path(program_id): Path<ProgramId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error>
@@ -59,19 +59,10 @@ where
     E: Clone + Send + Sync + 'static,
     O: Call<onair::SpawnTemporalTracker>,
 {
-    let program = epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(id))
-        .await??;
-
-    let service = epg
-        .call(epg::QueryService::ByMirakurunServiceId(id.into()))
-        .await??;
-
-    let clock = epg
-        .call(epg::QueryClock {
-            service_id: service.id(),
-        })
-        .await??;
+    let service_id = program_id.into();
+    let program = epg.call(epg::QueryProgram { program_id }).await??;
+    let service = epg.call(epg::QueryService { service_id }).await??;
+    let clock = epg.call(epg::QueryClock { service_id }).await??;
 
     let stream = tuner_manager
         .call(tuner::StartStreaming {
@@ -146,7 +137,7 @@ where
 
     match result {
         Err(Error::ProgramNotFound) => {
-            tracing::warn!("No stream for the program#{}, maybe canceled", id)
+            tracing::warn!("No stream for the program#{}, maybe canceled", program_id)
         }
         _ => (),
     }
@@ -176,7 +167,7 @@ where
 pub(in crate::web::api) async fn head<E>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
-    Path(id): Path<MirakurunProgramId>,
+    Path(program_id): Path<ProgramId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> impl IntoResponse
@@ -185,19 +176,10 @@ where
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
 {
-    let _program = epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(id))
-        .await??;
-
-    let service = epg
-        .call(epg::QueryService::ByMirakurunServiceId(id.into()))
-        .await??;
-
-    let _clock = epg
-        .call(epg::QueryClock {
-            service_id: service.id(),
-        })
-        .await??;
+    let service_id = program_id.into();
+    let _program = epg.call(epg::QueryProgram { program_id }).await??;
+    let _service = epg.call(epg::QueryService { service_id }).await??;
+    let _clock = epg.call(epg::QueryClock { service_id }).await??;
 
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler

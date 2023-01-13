@@ -19,9 +19,8 @@ use utoipa::ToSchema;
 use crate::command_util::CommandPipelineProcessModel;
 use crate::models::ChannelType;
 use crate::models::MirakurunProgram;
-use crate::models::MirakurunProgramId;
 use crate::models::MirakurunService;
-use crate::models::MirakurunServiceId;
+use crate::models::ProgramId;
 use crate::models::ServiceId;
 use crate::models::Sid;
 use crate::models::TimeshiftRecordId;
@@ -73,7 +72,7 @@ impl From<recording::RecordingSchedule> for WebRecordingSchedule {
 #[serde(rename_all = "camelCase")]
 pub(in crate::web) struct WebRecordingScheduleInput {
     #[schema(value_type = u64)]
-    pub program_id: MirakurunProgramId,
+    pub program_id: ProgramId,
     pub options: RecordingOptions,
     #[serde(default)]
     #[schema(value_type = Vec<String>)]
@@ -84,7 +83,7 @@ pub(in crate::web) struct WebRecordingScheduleInput {
 #[serde(rename_all = "camelCase")]
 pub(in crate::web) struct WebRecordingRecorder {
     #[schema(value_type = u64)]
-    pub program_id: MirakurunProgramId,
+    pub program_id: ProgramId,
     #[serde(with = "ts_milliseconds")]
     #[schema(value_type = i64)]
     pub started_at: DateTime<Jst>,
@@ -185,7 +184,7 @@ impl From<TimeshiftRecordModel> for WebTimeshiftRecord {
 #[derive(Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WebOnairProgram {
-    pub service_id: MirakurunServiceId,
+    pub service_id: ServiceId,
     pub current: Option<MirakurunProgram>,
     pub next: Option<MirakurunProgram>,
 }

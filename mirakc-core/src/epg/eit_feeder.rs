@@ -45,13 +45,13 @@ where
         for sv in services.values() {
             let chid = format!("{}/{}", sv.channel.channel_type, sv.channel.channel);
             map.entry(chid)
-                .and_modify(|ch| ch.services.push(sv.sid))
+                .and_modify(|ch| ch.services.push(sv.sid()))
                 .or_insert(EpgChannel {
                     name: sv.channel.name.clone(),
                     channel_type: sv.channel.channel_type,
                     channel: sv.channel.channel.clone(),
                     extra_args: sv.channel.extra_args.clone(),
-                    services: vec![sv.sid],
+                    services: vec![sv.sid()],
                     excluded_services: vec![],
                 });
         }

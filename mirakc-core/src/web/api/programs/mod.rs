@@ -74,28 +74,26 @@ pub(super) async fn get<E, O>(
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
     user_agent: Option<TypedHeader<UserAgent>>,
-    Path(id): Path<MirakurunProgramId>,
+    Path(program_id): Path<ProgramId>,
 ) -> Result<Json<MirakurunProgram>, Error>
 where
     E: Call<epg::QueryProgram>,
     O: Call<onair::QueryOnairProgram>,
 {
-    let mut program = epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(id))
-        .await??;
+    let mut program = epg.call(epg::QueryProgram { program_id }).await??;
 
     if is_epgstation(&user_agent) {
         let msg = onair::QueryOnairProgram {
-            service_id: program.id.into(),
+            service_id: program_id.into(),
         };
         if let Ok(Ok(onair_program)) = onair_manager.call(msg).await {
             if let Some(current) = onair_program.current {
-                if current.id == program.id {
+                if current.id == program_id {
                     program = current.as_ref().clone();
                 }
             }
             if let Some(next) = onair_program.next {
-                if next.id == program.id {
+                if next.id == program_id {
                     program = next.as_ref().clone();
                 }
             }

@@ -50,7 +50,7 @@ where
                     Ok(clocks) => {
                         let mut map = HashMap::new();
                         for clock in clocks.into_iter() {
-                            let service_id = (clock.nid, clock.tsid, clock.sid).into();
+                            let service_id = ServiceId::new(clock.nid, clock.sid);
                             map.insert(service_id, clock.clock.clone());
                         }
                         Some(map)
@@ -132,6 +132,7 @@ where
 #[serde(rename_all = "camelCase")]
 struct SyncClock {
     nid: Nid,
+    #[allow(dead_code)]
     tsid: Tsid,
     sid: Sid,
     clock: Clock,
@@ -178,7 +179,7 @@ mod tests {
         let results = sync.sync_clocks().await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, Some(v)) => {
-            let service_id = (1, 2, 3).into();
+            let service_id = (1, 3).into();
             assert_eq!(v.len(), 1);
             assert!(v.contains_key(&service_id));
             assert_matches!(v[&service_id], Clock { pid, pcr, time } => {

@@ -50,7 +50,7 @@ where
                     Ok(services) => {
                         let mut map = IndexMap::new();
                         for service in services.into_iter() {
-                            map.insert(service.id(), service.clone());
+                            map.insert(service.id, service.clone());
                         }
                         Some(map)
                     }
@@ -134,6 +134,7 @@ where
 #[serde(rename_all = "camelCase")]
 struct TsService {
     nid: Nid,
+    #[allow(dead_code)]
     tsid: Tsid,
     sid: Sid,
     #[serde(rename = "type")]
@@ -148,9 +149,7 @@ struct TsService {
 impl From<(&ChannelConfig, &TsService)> for EpgService {
     fn from((ch, sv): (&ChannelConfig, &TsService)) -> Self {
         EpgService {
-            nid: sv.nid,
-            tsid: sv.tsid,
-            sid: sv.sid,
+            id: ServiceId::new(sv.nid, sv.sid),
             service_type: sv.service_type,
             logo_id: sv.logo_id,
             remote_control_key_id: sv.remote_control_key_id,

@@ -136,50 +136,52 @@ impl From<u16> for Eid {
 // Afterward, we changed definitions of those types in order to avoid the
 // problems.
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug))]
-pub struct ServiceId(Nid, Tsid, Sid);
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct ServiceId(u64);
 
 impl ServiceId {
-    pub fn new(nid: Nid, tsid: Tsid, sid: Sid) -> Self {
-        ServiceId(nid, tsid, sid)
+    const MAGIC_NUMBER: u64 = 100_000;
+
+    pub fn new(nid: Nid, sid: Sid) -> Self {
+        // A unique identifier compatible with Mirakurun.
+        // See src/Mirakurun/ServiceItem.ts in Chinachu/Mirakurun.
+        ServiceId(nid.value() as u64 * Self::MAGIC_NUMBER + sid.value() as u64)
     }
 
-    pub fn nid(&self) -> Nid {
+    pub fn value(&self) -> u64 {
         self.0
     }
 
-    pub fn tsid(&self) -> Tsid {
-        self.1
+    pub fn nid(&self) -> Nid {
+        Nid::from((self.value() / Self::MAGIC_NUMBER) as u16)
     }
 
     pub fn sid(&self) -> Sid {
-        self.2
-    }
-
-    fn value(&self) -> u64 {
-        // The least 16 bits are reserved for eid.
-        (self.0.value() as u64) << 48
-            | (self.1.value() as u64) << 32
-            | (self.2.value() as u64) << 16
+        Sid::from((self.value() % Self::MAGIC_NUMBER) as u16)
     }
 }
 
 impl fmt::Display for ServiceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:016X}", self.value())
+        write!(f, "{}", self.value())
     }
 }
 
-impl From<(Nid, Tsid, Sid)> for ServiceId {
-    fn from(triple: (Nid, Tsid, Sid)) -> ServiceId {
-        ServiceId::new(triple.0, triple.1, triple.2)
+impl From<u64> for ServiceId {
+    fn from(v: u64) -> Self {
+        ServiceId(v)
+    }
+}
+
+impl From<(Nid, Sid)> for ServiceId {
+    fn from(v: (Nid, Sid)) -> Self {
+        ServiceId::new(v.0, v.1)
     }
 }
 
 impl From<ProgramId> for ServiceId {
     fn from(program_id: ProgramId) -> Self {
-        ServiceId::new(program_id.nid(), program_id.tsid(), program_id.sid())
+        ServiceId(program_id.0 / Self::MAGIC_NUMBER)
     }
 }
 
@@ -190,63 +192,65 @@ impl Into<(Nid, Sid)> for ServiceId {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-pub struct ProgramId(Nid, Tsid, Sid, Eid);
+pub struct ProgramId(u64);
 
 impl ProgramId {
-    pub fn new(nid: Nid, tsid: Tsid, sid: Sid, eid: Eid) -> Self {
-        ProgramId(nid, tsid, sid, eid)
+    const MAGIC_NUMBER: u64 = 100_000;
+
+    pub fn new(nid: Nid, sid: Sid, eid: Eid) -> Self {
+        // An unique identifier compatible with Mirakurun.
+        // See src/Mirakurun/ProgramItem.ts#L28 in Chinachu/Mirakurun.
+        ProgramId(
+            nid.value() as u64 * Self::MAGIC_NUMBER * Self::MAGIC_NUMBER
+                + sid.value() as u64 * Self::MAGIC_NUMBER
+                + eid.value() as u64,
+        )
     }
 
-    pub fn nid(&self) -> Nid {
+    pub fn value(&self) -> u64 {
         self.0
     }
 
-    pub fn tsid(&self) -> Tsid {
-        self.1
+    pub fn nid(&self) -> Nid {
+        Nid::from((self.value() / (Self::MAGIC_NUMBER * Self::MAGIC_NUMBER)) as u16)
     }
 
     pub fn sid(&self) -> Sid {
-        self.2
+        Sid::from(((self.value() / Self::MAGIC_NUMBER) % Self::MAGIC_NUMBER) as u16)
     }
 
     pub fn eid(&self) -> Eid {
-        self.3
-    }
-
-    fn value(&self) -> u64 {
-        (self.0.value() as u64) << 48
-            | (self.1.value() as u64) << 32
-            | (self.2.value() as u64) << 16
-            | (self.3.value() as u64)
+        Eid::from((self.value() % Self::MAGIC_NUMBER) as u16)
     }
 }
 
 impl fmt::Display for ProgramId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:016X}", self.value())
+        write!(f, "{}", self.value())
     }
 }
 
 impl From<u64> for ProgramId {
     fn from(v: u64) -> Self {
-        ProgramId(
-            ((v >> 48) as u16).into(),
-            ((v >> 32) as u16).into(),
-            ((v >> 16) as u16).into(),
-            ((v >> 0) as u16).into(),
-        )
+        ProgramId(v)
     }
 }
 
 impl From<(ServiceId, Eid)> for ProgramId {
-    fn from(tuple: (ServiceId, Eid)) -> ProgramId {
-        ProgramId::new(tuple.0.nid(), tuple.0.tsid(), tuple.0.sid(), tuple.1)
+    fn from((service_id, eid): (ServiceId, Eid)) -> ProgramId {
+        ProgramId(service_id.value() * Self::MAGIC_NUMBER + eid.value() as u64)
     }
 }
 
-impl From<(Nid, Tsid, Sid, Eid)> for ProgramId {
-    fn from(quad: (Nid, Tsid, Sid, Eid)) -> ProgramId {
-        ProgramId::new(quad.0, quad.1, quad.2, quad.3)
+impl From<(Nid, Sid, Eid)> for ProgramId {
+    fn from((nid, sid, eid): (Nid, Sid, Eid)) -> ProgramId {
+        ProgramId::new(nid, sid, eid)
+    }
+}
+
+impl Into<(ServiceId, Eid)> for ProgramId {
+    fn into(self) -> (ServiceId, Eid) {
+        (self.into(), self.eid())
     }
 }
 
@@ -397,120 +401,6 @@ impl From<u32> for TimeshiftRecordId {
 
 // Mirakurun-compatible models
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-pub struct MirakurunServiceId(u64);
-
-impl MirakurunServiceId {
-    const MAGIC_NUMBER: u64 = 100_000;
-
-    fn new(nid: Nid, sid: Sid) -> Self {
-        // An unique identifier compatible with Mirakurun.
-        // See src/Mirakurun/ServiceItem.ts in Chinachu/Mirakurun.
-        MirakurunServiceId(nid.value() as u64 * Self::MAGIC_NUMBER + sid.value() as u64)
-    }
-
-    pub fn value(&self) -> u64 {
-        self.0
-    }
-
-    pub fn nid(&self) -> Nid {
-        Nid::from((self.0 / Self::MAGIC_NUMBER) as u16)
-    }
-
-    pub fn sid(&self) -> Sid {
-        Sid::from((self.0 % Self::MAGIC_NUMBER) as u16)
-    }
-}
-
-impl fmt::Display for MirakurunServiceId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ({} {})", self.0, self.nid(), self.sid())
-    }
-}
-
-impl From<u64> for MirakurunServiceId {
-    fn from(value: u64) -> Self {
-        MirakurunServiceId(value)
-    }
-}
-
-impl From<(Nid, Sid)> for MirakurunServiceId {
-    fn from((nid, sid): (Nid, Sid)) -> Self {
-        Self::new(nid, sid)
-    }
-}
-
-impl From<ServiceId> for MirakurunServiceId {
-    fn from(id: ServiceId) -> Self {
-        Self::new(id.nid(), id.sid())
-    }
-}
-
-impl From<ProgramId> for MirakurunServiceId {
-    fn from(program_id: ProgramId) -> Self {
-        Self::new(program_id.nid(), program_id.sid())
-    }
-}
-
-impl From<MirakurunProgramId> for MirakurunServiceId {
-    fn from(id: MirakurunProgramId) -> Self {
-        Self::new(id.nid(), id.sid())
-    }
-}
-
-impl Into<(Nid, Sid)> for MirakurunServiceId {
-    fn into(self) -> (Nid, Sid) {
-        (self.nid(), self.sid())
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-pub struct MirakurunProgramId(u64);
-
-impl MirakurunProgramId {
-    const MAGIC_NUMBER: u64 = 100_000;
-
-    pub fn new(nid: Nid, sid: Sid, eid: Eid) -> Self {
-        // An unique identifier compatible with Mirakurun.
-        // See src/Mirakurun/ProgramItem.ts#L28 in Chinachu/Mirakurun.
-        MirakurunProgramId(
-            nid.value() as u64 * Self::MAGIC_NUMBER * Self::MAGIC_NUMBER
-                + sid.value() as u64 * Self::MAGIC_NUMBER
-                + eid.value() as u64,
-        )
-    }
-
-    pub fn nid(&self) -> Nid {
-        Nid::from((self.0 / (Self::MAGIC_NUMBER * Self::MAGIC_NUMBER)) as u16)
-    }
-
-    pub fn sid(&self) -> Sid {
-        Sid::from(((self.0 / Self::MAGIC_NUMBER) % Self::MAGIC_NUMBER) as u16)
-    }
-
-    pub fn eid(&self) -> Eid {
-        Eid::from((self.0 % Self::MAGIC_NUMBER) as u16)
-    }
-}
-
-impl fmt::Display for MirakurunProgramId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<ProgramId> for MirakurunProgramId {
-    fn from(program_id: ProgramId) -> Self {
-        MirakurunProgramId::new(program_id.nid(), program_id.sid(), program_id.eid())
-    }
-}
-
-impl Into<(Nid, Sid, Eid)> for MirakurunProgramId {
-    fn into(self) -> (Nid, Sid, Eid) {
-        (self.nid(), self.sid(), self.eid())
-    }
-}
-
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(title = "Tuner")]
@@ -582,11 +472,9 @@ pub struct MirakurunChannel {
 #[serde(rename_all = "camelCase")]
 pub struct MirakurunChannelService {
     #[schema(value_type = u64)]
-    pub id: MirakurunServiceId,
+    pub id: ServiceId,
     #[schema(value_type = u16)]
     pub service_id: Sid,
-    #[schema(value_type = u16)]
-    pub transport_stream_id: Tsid, // incompatible with Mirakurun
     #[schema(value_type = u16)]
     pub network_id: Nid,
     pub name: String,
@@ -597,11 +485,9 @@ pub struct MirakurunChannelService {
 #[schema(title = "Service")]
 pub struct MirakurunService {
     #[schema(value_type = u64)]
-    pub id: MirakurunServiceId,
+    pub id: ServiceId,
     #[schema(value_type = u16)]
     pub service_id: Sid,
-    #[schema(value_type = u16)]
-    pub transport_stream_id: Tsid, // incompatible with Mirakurun
     #[schema(value_type = u16)]
     pub network_id: Nid,
     #[serde(rename = "type")]
@@ -618,7 +504,7 @@ pub struct MirakurunService {
 
 impl MirakurunService {
     pub fn check_logo_existence(&mut self, config: &ResourceConfig) {
-        let id = ServiceId::new(self.network_id, self.transport_stream_id, self.service_id);
+        let id = ServiceId::new(self.network_id, self.service_id);
         self.has_logo_data = config.logos.contains_key(&id)
     }
 }
@@ -626,10 +512,9 @@ impl MirakurunService {
 impl From<EpgService> for MirakurunService {
     fn from(sv: EpgService) -> Self {
         Self {
-            id: (sv.nid, sv.sid).into(),
-            service_id: sv.sid,
-            transport_stream_id: sv.tsid,
-            network_id: sv.nid,
+            id: sv.id,
+            service_id: sv.id.sid(),
+            network_id: sv.id.nid(),
             service_type: sv.service_type,
             logo_id: sv.logo_id,
             remote_control_key_id: sv.remote_control_key_id,
@@ -664,13 +549,11 @@ impl From<EpgChannel> for MirakurunServiceChannel {
 #[schema(title = "Program")]
 pub struct MirakurunProgram {
     #[schema(value_type = u64)]
-    pub id: MirakurunProgramId,
+    pub id: ProgramId,
     #[schema(value_type = u16)]
     pub event_id: Eid,
     #[schema(value_type = u16)]
     pub service_id: Sid,
-    #[schema(value_type = u16)]
-    pub transport_stream_id: Tsid, // incompatible with Mirakurun
     #[schema(value_type = u16)]
     pub network_id: Nid,
     #[serde(with = "ts_milliseconds_option")]
@@ -713,7 +596,6 @@ impl From<EpgProgram> for MirakurunProgram {
             id: program.id.into(),
             event_id: program.id.eid(),
             service_id: program.id.sid(),
-            transport_stream_id: program.id.tsid(),
             network_id: program.id.nid(),
             start_at: program.start_at,
             duration: program.duration,
@@ -938,7 +820,7 @@ pub mod events {
     #[derive(Clone, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct EpgProgramsUpdated {
-        pub service_id: MirakurunServiceId,
+        pub service_id: ServiceId,
     }
 
     impl EpgProgramsUpdated {
@@ -958,7 +840,7 @@ pub mod events {
     #[derive(Clone, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct RecordingStarted {
-        pub program_id: MirakurunProgramId,
+        pub program_id: ProgramId,
     }
 
     impl RecordingStarted {
@@ -978,7 +860,7 @@ pub mod events {
     #[derive(Clone, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct RecordingStopped {
-        pub program_id: MirakurunProgramId,
+        pub program_id: ProgramId,
     }
 
     impl RecordingStopped {
@@ -998,7 +880,7 @@ pub mod events {
     #[derive(Clone, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct RecordingFailed {
-        pub program_id: MirakurunProgramId,
+        pub program_id: ProgramId,
         pub reason: RecordingFailedReason,
     }
 
@@ -1020,7 +902,7 @@ pub mod events {
     #[derive(Clone, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct RecordingRescheduled {
-        pub program_id: MirakurunProgramId,
+        pub program_id: ProgramId,
     }
 
     impl RecordingRescheduled {
@@ -1040,7 +922,7 @@ pub mod events {
     #[derive(Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct OnairProgramChanged {
-        pub service_id: MirakurunServiceId,
+        pub service_id: ServiceId,
     }
 
     impl OnairProgramChanged {
@@ -1065,27 +947,15 @@ mod test_helper {
     // Don't move the implementation outside the module.  That break the
     // type-safeness of integral identifiers like Nid.
 
-    impl From<(u16, u16, u16)> for ServiceId {
-        fn from(v: (u16, u16, u16)) -> ServiceId {
-            ServiceId::new(v.0.into(), v.1.into(), v.2.into())
+    impl From<(u16, u16)> for ServiceId {
+        fn from((nid, sid): (u16, u16)) -> ServiceId {
+            ServiceId::new(nid.into(), sid.into())
         }
     }
 
-    impl From<(u16, u16, u16, u16)> for ProgramId {
-        fn from(v: (u16, u16, u16, u16)) -> ProgramId {
-            ProgramId::new(v.0.into(), v.1.into(), v.2.into(), v.3.into())
-        }
-    }
-
-    impl From<(u16, u16)> for MirakurunServiceId {
-        fn from(v: (u16, u16)) -> Self {
-            MirakurunServiceId::new(v.0.into(), v.1.into())
-        }
-    }
-
-    impl From<(u16, u16, u16)> for MirakurunProgramId {
-        fn from(v: (u16, u16, u16)) -> Self {
-            MirakurunProgramId::new(v.0.into(), v.1.into(), v.2.into())
+    impl From<(u16, u16, u16)> for ProgramId {
+        fn from((nid, sid, eid): (u16, u16, u16)) -> ProgramId {
+            ProgramId::new(nid.into(), sid.into(), eid.into())
         }
     }
 }
@@ -1126,22 +996,22 @@ mod tests {
     }
 
     #[test]
-    fn test_mirakurun_service_id() {
+    fn test_service_id() {
         let nid = 1.into();
         let sid = 2.into();
-        let id = MirakurunServiceId::new(nid, sid);
-        assert_eq!(MirakurunServiceId(1_00002), id);
+        let id = ServiceId::new(nid, sid);
+        assert_eq!(ServiceId(1_00002), id);
         assert_eq!(nid, id.nid());
         assert_eq!(sid, id.sid());
     }
 
     #[test]
-    fn test_mirakurun_program_id() {
+    fn test_program_id() {
         let nid = 1.into();
         let sid = 2.into();
         let eid = 3.into();
-        let id = MirakurunProgramId::new(nid, sid, eid);
-        assert_eq!(MirakurunProgramId(1_00002_00003), id);
+        let id = ProgramId::new(nid, sid, eid);
+        assert_eq!(ProgramId(1_00002_00003), id);
         assert_eq!(nid, id.nid());
         assert_eq!(sid, id.sid());
         assert_eq!(eid, id.eid());

@@ -54,12 +54,12 @@ where
 pub(super) async fn get<E>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
-    Path(id): Path<MirakurunServiceId>,
+    Path(service_id): Path<ServiceId>,
 ) -> Result<Json<MirakurunService>, Error>
 where
     E: Call<epg::QueryService>,
 {
-    epg.call(epg::QueryService::ByMirakurunServiceId(id))
+    epg.call(epg::QueryService { service_id })
         .await?
         .map(MirakurunService::from)
         .map(|mut service| {
@@ -88,16 +88,16 @@ where
 pub(super) async fn logo<E>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
-    Path(id): Path<MirakurunServiceId>,
+    Path(service_id): Path<ServiceId>,
 ) -> Result<Response<StaticFileBody>, Error>
 where
     E: Call<epg::QueryService>,
 {
-    let service = epg
-        .call(epg::QueryService::ByMirakurunServiceId(id))
-        .await??;
+    // First, check the existence of the service.
+    let _service = epg.call(epg::QueryService { service_id }).await??;
 
-    match config.resource.logos.get(&service.id()) {
+    // Then, lookup config.resource.logos.
+    match config.resource.logos.get(&service_id) {
         Some(path) => {
             Ok(Response::builder()
                 // TODO: The type should be specified in config.yml.
@@ -125,20 +125,15 @@ where
 )]
 pub(super) async fn programs<E>(
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
-    Path(id): Path<MirakurunServiceId>,
+    Path(service_id): Path<ServiceId>,
 ) -> Result<Json<Vec<MirakurunProgram>>, Error>
 where
-    E: Call<epg::QueryService>,
     E: Call<epg::QueryPrograms>,
+    E: Call<epg::QueryService>,
 {
-    let service = epg
-        .call(epg::QueryService::ByMirakurunServiceId(id))
-        .await??;
-
+    let _service = epg.call(epg::QueryService { service_id }).await??;
     let programs = epg
-        .call(epg::QueryPrograms {
-            service_id: service.id(),
-        })
+        .call(epg::QueryPrograms { service_id })
         .await?
         .values()
         .cloned()

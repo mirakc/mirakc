@@ -870,11 +870,7 @@ where
         let service_id = program_id.into();
         let schedule = self.schedules.get(&program_id).unwrap();
 
-        let service = self
-            .epg
-            .call(QueryService::ByServiceId(service_id))
-            .await??;
-
+        let service = self.epg.call(QueryService { service_id }).await??;
         let clock = self.epg.call(QueryClock { service_id }).await??;
 
         let stream = self
@@ -1709,7 +1705,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 1), now, "1h"),
+            program!((0, 1, 1), now, "1h"),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1717,7 +1713,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Tracking,
-            program!((0, 0, 1, 2), now, "1h"),
+            program!((0, 1, 2), now, "1h"),
             options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1725,7 +1721,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 0, 1, 3), now - Duration::hours(1), "2h"),
+            program!((0, 1, 3), now - Duration::hours(1), "2h"),
             options!("3.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1744,9 +1740,9 @@ mod tests {
         );
         manager.load_schedules();
         assert_eq!(manager.schedules.len(), num_schedules);
-        assert!(manager.schedules.contains_key(&(0, 0, 1, 1).into()));
-        assert!(manager.schedules.contains_key(&(0, 0, 1, 2).into()));
-        assert!(manager.schedules.contains_key(&(0, 0, 1, 3).into()));
+        assert!(manager.schedules.contains_key(&(0, 1, 1).into()));
+        assert!(manager.schedules.contains_key(&(0, 1, 2).into()));
+        assert!(manager.schedules.contains_key(&(0, 1, 3).into()));
     }
 
     #[test]
@@ -1761,7 +1757,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 1), now + Duration::hours(1)),
+            program!((0, 1, 1), now + Duration::hours(1)),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1769,7 +1765,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 2), now),
+            program!((0, 1, 2), now),
             options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1777,7 +1773,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Tracking,
-            program!((0, 0, 1, 3), now),
+            program!((0, 1, 3), now),
             options!("3.m2ts", 1)
         );
         let result = manager.add_schedule(schedule);
@@ -1785,7 +1781,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 0, 1, 4), now - Duration::minutes(30)),
+            program!((0, 1, 4), now - Duration::minutes(30)),
             options!("4.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1793,13 +1789,13 @@ mod tests {
 
         manager.rebuild_queue();
         assert_matches!(manager.queue.pop(), Some(item) => {
-            assert_eq!(item.program_id, (0, 0, 1, 3).into());
+            assert_eq!(item.program_id, (0, 1, 3).into());
         });
         assert_matches!(manager.queue.pop(), Some(item) => {
-            assert_eq!(item.program_id, (0, 0, 1, 2).into());
+            assert_eq!(item.program_id, (0, 1, 2).into());
         });
         assert_matches!(manager.queue.pop(), Some(item) => {
-            assert_eq!(item.program_id, (0, 0, 1, 1).into());
+            assert_eq!(item.program_id, (0, 1, 1).into());
         });
         assert_matches!(manager.queue.pop(), None);
     }
@@ -1816,7 +1812,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 1), now + Duration::hours(1)),
+            program!((0, 1, 1), now + Duration::hours(1)),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1824,7 +1820,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 2), now),
+            program!((0, 1, 2), now),
             options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1832,7 +1828,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Tracking,
-            program!((0, 0, 1, 3), now),
+            program!((0, 1, 3), now),
             options!("3.m2ts", 1)
         );
         let result = manager.add_schedule(schedule);
@@ -1840,7 +1836,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 0, 1, 4), now - Duration::minutes(30)),
+            program!((0, 1, 4), now - Duration::minutes(30)),
             options!("4.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1851,16 +1847,16 @@ mod tests {
         let schedules = manager.query_schedules();
         assert_eq!(schedules.len(), 4);
         assert_matches!(schedules.get(0), Some(schedule) => {
-            assert_eq!(schedule.program.id, (0, 0, 1, 4).into());
+            assert_eq!(schedule.program.id, (0, 1, 4).into());
         });
         assert_matches!(schedules.get(1), Some(schedule) => {
-            assert_eq!(schedule.program.id, (0, 0, 1, 3).into());
+            assert_eq!(schedule.program.id, (0, 1, 3).into());
         });
         assert_matches!(schedules.get(2), Some(schedule) => {
-            assert_eq!(schedule.program.id, (0, 0, 1, 2).into());
+            assert_eq!(schedule.program.id, (0, 1, 2).into());
         });
         assert_matches!(schedules.get(3), Some(schedule) => {
-            assert_eq!(schedule.program.id, (0, 0, 1, 1).into());
+            assert_eq!(schedule.program.id, (0, 1, 1).into());
         });
     }
 
@@ -1876,16 +1872,16 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 1), now),
+            program!((0, 1, 1), now),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
 
-        assert_matches!(manager.query_schedule((0, 0, 1, 1).into()), Ok(schedule) => {
-            assert_eq!(schedule.program.id, (0, 0, 1, 1).into());
+        assert_matches!(manager.query_schedule((0, 1, 1).into()), Ok(schedule) => {
+            assert_eq!(schedule.program.id, (0, 1, 1).into());
         });
-        assert_matches!(manager.query_schedule((0, 0, 1, 2).into()), Err(err) => {
+        assert_matches!(manager.query_schedule((0, 1, 2).into()), Err(err) => {
             assert_matches!(err, Error::ScheduleNotFound);
         });
     }
@@ -1902,7 +1898,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 1), now, "1h"),
+            program!((0, 1, 1), now, "1h"),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1912,7 +1908,7 @@ mod tests {
         // Schedule already exists.
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 1), now, "1h"),
+            program!((0, 1, 1), now, "1h"),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1922,7 +1918,7 @@ mod tests {
         // Adding a schedule for an ended program is allowed.
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 2), now - Duration::hours(1), "3h"),
+            program!((0, 1, 2), now - Duration::hours(1), "3h"),
             options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1932,7 +1928,7 @@ mod tests {
         // Adding a schedule for a program already started is allowed.
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 3), now - Duration::hours(1), "30m"),
+            program!((0, 1, 3), now - Duration::hours(1), "30m"),
             options!("3.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1951,7 +1947,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 1), now + Duration::seconds(PREP_SECS + 1), "1h"),
+            program!((0, 1, 1), now + Duration::seconds(PREP_SECS + 1), "1h"),
             options!("1.m2ts", 0),
             hashset!["tag1".to_string()]
         );
@@ -1960,7 +1956,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 2), now + Duration::seconds(PREP_SECS + 1), "1h"),
+            program!((0, 1, 2), now + Duration::seconds(PREP_SECS + 1), "1h"),
             options!("2.m2ts", 0),
             hashset!["tag2".to_string()]
         );
@@ -1970,7 +1966,7 @@ mod tests {
         // Schedules which will start soon are always retained.
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 3), now + Duration::seconds(PREP_SECS - 1), "1h"),
+            program!((0, 1, 3), now + Duration::seconds(PREP_SECS - 1), "1h"),
             options!("3.m2ts", 0),
             hashset!["tag1".to_string()]
         );
@@ -1980,7 +1976,7 @@ mod tests {
         // Schedules in "Tracking" are always retained.
         let schedule = schedule!(
             RecordingScheduleState::Tracking,
-            program!((0, 0, 1, 4), now, "1h"),
+            program!((0, 1, 4), now, "1h"),
             options!("4.m2ts", 0),
             hashset!["tag2".to_string()]
         );
@@ -1990,7 +1986,7 @@ mod tests {
         // Schedules in "Recording" are always retained.
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 0, 1, 5), now, "1h"),
+            program!((0, 1, 5), now, "1h"),
             options!("5.m2ts", 0),
             hashset!["tag2".to_string()]
         );
@@ -2000,7 +1996,7 @@ mod tests {
         // Schedules in "Rescheduling" are always removed.
         let schedule = schedule!(
             RecordingScheduleState::Rescheduling,
-            program!((0, 0, 1, 6), now, "1h"),
+            program!((0, 1, 6), now, "1h"),
             options!("6.m2ts", 0),
             hashset!["tag2".to_string()]
         );
@@ -2010,10 +2006,10 @@ mod tests {
 
         manager.remove_schedules(RemovalTarget::Tag("tag2".to_string()), now);
         assert_eq!(manager.schedules.len(), 4);
-        assert!(manager.schedules.contains_key(&(0, 0, 1, 1).into()));
-        assert!(manager.schedules.contains_key(&(0, 0, 1, 3).into()));
-        assert!(manager.schedules.contains_key(&(0, 0, 1, 4).into()));
-        assert!(manager.schedules.contains_key(&(0, 0, 1, 5).into()));
+        assert!(manager.schedules.contains_key(&(0, 1, 1).into()));
+        assert!(manager.schedules.contains_key(&(0, 1, 3).into()));
+        assert!(manager.schedules.contains_key(&(0, 1, 4).into()));
+        assert!(manager.schedules.contains_key(&(0, 1, 5).into()));
 
         manager.remove_schedules(RemovalTarget::All, now);
         assert!(manager.schedules.is_empty());
@@ -2031,7 +2027,7 @@ mod tests {
 
         let mut stopped = MockRecordingStoppedValidator::new();
         stopped.expect_emit().times(1).returning(|msg| {
-            assert_eq!(msg.program_id, (0, 0, 1, 1).into());
+            assert_eq!(msg.program_id, (0, 1, 1).into());
         });
         manager
             .recording_stopped_emitters
@@ -2045,19 +2041,19 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 0, 1, 1), start_time, "1h"),
+            program!((0, 1, 1), start_time, "1h"),
             options!("1.m2ts", 0),
             hashset!["tag1".to_string()]
         );
-        manager.schedules.insert((0, 0, 1, 1).into(), schedule);
+        manager.schedules.insert((0, 1, 1).into(), schedule);
 
         let recorder = recorder!(start_time, pipeline!["true"]);
-        manager.recorders.insert((0, 0, 1, 1).into(), recorder);
+        manager.recorders.insert((0, 1, 1).into(), recorder);
 
-        let changed = manager.handle_recording_stopped((0, 0, 1, 1).into()).await;
+        let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
         assert!(changed);
-        assert!(manager.recorders.get(&(0, 0, 1, 1).into()).is_none());
-        assert_matches!(manager.schedules.get(&(0, 0, 1, 1).into()), None);
+        assert!(manager.recorders.get(&(0, 1, 1).into()).is_none());
+        assert_matches!(manager.schedules.get(&(0, 1, 1).into()), None);
     }
 
     #[tokio::test]
@@ -2072,7 +2068,7 @@ mod tests {
 
         let mut stopped = MockRecordingStoppedValidator::new();
         stopped.expect_emit().times(1).returning(|msg| {
-            assert_eq!(msg.program_id, (0, 0, 1, 1).into());
+            assert_eq!(msg.program_id, (0, 1, 1).into());
         });
         manager
             .recording_stopped_emitters
@@ -2080,7 +2076,7 @@ mod tests {
 
         let mut failed = MockRecordingFailedValidator::new();
         failed.expect_emit().times(1).returning(|msg| {
-            assert_eq!(msg.program_id, (0, 0, 1, 1).into());
+            assert_eq!(msg.program_id, (0, 1, 1).into());
             assert_matches!(msg.reason, RecordingFailedReason::NeedRescheduling);
         });
         manager.recording_failed_emitters.push(Emitter::new(failed));
@@ -2089,22 +2085,22 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 0, 1, 1), start_time, "1h"),
+            program!((0, 1, 1), start_time, "1h"),
             options!("1.m2ts", 0),
             hashset!["tag1".to_string()]
         );
-        manager.schedules.insert((0, 0, 1, 1).into(), schedule);
+        manager.schedules.insert((0, 1, 1).into(), schedule);
 
         let recorder = recorder!(
             start_time,
             pipeline![format!("sh -c 'exit {}'", EXIT_RETRY)]
         );
-        manager.recorders.insert((0, 0, 1, 1).into(), recorder);
+        manager.recorders.insert((0, 1, 1).into(), recorder);
 
-        let changed = manager.handle_recording_stopped((0, 0, 1, 1).into()).await;
+        let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
         assert!(changed);
-        assert!(manager.recorders.get(&(0, 0, 1, 1).into()).is_none());
-        assert_matches!(manager.schedules.get(&(0, 0, 1, 1).into()), Some(schedule) => {
+        assert!(manager.recorders.get(&(0, 1, 1).into()).is_none());
+        assert_matches!(manager.schedules.get(&(0, 1, 1).into()), Some(schedule) => {
             assert_matches!(schedule.state, RecordingScheduleState::Rescheduling);
         });
     }
@@ -2121,7 +2117,7 @@ mod tests {
 
         let mut stopped = MockRecordingStoppedValidator::new();
         stopped.expect_emit().times(1).returning(|msg| {
-            assert_eq!(msg.program_id, (0, 0, 1, 1).into());
+            assert_eq!(msg.program_id, (0, 1, 1).into());
         });
         manager
             .recording_stopped_emitters
@@ -2129,7 +2125,7 @@ mod tests {
 
         let mut failed = MockRecordingFailedValidator::new();
         failed.expect_emit().times(1).returning(|msg| {
-            assert_eq!(msg.program_id, (0, 0, 1, 1).into());
+            assert_eq!(msg.program_id, (0, 1, 1).into());
             assert_matches!(
                 msg.reason,
                 RecordingFailedReason::PipelineError { exit_code: 1 }
@@ -2141,19 +2137,19 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 0, 1, 1), start_time, "1h"),
+            program!((0, 1, 1), start_time, "1h"),
             options!("1.m2ts", 0),
             hashset!["tag1".to_string()]
         );
-        manager.schedules.insert((0, 0, 1, 1).into(), schedule);
+        manager.schedules.insert((0, 1, 1).into(), schedule);
 
         let recorder = recorder!(start_time, pipeline!["false"]);
-        manager.recorders.insert((0, 0, 1, 1).into(), recorder);
+        manager.recorders.insert((0, 1, 1).into(), recorder);
 
-        let changed = manager.handle_recording_stopped((0, 0, 1, 1).into()).await;
+        let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
         assert!(changed);
-        assert!(manager.recorders.get(&(0, 0, 1, 1).into()).is_none());
-        assert_matches!(manager.schedules.get(&(0, 0, 1, 1).into()), None);
+        assert!(manager.recorders.get(&(0, 1, 1).into()).is_none());
+        assert_matches!(manager.schedules.get(&(0, 1, 1).into()), None);
     }
 
     #[tokio::test]
@@ -2167,14 +2163,14 @@ mod tests {
             RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
         let mut mock = MockRecordingFailedValidator::new();
         mock.expect_emit().times(1).returning(|msg| {
-            assert_eq!(msg.program_id, (0, 0, 2, 1).into());
+            assert_eq!(msg.program_id, (0, 2, 1).into());
             assert_matches!(msg.reason, RecordingFailedReason::RemovedFromEpg);
         });
         manager.recording_failed_emitters.push(Emitter::new(mock));
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 1), now),
+            program!((0, 1, 1), now),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2182,20 +2178,20 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 2, 1), now),
+            program!((0, 2, 1), now),
             options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
 
         let services = indexmap! {
-            (0, 0, 1).into() => service!((0, 0, 1), "test", gr!("gr", "1")),
+            (0, 1).into() => service!((0, 1), "test", gr!("gr", "1")),
         };
         let changed = manager.update_schedules_by_epg_services(&services).await;
         assert!(changed);
         assert_eq!(manager.schedules.len(), 1);
-        assert!(manager.schedules.contains_key(&(0, 0, 1, 1).into()));
-        assert!(!manager.schedules.contains_key(&(0, 0, 2, 1).into()));
+        assert!(manager.schedules.contains_key(&(0, 1, 1).into()));
+        assert!(!manager.schedules.contains_key(&(0, 2, 1).into()));
 
         let changed = manager.update_schedules_by_epg_services(&services).await;
         assert!(!changed);
@@ -2213,7 +2209,7 @@ mod tests {
             let now = now;
             epg.expect_call().returning(move |_| {
                 Ok(Arc::new(indexmap! {
-                    1.into() => program!((0, 0, 1, 1), now, "1h"),
+                    1.into() => program!((0, 1, 1), now, "1h"),
                 }))
             });
         }
@@ -2222,7 +2218,7 @@ mod tests {
             RecordingManager::new(config, TunerManagerStub, epg, OnairProgramManagerStub);
         let mut failed_mock = MockRecordingFailedValidator::new();
         failed_mock.expect_emit().times(1).returning(|msg| {
-            assert_eq!(msg.program_id, (0, 0, 1, 2).into());
+            assert_eq!(msg.program_id, (0, 1, 2).into());
             assert_matches!(msg.reason, RecordingFailedReason::RemovedFromEpg);
         });
         manager
@@ -2237,7 +2233,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Rescheduling,
-            program!((0, 0, 1, 1), now),
+            program!((0, 1, 1), now),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2245,22 +2241,22 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 0, 1, 2), now),
+            program!((0, 1, 2), now),
             options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
 
         let changed = manager
-            .update_schedules_by_epg_programs(now, (0, 0, 1).into())
+            .update_schedules_by_epg_programs(now, (0, 1).into())
             .await;
         assert!(changed);
         assert_eq!(manager.schedules.len(), 1);
-        assert!(manager.schedules.contains_key(&(0, 0, 1, 1).into()));
-        assert!(!manager.schedules.contains_key(&(0, 0, 1, 2).into()));
+        assert!(manager.schedules.contains_key(&(0, 1, 1).into()));
+        assert!(!manager.schedules.contains_key(&(0, 1, 2).into()));
 
         let changed = manager
-            .update_schedules_by_epg_programs(now, (0, 0, 0).into())
+            .update_schedules_by_epg_programs(now, (0, 0).into())
             .await;
         assert!(!changed);
     }
@@ -2277,7 +2273,7 @@ mod tests {
             let now = now;
             epg.expect_call().returning(move |_| {
                 Ok(Arc::new(indexmap! {
-                    1.into() => program!((0, 0, 1, 1), now, "1h"),
+                    1.into() => program!((0, 1, 1), now, "1h"),
                 }))
             });
         }
@@ -2287,7 +2283,7 @@ mod tests {
 
         let mut mock = MockRecordingRescheduledValidator::new();
         mock.expect_emit().times(1).returning(|msg| {
-            assert_eq!(msg.program_id, (0, 0, 1, 1).into());
+            assert_eq!(msg.program_id, (0, 1, 1).into());
         });
         manager
             .recording_rescheduled_emitters
@@ -2295,18 +2291,18 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Rescheduling,
-            program!((0, 0, 1, 1), now - Duration::minutes(30), "1h"),
+            program!((0, 1, 1), now - Duration::minutes(30), "1h"),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
 
         let changed = manager
-            .update_schedules_by_epg_programs(now, (0, 0, 1).into())
+            .update_schedules_by_epg_programs(now, (0, 1).into())
             .await;
         assert!(changed);
         assert_eq!(manager.schedules.len(), 1);
-        assert_matches!(manager.schedules.get(&(0, 0, 1, 1).into()), Some(schedule) => {
+        assert_matches!(manager.schedules.get(&(0, 1, 1).into()), Some(schedule) => {
             assert_matches!(schedule.state, RecordingScheduleState::Scheduled);
         });
     }

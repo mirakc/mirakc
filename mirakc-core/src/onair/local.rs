@@ -13,6 +13,7 @@ use crate::epg::EpgProgram;
 use crate::epg::EpgService;
 use crate::epg::QueryServices;
 use crate::error::Error;
+use crate::models::ProgramId;
 use crate::models::ServiceId;
 use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
@@ -182,7 +183,7 @@ where
     }
 
     async fn update_onair_program(&mut self, service: &EpgService) -> Result<(), Error> {
-        let service_id = service.id();
+        let service_id = service.id;
 
         let user = TunerUser {
             info: TunerUserInfo::OnairProgramTracker(self.name.clone()),
@@ -203,7 +204,7 @@ where
 
         let template = mustache::compile_str(&self.config.command)?;
         let data = mustache::MapBuilder::new()
-            .insert("sid", &service.sid)?
+            .insert("sid", &service.sid())?
             .build();
         let cmd = template.render_data_to_string(&data)?;
         let mut pipeline = crate::command_util::spawn_pipeline(vec![cmd], stream.id())?;
@@ -276,7 +277,7 @@ impl LocalOnairProgramTrackerConfig {
         if !self.channel_types.contains(&service.channel.channel_type) {
             return false;
         }
-        let service_id = service.id().into();
+        let service_id = service.id;
         if !self.services.is_empty() {
             if !self.services.contains(&service_id) {
                 return false;
@@ -301,13 +302,7 @@ impl EitSection {
 
     fn extract_program(&self) -> Option<Arc<EpgProgram>> {
         self.events.get(0).map(|event| {
-            let id = (
-                self.original_network_id,
-                self.transport_stream_id,
-                self.service_id,
-                event.event_id,
-            )
-                .into();
+            let id = ProgramId::new(self.original_network_id, self.service_id, event.event_id);
             let mut program = EpgProgram::new(id);
             program.update(event);
             Arc::new(program)
@@ -338,11 +333,9 @@ mod tests {
     use tempfile::NamedTempFile;
 
     macro_rules! service {
-        ($nid:expr, $sid:expr, $channel_type:expr) => {
+        ($id:expr, $channel_type:expr) => {
             EpgService {
-                nid: $nid.into(),
-                tsid: 0.into(),
-                sid: $sid.into(),
+                id: $id.into(),
                 service_type: 0,
                 logo_id: 0,
                 remote_control_key_id: 0,
@@ -373,10 +366,10 @@ mod tests {
         let mut changed_mock = MockChangedEmitter::new();
         changed_mock.expect_emit().times(1).returning(|msg| {
             assert_matches!(msg.current, Some(program) => {
-                assert_eq!(program.id, (0, 0, 1, 4).into());
+                assert_eq!(program.id, (0, 1, 4).into());
             });
             assert_matches!(msg.next, Some(program) => {
-                assert_eq!(program.id, (0, 0, 1, 4).into());
+                assert_eq!(program.id, (0, 1, 4).into());
             });
         });
         let mut tracker = LocalTracker::new(
@@ -388,7 +381,7 @@ mod tests {
             None,
         );
 
-        let service01 = service!(0, 1, ChannelType::GR);
+        let service01 = service!((0, 1), ChannelType::GR);
         let result = tracker.update_onair_program(&service01).await;
         assert_matches!(result, Ok(()));
         let result = tracker.update_onair_program(&service01).await;
@@ -397,10 +390,10 @@ mod tests {
 
     #[test]
     fn test_config_matches() {
-        let gr12 = service!(1, 2, ChannelType::GR);
-        let gr13 = service!(1, 3, ChannelType::GR);
-        let bs12 = service!(1, 2, ChannelType::BS);
-        let bs13 = service!(1, 3, ChannelType::BS);
+        let gr12 = service!((1, 2), ChannelType::GR);
+        let gr13 = service!((1, 3), ChannelType::GR);
+        let bs12 = service!((1, 2), ChannelType::BS);
+        let bs13 = service!((1, 3), ChannelType::BS);
 
         let config = LocalOnairProgramTrackerConfig {
             channel_types: hashset![ChannelType::GR],
@@ -519,7 +512,7 @@ mod tests {
             }],
         };
         assert_matches!(section.extract_program(), Some(program) => {
-            assert_eq!(program.id, (1, 2, 3, 4).into());
+            assert_eq!(program.id, (1, 3, 4).into());
         });
 
         let section = EitSection {

@@ -40,22 +40,15 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(in crate::web::api) async fn get<E, R>(
-    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+pub(in crate::web::api) async fn get<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
-    Path(program_id): Path<MirakurunProgramId>,
+    Path(program_id): Path<ProgramId>,
 ) -> Result<Json<WebRecordingRecorder>, Error>
 where
-    E: Call<epg::QueryProgram>,
     R: Call<recording::QueryRecordingRecorder>,
 {
-    let program = epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(program_id))
-        .await??;
     let recorder = recording_manager
-        .call(recording::QueryRecordingRecorder {
-            program_id: program.id,
-        })
+        .call(recording::QueryRecordingRecorder { program_id })
         .await??;
     Ok(Json(recorder.into()))
 }
@@ -86,7 +79,9 @@ where
     R: Call<recording::StartRecording>,
 {
     let program = epg
-        .call(epg::QueryProgram::ByMirakurunProgramId(input.program_id))
+        .call(epg::QueryProgram {
+            program_id: input.program_id,
+        })
         .await??;
     let schedule = RecordingSchedule {
         state: RecordingScheduleState::Recording,

@@ -47,7 +47,7 @@ suitable for your environment.
 | [jobs.update-schedules.disabled]         | `false`                           |
 | [recording.basedir]                      | `None`                            |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
-| [timeshift.recorders\[\].service-triple] |                                   |
+| [timeshift.recorders\[\].service-id]     |                                   |
 | [timeshift.recorders\[\].ts-file]        |                                   |
 | [timeshift.recorders\[\].data-file]      |                                   |
 | [timeshift.recorders\[\].chunk-size]     | `154009600` (~154MB)              |
@@ -103,7 +103,7 @@ suitable for your environment.
 [jobs.update-schedules.disabled]: #jobsupdate-schedules
 [recording.basedir]: #recordingbasedir
 [timeshift.command]: #timeshift
-[timeshift.recorders\[\].service-triple]: #timeshiftrecorders
+[timeshift.recorders\[\].service-id]: #timeshiftrecorders
 [timeshift.recorders\[\].ts-file]: #timeshiftrecorders
 [timeshift.recorders\[\].data-file]: #timeshiftrecorders
 [timeshift.recorders\[\].chunk-size]: #timeshiftrecorders
@@ -735,7 +735,7 @@ The timeshift recording has the following limitations:
 timeshift:
   recorders:
     bs1:
-      service-triple: [4, 16625, 101]  # BS1
+      service-id: 400101  # BS1
       ts-file: /path/to/bs1.timeshift.m2ts
       data-file: /path/to/bs1.timeshift.data
       num-chunks: 4000  # about 616GB
@@ -745,8 +745,8 @@ timeshift:
 
 Definitions of timeshift recorders.
 
-* service-triple
-  * A tuple of NID, TSID and SID of a service stream to record
+* service-id
+  * A service ID of a service stream to record
 * ts-file
   * A path to a file used as a ring buffer to record TS packets
 * data-file
@@ -768,7 +768,7 @@ Definitions of timeshift recorders.
 
 The following values are stored in the `data-file`:
 
-* service-triple
+* service-id
 * chunk-size
 * `num-chunks - num-reserves` (The maximum number of available chunks in the ts-file)
 
@@ -814,7 +814,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 {
   "type": "object",
   "properties": {
-    "serviceId": { "type": "number" }  // MirakurunServiceId
+    "serviceId": { "type": "number" }  // ServiceId
   }
 }
 ```
@@ -828,7 +828,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 {
   "type": "object",
   "properties": {
-    "programId": { "type": "number" }  // MirakurunProgramId
+    "programId": { "type": "number" }  // ProgramId
   }
 }
 ```
@@ -843,7 +843,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 {
   "type": "object",
   "properties": {
-    "programId": { "type": "number" }  // MirakurunProgramId
+    "programId": { "type": "number" }  // ProgramId
   }
 }
 ```
@@ -858,7 +858,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 {
   "type": "object",
   "properties": {
-    "programId": { "type": "number" },  // MirakurunProgramId
+    "programId": { "type": "number" },  // ProgramId
     "reason": {
       "oneOf": [
         // start-recording-failed
@@ -923,7 +923,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 {
   "type": "object",
   "properties": {
-    "programId": { "type": "number" }  // MirakurunProgramId
+    "programId": { "type": "number" }  // ProgramId
   }
 }
 ```
@@ -938,7 +938,7 @@ A JSON defined in the following schema is passed to the script via STDIN:
 {
   "type": "object",
   "properties": {
-    "serviceId": { "type": "number" }  // MirakurunServiceId
+    "serviceId": { "type": "number" }  // ServiceId
   }
 }
 ```
@@ -981,9 +981,9 @@ The following properties can be specified:
 * channel-types (required)
   * A list of channel types that the local tracker handles
 * services (default: an empty list)
-  * A list of Mirakurun Service IDs that the local tracker handles
+  * A list of service IDs that the local tracker handles
 * excluded-services (default: an empty list)
-  * A list of Mirakurun Service IDs that then local tracker doesn't handles
+  * A list of service IDs that then local tracker doesn't handles
 * command (default: `mirakc-arib collect-eitpf --sids={{{sid}}}`)
   * A Mustache template string of a command which collects EIT[p/f] sections in
     NDJSON from a TS stream
@@ -1021,9 +1021,9 @@ The following properties can be specified:
   * An URL of a remote server which provides the `/events` and `/api/onair` Web
     endpoints
 * services (default: an empty list)
-  * A list of Mirakurun Service IDs that the local tracker handles
+  * A list of service IDs that the local tracker handles
 * excluded-services (default: an empty list)
-  * A list of Mirakurun Service IDs that then local tracker doesn't handles
+  * A list of service IDs that then local tracker doesn't handles
 
 `MirakurunProgram` is not compatible with `EpgProgram`.  So, some of the
 information might be lost.
@@ -1044,7 +1044,7 @@ used in mirakc at runtime.
 ```yaml
 resource:
   logos:
-    - service-triple: [4, 16625, 101]
+    - service-id: 400101
     - image: /path/to/bs1.png  # you can use any format of image
 ```
 

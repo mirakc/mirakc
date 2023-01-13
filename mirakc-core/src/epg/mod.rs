@@ -87,7 +87,7 @@ impl<T> Epg<T> {
                     // services if properties of the channel hasn't changed.
                     for service in self.services.values() {
                         if service.channel == channel {
-                            services.insert(service.id(), service.clone());
+                            services.insert(service.id, service.clone());
                         }
                     }
                 }
@@ -220,7 +220,7 @@ impl<T> Epg<T> {
                         // if changed
                         tracing::debug!(
                             "Drop service#{} ({}) due to changes of the channel config",
-                            sv.id(),
+                            sv.id,
                             sv.name
                         );
                     }
@@ -520,9 +520,8 @@ where
 
 #[derive(Message)]
 #[reply("Result<EpgService, Error>")]
-pub enum QueryService {
-    ByMirakurunServiceId(MirakurunServiceId), // For Mirakurun-compatible Web API
-    ByServiceId(ServiceId),
+pub struct QueryService {
+    pub service_id: ServiceId,
 }
 
 #[async_trait]
@@ -537,14 +536,9 @@ where
         msg: QueryService,
         _ctx: &mut Context<Self>,
     ) -> <QueryService as Message>::Reply {
-        tracing::debug!(msg.name = "QueryService");
-        let (nid, sid) = match msg {
-            QueryService::ByMirakurunServiceId(id) => id.into(),
-            QueryService::ByServiceId(id) => id.into(),
-        };
+        tracing::debug!(msg.name = "QueryService", %msg.service_id);
         self.services
-            .values()
-            .find(|sv| sv.nid == nid && sv.sid == sid)
+            .get(&msg.service_id)
             .cloned()
             .ok_or(Error::ServiceNotFound)
     }
@@ -610,9 +604,8 @@ where
 
 #[derive(Message)]
 #[reply("Result<EpgProgram, Error>")]
-pub enum QueryProgram {
-    ByMirakurunProgramId(MirakurunProgramId), // For Mirakurun-compatible Web API
-    ByProgramId(ProgramId),
+pub struct QueryProgram {
+    pub program_id: ProgramId,
 }
 
 #[async_trait]
@@ -627,17 +620,8 @@ where
         msg: QueryProgram,
         _ctx: &mut Context<Self>,
     ) -> <QueryProgram as Message>::Reply {
-        tracing::debug!(msg.name = "QueryProgram");
-        let (nid, sid, eid) = match msg {
-            QueryProgram::ByMirakurunProgramId(id) => id.into(),
-            QueryProgram::ByProgramId(id) => id.into(),
-        };
-        let service_id = self
-            .services
-            .values()
-            .find(|sv| sv.nid == nid && sv.sid == sid)
-            .map(|sv| sv.id())
-            .ok_or(Error::ProgramNotFound)?;
+        tracing::debug!(msg.name = "QueryProgram", %msg.program_id);
+        let (service_id, eid) = msg.program_id.into();
         let schedule = self
             .schedules
             .get(&service_id)
@@ -1077,9 +1061,7 @@ impl From<ChannelConfig> for EpgChannel {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpgService {
-    pub nid: Nid,
-    pub tsid: Tsid,
-    pub sid: Sid,
+    pub id: ServiceId,
     #[serde(rename = "type")]
     pub service_type: u16,
     #[serde(default)]
@@ -1091,18 +1073,21 @@ pub struct EpgService {
 }
 
 impl EpgService {
-    pub fn id(&self) -> ServiceId {
-        ServiceId::new(self.nid, self.tsid, self.sid)
+    pub fn nid(&self) -> Nid {
+        self.id.nid()
+    }
+
+    pub fn sid(&self) -> Sid {
+        self.id.sid()
     }
 }
 
 impl Into<MirakurunChannelService> for EpgService {
     fn into(self) -> MirakurunChannelService {
         MirakurunChannelService {
-            id: self.id().into(),
-            service_id: self.sid,
-            transport_stream_id: self.tsid,
-            network_id: self.nid,
+            id: self.id,
+            service_id: self.sid(),
+            network_id: self.nid(),
             name: self.name,
         }
     }
@@ -1142,6 +1127,10 @@ impl EpgProgram {
             series: None,
             event_group: None,
         }
+    }
+
+    pub fn eid(&self) -> Eid {
+        self.id.eid()
     }
 
     pub fn name(&self) -> &str {
@@ -1219,43 +1208,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_services() {
-        fn create_service(name: &str, id: ServiceId, channel: EpgChannel) -> EpgService {
-            EpgService {
-                nid: id.nid(),
-                tsid: id.tsid(),
-                sid: id.sid(),
-                service_type: 1,
-                logo_id: 0,
-                remote_control_key_id: 0,
-                name: name.to_string(),
-                channel,
-            }
-        }
-
         let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub);
 
-        let ch1 = EpgChannel {
-            name: "ch1".to_string(),
-            channel_type: ChannelType::GR,
-            channel: "1".to_string(),
-            extra_args: "".to_string(),
-            services: vec![],
-            excluded_services: vec![],
-        };
+        let ch1 = channel!("ch1", ChannelType::GR, "1");
+        let ch2 = channel!("ch2", ChannelType::GR, "2");
 
-        let ch2 = EpgChannel {
-            name: "ch2".to_string(),
-            channel_type: ChannelType::GR,
-            channel: "2".to_string(),
-            extra_args: "".to_string(),
-            services: vec![],
-            excluded_services: vec![],
-        };
-
-        let id1_1 = ServiceId::from((1, 1, 1));
-        let id1_2 = ServiceId::from((1, 1, 2));
-        let id2_3 = ServiceId::from((2, 1, 3));
-        let id2_4 = ServiceId::from((2, 1, 4));
+        let id1_1 = ServiceId::from((1, 1));
+        let id1_2 = ServiceId::from((1, 2));
+        let id2_3 = ServiceId::from((2, 3));
+        let id2_4 = ServiceId::from((2, 4));
 
         // initial update
 
@@ -1263,19 +1224,15 @@ mod tests {
             (
                 ch1.clone(),
                 Some(indexmap::indexmap! {
-                    id1_1 =>
-                        create_service("sv1", id1_1, ch1.clone()),
-                    id1_2 =>
-                        create_service("sv2", id1_2, ch1.clone()),
+                    id1_1 => service!(id1_1, "sv1", ch1.clone()),
+                    id1_2 => service!(id1_2, "sv2", ch1.clone()),
                 }),
             ),
             (
                 ch2.clone(),
                 Some(indexmap::indexmap! {
-                    id2_3 =>
-                        create_service("sv3", id2_3, ch2.clone()),
-                    id2_4 =>
-                        create_service("sv4", id2_4, ch2.clone()),
+                    id2_3 => service!(id2_3, "sv3", ch2.clone()),
+                    id2_4 => service!(id2_4, "sv4", ch2.clone()),
                 }),
             ),
         ];
@@ -1292,19 +1249,15 @@ mod tests {
             (
                 ch1.clone(),
                 Some(indexmap::indexmap! {
-                    id1_1 =>
-                        create_service("sv1", id1_1, ch1.clone()),
-                    id1_2 =>
-                        create_service("sv2", id1_2, ch1.clone()),
+                    id1_1 => service!(id1_1, "sv1", ch1.clone()),
+                    id1_2 => service!(id1_2, "sv2", ch1.clone()),
                 }),
             ),
             (
                 ch2.clone(),
                 Some(indexmap::indexmap! {
-                    id2_3 =>
-                        create_service("sv3", id2_3, ch2.clone()),
-                    id2_4 =>
-                        create_service("sv4", id2_4, ch2.clone()),
+                    id2_3 => service!(id2_3, "sv3", ch2.clone()),
+                    id2_4 => service!(id2_4, "sv4", ch2.clone()),
                 }),
             ),
         ];
@@ -1322,10 +1275,8 @@ mod tests {
             (
                 ch2.clone(),
                 Some(indexmap::indexmap! {
-                    id2_3 =>
-                        create_service("sv3", id2_3, ch2.clone()),
-                    id2_4 =>
-                        create_service("sv4", id2_4, ch2.clone()),
+                    id2_3 => service!(id2_3, "sv3", ch2.clone()),
+                    id2_4 => service!(id2_4, "sv4", ch2.clone()),
                 }),
             ),
         ];
@@ -1342,8 +1293,7 @@ mod tests {
             (
                 ch1.clone(),
                 Some(indexmap::indexmap! {
-                    id1_1 =>
-                        create_service("sv1.new", id1_1, ch1.clone()),
+                    id1_1 => service!(id1_1, "sv1.new", ch1.clone()),
                 }),
             ),
             (ch2.clone(), None),
@@ -1359,10 +1309,10 @@ mod tests {
     #[tokio::test]
     async fn test_update_services_purge_garbage_schedules() {
         let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub);
-        let id = ServiceId::from((1, 2, 3));
+        let id = ServiceId::from((1, 2));
         epg.schedules.insert(id, Box::new(EpgSchedule::new(id)));
         assert!(!epg.schedules.is_empty());
-        let id = ServiceId::from((1, 1, 1));
+        let id = ServiceId::from((1, 1));
         let sv = create_epg_service(id, ChannelType::GR);
         let ch = sv.channel.clone();
         epg.update_services(vec![(
@@ -1377,7 +1327,7 @@ mod tests {
 
     #[test]
     fn test_epg_schedule_update_start_index() {
-        let id = ServiceId::from((1, 2, 3));
+        let id = ServiceId::from((1, 2));
         let mut sched = EpgSchedule::new(id);
         assert_eq!(sched.start_index, 0);
         assert!(sched.units.iter().all(|unit| unit.date().is_none()));
@@ -1407,12 +1357,12 @@ mod tests {
 
     #[test]
     fn test_epg_schedule_update() {
-        let id = ServiceId::from((1, 2, 3));
+        let id = ServiceId::from((1, 2));
 
         let mut sched = EpgSchedule::new(id);
         sched.update(EitSection {
             original_network_id: id.nid(),
-            transport_stream_id: id.tsid(),
+            transport_stream_id: 0.into(),
             service_id: id.sid(),
             table_id: 0x50, // unit-index(0)
             section_number: 0x00,
@@ -1426,7 +1376,7 @@ mod tests {
         let mut sched = EpgSchedule::new(id);
         sched.update(EitSection {
             original_network_id: id.nid(),
-            transport_stream_id: id.tsid(),
+            transport_stream_id: 0.into(),
             service_id: id.sid(),
             table_id: 0x51, // unit-index(4)
             section_number: 0x00,
@@ -1441,7 +1391,7 @@ mod tests {
         sched.start_index = 5;
         sched.update(EitSection {
             original_network_id: id.nid(),
-            transport_stream_id: id.tsid(),
+            transport_stream_id: 0.into(),
             service_id: id.sid(),
             table_id: 0x51, // unit-index(4)
             section_number: 0x00,
@@ -1460,8 +1410,8 @@ mod tests {
 
         segment.update(EitSection {
             original_network_id: 1.into(),
-            transport_stream_id: 2.into(),
-            service_id: 3.into(),
+            transport_stream_id: 0.into(),
+            service_id: 2.into(),
             table_id: 0x50,
             section_number: 0x01,
             last_section_number: 0xF8,
@@ -1474,8 +1424,8 @@ mod tests {
 
         segment.update(EitSection {
             original_network_id: 1.into(),
-            transport_stream_id: 2.into(),
-            service_id: 3.into(),
+            transport_stream_id: 0.into(),
+            service_id: 2.into(),
             table_id: 0x50,
             section_number: 0x00,
             last_section_number: 0xF8,
@@ -1488,23 +1438,7 @@ mod tests {
     }
 
     fn create_epg_service(id: ServiceId, channel_type: ChannelType) -> EpgService {
-        EpgService {
-            nid: id.nid(),
-            tsid: id.tsid(),
-            sid: id.sid(),
-            service_type: 1,
-            logo_id: 0,
-            remote_control_key_id: 0,
-            name: "Service".to_string(),
-            channel: EpgChannel {
-                name: "Ch".to_string(),
-                channel_type,
-                channel: "ch".to_string(),
-                extra_args: String::new(),
-                services: Vec::new(),
-                excluded_services: Vec::new(),
-            },
-        }
+        service!(id, "Service", channel!("Ch", channel_type, "ch"))
     }
 
     fn create_epg_section(date: NaiveDate) -> EpgSection {

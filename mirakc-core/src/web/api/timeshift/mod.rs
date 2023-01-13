@@ -111,7 +111,7 @@ where
         .insert_str("channel_name", &recorder.service.channel.name)
         .insert("channel_type", &recorder.service.channel.channel_type)?
         .insert_str("channel", &recorder.service.channel.channel)
-        .insert("sid", &recorder.service.sid.value())?
+        .insert("sid", &recorder.service.id.sid())?
         .build();
 
     let mut builder = FilterPipelineBuilder::new(data);

@@ -753,7 +753,7 @@ impl Default for TimeshiftConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct TimeshiftRecorderConfig {
-    pub service_triple: (Nid, Tsid, Sid),
+    pub service_id: ServiceId,
     pub ts_file: String,
     pub data_file: String,
     #[serde(default = "TimeshiftRecorderConfig::default_chunk_size")]
@@ -961,9 +961,9 @@ impl OnairProgramTrackerConfig {
 pub struct LocalOnairProgramTrackerConfig {
     pub channel_types: HashSet<ChannelType>,
     #[serde(default)]
-    pub services: HashSet<MirakurunServiceId>,
+    pub services: HashSet<ServiceId>,
     #[serde(default)]
-    pub excluded_services: HashSet<MirakurunServiceId>,
+    pub excluded_services: HashSet<ServiceId>,
     #[serde(default = "LocalOnairProgramTrackerConfig::default_command")]
     pub command: String,
     // Internal properties
@@ -997,9 +997,9 @@ impl LocalOnairProgramTrackerConfig {
 pub struct RemoteOnairProgramTrackerConfig {
     pub url: RemoteOnairProgramTrackerUrl,
     #[serde(default)]
-    pub services: HashSet<MirakurunServiceId>,
+    pub services: HashSet<ServiceId>,
     #[serde(default)]
-    pub excluded_services: HashSet<MirakurunServiceId>,
+    pub excluded_services: HashSet<ServiceId>,
 }
 
 impl RemoteOnairProgramTrackerConfig {
@@ -1017,7 +1017,7 @@ impl RemoteOnairProgramTrackerConfig {
         }
     }
 
-    pub fn onair_url_of(&self, service_id: MirakurunServiceId) -> Url {
+    pub fn onair_url_of(&self, service_id: ServiceId) -> Url {
         use RemoteOnairProgramTrackerUrl::*;
         match self.url {
             Mirakc(ref baseurl) => baseurl
@@ -1053,7 +1053,7 @@ pub struct ResourceConfig {
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct LogoConfig {
-    pub service_triple: (Nid, Tsid, Sid),
+    pub service_id: ServiceId,
     pub image: String,
 }
 
@@ -1067,14 +1067,12 @@ impl ResourceConfig {
             Path::new(&self.strings_yaml).is_file(),
             "config.resources: `strings-yaml` must be a path to an existing YAML file"
         );
-        for (triple, image) in self.logos.iter() {
+        for (service_id, image) in self.logos.iter() {
             assert!(
                 Path::new(image).is_file(),
-                "config.resources: `logos[({}, {}, {})]` must be a path to an existing \
+                "config.resources: `logos[{}]` must be a path to an existing \
                      file",
-                triple.nid(),
-                triple.tsid(),
-                triple.sid()
+                service_id
             );
         }
     }
@@ -1086,7 +1084,7 @@ impl ResourceConfig {
         let values: Vec<LogoConfig> = Vec::deserialize(deserializer)?;
         let mut logos = HashMap::new();
         for logo in values.into_iter() {
-            logos.insert(logo.service_triple.into(), logo.image);
+            logos.insert(logo.service_id.into(), logo.image);
         }
         Ok(logos)
     }
@@ -2593,7 +2591,7 @@ mod tests {
                 command: command
                 recorders:
                   test:
-                    service-triple: [1, 2, 3]
+                    service-id: 1
                     ts-file: /path/to/timeshift.m2ts
                     data-file: /path/to/timeshift.json
                     num-chunks: 100
@@ -2604,7 +2602,7 @@ mod tests {
                 command: "command".to_string(),
                 recorders: indexmap! {
                     "test".to_string() => TimeshiftRecorderConfig {
-                        service_triple: (1.into(), 2.into(), 3.into()),
+                        service_id: 1.into(),
                         ts_file: "/path/to/timeshift.m2ts".to_string(),
                         data_file: "/path/to/timeshift.json".to_string(),
                         chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2633,7 +2631,7 @@ mod tests {
                 command: command
                 recorders:
                   test:
-                    service-triple: [1, 2, 3]
+                    service-id: 1
                     ts-file: /path/to/timeshift.m2ts
                     data-file: /path/to/timeshift.json
                     num-chunks: 100
@@ -2647,7 +2645,7 @@ mod tests {
                 command: ''
                 recorders:
                   test:
-                    service-triple: [1, 2, 3]
+                    service-id: 1
                     ts-file: /path/to/timeshift.m2ts
                     data-file: /path/to/timeshift.json
                     num-chunks: 100
@@ -2682,7 +2680,7 @@ mod tests {
 
         assert!(serde_yaml::from_str::<TimeshiftRecorderConfig>(
             r#"
-            service-triple: [1, 2, 3]
+            service-id: 1
             ts-file: /path/to/timeshift.m2ts
             data-file: /path/to/timeshift.data
             num-chunks: 100
@@ -2694,7 +2692,7 @@ mod tests {
         assert_eq!(
             serde_yaml::from_str::<TimeshiftRecorderConfig>(
                 r#"
-                service-triple: [1, 2, 3]
+                service-id: 1
                 ts-file: /path/to/timeshift.m2ts
                 data-file: /path/to/timeshift.data
                 num-chunks: 100
@@ -2702,7 +2700,7 @@ mod tests {
             )
             .unwrap(),
             TimeshiftRecorderConfig {
-                service_triple: (1.into(), 2.into(), 3.into()),
+                service_id: 1.into(),
                 ts_file: "/path/to/timeshift.m2ts".to_string(),
                 data_file: "/path/to/timeshift.data".to_string(),
                 chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2715,7 +2713,7 @@ mod tests {
         assert_eq!(
             serde_yaml::from_str::<TimeshiftRecorderConfig>(
                 r#"
-                service-triple: [1, 2, 3]
+                service-id: 1
                 ts-file: /path/to/timeshift.m2ts
                 data-file: /path/to/timeshift.data
                 chunk-size: 8192
@@ -2726,7 +2724,7 @@ mod tests {
             )
             .unwrap(),
             TimeshiftRecorderConfig {
-                service_triple: (1.into(), 2.into(), 3.into()),
+                service_id: 1.into(),
                 ts_file: "/path/to/timeshift.m2ts".to_string(),
                 data_file: "/path/to/timeshift.data".to_string(),
                 chunk_size: 8192,
@@ -2740,7 +2738,7 @@ mod tests {
     #[test]
     fn test_timeshift_recorder_config_validate() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2755,7 +2753,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_empty_ts_file() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2770,7 +2768,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_ts_file_parent_dir() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/path/to/ts.m2ts".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2785,7 +2783,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_ts_file_is_file() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2800,7 +2798,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_empty_data_file() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2815,7 +2813,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_empty_data_file_parent_dir() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/path/to/data.json".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2830,7 +2828,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_empty_data_file_is_file() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2845,7 +2843,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_data_bincode() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/data.bincode".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2860,7 +2858,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_chunk_size_0() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: 0,
@@ -2875,7 +2873,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_chunk_size_1() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: 1,
@@ -2890,7 +2888,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_chunk_size_8192() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: 8192,
@@ -2904,7 +2902,7 @@ mod tests {
     #[test]
     fn test_timeshift_recorder_config_validate_chunk_size_1540096() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: 1540096,
@@ -2919,7 +2917,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_num_chunks_1() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2934,7 +2932,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_num_reserves_0() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -2949,7 +2947,7 @@ mod tests {
     #[should_panic]
     fn test_timeshift_recorder_config_validate_available_chunks_1() {
         let config = TimeshiftRecorderConfig {
-            service_triple: (1.into(), 2.into(), 3.into()),
+            service_id: 1.into(),
             ts_file: "/ts.m2ts".to_string(),
             data_file: "/data.json".to_string(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
@@ -3116,7 +3114,7 @@ mod tests {
             serde_yaml::from_str::<ResourceConfig>(
                 r#"
                 logos:
-                  - service-triple: [1, 2, 3]
+                  - service-id: 1
                     image: /path/to/logo.png
             "#
             )
@@ -3124,8 +3122,7 @@ mod tests {
             ResourceConfig {
                 strings_yaml: ResourceConfig::default_strings_yaml(),
                 logos: hashmap! {
-                    ServiceId::new(1.into(), 2.into(), 3.into())
-                        => "/path/to/logo.png".to_string(),
+                    1.into() => "/path/to/logo.png".to_string(),
                 },
             }
         );
@@ -3159,8 +3156,7 @@ mod tests {
         let config = ResourceConfig {
             strings_yaml: "/bin/sh".to_string(),
             logos: hashmap! {
-                ServiceId::new(1.into(), 2.into(), 3.into())
-                    => "/bin/sh".to_string(),
+                1.into() => "/bin/sh".to_string(),
             },
         };
         config.validate();
@@ -3172,8 +3168,7 @@ mod tests {
         let config = ResourceConfig {
             strings_yaml: "/bin/sh".to_string(),
             logos: hashmap! {
-                ServiceId::new(1.into(), 2.into(), 3.into())
-                    => "/path/to/non-existing".to_string(),
+                1.into() => "/path/to/non-existing".to_string(),
             },
         };
         config.validate();

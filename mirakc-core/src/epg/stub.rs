@@ -34,10 +34,8 @@ impl Call<QueryChannel> for EpgStub {
 impl Call<QueryServices> for EpgStub {
     async fn call(&self, _msg: QueryServices) -> actlet::Result<<QueryServices as Message>::Reply> {
         Ok(Arc::new(indexmap! {
-            (0, 0, 1).into() => EpgService {
-                nid: 0.into(),
-                tsid: 0.into(),
-                sid: 1.into(),
+            1.into() => EpgService {
+                id: 1.into(),
                 service_type: 1,
                 logo_id: 0,
                 remote_control_key_id: 0,
@@ -58,54 +56,29 @@ impl Call<QueryServices> for EpgStub {
 #[async_trait]
 impl Call<QueryService> for EpgStub {
     async fn call(&self, msg: QueryService) -> actlet::Result<<QueryService as Message>::Reply> {
-        match msg {
-            QueryService::ByMirakurunServiceId(id) => {
-                if id.sid().value() == 0 {
-                    Ok(Err(Error::ServiceNotFound))
+        match msg.service_id.sid().value() {
+            0 => Ok(Err(Error::ServiceNotFound)),
+            _ => {
+                let channel = if msg.service_id.sid().value() == 1 {
+                    "ch"
                 } else {
-                    let channel = if id.sid().value() == 1 { "ch" } else { "" };
-                    Ok(Ok(EpgService {
-                        nid: id.nid(),
-                        tsid: 0.into(),
-                        sid: id.sid(),
-                        service_type: 1,
-                        logo_id: 0,
-                        remote_control_key_id: 0,
+                    ""
+                };
+                Ok(Ok(EpgService {
+                    id: msg.service_id,
+                    service_type: 1,
+                    logo_id: 0,
+                    remote_control_key_id: 0,
+                    name: "test".to_string(),
+                    channel: EpgChannel {
                         name: "test".to_string(),
-                        channel: EpgChannel {
-                            name: "test".to_string(),
-                            channel_type: ChannelType::GR,
-                            channel: channel.to_string(),
-                            extra_args: "".to_string(),
-                            services: Vec::new(),
-                            excluded_services: Vec::new(),
-                        },
-                    }))
-                }
-            }
-            QueryService::ByServiceId(id) => {
-                if id.sid().value() == 0 {
-                    Ok(Err(Error::ServiceNotFound))
-                } else {
-                    let channel = if id.sid().value() == 1 { "ch" } else { "" };
-                    Ok(Ok(EpgService {
-                        nid: id.nid(),
-                        tsid: id.tsid(),
-                        sid: id.sid(),
-                        service_type: 1,
-                        logo_id: 0,
-                        remote_control_key_id: 0,
-                        name: "test".to_string(),
-                        channel: EpgChannel {
-                            name: "test".to_string(),
-                            channel_type: ChannelType::GR,
-                            channel: channel.to_string(),
-                            extra_args: "".to_string(),
-                            services: Vec::new(),
-                            excluded_services: Vec::new(),
-                        },
-                    }))
-                }
+                        channel_type: ChannelType::GR,
+                        channel: channel.to_string(),
+                        extra_args: "".to_string(),
+                        services: Vec::new(),
+                        excluded_services: Vec::new(),
+                    },
+                }))
             }
         }
     }
@@ -141,17 +114,9 @@ impl Call<QueryPrograms> for EpgStub {
 #[async_trait]
 impl Call<QueryProgram> for EpgStub {
     async fn call(&self, msg: QueryProgram) -> actlet::Result<<QueryProgram as Message>::Reply> {
-        match msg {
-            QueryProgram::ByMirakurunProgramId(id) => {
-                if id.eid().value() == 0 {
-                    Ok(Err(Error::ProgramNotFound))
-                } else {
-                    Ok(Ok(EpgProgram::new(
-                        (id.nid(), 0.into(), id.sid(), id.eid()).into(),
-                    )))
-                }
-            }
-            _ => unreachable!(),
+        match msg.program_id.eid().value() {
+            0 => Ok(Err(Error::ProgramNotFound)),
+            _ => Ok(Ok(EpgProgram::new(msg.program_id))),
         }
     }
 }

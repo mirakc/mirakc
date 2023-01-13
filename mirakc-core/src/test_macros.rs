@@ -19,12 +19,9 @@ macro_rules! gr {
 
 macro_rules! service {
     ($id:expr, $name:expr, $channel:expr) => {{
-        let id = ServiceId::from($id);
         EpgService {
-            nid: id.nid(),
-            tsid: id.tsid(),
-            sid: id.sid(),
-            service_type: 0,
+            id: $id.into(),
+            service_type: 1,
             logo_id: 0,
             remote_control_key_id: 0,
             name: $name.to_string(),

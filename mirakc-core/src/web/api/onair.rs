@@ -43,19 +43,13 @@ where
         (status = 505, description = "Internal Server Error"),
     ),
 )]
-pub(super) async fn get<E, O>(
-    State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+pub(super) async fn get<O>(
     State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
-    Path(id): Path<MirakurunServiceId>,
+    Path(service_id): Path<ServiceId>,
 ) -> Result<Json<WebOnairProgram>, Error>
 where
-    E: Call<epg::QueryService>,
     O: Call<onair::QueryOnairProgram>,
 {
-    let service = epg
-        .call(epg::QueryService::ByMirakurunServiceId(id))
-        .await??;
-    let service_id = service.id();
     onair_manager
         .call(onair::QueryOnairProgram { service_id })
         .await?

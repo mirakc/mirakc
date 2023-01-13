@@ -982,14 +982,14 @@ fn config_for_test() -> Arc<Config> {
         timeshift:
           recorders:
             test:
-              service-triple: [0, 0, 1]
+              service-id: 1
               ts-file: /dev/null
               data-file: /dev/null
               num-chunks: 100
         # logo for SID#1
         resource:
           logos:
-            - service-triple: [0, 0, 1]
+            - service-id: 1
               image: /dev/null
         "#,
         manifest_dir = env!("CARGO_MANIFEST_DIR"),

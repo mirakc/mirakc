@@ -313,7 +313,7 @@ where
     async fn handle(&mut self, msg: ServicesUpdated, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "ServicesUpdated");
         for (name, config) in self.config.clone().timeshift.recorders.iter() {
-            let service_id = ServiceId::from(config.service_triple.clone());
+            let service_id = config.service_id;
             if msg.services.contains_key(&service_id) {
                 tracing::info!("{}: Service#{} is available, activate", name, service_id);
                 let service = msg.services[&service_id].clone();
@@ -410,9 +410,7 @@ impl TimeshiftRecorder {
         let recorder_config = &config.timeshift.recorders[&name];
         let service = EpgService {
             // dummy data
-            nid: recorder_config.service_triple.0,
-            tsid: recorder_config.service_triple.1,
-            sid: recorder_config.service_triple.2,
+            id: recorder_config.service_id,
             service_type: 0,
             logo_id: 0,
             remote_control_key_id: 0,
@@ -486,11 +484,11 @@ impl TimeshiftRecorder {
 
         let data: TimeshiftRecorderData = serde_json::from_reader(file)?;
         let mut invalid = false;
-        if self.service.id() != data.service.id() {
+        if self.service.id != data.service.id {
             tracing::error!(
                 recorder.data_file = %self.config().data_file,
-                recorder.service.id =  %self.service.id(),
-                data.service.id = %data.service.id(),
+                recorder.service.id =  %self.service.id,
+                %data.service.id,
                 "Not matched",
             );
             invalid = true;
@@ -855,7 +853,7 @@ impl TimeshiftRecorder {
             .insert_str("channel_name", &channel.name)
             .insert("channel_type", &channel.channel_type)?
             .insert_str("channel", &channel.channel)
-            .insert("sid", &activation.service.sid)?
+            .insert("sid", &activation.service.sid())?
             .build();
         let mut builder = FilterPipelineBuilder::new(data);
         // NOTE
@@ -871,7 +869,7 @@ impl TimeshiftRecorder {
         let (mut cmds, _) = builder.build();
 
         let data = mustache::MapBuilder::new()
-            .insert("sid", &activation.service.sid)?
+            .insert("sid", &activation.service.sid())?
             .insert_str("file", &config.ts_file)
             .insert("chunk_size", &config.chunk_size)?
             .insert("num_chunks", &config.num_chunks)?
@@ -1106,30 +1104,18 @@ impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
                 self.handle_chunk(msg.chunk);
             }
             TimeshiftRecorderMessage::EventStart(msg) => {
-                let program_id = ProgramId::new(
-                    msg.original_network_id,
-                    msg.transport_stream_id,
-                    msg.service_id,
-                    msg.event.event_id,
-                );
+                let program_id =
+                    ProgramId::new(msg.original_network_id, msg.service_id, msg.event.event_id);
                 self.handle_event_start(program_id, msg.event, msg.record);
             }
             TimeshiftRecorderMessage::EventUpdate(msg) => {
-                let program_id = ProgramId::new(
-                    msg.original_network_id,
-                    msg.transport_stream_id,
-                    msg.service_id,
-                    msg.event.event_id,
-                );
+                let program_id =
+                    ProgramId::new(msg.original_network_id, msg.service_id, msg.event.event_id);
                 self.handle_event_update(program_id, msg.event, msg.record);
             }
             TimeshiftRecorderMessage::EventEnd(msg) => {
-                let program_id = ProgramId::new(
-                    msg.original_network_id,
-                    msg.transport_stream_id,
-                    msg.service_id,
-                    msg.event.event_id,
-                );
+                let program_id =
+                    ProgramId::new(msg.original_network_id, msg.service_id, msg.event.event_id);
                 self.handle_event_end(program_id, msg.event, msg.record);
             }
             TimeshiftRecorderMessage::Finish => {
@@ -1181,6 +1167,7 @@ struct TimeshiftRecorderChunkMessage {
 #[serde(rename_all = "camelCase")]
 struct TimeshiftRecorderEventMessage {
     original_network_id: Nid,
+    #[allow(dead_code)]
     transport_stream_id: Tsid,
     service_id: Sid,
     event: EitEvent,
@@ -1544,7 +1531,7 @@ mod tests {
             records: indexmap::indexmap! {
                 1u32.into() => TimeshiftRecord {
                     id: 1u32.into(),
-                    program: EpgProgram::new((0, 0, 0, 1).into()),
+                    program: program!((0, 1, 1)),
                     start: TimeshiftPoint {
                         timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
@@ -1575,7 +1562,7 @@ mod tests {
             records: indexmap::indexmap! {
                 1u32.into() => TimeshiftRecord {
                     id: 1u32.into(),
-                    program: EpgProgram::new((0, 0, 0, 1).into()),
+                    program: program!((0, 1, 1)),
                     start: TimeshiftPoint {
                         timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
@@ -1588,7 +1575,7 @@ mod tests {
                 },
                 2u32.into() => TimeshiftRecord {
                     id: 2u32.into(),
-                    program: EpgProgram::new((0, 0, 0, 2).into()),
+                    program: program!((0, 1, 2)),
                     start: TimeshiftPoint {
                         timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
@@ -1601,7 +1588,7 @@ mod tests {
                 },
                 3u32.into() => TimeshiftRecord {
                     id: 3u32.into(),
-                    program: EpgProgram::new((0, 0, 0, 3).into()),
+                    program: program!((0, 1, 3)),
                     start: TimeshiftPoint {
                         timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
                         pos: 0,
@@ -1621,7 +1608,7 @@ mod tests {
         };
         recorder.purge_expired_records();
         assert_eq!(recorder.records.len(), 1);
-        assert_eq!(recorder.records[0].program.id, (0, 0, 0, 3).into());
+        assert_eq!(recorder.records[0].program.id, (0, 1, 3).into());
     }
 
     #[tokio::test]
@@ -1720,7 +1707,7 @@ mod tests {
                   command: true
                   recorders:
                     test:
-                      service-triple: [1, 2, 3]
+                      service-id: 1
                       ts-file: {}
                       data-file: {}
                       num-chunks: 100
@@ -1733,23 +1720,7 @@ mod tests {
     }
 
     fn create_epg_service() -> EpgService {
-        EpgService {
-            nid: 1.into(),
-            tsid: 2.into(),
-            sid: 3.into(),
-            service_type: 1,
-            logo_id: 0,
-            remote_control_key_id: 0,
-            name: "Service".to_string(),
-            channel: EpgChannel {
-                name: "ch".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-                extra_args: "".to_string(),
-                services: vec![],
-                excluded_services: vec![],
-            },
-        }
+        service!(1, "Service", channel!("ch", ChannelType::GR, "ch"))
     }
 
     #[derive(Clone)]
@@ -1861,23 +1832,11 @@ pub(crate) mod stub {
                     Ok(Ok(TimeshiftRecorderModel {
                         index: 0,
                         name: name.clone(),
-                        service: EpgService {
-                            nid: 1.into(),
-                            tsid: 2.into(),
-                            sid: 3.into(),
-                            service_type: 1,
-                            logo_id: 0,
-                            remote_control_key_id: 0,
-                            name: "test".to_string(),
-                            channel: EpgChannel {
-                                name: "test".to_string(),
-                                channel_type: ChannelType::GR,
-                                channel: "test".to_string(),
-                                extra_args: "".to_string(),
-                                services: Vec::new(),
-                                excluded_services: Vec::new(),
-                            },
-                        },
+                        service: service!(
+                            (1, 2),
+                            "test",
+                            channel!("test", ChannelType::GR, "test")
+                        ),
                         start_time: Jst::now(),
                         end_time: Jst::now(),
                         pipeline: vec![],
@@ -1908,7 +1867,7 @@ pub(crate) mod stub {
             if msg.record_id == 1u32.into() {
                 Ok(Ok(TimeshiftRecordModel {
                     id: msg.record_id,
-                    program: EpgProgram::new((0, 0, 0, 0).into()),
+                    program: program!((0, 0, 0)),
                     start_time: Jst::now(),
                     end_time: Jst::now(),
                     size: 0,
