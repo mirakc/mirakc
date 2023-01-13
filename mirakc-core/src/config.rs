@@ -703,9 +703,7 @@ impl RecordingConfig {
 
 impl Default for RecordingConfig {
     fn default() -> Self {
-        RecordingConfig {
-            basedir: None,
-        }
+        RecordingConfig { basedir: None }
     }
 }
 

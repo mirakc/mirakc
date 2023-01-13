@@ -301,7 +301,9 @@ impl Handler<StartStreaming> for TunerManager {
     ) -> <StartStreaming as Message>::Reply {
         tracing::debug!(msg.name = "StartStreaming", %msg.channel, %msg.user.info, %msg.user.priority);
 
-        let subscription = self.activate_tuner(msg.channel, msg.user, msg.stream_id, ctx).await?;
+        let subscription = self
+            .activate_tuner(msg.channel, msg.user, msg.stream_id, ctx)
+            .await?;
 
         let result = subscription
             .broadcaster

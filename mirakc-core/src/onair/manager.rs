@@ -73,7 +73,8 @@ where
             let changed = ctx.address().clone().into();
             let tracker = match config {
                 OnairProgramTrackerConfig::Local(config) => {
-                    self.spawn_local_tracker(name, config, ctx, changed, None).await
+                    self.spawn_local_tracker(name, config, ctx, changed, None)
+                        .await
                 }
                 OnairProgramTrackerConfig::Remote(config) => {
                     self.spawn_remote_tracker(name, config, ctx, changed).await
@@ -271,10 +272,7 @@ where
 
         let name = format!(".{}", msg.stream_id);
         if self.trackers.contains_key(&name) {
-            tracing::info!(
-                tracker.name = name,
-                "Temporal tracker is already running",
-            );
+            tracing::info!(tracker.name = name, "Temporal tracker is already running",);
             return;
         }
 
@@ -288,7 +286,9 @@ where
         });
         let changed = ctx.address().clone().into();
         let stopped = Some(ctx.address().clone().into());
-        let tracker = self.spawn_local_tracker(&name, &config, ctx, changed, stopped).await;
+        let tracker = self
+            .spawn_local_tracker(&name, &config, ctx, changed, stopped)
+            .await;
         self.trackers.insert(name.clone(), tracker);
         self.temporal_services.insert(name.clone(), service_triple);
         tracing::info!(
@@ -388,10 +388,7 @@ where
         tracing::debug!(msg.name = "TrackerStopped", msg.tracker);
         match self.trackers.remove(&msg.tracker) {
             Some(_) => {
-                tracing::info!(
-                    tracker.name = msg.tracker,
-                    "Removed temporal tracker",
-                );
+                tracing::info!(tracker.name = msg.tracker, "Removed temporal tracker",);
             }
             None => {
                 tracing::error!(
@@ -401,7 +398,11 @@ where
             }
         }
         if let Some(service_triple) = self.temporal_services.remove(&msg.tracker) {
-            if !self.temporal_services.values().any(|&v| v == service_triple) {
+            if !self
+                .temporal_services
+                .values()
+                .any(|&v| v == service_triple)
+            {
                 let _ = self.cache.remove(&service_triple);
                 tracing::info!(
                     tracker.name = msg.tracker,

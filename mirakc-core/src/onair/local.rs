@@ -163,10 +163,7 @@ where
                     // Finished successfully, process next.
                 }
                 (Err(Error::TunerUnavailable), true) => {
-                    tracing::info!(
-                        tracker.name = self.name,
-                        "Stop tracking",
-                    );
+                    tracing::info!(tracker.name = self.name, "Stop tracking",);
                     return false; // stop
                 }
                 (Err(err), _) => {

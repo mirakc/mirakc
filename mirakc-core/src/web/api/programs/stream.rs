@@ -132,11 +132,12 @@ where
 
     if is_epgstation(&user_agent) {
         // The temporal tracker will stop within 1 minute after the streaming stopped.
-        onair_manager.call(onair::SpawnTemporalTracker {
-            service,
-            stream_id: stream.id(),
-        })
-        .await?;
+        onair_manager
+            .call(onair::SpawnTemporalTracker {
+                service,
+                stream_id: stream.id(),
+            })
+            .await?;
     }
 
     let stop_triggers = vec![stream_stop_trigger];

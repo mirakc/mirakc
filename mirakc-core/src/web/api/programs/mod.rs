@@ -84,7 +84,9 @@ where
     E: Call<epg::QueryProgram>,
     O: Call<onair::QueryOnairProgram>,
 {
-    let mut program = epg.call(epg::QueryProgram::ByMirakurunProgramId(id)).await??;
+    let mut program = epg
+        .call(epg::QueryProgram::ByMirakurunProgramId(id))
+        .await??;
 
     if is_epgstation(&user_agent) {
         let msg = onair::QueryOnairProgram {
