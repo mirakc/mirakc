@@ -13,7 +13,7 @@ use crate::epg::EpgProgram;
 use crate::epg::EpgService;
 use crate::epg::QueryServices;
 use crate::error::Error;
-use crate::models::ServiceTriple;
+use crate::models::ServiceId;
 use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
 use crate::tuner::StartStreaming;
@@ -30,7 +30,7 @@ pub struct LocalTracker<T, E> {
     epg: E,
     changed_emitter: Emitter<OnairProgramChanged>,
     stopped_emitter: Option<Emitter<TrackerStopped>>,
-    entries: HashMap<ServiceTriple, Entry>,
+    entries: HashMap<ServiceId, Entry>,
 }
 
 impl<T, E> LocalTracker<T, E> {
@@ -156,7 +156,7 @@ where
         let iter = services
             .iter()
             .filter(|(_, service)| config.matches(service));
-        for (service_triple, service) in iter {
+        for (service_id, service) in iter {
             let result = self.update_onair_program(service).await;
             match (result, self.config.stream_id.is_some()) {
                 (Ok(_), _) => {
@@ -170,7 +170,7 @@ where
                     tracing::warn!(
                         %err,
                         tracker.name = self.name,
-                        %service_triple,
+                        %service_id,
                         "Failed to update on-air program",
                     );
                     // Ignore the error, process next.
@@ -182,7 +182,7 @@ where
     }
 
     async fn update_onair_program(&mut self, service: &EpgService) -> Result<(), Error> {
-        let service_triple = service.triple();
+        let service_id = service.id();
 
         let user = TunerUser {
             info: TunerUserInfo::OnairProgramTracker(self.name.clone()),
@@ -217,17 +217,17 @@ where
             let section: EitSection = serde_json::from_str(&json)?;
             match section.section_number {
                 0 => {
-                    let entry = self.entries.entry(service_triple).or_default();
+                    let entry = self.entries.entry(service_id).or_default();
                     if section.is_updated(&entry.current) {
-                        tracing::info!(%service_triple, "Update current program");
+                        tracing::info!(%service_id, "Update current program");
                         entry.current = Some(section);
                         changed = true;
                     }
                 }
                 1 => {
-                    let entry = self.entries.entry(service_triple).or_default();
+                    let entry = self.entries.entry(service_id).or_default();
                     if section.is_updated(&entry.next) {
-                        tracing::info!(%service_triple, "Update next program");
+                        tracing::info!(%service_id, "Update next program");
                         entry.next = Some(section);
                         changed = true;
                     }
@@ -248,9 +248,9 @@ where
         let _ = handle.await;
 
         if changed {
-            let entry = self.entries.get(&service_triple).unwrap();
+            let entry = self.entries.get(&service_id).unwrap();
             let msg = OnairProgramChanged {
-                service_triple,
+                service_id,
                 current: entry
                     .current
                     .as_ref()
@@ -276,7 +276,7 @@ impl LocalOnairProgramTrackerConfig {
         if !self.channel_types.contains(&service.channel.channel_type) {
             return false;
         }
-        let service_id = service.triple().into();
+        let service_id = service.id().into();
         if !self.services.is_empty() {
             if !self.services.contains(&service_id) {
                 return false;
@@ -301,14 +301,14 @@ impl EitSection {
 
     fn extract_program(&self) -> Option<Arc<EpgProgram>> {
         self.events.get(0).map(|event| {
-            let quad = (
+            let id = (
                 self.original_network_id,
                 self.transport_stream_id,
                 self.service_id,
                 event.event_id,
             )
                 .into();
-            let mut program = EpgProgram::new(quad);
+            let mut program = EpgProgram::new(id);
             program.update(event);
             Arc::new(program)
         })
@@ -373,10 +373,10 @@ mod tests {
         let mut changed_mock = MockChangedEmitter::new();
         changed_mock.expect_emit().times(1).returning(|msg| {
             assert_matches!(msg.current, Some(program) => {
-                assert_eq!(program.quad, (0, 0, 1, 4).into());
+                assert_eq!(program.id, (0, 0, 1, 4).into());
             });
             assert_matches!(msg.next, Some(program) => {
-                assert_eq!(program.quad, (0, 0, 1, 4).into());
+                assert_eq!(program.id, (0, 0, 1, 4).into());
             });
         });
         let mut tracker = LocalTracker::new(
@@ -519,7 +519,7 @@ mod tests {
             }],
         };
         assert_matches!(section.extract_program(), Some(program) => {
-            assert_eq!(program.quad, (1, 2, 3, 4).into());
+            assert_eq!(program.id, (1, 2, 3, 4).into());
         });
 
         let section = EitSection {

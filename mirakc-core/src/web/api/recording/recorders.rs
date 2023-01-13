@@ -54,7 +54,7 @@ where
         .await??;
     let recorder = recording_manager
         .call(recording::QueryRecordingRecorder {
-            program_quad: program.quad,
+            program_id: program.id,
         })
         .await??;
     Ok(Json(recorder.into()))

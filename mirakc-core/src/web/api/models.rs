@@ -22,7 +22,7 @@ use crate::models::MirakurunProgram;
 use crate::models::MirakurunProgramId;
 use crate::models::MirakurunService;
 use crate::models::MirakurunServiceId;
-use crate::models::ServiceTriple;
+use crate::models::ServiceId;
 use crate::models::Sid;
 use crate::models::TimeshiftRecordId;
 use crate::models::TunerUser;
@@ -94,7 +94,7 @@ pub(in crate::web) struct WebRecordingRecorder {
 impl From<recording::RecorderModel> for WebRecordingRecorder {
     fn from(value: recording::RecorderModel) -> Self {
         WebRecordingRecorder {
-            program_id: value.program_quad.into(),
+            program_id: value.program_id.into(),
             started_at: value.started_at,
             pipeline: value
                 .pipeline
@@ -190,10 +190,10 @@ pub(crate) struct WebOnairProgram {
     pub next: Option<MirakurunProgram>,
 }
 
-impl From<(ServiceTriple, OnairProgram)> for WebOnairProgram {
-    fn from((triple, data): (ServiceTriple, OnairProgram)) -> Self {
+impl From<(ServiceId, OnairProgram)> for WebOnairProgram {
+    fn from((service_id, data): (ServiceId, OnairProgram)) -> Self {
         Self {
-            service_id: triple.into(),
+            service_id: service_id.into(),
             current: data.current.map(|p| p.as_ref().clone().into()),
             next: data.next.map(|p| p.as_ref().clone().into()),
         }

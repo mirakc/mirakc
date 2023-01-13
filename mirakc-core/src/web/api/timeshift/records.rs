@@ -158,7 +158,7 @@ where
         .insert("channel_type", &recorder.service.channel.channel_type)?
         .insert_str("channel", &recorder.service.channel.channel)
         .insert("sid", &recorder.service.sid.value())?
-        .insert("eid", &record.program.quad.eid())?
+        .insert("eid", &record.program.id.eid())?
         .insert("video_tags", &video_tags)?
         .insert("audio_tags", &audio_tags)?
         .insert("id", &record.id)?

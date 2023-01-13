@@ -302,7 +302,7 @@ impl TimeshiftFilesystem {
     fn load_data(config: &TimeshiftRecorderConfig) -> Result<TimeshiftRecorderData, Error> {
         let file = std::fs::File::open(&config.data_file)?;
         let data: TimeshiftRecorderData = serde_json::from_reader(file)?;
-        if data.service.triple() == config.service_triple.into()
+        if data.service.id() == config.service_triple.into()
             && data.chunk_size == config.chunk_size
             && data.max_chunks == config.max_chunks()
         {

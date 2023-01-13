@@ -1046,7 +1046,7 @@ pub struct ResourceConfig {
     pub strings_yaml: String,
     #[serde(default)]
     #[serde(deserialize_with = "ResourceConfig::deserialize_logos")]
-    pub logos: HashMap<ServiceTriple, String>,
+    pub logos: HashMap<ServiceId, String>,
 }
 
 #[derive(Deserialize)]
@@ -1079,9 +1079,7 @@ impl ResourceConfig {
         }
     }
 
-    fn deserialize_logos<'de, D>(
-        deserializer: D,
-    ) -> Result<HashMap<ServiceTriple, String>, D::Error>
+    fn deserialize_logos<'de, D>(deserializer: D) -> Result<HashMap<ServiceId, String>, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -3126,7 +3124,7 @@ mod tests {
             ResourceConfig {
                 strings_yaml: ResourceConfig::default_strings_yaml(),
                 logos: hashmap! {
-                    ServiceTriple::new(1.into(), 2.into(), 3.into())
+                    ServiceId::new(1.into(), 2.into(), 3.into())
                         => "/path/to/logo.png".to_string(),
                 },
             }
@@ -3161,7 +3159,7 @@ mod tests {
         let config = ResourceConfig {
             strings_yaml: "/bin/sh".to_string(),
             logos: hashmap! {
-                ServiceTriple::new(1.into(), 2.into(), 3.into())
+                ServiceId::new(1.into(), 2.into(), 3.into())
                     => "/bin/sh".to_string(),
             },
         };
@@ -3174,7 +3172,7 @@ mod tests {
         let config = ResourceConfig {
             strings_yaml: "/bin/sh".to_string(),
             logos: hashmap! {
-                ServiceTriple::new(1.into(), 2.into(), 3.into())
+                ServiceId::new(1.into(), 2.into(), 3.into())
                     => "/path/to/non-existing".to_string(),
             },
         };

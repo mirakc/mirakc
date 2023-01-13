@@ -147,7 +147,7 @@ where
     O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: epg::ProgramsUpdated, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "ProgramsUpdated", %msg.service_triple);
+        tracing::debug!(msg.name = "ProgramsUpdated", %msg.service_id);
         ctx.spawn_task(self.create_epg_programs_updated_task(msg.into()));
     }
 }
@@ -187,7 +187,7 @@ where
     O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingStarted, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingStarted", %msg.program_quad);
+        tracing::debug!(msg.name = "RecordingStarted", %msg.program_id);
         ctx.spawn_task(self.create_recording_started_task(msg.into()));
     }
 }
@@ -224,7 +224,7 @@ where
     O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingStopped, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingStopped", %msg.program_quad);
+        tracing::debug!(msg.name = "RecordingStopped", %msg.program_id);
         ctx.spawn_task(self.create_recording_stopped_task(msg.into()));
     }
 }
@@ -261,7 +261,7 @@ where
     O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingFailed, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingFailed", %msg.program_quad, ?msg.reason);
+        tracing::debug!(msg.name = "RecordingFailed", %msg.program_id, ?msg.reason);
         ctx.spawn_task(self.create_recording_failed_task(msg.into()));
     }
 }
@@ -298,7 +298,7 @@ where
     O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: recording::RecordingRescheduled, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "RecordingRescheduled", %msg.program_quad);
+        tracing::debug!(msg.name = "RecordingRescheduled", %msg.program_id);
         ctx.spawn_task(self.create_recording_rescheduled_task(msg.into()));
     }
 }
@@ -338,7 +338,7 @@ where
     O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: onair::OnairProgramChanged, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "OnairProgramChanged", %msg.service_triple);
+        tracing::debug!(msg.name = "OnairProgramChanged", %msg.service_id);
         ctx.spawn_task(self.create_onair_program_changed_task(msg.into()));
     }
 }

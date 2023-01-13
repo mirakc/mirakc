@@ -83,15 +83,15 @@ impl Call<QueryService> for EpgStub {
                     }))
                 }
             }
-            QueryService::ByServiceTriple(triple) => {
-                if triple.sid().value() == 0 {
+            QueryService::ByServiceId(id) => {
+                if id.sid().value() == 0 {
                     Ok(Err(Error::ServiceNotFound))
                 } else {
-                    let channel = if triple.sid().value() == 1 { "ch" } else { "" };
+                    let channel = if id.sid().value() == 1 { "ch" } else { "" };
                     Ok(Ok(EpgService {
-                        nid: triple.nid(),
-                        tsid: triple.tsid(),
-                        sid: triple.sid(),
+                        nid: id.nid(),
+                        tsid: id.tsid(),
+                        sid: id.sid(),
                         service_type: 1,
                         logo_id: 0,
                         remote_control_key_id: 0,
@@ -114,7 +114,7 @@ impl Call<QueryService> for EpgStub {
 #[async_trait]
 impl Call<QueryClock> for EpgStub {
     async fn call(&self, msg: QueryClock) -> actlet::Result<<QueryClock as Message>::Reply> {
-        match msg.service_triple.sid().value() {
+        match msg.service_id.sid().value() {
             0 => Ok(Err(Error::ClockNotSynced)),
             _ => Ok(Ok(Clock {
                 pid: 0,
@@ -129,10 +129,10 @@ impl Call<QueryClock> for EpgStub {
 impl Call<QueryPrograms> for EpgStub {
     async fn call(&self, msg: QueryPrograms) -> actlet::Result<<QueryPrograms as Message>::Reply> {
         let now = Jst::now();
-        match msg.service_triple.sid().value() {
+        match msg.service_id.sid().value() {
             0 => Ok(Default::default()),
             _ => Ok(Arc::new(indexmap! {
-                1.into() => program!((msg.service_triple, 1.into()), now, "1h"),
+                1.into() => program!((msg.service_id, 1.into()), now, "1h"),
             })),
         }
     }

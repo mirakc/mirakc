@@ -313,10 +313,10 @@ where
     async fn handle(&mut self, msg: ServicesUpdated, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "ServicesUpdated");
         for (name, config) in self.config.clone().timeshift.recorders.iter() {
-            let triple = ServiceTriple::from(config.service_triple.clone());
-            if msg.services.contains_key(&triple) {
-                tracing::info!("{}: Service#{} is available, activate", name, triple);
-                let service = msg.services[&triple].clone();
+            let service_id = ServiceId::from(config.service_triple.clone());
+            if msg.services.contains_key(&service_id) {
+                tracing::info!("{}: Service#{} is available, activate", name, service_id);
+                let service = msg.services[&service_id].clone();
                 self.recorders[name].activated = true;
                 self.recorders[name].reactivation_count = 0;
                 self.recorders[name]
@@ -327,7 +327,11 @@ where
                     })
                     .await;
             } else {
-                tracing::warn!("{}: Service#{} is unavailable, deactivate", name, triple);
+                tracing::warn!(
+                    "{}: Service#{} is unavailable, deactivate",
+                    name,
+                    service_id
+                );
                 self.recorders[name].activated = false;
                 self.recorders[name]
                     .addr
@@ -482,11 +486,11 @@ impl TimeshiftRecorder {
 
         let data: TimeshiftRecorderData = serde_json::from_reader(file)?;
         let mut invalid = false;
-        if self.service.triple() != data.service.triple() {
+        if self.service.id() != data.service.id() {
             tracing::error!(
                 recorder.data_file = %self.config().data_file,
-                recorder.service_triple =  %self.service.triple(),
-                data.service_triple = %data.service.triple(),
+                recorder.service.id =  %self.service.id(),
+                data.service.id = %data.service.id(),
                 "Not matched",
             );
             invalid = true;
@@ -720,12 +724,17 @@ impl TimeshiftRecorder {
         assert!(self.points.len() <= self.config().max_chunks());
     }
 
-    fn handle_event_start(&mut self, quad: ProgramQuad, event: EitEvent, point: TimeshiftPoint) {
+    fn handle_event_start(
+        &mut self,
+        program_id: ProgramId,
+        event: EitEvent,
+        point: TimeshiftPoint,
+    ) {
         // Multiple records for the same TV program may be created when the timeshift recording
         // restarts.  Therefore, we use the recording start time instead of the start time in
         // the EPG data.
         let id = TimeshiftRecordId::from(point.timestamp.timestamp());
-        let mut program = EpgProgram::new(quad);
+        let mut program = EpgProgram::new(program_id);
         program.update(&event);
         tracing::info!(
             "{}: {}: Started: {}: {}",
@@ -738,14 +747,19 @@ impl TimeshiftRecorder {
             .insert(id, TimeshiftRecord::new(id, program, point));
     }
 
-    fn handle_event_update(&mut self, quad: ProgramQuad, event: EitEvent, point: TimeshiftPoint) {
-        let mut program = EpgProgram::new(quad);
+    fn handle_event_update(
+        &mut self,
+        program_id: ProgramId,
+        event: EitEvent,
+        point: TimeshiftPoint,
+    ) {
+        let mut program = EpgProgram::new(program_id);
         program.update(&event);
         self.update_last_record(program, point, false);
     }
 
-    fn handle_event_end(&mut self, quad: ProgramQuad, event: EitEvent, point: TimeshiftPoint) {
-        let mut program = EpgProgram::new(quad);
+    fn handle_event_end(&mut self, program_id: ProgramId, event: EitEvent, point: TimeshiftPoint) {
+        let mut program = EpgProgram::new(program_id);
         program.update(&event);
         self.update_last_record(program, point, true);
     }
@@ -1092,31 +1106,31 @@ impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
                 self.handle_chunk(msg.chunk);
             }
             TimeshiftRecorderMessage::EventStart(msg) => {
-                let quad = ProgramQuad::new(
+                let program_id = ProgramId::new(
                     msg.original_network_id,
                     msg.transport_stream_id,
                     msg.service_id,
                     msg.event.event_id,
                 );
-                self.handle_event_start(quad, msg.event, msg.record);
+                self.handle_event_start(program_id, msg.event, msg.record);
             }
             TimeshiftRecorderMessage::EventUpdate(msg) => {
-                let quad = ProgramQuad::new(
+                let program_id = ProgramId::new(
                     msg.original_network_id,
                     msg.transport_stream_id,
                     msg.service_id,
                     msg.event.event_id,
                 );
-                self.handle_event_update(quad, msg.event, msg.record);
+                self.handle_event_update(program_id, msg.event, msg.record);
             }
             TimeshiftRecorderMessage::EventEnd(msg) => {
-                let quad = ProgramQuad::new(
+                let program_id = ProgramId::new(
                     msg.original_network_id,
                     msg.transport_stream_id,
                     msg.service_id,
                     msg.event.event_id,
                 );
-                self.handle_event_end(quad, msg.event, msg.record);
+                self.handle_event_end(program_id, msg.event, msg.record);
             }
             TimeshiftRecorderMessage::Finish => {
                 if self.session.is_some() {
@@ -1607,7 +1621,7 @@ mod tests {
         };
         recorder.purge_expired_records();
         assert_eq!(recorder.records.len(), 1);
-        assert_eq!(recorder.records[0].program.quad, (0, 0, 0, 3).into());
+        assert_eq!(recorder.records[0].program.id, (0, 0, 0, 3).into());
     }
 
     #[tokio::test]

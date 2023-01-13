@@ -38,7 +38,7 @@ where
         }
     }
 
-    pub async fn sync_clocks(self) -> Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)> {
+    pub async fn sync_clocks(self) -> Vec<(EpgChannel, Option<HashMap<ServiceId, Clock>>)> {
         tracing::debug!("Synchronizing clocks...");
 
         let command = &self.config.jobs.sync_clocks.command;
@@ -50,8 +50,8 @@ where
                     Ok(clocks) => {
                         let mut map = HashMap::new();
                         for clock in clocks.into_iter() {
-                            let triple = (clock.nid, clock.tsid, clock.sid).into();
-                            map.insert(triple, clock.clock.clone());
+                            let service_id = (clock.nid, clock.tsid, clock.sid).into();
+                            map.insert(service_id, clock.clock.clone());
                         }
                         Some(map)
                     }
@@ -178,10 +178,10 @@ mod tests {
         let results = sync.sync_clocks().await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, Some(v)) => {
-            let triple = (1, 2, 3).into();
+            let service_id = (1, 2, 3).into();
             assert_eq!(v.len(), 1);
-            assert!(v.contains_key(&triple));
-            assert_matches!(v[&triple], Clock { pid, pcr, time } => {
+            assert!(v.contains_key(&service_id));
+            assert_matches!(v[&service_id], Clock { pid, pcr, time } => {
                 assert_eq!(pid, 1);
                 assert_eq!(pcr, 2);
                 assert_eq!(time, 3);

@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::models::Eid;
 use crate::models::Nid;
-use crate::models::ServiceTriple;
+use crate::models::ServiceId;
 use crate::models::Sid;
 use crate::models::Tsid;
 
@@ -57,7 +57,7 @@ impl EitSection {
         self.segment_last_section_number as usize % 8
     }
 
-    pub fn service_triple(&self) -> ServiceTriple {
+    pub fn service_id(&self) -> ServiceId {
         (
             self.original_network_id,
             self.transport_stream_id,

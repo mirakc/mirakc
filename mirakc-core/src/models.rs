@@ -124,7 +124,7 @@ impl From<u16> for Eid {
 
 // Historical Note
 // ---------------
-// Initially, ServiceTriple and ProgramQuad types wrap an u64 value and its
+// Initially, ServiceId and ProgramId types wrap an u64 value and its
 // value is serialized as a Number in JSON.  However, this causes problems when
 // parsing a serialized JSON with tools such as jq which uses `double` (C++) in
 // representation of a Number.  As a result, a value outside -2^53..2^53 cannot
@@ -138,11 +138,11 @@ impl From<u16> for Eid {
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq, Deserialize, Serialize)]
 #[cfg_attr(test, derive(Debug))]
-pub struct ServiceTriple(Nid, Tsid, Sid);
+pub struct ServiceId(Nid, Tsid, Sid);
 
-impl ServiceTriple {
+impl ServiceId {
     pub fn new(nid: Nid, tsid: Tsid, sid: Sid) -> Self {
-        ServiceTriple(nid, tsid, sid)
+        ServiceId(nid, tsid, sid)
     }
 
     pub fn nid(&self) -> Nid {
@@ -165,36 +165,36 @@ impl ServiceTriple {
     }
 }
 
-impl fmt::Display for ServiceTriple {
+impl fmt::Display for ServiceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016X}", self.value())
     }
 }
 
-impl From<(Nid, Tsid, Sid)> for ServiceTriple {
-    fn from(triple: (Nid, Tsid, Sid)) -> ServiceTriple {
-        ServiceTriple::new(triple.0, triple.1, triple.2)
+impl From<(Nid, Tsid, Sid)> for ServiceId {
+    fn from(triple: (Nid, Tsid, Sid)) -> ServiceId {
+        ServiceId::new(triple.0, triple.1, triple.2)
     }
 }
 
-impl From<ProgramQuad> for ServiceTriple {
-    fn from(quad: ProgramQuad) -> Self {
-        ServiceTriple::new(quad.nid(), quad.tsid(), quad.sid())
+impl From<ProgramId> for ServiceId {
+    fn from(program_id: ProgramId) -> Self {
+        ServiceId::new(program_id.nid(), program_id.tsid(), program_id.sid())
     }
 }
 
-impl Into<(Nid, Sid)> for ServiceTriple {
+impl Into<(Nid, Sid)> for ServiceId {
     fn into(self) -> (Nid, Sid) {
         (self.nid(), self.sid())
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
-pub struct ProgramQuad(Nid, Tsid, Sid, Eid);
+pub struct ProgramId(Nid, Tsid, Sid, Eid);
 
-impl ProgramQuad {
+impl ProgramId {
     pub fn new(nid: Nid, tsid: Tsid, sid: Sid, eid: Eid) -> Self {
-        ProgramQuad(nid, tsid, sid, eid)
+        ProgramId(nid, tsid, sid, eid)
     }
 
     pub fn nid(&self) -> Nid {
@@ -221,15 +221,15 @@ impl ProgramQuad {
     }
 }
 
-impl fmt::Display for ProgramQuad {
+impl fmt::Display for ProgramId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016X}", self.value())
     }
 }
 
-impl From<u64> for ProgramQuad {
+impl From<u64> for ProgramId {
     fn from(v: u64) -> Self {
-        ProgramQuad(
+        ProgramId(
             ((v >> 48) as u16).into(),
             ((v >> 32) as u16).into(),
             ((v >> 16) as u16).into(),
@@ -238,19 +238,19 @@ impl From<u64> for ProgramQuad {
     }
 }
 
-impl From<(ServiceTriple, Eid)> for ProgramQuad {
-    fn from(tuple: (ServiceTriple, Eid)) -> ProgramQuad {
-        ProgramQuad::new(tuple.0.nid(), tuple.0.tsid(), tuple.0.sid(), tuple.1)
+impl From<(ServiceId, Eid)> for ProgramId {
+    fn from(tuple: (ServiceId, Eid)) -> ProgramId {
+        ProgramId::new(tuple.0.nid(), tuple.0.tsid(), tuple.0.sid(), tuple.1)
     }
 }
 
-impl From<(Nid, Tsid, Sid, Eid)> for ProgramQuad {
-    fn from(quad: (Nid, Tsid, Sid, Eid)) -> ProgramQuad {
-        ProgramQuad::new(quad.0, quad.1, quad.2, quad.3)
+impl From<(Nid, Tsid, Sid, Eid)> for ProgramId {
+    fn from(quad: (Nid, Tsid, Sid, Eid)) -> ProgramId {
+        ProgramId::new(quad.0, quad.1, quad.2, quad.3)
     }
 }
 
-impl Into<(Nid, Sid, Eid)> for ProgramQuad {
+impl Into<(Nid, Sid, Eid)> for ProgramId {
     fn into(self) -> (Nid, Sid, Eid) {
         (self.nid(), self.sid(), self.eid())
     }
@@ -440,15 +440,15 @@ impl From<(Nid, Sid)> for MirakurunServiceId {
     }
 }
 
-impl From<ServiceTriple> for MirakurunServiceId {
-    fn from(triple: ServiceTriple) -> Self {
-        Self::new(triple.nid(), triple.sid())
+impl From<ServiceId> for MirakurunServiceId {
+    fn from(id: ServiceId) -> Self {
+        Self::new(id.nid(), id.sid())
     }
 }
 
-impl From<ProgramQuad> for MirakurunServiceId {
-    fn from(quad: ProgramQuad) -> Self {
-        Self::new(quad.nid(), quad.sid())
+impl From<ProgramId> for MirakurunServiceId {
+    fn from(program_id: ProgramId) -> Self {
+        Self::new(program_id.nid(), program_id.sid())
     }
 }
 
@@ -499,9 +499,9 @@ impl fmt::Display for MirakurunProgramId {
     }
 }
 
-impl From<ProgramQuad> for MirakurunProgramId {
-    fn from(quad: ProgramQuad) -> Self {
-        MirakurunProgramId::new(quad.nid(), quad.sid(), quad.eid())
+impl From<ProgramId> for MirakurunProgramId {
+    fn from(program_id: ProgramId) -> Self {
+        MirakurunProgramId::new(program_id.nid(), program_id.sid(), program_id.eid())
     }
 }
 
@@ -618,8 +618,8 @@ pub struct MirakurunService {
 
 impl MirakurunService {
     pub fn check_logo_existence(&mut self, config: &ResourceConfig) {
-        let triple = ServiceTriple::new(self.network_id, self.transport_stream_id, self.service_id);
-        self.has_logo_data = config.logos.contains_key(&triple)
+        let id = ServiceId::new(self.network_id, self.transport_stream_id, self.service_id);
+        self.has_logo_data = config.logos.contains_key(&id)
     }
 }
 
@@ -710,11 +710,11 @@ pub struct MirakurunProgram {
 impl From<EpgProgram> for MirakurunProgram {
     fn from(program: EpgProgram) -> Self {
         Self {
-            id: program.quad.into(),
-            event_id: program.quad.eid(),
-            service_id: program.quad.sid(),
-            transport_stream_id: program.quad.tsid(),
-            network_id: program.quad.nid(),
+            id: program.id.into(),
+            event_id: program.id.eid(),
+            service_id: program.id.sid(),
+            transport_stream_id: program.id.tsid(),
+            network_id: program.id.nid(),
             start_at: program.start_at,
             duration: program.duration,
             is_free: !program.scrambled,
@@ -950,7 +950,7 @@ pub mod events {
     impl From<crate::epg::ProgramsUpdated> for EpgProgramsUpdated {
         fn from(msg: crate::epg::ProgramsUpdated) -> Self {
             EpgProgramsUpdated {
-                service_id: msg.service_triple.into(),
+                service_id: msg.service_id.into(),
             }
         }
     }
@@ -970,7 +970,7 @@ pub mod events {
     impl From<crate::recording::RecordingStarted> for RecordingStarted {
         fn from(msg: crate::recording::RecordingStarted) -> Self {
             RecordingStarted {
-                program_id: msg.program_quad.into(),
+                program_id: msg.program_id.into(),
             }
         }
     }
@@ -990,7 +990,7 @@ pub mod events {
     impl From<crate::recording::RecordingStopped> for RecordingStopped {
         fn from(msg: crate::recording::RecordingStopped) -> Self {
             RecordingStopped {
-                program_id: msg.program_quad.into(),
+                program_id: msg.program_id.into(),
             }
         }
     }
@@ -1011,7 +1011,7 @@ pub mod events {
     impl From<crate::recording::RecordingFailed> for RecordingFailed {
         fn from(msg: crate::recording::RecordingFailed) -> Self {
             RecordingFailed {
-                program_id: msg.program_quad.into(),
+                program_id: msg.program_id.into(),
                 reason: msg.reason,
             }
         }
@@ -1032,7 +1032,7 @@ pub mod events {
     impl From<crate::recording::RecordingRescheduled> for RecordingRescheduled {
         fn from(msg: crate::recording::RecordingRescheduled) -> Self {
             RecordingRescheduled {
-                program_id: msg.program_quad.into(),
+                program_id: msg.program_id.into(),
             }
         }
     }
@@ -1052,7 +1052,7 @@ pub mod events {
     impl From<crate::onair::OnairProgramChanged> for OnairProgramChanged {
         fn from(msg: crate::onair::OnairProgramChanged) -> Self {
             OnairProgramChanged {
-                service_id: msg.service_triple.into(),
+                service_id: msg.service_id.into(),
             }
         }
     }
@@ -1065,27 +1065,27 @@ mod test_helper {
     // Don't move the implementation outside the module.  That break the
     // type-safeness of integral identifiers like Nid.
 
-    impl From<(u16, u16, u16)> for ServiceTriple {
-        fn from(triple: (u16, u16, u16)) -> ServiceTriple {
-            ServiceTriple::new(triple.0.into(), triple.1.into(), triple.2.into())
+    impl From<(u16, u16, u16)> for ServiceId {
+        fn from(v: (u16, u16, u16)) -> ServiceId {
+            ServiceId::new(v.0.into(), v.1.into(), v.2.into())
         }
     }
 
-    impl From<(u16, u16, u16, u16)> for ProgramQuad {
-        fn from(quad: (u16, u16, u16, u16)) -> ProgramQuad {
-            ProgramQuad::new(quad.0.into(), quad.1.into(), quad.2.into(), quad.3.into())
+    impl From<(u16, u16, u16, u16)> for ProgramId {
+        fn from(v: (u16, u16, u16, u16)) -> ProgramId {
+            ProgramId::new(v.0.into(), v.1.into(), v.2.into(), v.3.into())
         }
     }
 
     impl From<(u16, u16)> for MirakurunServiceId {
-        fn from(tuple: (u16, u16)) -> Self {
-            MirakurunServiceId::new(tuple.0.into(), tuple.1.into())
+        fn from(v: (u16, u16)) -> Self {
+            MirakurunServiceId::new(v.0.into(), v.1.into())
         }
     }
 
     impl From<(u16, u16, u16)> for MirakurunProgramId {
-        fn from(triple: (u16, u16, u16)) -> Self {
-            MirakurunProgramId::new(triple.0.into(), triple.1.into(), triple.2.into())
+        fn from(v: (u16, u16, u16)) -> Self {
+            MirakurunProgramId::new(v.0.into(), v.1.into(), v.2.into())
         }
     }
 }

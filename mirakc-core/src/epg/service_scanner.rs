@@ -38,9 +38,7 @@ where
         }
     }
 
-    pub async fn scan_services(
-        self,
-    ) -> Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)> {
+    pub async fn scan_services(self) -> Vec<(EpgChannel, Option<IndexMap<ServiceId, EpgService>>)> {
         tracing::debug!("Scanning services...");
 
         let command = &self.config.jobs.scan_services.command;
@@ -52,7 +50,7 @@ where
                     Ok(services) => {
                         let mut map = IndexMap::new();
                         for service in services.into_iter() {
-                            map.insert(service.triple(), service.clone());
+                            map.insert(service.id(), service.clone());
                         }
                         Some(map)
                     }

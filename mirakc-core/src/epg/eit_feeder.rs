@@ -206,7 +206,7 @@ where
         let mut reader = BufReader::new(output);
         let mut json = String::new();
         let mut num_sections = 0;
-        let mut triples = HashSet::new();
+        let mut service_ids = HashSet::new();
         while reader.read_line(&mut json).await? > 0 {
             let section = match serde_json::from_str::<EitSection>(&json) {
                 Ok(mut section) => {
@@ -234,13 +234,10 @@ where
                 }
             };
             if section.is_valid() {
-                let triple = section.service_triple();
-                if !triples.contains(&triple) {
-                    triples.insert(triple);
-                    epg.emit(PrepareSchedule {
-                        service_triple: triple,
-                    })
-                    .await;
+                let service_id = section.service_id();
+                if !service_ids.contains(&service_id) {
+                    service_ids.insert(service_id);
+                    epg.emit(PrepareSchedule { service_id }).await;
                 }
                 epg.emit(UpdateSchedule { section }).await;
                 json.clear();
@@ -260,11 +257,8 @@ where
         // streaming in the next iteration.
         let _ = handle.await;
 
-        for triple in triples.iter() {
-            epg.emit(FlushSchedule {
-                service_triple: triple.clone(),
-            })
-            .await;
+        for service_id in service_ids.into_iter() {
+            epg.emit(FlushSchedule { service_id }).await;
         }
 
         tracing::debug!(

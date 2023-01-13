@@ -12,7 +12,7 @@ use crate::epg;
 use crate::epg::EpgProgram;
 use crate::epg::EpgService;
 use crate::error::Error;
-use crate::models::ServiceTriple;
+use crate::models::ServiceId;
 use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
 use crate::tuner::TunerSubscriptionId;
@@ -26,9 +26,9 @@ pub struct OnairProgramManager<T, E> {
     config: Arc<Config>,
     tuner_manager: T,
     epg: E,
-    cache: HashMap<ServiceTriple, OnairProgram>,
+    cache: HashMap<ServiceId, OnairProgram>,
     trackers: HashMap<String, Tracker<T, E>>,
-    temporal_services: HashMap<String, ServiceTriple>,
+    temporal_services: HashMap<String, ServiceId>,
     emitters: Vec<Emitter<OnairProgramChanged>>,
 }
 
@@ -150,7 +150,7 @@ where
 // query on-air programs
 
 #[derive(Message)]
-#[reply("HashMap<ServiceTriple, OnairProgram>")]
+#[reply("HashMap<ServiceId, OnairProgram>")]
 pub struct QueryOnairPrograms;
 
 #[async_trait]
@@ -179,7 +179,7 @@ where
 #[derive(Message)]
 #[reply("Result<OnairProgram, Error>")]
 pub struct QueryOnairProgram {
-    pub service_triple: ServiceTriple,
+    pub service_id: ServiceId,
 }
 
 #[async_trait]
@@ -198,9 +198,9 @@ where
         msg: QueryOnairProgram,
         _ctx: &mut Context<Self>,
     ) -> <QueryOnairProgram as Message>::Reply {
-        tracing::debug!(msg.name = "QueryOnairProgram", %msg.service_triple);
+        tracing::debug!(msg.name = "QueryOnairProgram", %msg.service_id);
         self.cache
-            .get(&msg.service_triple)
+            .get(&msg.service_id)
             .cloned()
             .ok_or(Error::ServiceNotFound)
     }
@@ -256,14 +256,14 @@ where
     ) -> <SpawnTemporalTracker as Message>::Reply {
         tracing::debug!(
             msg.name = "SpawnTempralLocalTracker",
-            msg.service.triple = %msg.service.triple(),
+            msg.service.id = %msg.service.id(),
         );
 
-        let service_triple = msg.service.triple();
+        let service_id = msg.service.id();
         for config in self.config.onair_program_trackers.values() {
             if config.matches(&msg.service) {
                 tracing::info!(
-                    service.triple = %service_triple,
+                    service.id = %service_id,
                     "Tracker for the service is already running",
                 );
                 return;
@@ -279,7 +279,7 @@ where
         // Multiple temporal trackers for the same service may be spawned.
         let config = Arc::new(LocalOnairProgramTrackerConfig {
             channel_types: hashset![msg.service.channel.channel_type],
-            services: hashset![service_triple.into()],
+            services: hashset![service_id.into()],
             excluded_services: hashset![],
             command: LocalOnairProgramTrackerConfig::default_command(),
             stream_id: Some(msg.stream_id),
@@ -290,10 +290,10 @@ where
             .spawn_local_tracker(&name, &config, ctx, changed, stopped)
             .await;
         self.trackers.insert(name.clone(), tracker);
-        self.temporal_services.insert(name.clone(), service_triple);
+        self.temporal_services.insert(name.clone(), service_id);
         tracing::info!(
             tracker.name = name,
-            %service_triple,
+            %service_id,
             "Created temporal tracker",
         );
     }
@@ -303,7 +303,7 @@ impl OnairProgramTrackerConfig {
     fn matches(&self, service: &EpgService) -> bool {
         match self {
             Self::Local(ref config) => config.matches(service),
-            Self::Remote(ref config) => config.matches(service.triple().into()),
+            Self::Remote(ref config) => config.matches(service.id().into()),
         }
     }
 }
@@ -324,7 +324,7 @@ where
     async fn handle(&mut self, msg: epg::ServicesUpdated, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "ServicesUpdated");
         self.cache
-            .retain(|service_triple, _| msg.services.contains_key(service_triple));
+            .retain(|service_id, _| msg.services.contains_key(service_id));
     }
 }
 
@@ -357,17 +357,17 @@ where
 
 impl<T, E> OnairProgramManager<T, E> {
     async fn update_current_program(&mut self, program: Arc<EpgProgram>) {
-        let program_quad = program.quad;
-        let service_triple = program_quad.into();
-        self.cache.entry(service_triple).or_default().current = Some(program);
-        tracing::info!(%service_triple, current.program.quad = %program_quad);
+        let program_id = program.id;
+        let service_id = program_id.into();
+        self.cache.entry(service_id).or_default().current = Some(program);
+        tracing::info!(%service_id, current.program.id = %program_id);
     }
 
     async fn update_next_program(&mut self, program: Arc<EpgProgram>) {
-        let program_quad = program.quad;
-        let service_triple = program_quad.into();
-        self.cache.entry(service_triple).or_default().next = Some(program);
-        tracing::info!(%service_triple, next.program.quad = %program_quad);
+        let program_id = program.id;
+        let service_id = program_id.into();
+        self.cache.entry(service_id).or_default().next = Some(program);
+        tracing::info!(%service_id, next.program.id = %program_id);
     }
 }
 
@@ -397,16 +397,12 @@ where
                 );
             }
         }
-        if let Some(service_triple) = self.temporal_services.remove(&msg.tracker) {
-            if !self
-                .temporal_services
-                .values()
-                .any(|&v| v == service_triple)
-            {
-                let _ = self.cache.remove(&service_triple);
+        if let Some(service_id) = self.temporal_services.remove(&msg.tracker) {
+            if !self.temporal_services.values().any(|&v| v == service_id) {
+                let _ = self.cache.remove(&service_id);
                 tracing::info!(
                     tracker.name = msg.tracker,
-                    %service_triple,
+                    %service_id,
                     "Removed cache entry for temporal trackers",
                 );
             }
@@ -450,7 +446,7 @@ pub(crate) mod stub {
             &self,
             msg: QueryOnairProgram,
         ) -> actlet::Result<<QueryOnairProgram as Message>::Reply> {
-            match msg.service_triple.sid().value() {
+            match msg.service_id.sid().value() {
                 0 => Ok(Err(Error::ServiceNotFound)),
                 _ => Ok(Ok(OnairProgram {
                     current: None,

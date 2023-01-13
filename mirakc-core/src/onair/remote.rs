@@ -10,7 +10,7 @@ use crate::epg::EpgProgram;
 use crate::epg::QueryProgram;
 use crate::models::MirakurunProgram;
 use crate::models::MirakurunServiceId;
-use crate::models::ServiceTriple;
+use crate::models::ServiceId;
 use crate::web::WebOnairProgram;
 
 use super::OnairProgramChanged;
@@ -139,7 +139,7 @@ where
 
         if onair_program.is_empty() {
             // In this case, we cannot get TSID from MirakurunProgram.
-            // It's needed for creating ServiceTriple.
+            // It's needed for creating ServiceId.
             tracing::debug!(
                 tracker.name = self.name,
                 "No program contained in WebOnairProgram",
@@ -148,7 +148,7 @@ where
         }
 
         let msg = OnairProgramChanged {
-            service_triple: onair_program.service_triple(),
+            service_id: onair_program.service_id(),
             current: self.convert_program(onair_program.current).await,
             next: self.convert_program(onair_program.next).await,
         };
@@ -163,14 +163,14 @@ where
     // (ver.2).
     async fn convert_program(&self, program: Option<MirakurunProgram>) -> Option<Arc<EpgProgram>> {
         let program = program?;
-        let quad = (
+        let program_id = (
             program.network_id,
             program.transport_stream_id,
             program.service_id,
             program.event_id,
         )
             .into();
-        let mut converted = EpgProgram::new(quad);
+        let mut converted = EpgProgram::new(program_id);
         converted.start_at = program.start_at;
         converted.duration = program.duration;
         converted.scrambled = !program.is_free;
@@ -179,7 +179,7 @@ where
         converted.extended = program.extended;
         converted.genres = program.genres;
         // Supplement properties with information in EPG.
-        if let Ok(Ok(epg)) = self.epg.call(QueryProgram::ByProgramQuad(quad)).await {
+        if let Ok(Ok(epg)) = self.epg.call(QueryProgram::ByProgramId(program_id)).await {
             let check: MirakurunProgram = epg.clone().into();
             if program.video != check.video {
                 tracing::debug!(
@@ -262,15 +262,15 @@ impl WebOnairProgram {
         self.current.is_none() && self.next.is_none()
     }
 
-    fn service_triple(&self) -> ServiceTriple {
+    fn service_id(&self) -> ServiceId {
         if let Some(ref program) = self.current {
-            ServiceTriple::from((
+            ServiceId::from((
                 program.network_id,
                 program.transport_stream_id,
                 program.service_id,
             ))
         } else if let Some(ref program) = self.next {
-            ServiceTriple::from((
+            ServiceId::from((
                 program.network_id,
                 program.transport_stream_id,
                 program.service_id,

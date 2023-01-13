@@ -18,12 +18,12 @@ macro_rules! gr {
 }
 
 macro_rules! service {
-    ($triple:expr, $name:expr, $channel:expr) => {{
-        let triple = ServiceTriple::from($triple);
+    ($id:expr, $name:expr, $channel:expr) => {{
+        let id = ServiceId::from($id);
         EpgService {
-            nid: triple.nid(),
-            tsid: triple.tsid(),
-            sid: triple.sid(),
+            nid: id.nid(),
+            tsid: id.tsid(),
+            sid: id.sid(),
             service_type: 0,
             logo_id: 0,
             remote_control_key_id: 0,
@@ -33,21 +33,21 @@ macro_rules! service {
     }};
 }
 macro_rules! program {
-    ($quad:expr, $start_at:expr, $duration:literal) => {{
-        let mut program = EpgProgram::new($quad.into());
+    ($id:expr, $start_at:expr, $duration:literal) => {{
+        let mut program = EpgProgram::new($id.into());
         program.start_at = Some($start_at);
         program.duration =
             Some(Duration::from_std(humantime::parse_duration($duration).unwrap()).unwrap());
         program
     }};
-    ($quad:expr, $start_at:expr) => {{
-        let mut program = EpgProgram::new($quad.into());
+    ($id:expr, $start_at:expr) => {{
+        let mut program = EpgProgram::new($id.into());
         program.start_at = Some($start_at);
         program.duration = None;
         program
     }};
-    ($quad:expr) => {
-        EpgProgram::new($quad.into())
+    ($id:expr) => {
+        EpgProgram::new($id.into())
     };
 }
 

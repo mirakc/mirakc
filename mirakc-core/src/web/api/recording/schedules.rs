@@ -59,7 +59,7 @@ where
         .await??;
     let schedule = recording_manager
         .call(recording::QueryRecordingSchedule {
-            program_quad: program.quad,
+            program_id: program.id,
         })
         .await??;
     Ok(Json(schedule.into()))
@@ -151,7 +151,7 @@ where
 
     recording_manager
         .call(recording::RemoveRecordingSchedule {
-            program_quad: program.quad,
+            program_id: program.id,
         })
         .await??;
     Ok(())

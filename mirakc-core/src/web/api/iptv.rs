@@ -54,7 +54,7 @@ where
     let mut buf = String::with_capacity(INITIAL_BUFSIZE);
     write!(buf, "#EXTM3U\n")?;
     for sv in services.values() {
-        let id = MirakurunServiceId::from(sv.triple());
+        let id = MirakurunServiceId::from(sv.id());
         let logo_url = format!("http://{}/api/services/{}/logo", host, id.value());
         // The following format is compatible with EPGStation.
         // See API docs for the `/api/channel.m3u8` endpoint.
@@ -82,7 +82,7 @@ where
                     }
                 }
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
-                if config.resource.logos.contains_key(&sv.triple()) {
+                if config.resource.logos.contains_key(&sv.id()) {
                     write!(buf, r#" tvg-logo="{}""#, logo_url)?;
                 }
                 write!(
@@ -94,7 +94,7 @@ where
             0x02 | 0xA2 | 0xA6 => {
                 // audio
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
-                if config.resource.logos.contains_key(&sv.triple()) {
+                if config.resource.logos.contains_key(&sv.id()) {
                     write!(buf, r#" tvg-logo="{}""#, logo_url)?;
                 }
                 write!(
@@ -197,7 +197,7 @@ where
         escape(&server_name())
     )?;
     for sv in services.values() {
-        let id = MirakurunServiceId::from(sv.triple());
+        let id = MirakurunServiceId::from(sv.id());
         let logo_url = format!("http://{}/api/services/{}/logo", host, id.value());
         write!(buf, r#"<channel id="{}">"#, id.value())?;
         write!(
@@ -205,23 +205,19 @@ where
             r#"<display-name lang="ja">{}</display-name>"#,
             escape(&sv.name)
         )?;
-        if config.resource.logos.contains_key(&sv.triple()) {
+        if config.resource.logos.contains_key(&sv.id()) {
             write!(buf, r#"<icon src="{}" />"#, logo_url)?;
         }
         write!(buf, r#"</channel>"#)?;
     }
-    for triple in services.keys() {
-        let programs = epg
-            .call(epg::QueryPrograms {
-                service_triple: triple.clone(),
-            })
-            .await?;
+    for &service_id in services.keys() {
+        let programs = epg.call(epg::QueryPrograms { service_id }).await?;
         for pg in programs
             .values()
             .filter(|pg| pg.name.is_some())
             .filter(|pg| pg.start_at.unwrap() < start_before && pg.end_at().unwrap() > end_after)
         {
-            let id = MirakurunServiceId::from(pg.quad);
+            let id = MirakurunServiceId::from(pg.id);
             write!(
                 buf,
                 r#"<programme start="{}" stop="{}" channel="{}">"#,

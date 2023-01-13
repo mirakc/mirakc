@@ -50,11 +50,11 @@ pub struct Epg<T> {
     services_emitters: Vec<Emitter<ServicesUpdated>>,
     clocks_emitters: Vec<Emitter<ClocksUpdated>>,
     programs_emitters: Vec<Emitter<ProgramsUpdated>>,
-    services: Arc<IndexMap<ServiceTriple, EpgService>>, // keeps insertion order
-    clocks: Arc<HashMap<ServiceTriple, Clock>>,
+    services: Arc<IndexMap<ServiceId, EpgService>>, // keeps insertion order
+    clocks: Arc<HashMap<ServiceId, Clock>>,
     // Allocate EpgSchedule in the heap in order to avoid stack overflow in
     // serialization using serde_json.
-    schedules: HashMap<ServiceTriple, Box<EpgSchedule>>,
+    schedules: HashMap<ServiceId, Box<EpgSchedule>>,
 }
 
 impl<T> Epg<T> {
@@ -73,7 +73,7 @@ impl<T> Epg<T> {
 
     async fn update_services(
         &mut self,
-        results: Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)>,
+        results: Vec<(EpgChannel, Option<IndexMap<ServiceId, EpgService>>)>,
     ) {
         let mut services = IndexMap::new();
 
@@ -87,7 +87,7 @@ impl<T> Epg<T> {
                     // services if properties of the channel hasn't changed.
                     for service in self.services.values() {
                         if service.channel == channel {
-                            services.insert(service.triple(), service.clone());
+                            services.insert(service.id(), service.clone());
                         }
                     }
                 }
@@ -112,12 +112,12 @@ impl<T> Epg<T> {
         // Remove garbage.
         // clocks will be updated in update_clocks().
         self.schedules
-            .retain(|triple, _| self.services.contains_key(triple));
+            .retain(|service_id, _| self.services.contains_key(service_id));
     }
 
     async fn update_clocks(
         &mut self,
-        results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>,
+        results: Vec<(EpgChannel, Option<HashMap<ServiceId, Clock>>)>,
     ) {
         let mut clocks = HashMap::new();
 
@@ -130,10 +130,10 @@ impl<T> Epg<T> {
                     //
                     // Assumed that services has been updated at least once
                     // after launch.
-                    for (triple, service) in self.services.iter() {
+                    for (service_id, service) in self.services.iter() {
                         if service.channel == channel {
-                            if let Some(clock) = self.clocks.get(triple) {
-                                clocks.insert(triple.clone(), clock.clone());
+                            if let Some(clock) = self.clocks.get(service_id) {
+                                clocks.insert(service_id.clone(), clock.clone());
                             }
                         }
                     }
@@ -157,22 +157,22 @@ impl<T> Epg<T> {
         }
     }
 
-    fn prepare_schedule(&mut self, service_triple: ServiceTriple, today: NaiveDate) {
+    fn prepare_schedule(&mut self, service_id: ServiceId, today: NaiveDate) {
         self.schedules
-            .entry(service_triple)
+            .entry(service_id)
             .and_modify(|sched| sched.update_start_index(today))
-            .or_insert(Box::new(EpgSchedule::new(service_triple)));
+            .or_insert(Box::new(EpgSchedule::new(service_id)));
     }
 
     fn update_schedule(&mut self, section: EitSection) {
-        let triple = section.service_triple();
-        self.schedules.entry(triple).and_modify(move |sched| {
+        let service_id = section.service_id();
+        self.schedules.entry(service_id).and_modify(move |sched| {
             sched.update(section);
         });
     }
 
-    async fn flush_schedule(&mut self, service_triple: ServiceTriple) {
-        let num_programs = match self.schedules.get_mut(&service_triple) {
+    async fn flush_schedule(&mut self, service_id: ServiceId) {
+        let num_programs = match self.schedules.get_mut(&service_id) {
             Some(schedule) => {
                 schedule.collect_programs();
                 schedule.programs.len()
@@ -180,22 +180,19 @@ impl<T> Epg<T> {
             None => 0,
         };
 
-        let service = self
-            .services
-            .get(&service_triple)
-            .expect("Service must exist");
+        let service = self.services.get(&service_id).expect("Service must exist");
 
         if num_programs > 0 {
             tracing::info!(
                 "Collected {} programs of {} ({})",
                 num_programs,
                 service.name,
-                service_triple,
+                service_id,
             );
         }
 
         for emitter in self.programs_emitters.iter() {
-            emitter.emit(ProgramsUpdated { service_triple }).await;
+            emitter.emit(ProgramsUpdated { service_id }).await;
         }
     }
 
@@ -214,7 +211,7 @@ impl<T> Epg<T> {
                 let json_path = cache_dir.join("services.json");
                 tracing::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                let services: Vec<(ServiceTriple, EpgService)> = serde_json::from_reader(reader)?;
+                let services: Vec<(ServiceId, EpgService)> = serde_json::from_reader(reader)?;
                 // Drop a service if the channel of the service has been
                 // changed.
                 let iter = services.into_iter().filter(|(_, sv)| {
@@ -223,7 +220,7 @@ impl<T> Epg<T> {
                         // if changed
                         tracing::debug!(
                             "Drop service#{} ({}) due to changes of the channel config",
-                            sv.triple(),
+                            sv.id(),
                             sv.name
                         );
                     }
@@ -245,13 +242,13 @@ impl<T> Epg<T> {
                 let json_path = cache_dir.join("clocks.json");
                 tracing::debug!("Loading clocks from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                let clocks: Vec<(ServiceTriple, Clock)> = serde_json::from_reader(reader)?;
-                // Drop a clock if the service triple of the clock is not
+                let clocks: Vec<(ServiceId, Clock)> = serde_json::from_reader(reader)?;
+                // Drop a clock if the service ID of the clock is not
                 // contained in `self::services`.
-                let iter = clocks.into_iter().filter(|(triple, _)| {
-                    let contained = self.services.contains_key(triple);
+                let iter = clocks.into_iter().filter(|(service_id, _)| {
+                    let contained = self.services.contains_key(service_id);
                     if !contained {
-                        tracing::debug!("Drop clock for missing service#{}", triple);
+                        tracing::debug!("Drop clock for missing service#{}", service_id);
                     }
                     contained
                 });
@@ -272,22 +269,22 @@ impl<T> Epg<T> {
                 let json_path = cache_dir.join("schedules.json");
                 tracing::debug!("Loading schedules from {}...", json_path.display());
                 let reader = BufReader::new(File::open(&json_path)?);
-                let schedules: Vec<(ServiceTriple, Box<EpgSchedule>)> =
+                let schedules: Vec<(ServiceId, Box<EpgSchedule>)> =
                     serde_json::from_reader(reader)?;
-                // Drop a clock if the service triple of the clock is not
+                // Drop a clock if the service ID of the clock is not
                 // contained in `self::services`.
                 let iter = schedules
                     .into_iter()
-                    .filter(|(triple, _)| {
-                        let contained = self.services.contains_key(triple);
+                    .filter(|(service_id, _)| {
+                        let contained = self.services.contains_key(service_id);
                         if !contained {
-                            tracing::debug!("Drop schedule for missing service#{}", triple);
+                            tracing::debug!("Drop schedule for missing service#{}", service_id);
                         }
                         contained
                     })
-                    .map(|(triple, mut sched)| {
+                    .map(|(service_id, mut sched)| {
                         sched.update_start_index(today);
-                        (triple, sched)
+                        (service_id, sched)
                     });
                 self.schedules = HashMap::from_iter(iter);
                 tracing::info!("Loaded schedules for {} services", self.schedules.len());
@@ -499,7 +496,7 @@ where
 // query services
 
 #[derive(Message)]
-#[reply("Arc<IndexMap<ServiceTriple, EpgService>>")]
+#[reply("Arc<IndexMap<ServiceId, EpgService>>")]
 pub struct QueryServices;
 
 #[async_trait]
@@ -525,7 +522,7 @@ where
 #[reply("Result<EpgService, Error>")]
 pub enum QueryService {
     ByMirakurunServiceId(MirakurunServiceId), // For Mirakurun-compatible Web API
-    ByServiceTriple(ServiceTriple),
+    ByServiceId(ServiceId),
 }
 
 #[async_trait]
@@ -543,7 +540,7 @@ where
         tracing::debug!(msg.name = "QueryService");
         let (nid, sid) = match msg {
             QueryService::ByMirakurunServiceId(id) => id.into(),
-            QueryService::ByServiceTriple(triple) => triple.into(),
+            QueryService::ByServiceId(id) => id.into(),
         };
         self.services
             .values()
@@ -558,7 +555,7 @@ where
 #[derive(Message)]
 #[reply("Result<Clock, Error>")]
 pub struct QueryClock {
-    pub service_triple: ServiceTriple,
+    pub service_id: ServiceId,
 }
 
 #[async_trait]
@@ -573,9 +570,9 @@ where
         msg: QueryClock,
         _ctx: &mut Context<Self>,
     ) -> <QueryClock as Message>::Reply {
-        tracing::debug!(msg.name = "QueryClock", %msg.service_triple);
+        tracing::debug!(msg.name = "QueryClock", %msg.service_id);
         self.clocks
-            .get(&msg.service_triple)
+            .get(&msg.service_id)
             .cloned()
             .ok_or(Error::ClockNotSynced)
     }
@@ -586,7 +583,7 @@ where
 #[derive(Message)]
 #[reply("Arc<IndexMap<Eid, EpgProgram>>")]
 pub struct QueryPrograms {
-    pub service_triple: ServiceTriple,
+    pub service_id: ServiceId,
 }
 
 #[async_trait]
@@ -601,9 +598,9 @@ where
         msg: QueryPrograms,
         _ctx: &mut Context<Self>,
     ) -> <QueryPrograms as Message>::Reply {
-        tracing::debug!(msg.name = "QueryPrograms", %msg.service_triple);
+        tracing::debug!(msg.name = "QueryPrograms", %msg.service_id);
         self.schedules
-            .get(&msg.service_triple)
+            .get(&msg.service_id)
             .map(|sched| sched.programs.clone())
             .unwrap_or_default()
     }
@@ -615,7 +612,7 @@ where
 #[reply("Result<EpgProgram, Error>")]
 pub enum QueryProgram {
     ByMirakurunProgramId(MirakurunProgramId), // For Mirakurun-compatible Web API
-    ByProgramQuad(ProgramQuad),
+    ByProgramId(ProgramId),
 }
 
 #[async_trait]
@@ -633,15 +630,18 @@ where
         tracing::debug!(msg.name = "QueryProgram");
         let (nid, sid, eid) = match msg {
             QueryProgram::ByMirakurunProgramId(id) => id.into(),
-            QueryProgram::ByProgramQuad(quad) => quad.into(),
+            QueryProgram::ByProgramId(id) => id.into(),
         };
-        let triple = self
+        let service_id = self
             .services
             .values()
             .find(|sv| sv.nid == nid && sv.sid == sid)
-            .map(|sv| sv.triple())
+            .map(|sv| sv.id())
             .ok_or(Error::ProgramNotFound)?;
-        let schedule = self.schedules.get(&triple).ok_or(Error::ProgramNotFound)?;
+        let schedule = self
+            .schedules
+            .get(&service_id)
+            .ok_or(Error::ProgramNotFound)?;
         schedule
             .programs
             .get(&eid)
@@ -654,7 +654,7 @@ where
 
 #[derive(Message)]
 pub struct UpdateServices {
-    pub results: Vec<(EpgChannel, Option<IndexMap<ServiceTriple, EpgService>>)>,
+    pub results: Vec<(EpgChannel, Option<IndexMap<ServiceId, EpgService>>)>,
 }
 
 #[async_trait]
@@ -674,7 +674,7 @@ where
 
 #[derive(Message)]
 pub struct UpdateClocks {
-    pub results: Vec<(EpgChannel, Option<HashMap<ServiceTriple, Clock>>)>,
+    pub results: Vec<(EpgChannel, Option<HashMap<ServiceId, Clock>>)>,
 }
 
 #[async_trait]
@@ -694,7 +694,7 @@ where
 
 #[derive(Message)]
 pub struct PrepareSchedule {
-    pub service_triple: ServiceTriple,
+    pub service_id: ServiceId,
 }
 
 #[async_trait]
@@ -705,8 +705,8 @@ where
     T: Into<Emitter<StopStreaming>>,
 {
     async fn handle(&mut self, msg: PrepareSchedule, _ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "PrepareSchedule", %msg.service_triple);
-        self.prepare_schedule(msg.service_triple, Jst::today());
+        tracing::debug!(msg.name = "PrepareSchedule", %msg.service_id);
+        self.prepare_schedule(msg.service_id, Jst::today());
     }
 }
 
@@ -727,7 +727,7 @@ where
     async fn handle(&mut self, msg: UpdateSchedule, _ctx: &mut Context<Self>) {
         tracing::debug!(
             msg.name = "UpdateSchedule",
-            msg.service_triple = %msg.section.service_triple(),
+            msg.service_id = %msg.section.service_id(),
             msg.section.table_id,
             msg.section.section_number,
             msg.section.last_section_number,
@@ -742,7 +742,7 @@ where
 
 #[derive(Message)]
 pub struct FlushSchedule {
-    pub service_triple: ServiceTriple,
+    pub service_id: ServiceId,
 }
 
 #[async_trait]
@@ -753,8 +753,8 @@ where
     T: Into<Emitter<StopStreaming>>,
 {
     async fn handle(&mut self, msg: FlushSchedule, _ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "FlushSchedule", %msg.service_triple);
-        self.flush_schedule(msg.service_triple).await;
+        tracing::debug!(msg.name = "FlushSchedule", %msg.service_id);
+        self.flush_schedule(msg.service_id).await;
     }
 }
 
@@ -819,8 +819,8 @@ where
                 self.clocks_emitters.push(emitter);
             }
             RegisterEmitter::ProgramsUpdated(emitter) => {
-                for service_triple in self.schedules.keys().cloned() {
-                    emitter.emit(ProgramsUpdated { service_triple }).await;
+                for service_id in self.schedules.keys().cloned() {
+                    emitter.emit(ProgramsUpdated { service_id }).await;
                 }
                 self.programs_emitters.push(emitter);
             }
@@ -832,17 +832,17 @@ where
 
 #[derive(Message)]
 pub struct ServicesUpdated {
-    pub services: Arc<IndexMap<ServiceTriple, EpgService>>,
+    pub services: Arc<IndexMap<ServiceId, EpgService>>,
 }
 
 #[derive(Message)]
 pub struct ClocksUpdated {
-    pub clocks: Arc<HashMap<ServiceTriple, Clock>>,
+    pub clocks: Arc<HashMap<ServiceId, Clock>>,
 }
 
 #[derive(Message)]
 pub struct ProgramsUpdated {
-    pub service_triple: ServiceTriple,
+    pub service_id: ServiceId,
 }
 
 // EpgSchedule holds sections of H-EIT[schedule basic] and H-EIT[schedule extended]
@@ -850,7 +850,7 @@ pub struct ProgramsUpdated {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EpgSchedule {
-    service_triple: ServiceTriple,
+    service_id: ServiceId,
     // EpgScheduleUnits are stored in chronological order.
     units: [EpgScheduleUnit; Self::MAX_DAYS],
     #[serde(skip)]
@@ -862,9 +862,9 @@ struct EpgSchedule {
 impl EpgSchedule {
     const MAX_DAYS: usize = 9;
 
-    fn new(service_triple: ServiceTriple) -> Self {
+    fn new(service_id: ServiceId) -> Self {
         EpgSchedule {
-            service_triple,
+            service_id,
             units: Default::default(),
             start_index: 0,
             programs: Default::default(),
@@ -903,7 +903,7 @@ impl EpgSchedule {
     }
 
     fn collect_programs(&mut self) {
-        let triple = self.service_triple;
+        let service_id = self.service_id;
         // Start from the previous day in order to collect programs in chronological order.
         let start_index = if self.start_index > 0 {
             self.start_index - 1
@@ -914,7 +914,7 @@ impl EpgSchedule {
         let mut programs = IndexMap::with_capacity(self.programs.len());
         for n in 0..Self::MAX_DAYS {
             let i = (start_index + n) % Self::MAX_DAYS;
-            self.units[i].collect_programs(triple, &mut programs);
+            self.units[i].collect_programs(service_id, &mut programs);
         }
         programs.shrink_to_fit();
         self.programs = Arc::new(programs);
@@ -941,9 +941,9 @@ impl EpgScheduleUnit {
         self.segments[i].update(section);
     }
 
-    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<Eid, EpgProgram>) {
+    fn collect_programs(&self, service_id: ServiceId, programs: &mut IndexMap<Eid, EpgProgram>) {
         for segment in self.segments.iter() {
-            segment.collect_programs(triple, programs)
+            segment.collect_programs(service_id, programs)
         }
     }
 }
@@ -986,14 +986,14 @@ impl EpgSegment {
         sections[i] = Some(EpgSection::from(section));
     }
 
-    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<Eid, EpgProgram>) {
+    fn collect_programs(&self, service_id: ServiceId, programs: &mut IndexMap<Eid, EpgProgram>) {
         let sections = self
             .extended_sections
             .iter()
             .chain(self.basic_sections.iter());
         for section in sections {
             if let Some(section) = section {
-                section.collect_programs(triple, programs)
+                section.collect_programs(service_id, programs)
             }
         }
     }
@@ -1014,7 +1014,7 @@ impl EpgSection {
             .map(|event| event.start_time().unwrap().date_naive())
     }
 
-    fn collect_programs(&self, triple: ServiceTriple, programs: &mut IndexMap<Eid, EpgProgram>) {
+    fn collect_programs(&self, service_id: ServiceId, programs: &mut IndexMap<Eid, EpgProgram>) {
         let events = self
             .events
             .iter()
@@ -1024,10 +1024,10 @@ impl EpgSection {
             // TODO: Undefined duration in EIT[schedule] might be allowed?
             .filter(|event| event.duration.is_some());
         for event in events {
-            let quad = ProgramQuad::from((triple, Eid::from(event.event_id)));
+            let program_id = ProgramId::from((service_id, Eid::from(event.event_id)));
             programs
                 .entry(event.event_id)
-                .or_insert(EpgProgram::new(quad))
+                .or_insert(EpgProgram::new(program_id))
                 .update(event);
         }
     }
@@ -1091,15 +1091,15 @@ pub struct EpgService {
 }
 
 impl EpgService {
-    pub fn triple(&self) -> ServiceTriple {
-        ServiceTriple::new(self.nid, self.tsid, self.sid)
+    pub fn id(&self) -> ServiceId {
+        ServiceId::new(self.nid, self.tsid, self.sid)
     }
 }
 
 impl Into<MirakurunChannelService> for EpgService {
     fn into(self) -> MirakurunChannelService {
         MirakurunChannelService {
-            id: self.triple().into(),
+            id: self.id().into(),
             service_id: self.sid,
             transport_stream_id: self.tsid,
             network_id: self.nid,
@@ -1110,7 +1110,7 @@ impl Into<MirakurunChannelService> for EpgService {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EpgProgram {
-    pub quad: ProgramQuad,
+    pub id: ProgramId,
     #[serde(with = "ts_milliseconds_option")]
     pub start_at: Option<DateTime<Jst>>,
     #[serde(with = "duration_milliseconds_option")]
@@ -1127,9 +1127,9 @@ pub struct EpgProgram {
 }
 
 impl EpgProgram {
-    pub fn new(quad: ProgramQuad) -> Self {
+    pub fn new(id: ProgramId) -> Self {
         Self {
-            quad,
+            id,
             start_at: None,
             duration: None,
             scrambled: false,
@@ -1219,11 +1219,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_services() {
-        fn create_service(name: &str, triple: ServiceTriple, channel: EpgChannel) -> EpgService {
+        fn create_service(name: &str, id: ServiceId, channel: EpgChannel) -> EpgService {
             EpgService {
-                nid: triple.nid(),
-                tsid: triple.tsid(),
-                sid: triple.sid(),
+                nid: id.nid(),
+                tsid: id.tsid(),
+                sid: id.sid(),
                 service_type: 1,
                 logo_id: 0,
                 remote_control_key_id: 0,
@@ -1252,10 +1252,10 @@ mod tests {
             excluded_services: vec![],
         };
 
-        let triple1_1 = ServiceTriple::from((1, 1, 1));
-        let triple1_2 = ServiceTriple::from((1, 1, 2));
-        let triple2_3 = ServiceTriple::from((2, 1, 3));
-        let triple2_4 = ServiceTriple::from((2, 1, 4));
+        let id1_1 = ServiceId::from((1, 1, 1));
+        let id1_2 = ServiceId::from((1, 1, 2));
+        let id2_3 = ServiceId::from((2, 1, 3));
+        let id2_4 = ServiceId::from((2, 1, 4));
 
         // initial update
 
@@ -1263,19 +1263,19 @@ mod tests {
             (
                 ch1.clone(),
                 Some(indexmap::indexmap! {
-                    triple1_1 =>
-                        create_service("sv1", triple1_1, ch1.clone()),
-                    triple1_2 =>
-                        create_service("sv2", triple1_2, ch1.clone()),
+                    id1_1 =>
+                        create_service("sv1", id1_1, ch1.clone()),
+                    id1_2 =>
+                        create_service("sv2", id1_2, ch1.clone()),
                 }),
             ),
             (
                 ch2.clone(),
                 Some(indexmap::indexmap! {
-                    triple2_3 =>
-                        create_service("sv3", triple2_3, ch2.clone()),
-                    triple2_4 =>
-                        create_service("sv4", triple2_4, ch2.clone()),
+                    id2_3 =>
+                        create_service("sv3", id2_3, ch2.clone()),
+                    id2_4 =>
+                        create_service("sv4", id2_4, ch2.clone()),
                 }),
             ),
         ];
@@ -1292,19 +1292,19 @@ mod tests {
             (
                 ch1.clone(),
                 Some(indexmap::indexmap! {
-                    triple1_1 =>
-                        create_service("sv1", triple1_1, ch1.clone()),
-                    triple1_2 =>
-                        create_service("sv2", triple1_2, ch1.clone()),
+                    id1_1 =>
+                        create_service("sv1", id1_1, ch1.clone()),
+                    id1_2 =>
+                        create_service("sv2", id1_2, ch1.clone()),
                 }),
             ),
             (
                 ch2.clone(),
                 Some(indexmap::indexmap! {
-                    triple2_3 =>
-                        create_service("sv3", triple2_3, ch2.clone()),
-                    triple2_4 =>
-                        create_service("sv4", triple2_4, ch2.clone()),
+                    id2_3 =>
+                        create_service("sv3", id2_3, ch2.clone()),
+                    id2_4 =>
+                        create_service("sv4", id2_4, ch2.clone()),
                 }),
             ),
         ];
@@ -1322,10 +1322,10 @@ mod tests {
             (
                 ch2.clone(),
                 Some(indexmap::indexmap! {
-                    triple2_3 =>
-                        create_service("sv3", triple2_3, ch2.clone()),
-                    triple2_4 =>
-                        create_service("sv4", triple2_4, ch2.clone()),
+                    id2_3 =>
+                        create_service("sv3", id2_3, ch2.clone()),
+                    id2_4 =>
+                        create_service("sv4", id2_4, ch2.clone()),
                 }),
             ),
         ];
@@ -1342,8 +1342,8 @@ mod tests {
             (
                 ch1.clone(),
                 Some(indexmap::indexmap! {
-                    triple1_1 =>
-                        create_service("sv1.new", triple1_1, ch1.clone()),
+                    id1_1 =>
+                        create_service("sv1.new", id1_1, ch1.clone()),
                 }),
             ),
             (ch2.clone(), None),
@@ -1359,17 +1359,16 @@ mod tests {
     #[tokio::test]
     async fn test_update_services_purge_garbage_schedules() {
         let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub);
-        let triple = ServiceTriple::from((1, 2, 3));
-        epg.schedules
-            .insert(triple, Box::new(EpgSchedule::new(triple)));
+        let id = ServiceId::from((1, 2, 3));
+        epg.schedules.insert(id, Box::new(EpgSchedule::new(id)));
         assert!(!epg.schedules.is_empty());
-        let triple = ServiceTriple::from((1, 1, 1));
-        let sv = create_epg_service(triple, ChannelType::GR);
+        let id = ServiceId::from((1, 1, 1));
+        let sv = create_epg_service(id, ChannelType::GR);
         let ch = sv.channel.clone();
         epg.update_services(vec![(
             ch,
             Some(indexmap::indexmap! {
-                triple => sv,
+                id => sv,
             }),
         )])
         .await;
@@ -1378,8 +1377,8 @@ mod tests {
 
     #[test]
     fn test_epg_schedule_update_start_index() {
-        let triple = ServiceTriple::from((1, 2, 3));
-        let mut sched = EpgSchedule::new(triple);
+        let id = ServiceId::from((1, 2, 3));
+        let mut sched = EpgSchedule::new(id);
         assert_eq!(sched.start_index, 0);
         assert!(sched.units.iter().all(|unit| unit.date().is_none()));
 
@@ -1408,13 +1407,13 @@ mod tests {
 
     #[test]
     fn test_epg_schedule_update() {
-        let triple = ServiceTriple::from((1, 2, 3));
+        let id = ServiceId::from((1, 2, 3));
 
-        let mut sched = EpgSchedule::new(triple);
+        let mut sched = EpgSchedule::new(id);
         sched.update(EitSection {
-            original_network_id: triple.nid(),
-            transport_stream_id: triple.tsid(),
-            service_id: triple.sid(),
+            original_network_id: id.nid(),
+            transport_stream_id: id.tsid(),
+            service_id: id.sid(),
             table_id: 0x50, // unit-index(0)
             section_number: 0x00,
             last_section_number: 0xF8,
@@ -1424,11 +1423,11 @@ mod tests {
         });
         assert!(sched.units[0].segments[0].basic_sections[0].is_some());
 
-        let mut sched = EpgSchedule::new(triple);
+        let mut sched = EpgSchedule::new(id);
         sched.update(EitSection {
-            original_network_id: triple.nid(),
-            transport_stream_id: triple.tsid(),
-            service_id: triple.sid(),
+            original_network_id: id.nid(),
+            transport_stream_id: id.tsid(),
+            service_id: id.sid(),
             table_id: 0x51, // unit-index(4)
             section_number: 0x00,
             last_section_number: 0xF8,
@@ -1438,12 +1437,12 @@ mod tests {
         });
         assert!(sched.units[4].segments[0].basic_sections[0].is_some());
 
-        let mut sched = EpgSchedule::new(triple);
+        let mut sched = EpgSchedule::new(id);
         sched.start_index = 5;
         sched.update(EitSection {
-            original_network_id: triple.nid(),
-            transport_stream_id: triple.tsid(),
-            service_id: triple.sid(),
+            original_network_id: id.nid(),
+            transport_stream_id: id.tsid(),
+            service_id: id.sid(),
             table_id: 0x51, // unit-index(4)
             section_number: 0x00,
             last_section_number: 0xF8,
@@ -1488,11 +1487,11 @@ mod tests {
         assert!(segment.basic_sections[1].is_none());
     }
 
-    fn create_epg_service(triple: ServiceTriple, channel_type: ChannelType) -> EpgService {
+    fn create_epg_service(id: ServiceId, channel_type: ChannelType) -> EpgService {
         EpgService {
-            nid: triple.nid(),
-            tsid: triple.tsid(),
-            sid: triple.sid(),
+            nid: id.nid(),
+            tsid: id.tsid(),
+            sid: id.sid(),
             service_type: 1,
             logo_id: 0,
             remote_control_key_id: 0,

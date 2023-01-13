@@ -31,12 +31,8 @@ where
 {
     let services = epg.call(epg::QueryServices).await?;
     let mut result = vec![];
-    for triple in services.keys() {
-        let programs = epg
-            .call(epg::QueryPrograms {
-                service_triple: triple.clone(),
-            })
-            .await?;
+    for &service_id in services.keys() {
+        let programs = epg.call(epg::QueryPrograms { service_id }).await?;
         result.reserve(programs.len());
         result.extend(programs.values().cloned().map(MirakurunProgram::from));
     }
@@ -90,16 +86,16 @@ where
 
     if is_epgstation(&user_agent) {
         let msg = onair::QueryOnairProgram {
-            service_triple: program.quad.into(),
+            service_id: program.id.into(),
         };
         if let Ok(Ok(onair_program)) = onair_manager.call(msg).await {
             if let Some(current) = onair_program.current {
-                if current.quad == program.quad {
+                if current.id == program.id {
                     program = current.as_ref().clone();
                 }
             }
             if let Some(next) = onair_program.next {
-                if next.quad == program.quad {
+                if next.id == program.id {
                     program = next.as_ref().clone();
                 }
             }

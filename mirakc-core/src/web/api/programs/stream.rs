@@ -69,7 +69,7 @@ where
 
     let clock = epg
         .call(epg::QueryClock {
-            service_triple: service.triple(),
+            service_id: service.id(),
         })
         .await??;
 
@@ -103,8 +103,8 @@ where
         .insert_str("channel_name", &service.channel.name)
         .insert("channel_type", &service.channel.channel_type)?
         .insert_str("channel", &service.channel.channel)
-        .insert("sid", &program.quad.sid().value())?
-        .insert("eid", &program.quad.eid().value())?
+        .insert("sid", &program.id.sid().value())?
+        .insert("eid", &program.id.eid().value())?
         .insert("clock_pid", &clock.pid)?
         .insert("clock_pcr", &clock.pcr)?
         .insert("clock_time", &clock.time)?
@@ -195,7 +195,7 @@ where
 
     let _clock = epg
         .call(epg::QueryClock {
-            service_triple: service.triple(),
+            service_id: service.id(),
         })
         .await??;
 

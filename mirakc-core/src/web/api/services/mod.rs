@@ -97,7 +97,7 @@ where
         .call(epg::QueryService::ByMirakurunServiceId(id))
         .await??;
 
-    match config.resource.logos.get(&service.triple()) {
+    match config.resource.logos.get(&service.id()) {
         Some(path) => {
             Ok(Response::builder()
                 // TODO: The type should be specified in config.yml.
@@ -137,7 +137,7 @@ where
 
     let programs = epg
         .call(epg::QueryPrograms {
-            service_triple: service.triple(),
+            service_id: service.id(),
         })
         .await?
         .values()

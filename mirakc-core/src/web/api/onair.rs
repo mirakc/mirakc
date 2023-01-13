@@ -55,13 +55,11 @@ where
     let service = epg
         .call(epg::QueryService::ByMirakurunServiceId(id))
         .await??;
-    let triple = service.triple();
+    let service_id = service.id();
     onair_manager
-        .call(onair::QueryOnairProgram {
-            service_triple: service.triple(),
-        })
+        .call(onair::QueryOnairProgram { service_id })
         .await?
-        .map(|onair_program| (triple, onair_program))
+        .map(|onair_program| (service_id, onair_program))
         .map(WebOnairProgram::from)
         .map(Json::from)
         .map_err(Error::from)
