@@ -2,7 +2,6 @@ use std::fmt;
 use std::future::Future;
 use std::io;
 use std::io::SeekFrom;
-use std::io::Write;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -30,6 +29,7 @@ use crate::command_util::*;
 use crate::config::*;
 use crate::epg::*;
 use crate::error::Error;
+use crate::file_util;
 use crate::filter::*;
 use crate::models::*;
 use crate::mpeg_ts_stream::*;
@@ -443,10 +443,7 @@ impl TimeshiftRecorder {
         match self.do_load_data() {
             Ok(n) => {
                 if n == 0 {
-                    tracing::debug!(
-                        recorder.name = self.name,
-                        "No records saved",
-                    );
+                    tracing::debug!(recorder.name = self.name, "No records saved");
                 } else {
                     tracing::info!(
                         recorder.name = self.name,
@@ -522,16 +519,12 @@ impl TimeshiftRecorder {
 
     fn save_data(&self) {
         let service = &self.service;
-        let data_file = &self.config().data_file;
         let chunk_size = self.config().chunk_size;
         let max_chunks = self.config().max_chunks();
 
         let records = &self.records;
         if records.is_empty() {
-            tracing::debug!(
-                recorder.name = self.name,
-                "No records to save",
-            );
+            tracing::debug!(recorder.name = self.name, "No records to save");
             return;
         }
 
@@ -548,10 +541,7 @@ impl TimeshiftRecorder {
         // Serialize records in advance in order to improve error traceability.
         let buf = match serde_json::to_vec(&data) {
             Ok(buf) => {
-                tracing::debug!(
-                    recorder.name = self.name,
-                    "Serialized records successfully",
-                );
+                tracing::debug!(recorder.name = self.name, "Serialized records successfully");
                 buf
             }
             Err(err) => {
@@ -580,78 +570,12 @@ impl TimeshiftRecorder {
         // start timeshift recording based on the *old* data file.  As a result, newer
         // records will be lost.  Additionally, TS packets for older records will be
         // lost if a wrap-around occurred in the TS file.
-
-        // Write the serialized records to the temporal .new file.
-        let new_file = format!("{}.new", data_file);
-        {
-            let mut file = match std::fs::File::create(&new_file) {
-                Ok(file) => {
-                    tracing::debug!(
-                        recorder.name = self.name,
-                        "Created <data-file>.new file for saving data",
-                    );
-                    file
-                }
-                Err(err) => {
-                    tracing::error!(
-                        %err,
-                        recorder.name = self.name,
-                        "Failed to create <data-file>.new file",
-                    );
-                    return;
-                }
-            };
-            match file.write_all(&buf) {
-                Ok(_) => {
-                    tracing::debug!(
-                        nwritten = buf.len(),
-                        recorder.name = self.name,
-                        "Wrote data to <data-file>.new file",
-                    );
-                }
-                Err(err) => {
-                    tracing::error!(
-                        %err,
-                        recorder.name = self.name,
-                        "Failed to write data to <data-file>.new",
-                    );
-                    return;
-                }
-            }
-            match file.sync_all() {
-                Ok(_) => {
-                    tracing::debug!(
-                        recorder.name = self.name,
-                        "Sync <data-file>.new file to disk",
-                    );
-                }
-                Err(err) => {
-                    tracing::error!(
-                        %err,
-                        recorder.name = self.name,
-                        "Failed to sync <data-file>.new file to disk",
-                    );
-                    return;
-                }
-            }
-        }
-
-        // Then, replace the old file with the new file.
-        match std::fs::rename(&new_file, &data_file) {
-            Ok(_) => {
-                tracing::debug!(
-                    recorder.name = self.name,
-                    "Renamed <data-file>.new to <data-file>",
-                );
-            }
-            Err(err) => {
-                tracing::error!(
-                    %err,
-                    recorder.name = self.name,
-                    "Failed to rename <data-file>.new to <data-file>",
-                );
-                return;
-            }
+        if !file_util::save_data(&buf, &self.config().data_file) {
+            tracing::error!(
+                recorder.name = self.name,
+                "Sync between <ts-file> and <data-file> was lost"
+            );
+            return;
         }
 
         tracing::info!(
