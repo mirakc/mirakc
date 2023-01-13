@@ -122,20 +122,6 @@ impl From<u16> for Eid {
     }
 }
 
-// Historical Note
-// ---------------
-// Initially, ServiceId and ProgramId types wrap an u64 value and its
-// value is serialized as a Number in JSON.  However, this causes problems when
-// parsing a serialized JSON with tools such as jq which uses `double` (C++) in
-// representation of a Number.  As a result, a value outside -2^53..2^53 cannot
-// be represented properly.
-//
-// * https://github.com/stedolan/jq/issues/369
-// * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_SAFE_INTEGER
-//
-// Afterward, we changed definitions of those types in order to avoid the
-// problems.
-
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct ServiceId(u64);
 
@@ -1003,6 +989,10 @@ mod tests {
         assert_eq!(ServiceId(1_00002), id);
         assert_eq!(nid, id.nid());
         assert_eq!(sid, id.sid());
+
+        assert!(
+            ServiceId::new(u16::MAX.into(), u16::MAX.into()).value() <= JS_NUMBER_MAX_SAFE_INTEGER
+        );
     }
 
     #[test]
@@ -1015,5 +1005,20 @@ mod tests {
         assert_eq!(nid, id.nid());
         assert_eq!(sid, id.sid());
         assert_eq!(eid, id.eid());
+
+        assert!(
+            ProgramId::new(u16::MAX.into(), u16::MAX.into(), u16::MAX.into()).value()
+                <= JS_NUMBER_MAX_SAFE_INTEGER
+        );
     }
+
+    // NOTE
+    // ----
+    // A larger u64 value in JSON causes a problem.  Some tools such as jq use
+    // `double` (C/C++) in representation of a Number.  As a result, a value
+    // outside [-(2^53 - 1), 2^53 - 1] cannot be represented properly.
+    //
+    // * https://github.com/stedolan/jq/issues/369
+    // * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_SAFE_INTEGER
+    const JS_NUMBER_MAX_SAFE_INTEGER: u64 = 2_u64.pow(53) - 1;
 }
