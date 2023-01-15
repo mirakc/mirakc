@@ -942,7 +942,7 @@ where
             tokio::fs::create_dir_all(dir).await?;
         }
 
-        let mut pipeline = spawn_pipeline(filters, stream.id())?;
+        let mut pipeline = spawn_pipeline(filters, stream.id(), "recording")?;
         let (input, mut output) = pipeline.take_endpoints()?;
 
         let fut = async move {

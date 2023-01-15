@@ -99,7 +99,7 @@ where
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id())?;
+        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), "epg.clock")?;
 
         let (input, mut output) = pipeline.take_endpoints().unwrap();
 

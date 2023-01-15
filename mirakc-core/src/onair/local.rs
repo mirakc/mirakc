@@ -207,7 +207,7 @@ where
             .insert("sid", &service.sid())?
             .build();
         let cmd = template.render_data_to_string(&data)?;
-        let mut pipeline = crate::command_util::spawn_pipeline(vec![cmd], stream.id())?;
+        let mut pipeline = crate::command_util::spawn_pipeline(vec![cmd], stream.id(), "onair")?;
         let (input, output) = pipeline.take_endpoints().unwrap();
         let handle = tokio::spawn(stream.pipe(input));
 

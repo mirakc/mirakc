@@ -41,7 +41,7 @@ impl TunerSessionId {
 
 impl fmt::Display for TunerSessionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "tuner#{}.{}", self.tuner_index, self.session_number)
+        write!(f, "{}.{}", self.tuner_index, self.session_number)
     }
 }
 
@@ -593,7 +593,7 @@ impl TunerSession {
         let mut commands = vec![command.clone()];
         commands.append(&mut filters);
         let id = TunerSessionId::new(tuner_index);
-        let mut pipeline = spawn_pipeline(commands, id)?;
+        let mut pipeline = spawn_pipeline(commands, id, "tuner")?;
         let (_, output) = pipeline.take_endpoints()?;
         let broadcaster = ctx
             .spawn_actor(Broadcaster::new(id.clone(), time_limit))

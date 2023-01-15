@@ -60,7 +60,7 @@ macro_rules! pipeline {
             $(
                 let _ = _cmds.push($cmd.to_string());
             )*
-            spawn_pipeline(_cmds, Default::default()).unwrap()
+            spawn_pipeline(_cmds, Default::default(), "test").unwrap()
         }
     };
 }

@@ -46,11 +46,15 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
 // Spawn processes for input commands and build a pipeline, then returns it.
 // Input and output endpoints can be took from the pipeline only once
 // respectively.
-pub fn spawn_pipeline<T>(commands: Vec<String>, id: T) -> Result<CommandPipeline<T>, Error>
+pub fn spawn_pipeline<T>(
+    commands: Vec<String>,
+    id: T,
+    label: &'static str,
+) -> Result<CommandPipeline<T>, Error>
 where
     T: fmt::Display + Clone + Unpin,
 {
-    let span = tracing::debug_span!(parent: None, "pipeline", %id);
+    let span = tracing::debug_span!(parent: None, "pipeline", %id, label);
     // We can safely use Span::enter() in non-async functions.
     let _enter = span.enter();
     let mut pipeline = CommandPipeline::new(id, span.clone());
@@ -511,7 +515,7 @@ mod tests {
     async fn test_pipeline_io() {
         use futures::task::noop_waker;
 
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8).unwrap();
+        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
         let (mut input, mut output) = pipeline.take_endpoints().unwrap();
 
         let result = input.write_all(b"hello").await;
@@ -549,6 +553,7 @@ mod tests {
         let mut pipeline = spawn_pipeline(
             vec!["cat".to_string(), "cat".to_string(), "cat".to_string()],
             0u8,
+            "test",
         )
         .unwrap();
         let (mut input, mut output) = pipeline.take_endpoints().unwrap();
@@ -572,7 +577,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pipeline_write_1mb() {
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8).unwrap();
+        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
         let (mut input, mut output) = pipeline.take_endpoints().unwrap();
 
         let handle = tokio::spawn(async move {
@@ -599,7 +604,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pipeline_input_dropped() {
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8).unwrap();
+        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
         let (mut input, mut output) = pipeline.take_endpoints().unwrap();
 
         let _ = input.write_all(b"hello").await;
@@ -616,7 +621,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pipeline_output_dropped() {
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8).unwrap();
+        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
         let (mut input, output) = pipeline.take_endpoints().unwrap();
 
         drop(output);
@@ -664,7 +669,8 @@ mod tests {
             }
         }
 
-        let mut pipeline = spawn_pipeline(vec!["sh -c 'exec 0<&-;'".to_string()], 0u8).unwrap();
+        let mut pipeline =
+            spawn_pipeline(vec!["sh -c 'exec 0<&-;'".to_string()], 0u8, "test").unwrap();
         let (input, _) = pipeline.take_endpoints().unwrap();
 
         let (tx, rx) = oneshot::channel();

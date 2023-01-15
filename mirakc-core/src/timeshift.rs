@@ -878,7 +878,7 @@ impl TimeshiftRecorder {
         let template = mustache::compile_str(&activation.config.timeshift.command)?;
         cmds.push(template.render_data_to_string(&data)?);
 
-        let mut pipeline = spawn_pipeline(cmds, stream.id())?;
+        let mut pipeline = spawn_pipeline(cmds, stream.id(), "timeshift")?;
 
         let (input, output) = pipeline.take_endpoints()?;
 
