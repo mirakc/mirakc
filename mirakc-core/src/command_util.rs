@@ -149,6 +149,10 @@ where
             .collect()
     }
 
+    pub fn get_command(&self, i: usize) -> Option<&str> {
+        self.commands.get(i).map(|data| data.command.as_str())
+    }
+
     pub fn id(&self) -> &T {
         &self.id
     }

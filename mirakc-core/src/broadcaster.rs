@@ -1,4 +1,3 @@
-use std::fmt;
 use std::io;
 use std::pin::Pin;
 use std::time::Duration;
@@ -59,7 +58,7 @@ impl Broadcaster {
                         addr.emit(Broadcast(chunk)).await;
                     }
                     Err(err) => {
-                        tracing::error!("{}: Error, stop: {}", id, err);
+                        tracing::error!(%err, broadcaster.id = %id, "Error, stop");
                         addr.emit(actlet::Stop).await;
                         break;
                     }
@@ -85,24 +84,24 @@ impl Broadcaster {
             match subscriber.sender.try_send(chunk.clone()) {
                 Ok(_) => {
                     tracing::trace!(
-                        "{}: Sent a chunk of {} bytes to {}",
-                        self.id,
-                        chunk_size,
-                        subscriber.id
+                        broadcaster.id = %self.id,
+                        %subscriber.id,
+                        chunk.size = chunk_size,
+                        "Sent the chunk"
                     );
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
                     tracing::warn!(
-                        "{}: No space for {}, drop the chunk",
-                        self.id,
-                        subscriber.id
+                        broadcaster.id = %self.id,
+                        %subscriber.id,
+                        "No space, drop the chunk"
                     );
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     tracing::debug!(
-                        "{}: Closed by {}, wait for unsubscribe",
-                        self.id,
-                        subscriber.id
+                        broadcaster.id = %self.id,
+                        %subscriber.id,
+                        "Closed, wait for unsubscribe"
                     );
                 }
             }
@@ -115,8 +114,9 @@ impl Broadcaster {
         let elapsed = self.last_received.elapsed();
         if elapsed > self.time_limit {
             tracing::error!(
-                "{}: No packet came from the tuner within the time limit, stop",
-                self.id
+                broadcaster.id = %self.id,
+                broadcaster.time_limit = %humantime::format_duration(self.time_limit),
+                "No packet came from the tuner within the time limit, stop"
             );
             ctx.stop();
         }
@@ -126,6 +126,7 @@ impl Broadcaster {
 #[async_trait]
 impl Actor for Broadcaster {
     async fn started(&mut self, ctx: &mut Context<Self>) {
+        tracing::debug!(broadcaster.id = %self.id, "Started");
         let addr = ctx.address().clone();
         let mut interval = tokio::time::interval(self.time_limit);
         ctx.spawn_task(async move {
@@ -134,11 +135,10 @@ impl Actor for Broadcaster {
                 addr.emit(CheckTimeout).await;
             }
         });
-        tracing::debug!("{}: Started", self.id);
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        tracing::debug!("{}: Stopped", self.id);
+        tracing::debug!(broadcaster.id = %self.id, "Stopped");
     }
 }
 
@@ -165,12 +165,6 @@ pub struct Subscribe {
     pub id: SubscriberId,
 }
 
-impl fmt::Display for Subscribe {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Subscribe with {}", self.id)
-    }
-}
-
 #[async_trait]
 impl Handler<Subscribe> for Broadcaster {
     async fn handle(
@@ -178,7 +172,7 @@ impl Handler<Subscribe> for Broadcaster {
         msg: Subscribe,
         _ctx: &mut Context<Self>,
     ) -> <Subscribe as Message>::Reply {
-        tracing::debug!("{}", msg);
+        tracing::debug!(msg.name = "Subscribe", %msg.id);
         self.subscribe(msg.id)
     }
 }
@@ -190,16 +184,10 @@ pub struct Unsubscribe {
     pub id: SubscriberId,
 }
 
-impl fmt::Display for Unsubscribe {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Unsubscribe with {}", self.id)
-    }
-}
-
 #[async_trait]
 impl Handler<Unsubscribe> for Broadcaster {
     async fn handle(&mut self, msg: Unsubscribe, ctx: &mut Context<Self>) {
-        tracing::debug!("{}", msg);
+        tracing::debug!(msg.name = "Unsubscribe", %msg.id);
         self.unsubscribe(msg.id);
         if self.subscribers.is_empty() {
             ctx.stop();
@@ -215,7 +203,7 @@ pub struct Broadcast(pub Bytes);
 #[async_trait]
 impl Handler<Broadcast> for Broadcaster {
     async fn handle(&mut self, msg: Broadcast, _ctx: &mut Context<Self>) {
-        tracing::trace!(msg.name = "Broadcast", msg.chunk.bytes = msg.0.len());
+        tracing::trace!(msg.name = "Broadcast", msg.chunk.size = msg.0.len());
         self.broadcast(msg.0);
     }
 }
