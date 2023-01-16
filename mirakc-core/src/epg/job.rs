@@ -58,7 +58,7 @@ where
 
     async fn scan_services(&mut self, ctx: &mut Context<Self>) {
         if Self::is_job_disabled_for_debug("scan-services") {
-            tracing::debug!("scan-services: disabled for debug");
+            tracing::debug!(job = "scan-services", "Disabled for debug");
             return;
         }
         self.invoke_scan_services(ctx).await;
@@ -67,11 +67,11 @@ where
 
     async fn invoke_scan_services(&mut self, _ctx: &mut Context<Self>) {
         if self.scanning_services {
-            tracing::warn!("scan-services: Already running, skip");
+            tracing::warn!(job = "scan-services", "Already running, skip");
             return;
         }
 
-        tracing::info!("scan-services: performing...");
+        tracing::info!(job = "scan-services", "Performing...");
         let now = Instant::now();
         self.scanning_services = true;
         let scanner = ServiceScanner::new(self.config.clone(), self.tuner_manager.clone());
@@ -79,15 +79,16 @@ where
         self.epg.emit(UpdateServices { results }).await;
         self.scanning_services = false;
         let elapsed = now.elapsed();
-        tracing::info!(
-            "scan-services: Done, {} elapsed",
-            humantime::format_duration(elapsed)
-        );
+        tracing::info!(job = "scan-services", elapsed = %humantime::format_duration(elapsed), "Done");
     }
 
     fn schedule_scan_services(&self, ctx: &mut Context<Self>) {
         let datetime = self.calc_next_scheduled_datetime(&self.config.jobs.scan_services.schedule);
-        tracing::info!("scan-services: Scheduled for {}", datetime);
+        tracing::info!(
+            job = "scan-services",
+            datetime = datetime.to_rfc3339(),
+            "Scheduled"
+        );
         let interval = (datetime - Jst::now()).to_std().unwrap();
         let addr = ctx.address().clone();
         ctx.spawn_task(async move {
@@ -98,7 +99,7 @@ where
 
     async fn sync_clocks(&mut self, ctx: &mut Context<Self>) {
         if Self::is_job_disabled_for_debug("sync-clocks") {
-            tracing::debug!("sync-clocks: disabled for debug");
+            tracing::debug!(job = "sync-clocks", "Disabled for debug");
             return;
         }
         self.invoke_sync_clocks(ctx).await;
@@ -107,11 +108,11 @@ where
 
     async fn invoke_sync_clocks(&mut self, _ctx: &mut Context<Self>) {
         if self.synchronizing_clocks {
-            tracing::warn!("sync-clocks: Already running, skip");
+            tracing::warn!(job = "sync-clocks", "Already running, skip");
             return;
         }
 
-        tracing::info!("sync-clocks: performing...");
+        tracing::info!(job = "sync-clocks", "Performing...");
         self.synchronizing_clocks = true;
         let now = Instant::now();
         let sync = ClockSynchronizer::new(self.config.clone(), self.tuner_manager.clone());
@@ -119,15 +120,16 @@ where
         self.epg.emit(UpdateClocks { results }).await;
         self.synchronizing_clocks = false;
         let elapsed = now.elapsed();
-        tracing::info!(
-            "sync-clocks: Done, {} elapsed",
-            humantime::format_duration(elapsed)
-        );
+        tracing::info!(job = "sync-clocks", elapsed = %humantime::format_duration(elapsed), "Done");
     }
 
     fn schedule_sync_clocks(&self, ctx: &mut Context<Self>) {
         let datetime = self.calc_next_scheduled_datetime(&self.config.jobs.sync_clocks.schedule);
-        tracing::info!("sync-clocks: Scheduled for {}", datetime);
+        tracing::info!(
+            job = "sync-clocks",
+            datetime = datetime.to_rfc3339(),
+            "Scheduled"
+        );
         let interval = (datetime - Jst::now()).to_std().unwrap();
         let addr = ctx.address().clone();
         ctx.spawn_task(async move {
@@ -138,7 +140,7 @@ where
 
     async fn update_schedules(&mut self, ctx: &mut Context<Self>) {
         if Self::is_job_disabled_for_debug("update-schedules") {
-            tracing::debug!("update-schedules: disabled for debug");
+            tracing::debug!(job = "update-schedules", "Disabled for debug");
             return;
         }
         self.invoke_update_schedules(ctx).await;
@@ -147,30 +149,31 @@ where
 
     async fn invoke_update_schedules(&mut self, _ctx: &mut Context<Self>) {
         if self.updating_schedules {
-            tracing::warn!("update-schedules: Already running, skip");
+            tracing::warn!(job = "update-schedules", "Already running, skip");
             return;
         }
 
-        tracing::info!("update-schedules: performing...");
+        tracing::info!(job = "update-schedules", "Performing...");
         let now = Instant::now();
         self.updating_schedules = true;
         let eit_feeder = self.eit_feeder.clone();
         match eit_feeder.call(FeedEitSections).await {
             Ok(_) => self.epg.emit(SaveSchedules).await,
-            Err(err) => tracing::error!("update-schedules: {}", err),
+            Err(err) => tracing::error!(%err, job = "update-schedules"),
         }
         self.updating_schedules = false;
         let elapsed = now.elapsed();
-        tracing::info!(
-            "update-schedules: Done, {} elapsed",
-            humantime::format_duration(elapsed)
-        );
+        tracing::info!(job = "update-schedules", elapsed = %humantime::format_duration(elapsed), "Done");
     }
 
     fn schedule_update_schedules(&mut self, ctx: &mut Context<Self>) {
         let datetime =
             self.calc_next_scheduled_datetime(&self.config.jobs.update_schedules.schedule);
-        tracing::info!("update-schedules: Scheduled for {}", datetime);
+        tracing::info!(
+            job = "update-schedules",
+            datetime = datetime.to_rfc3339(),
+            "Scheduled"
+        );
         let interval = (datetime - Jst::now()).to_std().unwrap();
         let addr = ctx.address().clone();
         ctx.spawn_task(async move {
@@ -205,25 +208,25 @@ where
         // It's guaranteed that no response is sent before initial jobs are invoked.
         tracing::debug!("Started");
         if self.config.jobs.scan_services.disabled {
-            tracing::warn!("The scan-services job is disabled");
+            tracing::warn!(job = "scan-services", "Disabled");
         } else if is_fresh(&self.config, "services.json") {
-            tracing::debug!("Skip initial scan for services");
+            tracing::debug!(job = "scan-services", "Skip initial scan");
             self.schedule_scan_services(ctx);
         } else {
             self.scan_services(ctx).await;
         }
         if self.config.jobs.sync_clocks.disabled {
-            tracing::warn!("The sync-clocks job is disabled");
+            tracing::warn!(job = "sync-clocks", "Disabled");
         } else if is_fresh(&self.config, "clocks.json") {
-            tracing::debug!("Skip initial scan for clocks");
+            tracing::debug!(job = "sync-clocks", "Skip initial scan");
             self.schedule_sync_clocks(ctx);
         } else {
             self.sync_clocks(ctx).await;
         }
         if self.config.jobs.update_schedules.disabled {
-            tracing::warn!("The update-schedules job is disabled");
+            tracing::warn!(job = "update-schedules", "Disabled");
         } else if is_fresh(&self.config, "schedules.json") {
-            tracing::debug!("Skip initial scan for schedules");
+            tracing::debug!(job = "update-schedules", "Skip initial scan");
             self.schedule_update_schedules(ctx);
         } else {
             self.update_schedules(ctx).await;

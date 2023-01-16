@@ -67,18 +67,18 @@ where
     E: Call<QueryServices>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
-        self.set_timer(ctx);
         tracing::debug!(tracker.name = self.name, "Started");
+        self.set_timer(ctx);
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        tracing::debug!(tracker.name = self.name, "Stopped");
         if let Some(ref stopped) = self.stopped_emitter {
             let msg = TrackerStopped {
                 tracker: self.name.clone(),
             };
             stopped.emit(msg).await;
         }
+        tracing::debug!(tracker.name = self.name, "Stopped");
     }
 }
 
@@ -123,6 +123,7 @@ where
             let elapsed = now.elapsed();
             if elapsed >= std::time::Duration::from_secs(60) {
                 tracing::warn!(
+                    tracker.name = self.name,
                     elapsed = %humantime::format_duration(elapsed),
                     "Didn't finish within 60s",
                 );
@@ -149,7 +150,7 @@ where
         let services = match self.epg.call(QueryServices).await {
             Ok(services) => services,
             Err(err) => {
-                tracing::error!(%err, "Failed to get services, Epg dead?");
+                tracing::error!(%err, tracker.name = self.name, "Failed to get services, Epg dead?");
                 return true; // continue
             }
         };
@@ -164,15 +165,15 @@ where
                     // Finished successfully, process next.
                 }
                 (Err(Error::TunerUnavailable), true) => {
-                    tracing::info!(tracker.name = self.name, "Stop tracking",);
+                    tracing::error!(tracker.name = self.name, "Stop tracking");
                     return false; // stop
                 }
                 (Err(err), _) => {
-                    tracing::warn!(
+                    tracing::error!(
                         %err,
                         tracker.name = self.name,
-                        %service_id,
-                        "Failed to update on-air program",
+                        service.id = %service_id,
+                        "Failed to update on-air program"
                     );
                     // Ignore the error, process next.
                 }
@@ -208,7 +209,7 @@ where
             .build();
         let cmd = template.render_data_to_string(&data)?;
         let mut pipeline = crate::command_util::spawn_pipeline(vec![cmd], stream.id(), "onair")?;
-        let (input, output) = pipeline.take_endpoints().unwrap();
+        let (input, output) = pipeline.take_endpoints();
         let handle = tokio::spawn(stream.pipe(input));
 
         let mut changed = false;
@@ -220,7 +221,7 @@ where
                 0 => {
                     let entry = self.entries.entry(service_id).or_default();
                     if section.is_updated(&entry.current) {
-                        tracing::info!(%service_id, "Update current program");
+                        tracing::debug!(tracker.name = self.name, service.id = %service_id, "Update current program");
                         entry.current = Some(section);
                         changed = true;
                     }
@@ -228,7 +229,7 @@ where
                 1 => {
                     let entry = self.entries.entry(service_id).or_default();
                     if section.is_updated(&entry.next) {
-                        tracing::info!(%service_id, "Update next program");
+                        tracing::debug!(tracker.name = self.name, service.id = %service_id, "Update next program");
                         entry.next = Some(section);
                         changed = true;
                     }

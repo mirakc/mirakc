@@ -91,11 +91,11 @@ where
         )
         .await
     } else {
-        tracing::debug!("Streaming with filters: {:?}", filters);
+        tracing::debug!(?filters, "Streaming with filters");
 
         let mut pipeline = spawn_pipeline(filters, stream.id(), "web.stream")?;
 
-        let (input, output) = pipeline.take_endpoints()?;
+        let (input, output) = pipeline.take_endpoints();
 
         let stream_id = stream.id();
         tokio::spawn(async move {
@@ -112,17 +112,17 @@ where
             while let Some(result) = stream.next().await {
                 if let Ok(chunk) = result {
                     tracing::trace!(
-                        "{}: Received a filtered chunk of {} bytes",
-                        stream_id,
-                        chunk.len()
+                        stream.id = %stream_id,
+                        chunk.len = chunk.len(),
+                        "Received a filtered chunk"
                     );
                     // The task yields if the buffer is full.
                     if let Err(_) = sender.send(Ok(chunk)).await {
-                        tracing::debug!("{}: Disconnected by client", stream_id);
+                        tracing::debug!(stream.id = %stream_id, "Disconnected by client");
                         break;
                     }
                 } else {
-                    tracing::error!("{}: Error, stop streaming", stream_id);
+                    tracing::error!(stream.id = %stream_id, "Error, stop streaming");
                     break;
                 }
 

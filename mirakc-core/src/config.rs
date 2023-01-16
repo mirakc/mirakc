@@ -36,6 +36,7 @@ pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
         .map(|metadata| metadata.modified().ok())
         .ok()
         .flatten();
+    tracing::info!(?config_path, "Loaded");
     Arc::new(config)
 }
 

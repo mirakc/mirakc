@@ -157,7 +157,7 @@ impl<E, R, O> ScriptRunner<E, R, O> {
         &self,
         event: EpgProgramsUpdated,
     ) -> impl Future<Output = ()> {
-        let span = tracing::info_span!(EpgProgramsUpdated::name(), %event.service_id);
+        let span = tracing::debug_span!(EpgProgramsUpdated::name(), %event.service_id);
         let fut = Self::run_epg_programs_updated_script(self.config.clone(), event);
         wrap(self.semaphore.clone(), fut).instrument(span)
     }
@@ -194,7 +194,7 @@ where
 
 impl<E, R, O> ScriptRunner<E, R, O> {
     fn create_recording_started_task(&self, event: RecordingStarted) -> impl Future<Output = ()> {
-        let span = tracing::info_span!(RecordingStarted::name(), %event.program_id);
+        let span = tracing::debug_span!(RecordingStarted::name(), %event.program_id);
         let fut = Self::run_recording_started_script(self.config.clone(), event);
         wrap(self.semaphore.clone(), fut).instrument(span)
     }
@@ -231,7 +231,7 @@ where
 
 impl<E, R, O> ScriptRunner<E, R, O> {
     fn create_recording_stopped_task(&self, event: RecordingStopped) -> impl Future<Output = ()> {
-        let span = tracing::info_span!(RecordingStopped::name(), %event.program_id);
+        let span = tracing::debug_span!(RecordingStopped::name(), %event.program_id);
         let fut = Self::run_recording_stopped_script(self.config.clone(), event);
         wrap(self.semaphore.clone(), fut).instrument(span)
     }
@@ -268,7 +268,7 @@ where
 
 impl<E, R, O> ScriptRunner<E, R, O> {
     fn create_recording_failed_task(&self, event: RecordingFailed) -> impl Future<Output = ()> {
-        let span = tracing::info_span!(RecordingFailed::name(), %event.program_id);
+        let span = tracing::debug_span!(RecordingFailed::name(), %event.program_id);
         let fut = Self::run_recording_failed_script(self.config.clone(), event);
         wrap(self.semaphore.clone(), fut).instrument(span)
     }
@@ -308,7 +308,7 @@ impl<E, R, O> ScriptRunner<E, R, O> {
         &self,
         event: RecordingRescheduled,
     ) -> impl Future<Output = ()> {
-        let span = tracing::info_span!(RecordingRescheduled::name(), %event.program_id);
+        let span = tracing::debug_span!(RecordingRescheduled::name(), %event.program_id);
         let fut = Self::run_recording_rescheduled_script(self.config.clone(), event);
         wrap(self.semaphore.clone(), fut).instrument(span)
     }
@@ -348,7 +348,7 @@ impl<E, R, O> ScriptRunner<E, R, O> {
         &self,
         event: OnairProgramChanged,
     ) -> impl Future<Output = ()> {
-        let span = tracing::info_span!(OnairProgramChanged::name(), %event.service_id);
+        let span = tracing::debug_span!(OnairProgramChanged::name(), %event.service_id);
         let fut = Self::run_onair_program_changed_script(self.config.clone(), event);
         wrap(self.semaphore.clone(), fut).instrument(span)
     }
@@ -373,11 +373,11 @@ fn wrap(
 ) -> impl Future<Output = ()> {
     async move {
         let _permit = semaphore.acquire().await;
-        tracing::info!("Start");
+        tracing::debug!("Start");
         match fut.await {
             Ok(status) => {
                 if status.success() {
-                    tracing::info!("Done successfully");
+                    tracing::debug!("Done successfully");
                 } else {
                     tracing::error!(%status);
                 }

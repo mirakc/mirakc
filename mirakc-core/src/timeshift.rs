@@ -159,7 +159,6 @@ macro_rules! impl_proxy_handler {
                 msg: $msg,
                 _ctx: &mut Context<Self>,
             ) -> <$msg as Message>::Reply {
-                tracing::debug!(msg.name = stringify!(msg));
                 let maybe_recorder = match msg.recorder {
                     TimeshiftRecorderQuery::ByIndex(index) => self
                         .recorders
@@ -315,7 +314,14 @@ where
         for (name, config) in self.config.clone().timeshift.recorders.iter() {
             let service_id = config.service_id;
             if msg.services.contains_key(&service_id) {
-                tracing::info!("{}: Service#{} is available, activate", name, service_id);
+                if self.recorders[name].activated {
+                    continue;
+                }
+                tracing::info!(
+                    recorder.name = name,
+                    timeshift.service.id = %service_id,
+                    "Service is available, activate"
+                );
                 let service = msg.services[&service_id].clone();
                 self.recorders[name].activated = true;
                 self.recorders[name].reactivation_count = 0;
@@ -327,10 +333,13 @@ where
                     })
                     .await;
             } else {
+                if !self.recorders[name].activated {
+                    continue;
+                }
                 tracing::warn!(
-                    "{}: Service#{} is unavailable, deactivate",
-                    name,
-                    service_id
+                    recorder.name = name,
+                    timeshift.service_id = %service_id,
+                    "Service is unavailable, deactivate"
                 );
                 self.recorders[name].activated = false;
                 self.recorders[name]
@@ -363,8 +372,8 @@ where
         if self.recorders[&msg.name].activated {
             if self.recorders[&msg.name].reactivation_count < MAX_REACTIVATION_COUNT {
                 tracing::warn!(
-                    "{}: Stopped recording due to some accident, activate it again",
-                    msg.name
+                    recorder.name = msg.name,
+                    "Recording stopped due to some accident, activate again"
                 );
                 self.recorders[&msg.name].reactivation_count += 1;
                 self.recorders[&msg.name]
@@ -376,13 +385,13 @@ where
                     .await;
             } else {
                 tracing::error!(
-                    "{}: Stopped recording due to some accident, \
-                     reactivation count reached the maximum number",
-                    msg.name
+                    recorder.name = msg.name,
+                    "Recording stopped due to some accident, \
+                     reactivation count reached the maximum number"
                 );
             }
         } else {
-            tracing::debug!("{}: Already deactivated", msg.name);
+            tracing::debug!(recorder.name = msg.name, "Already deactivated");
         }
     }
 }
@@ -449,8 +458,8 @@ impl TimeshiftRecorder {
                 } else {
                     tracing::info!(
                         recorder.name = self.name,
-                        recorder.records.len = n,
-                        "Loaded records from <data-file> successfully",
+                        records.len = n,
+                        "Loaded records successfully",
                     );
                 }
             }
@@ -458,7 +467,7 @@ impl TimeshiftRecorder {
                 tracing::error!(
                     %err,
                     recorder.name = self.name,
-                    "Failed to load records from <data-file>",
+                    "Failed to load records",
                 );
                 tracing::error!(
                     recorder.name = self.name,
@@ -486,8 +495,8 @@ impl TimeshiftRecorder {
         let mut invalid = false;
         if self.service.id != data.service.id {
             tracing::error!(
-                recorder.data_file = %self.config().data_file,
-                recorder.service.id =  %self.service.id,
+                recorder.name = self.name,
+                timeshift.service.id =  %self.service.id,
                 %data.service.id,
                 "Not matched",
             );
@@ -495,8 +504,8 @@ impl TimeshiftRecorder {
         }
         if self.config().chunk_size != data.chunk_size {
             tracing::error!(
-                recorder.data_file = %self.config().data_file,
-                recorder.chunk_size =  self.config().chunk_size,
+                recorder.name = self.name,
+                timeshift.chunk_size = self.config().chunk_size,
                 data.chunk_size,
                 "Not matched",
             );
@@ -504,8 +513,8 @@ impl TimeshiftRecorder {
         }
         if self.config().max_chunks() != data.max_chunks {
             tracing::error!(
-                recorder.data_file = %self.config().data_file,
-                recorder.max_chunks = self.config().max_chunks(),
+                recorder.name = self.name,
+                timeshift.max_chunks = self.config().max_chunks(),
                 data.max_chunks,
                 "Not matched",
             );
@@ -582,16 +591,16 @@ impl TimeshiftRecorder {
 
         tracing::info!(
             recorder.name = self.name,
-            recorder.records.len = records.len(),
-            "Saved records to <data-file> successfully",
+            records.len = records.len(),
+            "Saved records successfully",
         );
     }
 
     fn deactivate(&mut self) {
         if self.session.is_some() {
-            tracing::info!("{}: Deactivated", self.name);
+            tracing::info!(recorder.name = self.name, "Deactivated");
         } else {
-            tracing::warn!("{}: Deactivated, but inactive", self.name);
+            tracing::warn!(recorder.name = self.name, "Deactivated, but inactive");
         }
         self.session = None;
     }
@@ -624,17 +633,17 @@ impl TimeshiftRecorder {
     }
 
     fn handle_start_recording(&mut self) {
-        tracing::info!("{}: Started recording", self.name);
+        tracing::info!(recorder.name = self.name, "Recording started");
         if let Some(point) = self.points.pop() {
             // remove the sentinel item if it exists
-            tracing::debug!("{}: Removed the sentinel point {}", self.name, point);
+            tracing::debug!(recorder.name = self.name, %point, "Removed the sentinel point");
         }
     }
 
     fn handle_stop_recording(&mut self, reset: bool) {
-        tracing::info!("{}: Stopped recording", self.name);
+        tracing::info!(recorder.name = self.name, "Recording stopped");
         if reset {
-            tracing::warn!("{}: Reset data", self.name);
+            tracing::warn!(recorder.name = self.name, "Reset data");
             // TODO
         }
     }
@@ -658,7 +667,7 @@ impl TimeshiftRecorder {
         assert!(self.points.len() == self.config().max_chunks());
         let point = self.points.remove(0);
         let index = point.pos / (self.config().chunk_size as u64);
-        tracing::debug!("{}: Chunk#{}: Invalidated", self.name, index);
+        tracing::debug!(recorder.name = self.name, chunk = index, %point, "Chunk invalidated");
     }
 
     // Purge records which ended recording before the first timestamp.
@@ -676,12 +685,7 @@ impl TimeshiftRecorder {
             .unwrap_or(self.records.len());
         for (_, record) in self.records.drain(0..n) {
             // remove first n records
-            tracing::info!(
-                "{}: {}: Purged: {}",
-                self.name,
-                record.id,
-                record.program.name()
-            );
+            tracing::info!(recorder.name = self.name, %record.id, %record.program.id, "Record purged");
         }
     }
 
@@ -699,12 +703,7 @@ impl TimeshiftRecorder {
         if let Some((_, record)) = self.records.first_mut() {
             if record.start.timestamp < start.timestamp {
                 record.start = start;
-                tracing::info!(
-                    "{}: {}: Cropped: {}",
-                    self.name,
-                    record.id,
-                    record.program.name()
-                );
+                tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.start, "Record cropped");
             }
         }
     }
@@ -712,12 +711,7 @@ impl TimeshiftRecorder {
     fn append_point(&mut self, point: &TimeshiftPoint) {
         let index = point.pos / (self.config().chunk_size as u64);
         assert!(point.pos % (self.config().chunk_size as u64) == 0);
-        tracing::debug!(
-            "{}: Chunk#{}: Timestamp: {}",
-            self.name,
-            index,
-            point.timestamp
-        );
+        tracing::debug!(recorder.name = self.name, chunk = index, %point, "Chunk started");
         self.points.push(point.clone());
         assert!(self.points.len() <= self.config().max_chunks());
     }
@@ -734,13 +728,7 @@ impl TimeshiftRecorder {
         let id = TimeshiftRecordId::from(point.timestamp.timestamp());
         let mut program = EpgProgram::new(program_id);
         program.update(&event);
-        tracing::info!(
-            "{}: {}: Started: {}: {}",
-            self.name,
-            id,
-            point,
-            program.name()
-        );
+        tracing::info!(recorder.name = self.name, record.id = %id, record.program.id = %program.id, %point, "Record started");
         self.records
             .insert(id, TimeshiftRecord::new(id, program, point));
     }
@@ -767,25 +755,13 @@ impl TimeshiftRecorder {
             Some(record) => {
                 record.update(program, point, end);
                 if end {
-                    tracing::debug!(
-                        "{}: {}: Ended: {}: {}",
-                        self.name,
-                        record.id,
-                        record.end,
-                        record.program.name()
-                    );
+                    tracing::debug!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record ended");
                 } else {
-                    tracing::debug!(
-                        "{}: {}: Updated: {}: {}",
-                        self.name,
-                        record.id,
-                        record.end,
-                        record.program.name()
-                    );
+                    tracing::debug!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record updated");
                 }
             }
             None => {
-                tracing::warn!("{}: No record to update", self.name);
+                tracing::warn!(recorder.name = self.name, "No record to update");
             }
         }
     }
@@ -831,7 +807,7 @@ impl TimeshiftRecorder {
 
         let user = TunerUser {
             info: TunerUserInfo::Recorder {
-                name: format!("timeshift({})", activation.name),
+                name: format!("timeshift#{}", activation.name),
             },
             priority: config.priority.into(),
         };
@@ -880,7 +856,7 @@ impl TimeshiftRecorder {
 
         let mut pipeline = spawn_pipeline(cmds, stream.id(), "timeshift")?;
 
-        let (input, output) = pipeline.take_endpoints()?;
+        let (input, output) = pipeline.take_endpoints();
 
         ctx.spawn_task(async move {
             let _ = stream.pipe(input).await;
@@ -898,13 +874,13 @@ impl TimeshiftRecorder {
 #[async_trait]
 impl Actor for TimeshiftRecorder {
     async fn started(&mut self, _ctx: &mut Context<Self>) {
-        tracing::debug!("{}: Started", self.name);
+        tracing::debug!(recorder.name = self.name, "Started");
         self.load_data();
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         self.deactivate();
-        tracing::debug!("{}: Stopped", self.name);
+        tracing::debug!(recorder.name = self.name, "Stopped");
     }
 }
 
@@ -954,7 +930,7 @@ where
     async fn handle(&mut self, msg: ActivateTimeshiftRecorder<T>, ctx: &mut Context<Self>) {
         self.service = msg.service;
         if self.session.is_none() {
-            tracing::info!("{}: Start activation", self.name);
+            tracing::debug!(recorder.name = self.name, "Start activation");
             let activation = TimeshiftActivation {
                 config: self.config.clone(),
                 name: self.name.clone(),
@@ -964,7 +940,10 @@ where
             };
             match Self::activate(activation, ctx).await {
                 Ok(result) => {
-                    tracing::debug!("{}: Activation finished successfully", self.name);
+                    tracing::debug!(
+                        recorder.name = self.name,
+                        "Activation finished successfully"
+                    );
                     self.session = Some(result.session);
                     let reader = BufReader::new(result.output);
                     let addr = ctx.address().clone();
@@ -980,9 +959,9 @@ where
                                         Ok(msg) => msg,
                                         Err(err) => {
                                             tracing::error!(
-                                                "{}: Failed parsing a JSON message: {}",
-                                                name,
-                                                err
+                                                %err,
+                                                recorder.name = name,
+                                                "Failed parsing a JSON message"
                                             );
                                             break;
                                         }
@@ -994,9 +973,9 @@ where
                                 }
                                 Err(err) => {
                                     tracing::error!(
-                                        "{}: Failed reading output from the command pipeline: {}",
-                                        name,
-                                        err
+                                        %err,
+                                        recorder.name = name,
+                                        "Failed reading output from the command pipeline"
                                     );
                                     break;
                                 }
@@ -1006,11 +985,11 @@ where
                     });
                 }
                 Err(err) => {
-                    tracing::error!("{}: Activation failed: {}", self.name, err);
+                    tracing::error!(%err, recorder.name = self.name, "Activation failed");
                 }
             }
         } else {
-            tracing::info!("{}: Already activated", self.name);
+            tracing::info!(recorder.name = self.name, "Already activated");
         }
     }
 }
@@ -1120,7 +1099,10 @@ impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
             }
             TimeshiftRecorderMessage::Finish => {
                 if self.session.is_some() {
-                    tracing::warn!("{}: Recording pipeline broken, reactivate", self.name);
+                    tracing::error!(
+                        recorder.name = self.name,
+                        "Recording pipeline broken, reactivate"
+                    );
                     self.deactivate();
                     self.activator
                         .emit(ReactivateTimeshiftRecorder {
@@ -1183,7 +1165,7 @@ pub struct TimeshiftPoint {
 
 impl fmt::Display for TimeshiftPoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}@{}", self.timestamp, self.pos)
+        write!(f, "{}@{}", self.timestamp.to_rfc3339(), self.pos)
     }
 }
 
@@ -1302,7 +1284,7 @@ impl TimeshiftLiveStreamSource {
     pub async fn create_stream(
         self,
     ) -> Result<(TimeshiftLiveStream, TimeshiftStreamStopTrigger), Error> {
-        tracing::debug!("{}: Start live streaming from {}", self.name, self.point);
+        tracing::debug!(recorder.name = self.name, point = %self.point, "Start live streaming");
         let (mut reader, stop_trigger) = TimeshiftFileReader::open(&self.file)
             .await?
             .with_stop_trigger();
@@ -1339,11 +1321,11 @@ impl TimeshiftRecordStreamSource {
         seekable: bool,
     ) -> Result<(TimeshiftRecordStream, TimeshiftStreamStopTrigger), Error> {
         tracing::debug!(
-            "{}: Start streaming {} bytes of {} from {}",
-            self.recorder_name,
-            self.range.bytes(),
-            self.id,
-            self.start
+            recorder.name = self.recorder_name,
+            record.id = %self.id,
+            range.start = self.start,
+            range.bytes = self.range.bytes(),
+            "Start streaming"
         );
         let (mut reader, stop_trigger) = TimeshiftFileReader::open(&self.file)
             .await?
@@ -1434,7 +1416,7 @@ impl AsyncRead for TimeshiftFileReader {
         loop {
             if let Some(ref mut stop_signal) = self.stop_signal {
                 if Pin::new(stop_signal).poll(cx).is_ready() {
-                    tracing::debug!("{}: Stopped reading", self.path);
+                    tracing::debug!(path = self.path, "Stopped reading");
                     return Poll::Ready(Ok(()));
                 }
             }
@@ -1444,7 +1426,7 @@ impl AsyncRead for TimeshiftFileReader {
                     match Pin::new(&mut self.file).poll_read(cx, buf) {
                         Poll::Ready(Ok(_)) if buf.filled().len() == len => {
                             self.state = TimeshiftFileReaderState::Seek;
-                            tracing::debug!("{}: EOF reached", self.path);
+                            tracing::debug!(path = self.path, "EOF");
                         }
                         poll => {
                             return poll;
@@ -1455,7 +1437,7 @@ impl AsyncRead for TimeshiftFileReader {
                     match Pin::new(&mut self.file).start_seek(SeekFrom::Start(0)) {
                         Ok(_) => {
                             self.state = TimeshiftFileReaderState::Wait;
-                            tracing::debug!("{}: Seek to the beginning", self.path);
+                            tracing::debug!(path = self.path, "Seek to the beginning");
                         }
                         Err(err) => {
                             return Poll::Ready(Err(err));
@@ -1467,7 +1449,10 @@ impl AsyncRead for TimeshiftFileReader {
                         Poll::Ready(Ok(pos)) => {
                             assert!(pos == 0);
                             self.state = TimeshiftFileReaderState::Read;
-                            tracing::debug!("{}: The seek completed, restart streaming", self.path);
+                            tracing::debug!(
+                                path = self.path,
+                                "The seek completed, restart streaming"
+                            );
                         }
                         Poll::Ready(Err(err)) => {
                             return Poll::Ready(Err(err));

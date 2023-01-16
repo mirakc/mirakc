@@ -197,26 +197,26 @@ where
     loop {
         match stream.next().await {
             Some(Ok(chunk)) => {
-                tracing::trace!("{}: Received a chunk of {} bytes", stream.id(), chunk.len());
+                tracing::trace!(stream.id = %stream.id(), chunk.size = chunk.len(), "Received a chunk");
                 if let Err(err) = writer.write_all(&chunk).await {
                     if err.kind() == io::ErrorKind::BrokenPipe {
-                        tracing::debug!("{}: Downstream has been closed", stream.id());
+                        tracing::debug!(stream.id = %stream.id(), "Output has been closed");
                     } else {
-                        tracing::error!("{}: Failed to write to downstream: {}", stream.id(), err);
+                        tracing::error!(%err, stream.id = %stream.id(), "Failed to write to output");
                     }
                     break;
                 }
             }
             Some(Err(err)) => {
                 if err.kind() == io::ErrorKind::BrokenPipe {
-                    tracing::debug!("{}: Upstream has been closed", stream.id());
+                    tracing::debug!(stream.id = %stream.id(), "Input has been closed");
                 } else {
-                    tracing::error!("{}: Failed to read from upstream: {}", stream.id(), err);
+                    tracing::error!(%err, stream.id = %stream.id(), "Failed to read from input");
                 }
                 break;
             }
             None => {
-                tracing::debug!("{}: EOF reached", stream.id());
+                tracing::debug!(stream.id = %stream.id(), "EOF");
                 break;
             }
         }
@@ -225,7 +225,7 @@ where
     }
 
     if let Err(err) = writer.shutdown().await {
-        tracing::warn!("{}: Failed to shutdown: {}", stream.id(), err);
+        tracing::warn!(%err, stream.id = %stream.id(), "Failed to shutdown");
     }
 }
 

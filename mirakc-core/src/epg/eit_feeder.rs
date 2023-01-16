@@ -150,18 +150,10 @@ where
     }
 
     pub async fn collect_schedules(self) -> Result<(), Error> {
-        tracing::info!("Collecting EIT sections...");
-        let mut num_sections = 0;
         for channel in self.channels.iter() {
-            num_sections += Self::collect_eits_in_channel(
-                &channel,
-                &self.command,
-                &self.tuner_manager,
-                &self.epg,
-            )
-            .await?;
+            Self::collect_eits_in_channel(&channel, &self.command, &self.tuner_manager, &self.epg)
+                .await?;
         }
-        tracing::info!("Collected {} EIT sections", num_sections);
         Ok(())
     }
 
@@ -170,8 +162,8 @@ where
         command: &str,
         tuner_manager: &T,
         epg: &E,
-    ) -> Result<usize, Error> {
-        tracing::debug!("Collecting EIT sections in {}...", channel.name);
+    ) -> Result<(), Error> {
+        tracing::debug!(channel.name, "Collecting EIT sections...");
 
         let user = TunerUser {
             info: TunerUserInfo::Job {
@@ -199,7 +191,7 @@ where
 
         let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), "epg.sched")?;
 
-        let (input, output) = pipeline.take_endpoints().unwrap();
+        let (input, output) = pipeline.take_endpoints();
 
         let handle = tokio::spawn(stream.pipe(input));
 
@@ -262,11 +254,11 @@ where
         }
 
         tracing::debug!(
-            "Collected {} EIT sections in {}",
-            num_sections,
-            channel.name
+            channel.name,
+            sections.len = num_sections,
+            "Collected EIT sections"
         );
 
-        Ok(num_sections)
+        Ok(())
     }
 }

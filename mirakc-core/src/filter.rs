@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::config::*;
+use crate::config::FilterConfig;
+use crate::config::PostFilterConfig;
 use crate::error::Error;
 
 pub struct FilterPipelineBuilder {
@@ -31,50 +32,22 @@ impl FilterPipelineBuilder {
             if pre_filters.contains_key(name) {
                 self.add_pre_filter(&pre_filters[name], name)?;
             } else {
-                tracing::warn!("No such pre-filter: {}", name);
+                tracing::warn!(pre_filter = name, "No such pre-filter");
             }
         }
         Ok(self.filters.len())
     }
 
-    pub fn add_pre_filter(&mut self, config: &FilterConfig, name: &str) -> Result<usize, Error> {
-        let filter = self.make_filter(&config.command)?;
-        if filter.is_empty() {
-            tracing::warn!("pre-filter({}) not valid", name);
-        } else {
-            self.filters.push(filter);
-        }
-        Ok(self.filters.len())
-    }
-
     pub fn add_service_filter(&mut self, config: &FilterConfig) -> Result<usize, Error> {
-        let filter = self.make_filter(&config.command)?;
-        if filter.is_empty() {
-            tracing::warn!("service-filter not valid");
-        } else {
-            self.filters.push(filter);
-        }
-        Ok(self.filters.len())
+        self.add_builtin_filter(config, "service-filter")
     }
 
     pub fn add_decode_filter(&mut self, config: &FilterConfig) -> Result<usize, Error> {
-        let filter = self.make_filter(&config.command)?;
-        if filter.is_empty() {
-            tracing::warn!("decode-filter not valid");
-        } else {
-            self.filters.push(filter);
-        }
-        Ok(self.filters.len())
+        self.add_builtin_filter(config, "decode-filter")
     }
 
     pub fn add_program_filter(&mut self, config: &FilterConfig) -> Result<usize, Error> {
-        let filter = self.make_filter(&config.command)?;
-        if filter.is_empty() {
-            tracing::warn!("program-filter not valid");
-        } else {
-            self.filters.push(filter);
-        }
-        Ok(self.filters.len())
+        self.add_builtin_filter(config, "program-filter")
     }
 
     pub fn add_post_filters(
@@ -86,20 +59,63 @@ impl FilterPipelineBuilder {
             if post_filters.contains_key(name) {
                 self.add_post_filter(&post_filters[name], name)?;
             } else {
-                tracing::warn!("No such post-filter: {}", name);
+                tracing::warn!(post_filter = name, "No such post-filter");
             }
         }
         Ok(self.filters.len())
     }
 
-    pub fn add_post_filter(
-        &mut self,
-        config: &PostFilterConfig,
-        name: &str,
-    ) -> Result<usize, Error> {
-        let filter = self.make_filter(&config.command)?;
+    fn add_pre_filter(&mut self, config: &FilterConfig, name: &str) -> Result<usize, Error> {
+        if config.command.is_empty() {
+            return Ok(self.filters.len());
+        }
+        let filter = match self.make_filter(&config.command) {
+            Ok(filter) => filter,
+            Err(err) => {
+                tracing::error!(%err, pre_filter = name, "Failed to render pre-filter");
+                return Err(err);
+            }
+        };
         if filter.is_empty() {
-            tracing::warn!("post-filter({}) not valid", name);
+            tracing::warn!(pre_filter = name, "Empty pre-filter");
+        } else {
+            self.filters.push(filter);
+        }
+        Ok(self.filters.len())
+    }
+
+    fn add_builtin_filter(&mut self, config: &FilterConfig, name: &str) -> Result<usize, Error> {
+        if config.command.is_empty() {
+            return Ok(self.filters.len());
+        }
+        let filter = match self.make_filter(&config.command) {
+            Ok(filter) => filter,
+            Err(err) => {
+                tracing::error!(%err, filter = name, "Failed to render filter");
+                return Err(err);
+            }
+        };
+        if filter.is_empty() {
+            tracing::warn!(filter = name, "Empty filter");
+        } else {
+            self.filters.push(filter);
+        }
+        Ok(self.filters.len())
+    }
+
+    fn add_post_filter(&mut self, config: &PostFilterConfig, name: &str) -> Result<usize, Error> {
+        if config.command.is_empty() {
+            return Ok(self.filters.len());
+        }
+        let filter = match self.make_filter(&config.command) {
+            Ok(filter) => filter,
+            Err(err) => {
+                tracing::error!(%err, post_filter = name, "Failed to render post-filter");
+                return Err(err);
+            }
+        };
+        if filter.is_empty() {
+            tracing::warn!(post_filter = name, "Empty post-filter");
         } else {
             self.filters.push(filter);
             if let Some(content_type) = config.content_type.as_ref() {
@@ -109,7 +125,7 @@ impl FilterPipelineBuilder {
         Ok(self.filters.len())
     }
 
-    pub fn make_filter(&self, command: &str) -> Result<String, Error> {
+    fn make_filter(&self, command: &str) -> Result<String, Error> {
         let template = mustache::compile_str(command)?;
         Ok(template
             .render_data_to_string(&self.data)?

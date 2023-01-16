@@ -278,12 +278,12 @@ impl TimeshiftFilesystem {
             (Some(data_mtime), Some(cache_mtime)) if data_mtime > cache_mtime => data_mtime,
             (Some(data_mtime), None) => data_mtime,
             _ => {
-                tracing::debug!("{}: Reuse cached timeshift data", ino);
+                tracing::debug!(%ino, "Reuse cached timeshift data");
                 return;
             }
         };
 
-        tracing::debug!("{}: Load timeshift data", ino);
+        tracing::debug!(%ino, "Load timeshift data");
         let cache = Self::load_data(config).map(|data| Cache {
             mtime,
             records: data.records,
@@ -294,7 +294,7 @@ impl TimeshiftFilesystem {
                 self.caches.insert(ino.recorder_index(), cache);
             }
             Err(err) => {
-                tracing::error!("{}: Failed to read timeshift data: {}", ino, err);
+                tracing::error!(%err, %ino, "Failed to read timeshift data");
             }
         }
     }
@@ -443,7 +443,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 reply.ok();
             }
             _ => {
-                tracing::error!("{}: Invalid handle {}", ino, fh);
+                tracing::error!(%ino, fh, "Invalid handle");
                 reply.error(libc::EBADF);
             }
         }
@@ -456,7 +456,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             match self.open_record(ino) {
                 Ok(handle) => reply.opened(handle, 0),
                 Err(_) => {
-                    tracing::debug!("{}: Record not found", ino);
+                    tracing::debug!(%ino, "Record not found");
                     reply.error(libc::ENOENT);
                 }
             }
@@ -480,7 +480,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             match self.open_contexts.remove(&fh) {
                 Some(_) => reply.ok(),
                 None => {
-                    tracing::error!("{}: Invalid handle {}", ino, fh);
+                    tracing::error!(%ino, fh, "Invalid handle");
                     reply.error(libc::EBADF);
                 }
             }
@@ -507,7 +507,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             let (record, config) = match self.get_record(ino).zip(self.get_recorder_config(ino)) {
                 Some(tuple) => tuple,
                 None => {
-                    tracing::error!("{}: Record not found", ino);
+                    tracing::error!(%ino, "Record not found");
                     reply.error(libc::ENOENT);
                     return;
                 }
@@ -520,7 +520,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             let buf = match self.open_contexts.get_mut(&fh) {
                 Some(OpenContext::Record(buf)) => buf,
                 _ => {
-                    tracing::error!("{}: Invalid handle {}", ino, fh);
+                    tracing::error!(%ino, fh, "Invalid handle");
                     reply.error(libc::EBADF);
                     return;
                 }
@@ -529,7 +529,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             match buf.fill(ranges) {
                 Ok(_) => reply.data(buf.data()),
                 Err(err) => {
-                    tracing::error!("{}: Faild to read data: {}", ino, err);
+                    tracing::error!(%err, %ino, "Faild to read data");
                     reply.error(libc::EIO);
                 }
             }
@@ -596,7 +596,7 @@ impl Ino {
 
 impl fmt::Display for Ino {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ino#{:016X}", self.0)
+        write!(f, "{:016X}", self.0)
     }
 }
 
@@ -639,22 +639,18 @@ impl RecordBuffer {
 
     fn fill(&mut self, ranges: (Option<Range<u64>>, Option<Range<u64>>)) -> Result<(), Error> {
         debug_assert!(self.data().is_empty());
+        let ino = self.ino;
         match ranges {
             (None, None) => {
-                tracing::trace!("{}: EOF reached", self.ino);
+                tracing::trace!(%ino, "EOF");
                 Ok(())
             }
             (Some(range), None) => {
-                tracing::trace!("{}: Read data in {:?}", self.ino, range);
+                tracing::trace!(%ino, ?range, "Read data");
                 self.fill1(&range)
             }
             (Some(first), Some(second)) => {
-                tracing::trace!(
-                    "{}: Read data in {:?} and {:?} successfully",
-                    self.ino,
-                    first,
-                    second
-                );
+                tracing::trace!(%ino, ?first, ?second, "Read data");
                 self.fill2(&first, &second)
             }
             _ => unreachable!(),

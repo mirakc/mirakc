@@ -137,7 +137,7 @@ where
 
     match result {
         Err(Error::ProgramNotFound) => {
-            tracing::warn!("No stream for the program#{}, maybe canceled", program_id)
+            tracing::warn!(program.id = %program_id, "No stream for the program, maybe canceled")
         }
         _ => (),
     }

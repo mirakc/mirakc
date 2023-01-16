@@ -129,7 +129,7 @@ where
             self.stdin = process.stdin.take();
         }
         self.stdout = process.stdout.take();
-        let span = tracing::debug_span!("child", pid = process.id().unwrap());
+        let span = tracing::debug_span!("cmd", pid = process.id().unwrap());
         self.commands.push(CommandData {
             command,
             process,
@@ -161,9 +161,7 @@ where
         self.commands.iter().map(|data| data.process.id()).collect()
     }
 
-    pub fn take_endpoints(
-        &mut self,
-    ) -> Result<(CommandPipelineInput<T>, CommandPipelineOutput<T>), Error> {
+    pub fn take_endpoints(&mut self) -> (CommandPipelineInput<T>, CommandPipelineOutput<T>) {
         let _enter = self.span.enter();
         let input = CommandPipelineInput::new(
             self.stdin.take().unwrap().try_into().unwrap(),
@@ -175,19 +173,21 @@ where
             self.id.clone(),
             self.sender.subscribe(),
         );
-        Ok((input, output))
+        (input, output)
     }
 
     // Don't use Span::enter() in async functions.
     pub async fn wait(&mut self) -> Vec<io::Result<ExitStatus>> {
         let mut result = Vec::with_capacity(self.commands.len());
-        tracing::debug!(parent: &self.span, "Wait for termination...");
+        self.span
+            .in_scope(|| tracing::debug!("Wait for termination..."));
         let commands = std::mem::replace(&mut self.commands, vec![]);
         for mut data in commands.into_iter() {
-            tracing::debug!(parent: &data.span, "Wait for termination...");
+            self.span
+                .in_scope(|| tracing::debug!("Wait for termination..."));
             result.push(data.process.wait().instrument(data.span.clone()).await);
         }
-        tracing::debug!(parent: &self.span, "Terminated");
+        self.span.in_scope(|| tracing::debug!("Terminated"));
         result
     }
 
@@ -418,7 +418,7 @@ impl<'a> CommandBuilder<'a> {
             .spawn()
             .map_err(|err| Error::UnableToSpawn(self.command.to_string(), err))?;
 
-        let span = tracing::debug_span!("child", pid = child.id().unwrap());
+        let span = tracing::debug_span!("cmd", pid = child.id().unwrap());
         // We can safely use Span::enter() in non-async functions.
         let _enter = span.enter();
 
@@ -520,7 +520,7 @@ mod tests {
         use futures::task::noop_waker;
 
         let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
-        let (mut input, mut output) = pipeline.take_endpoints().unwrap();
+        let (mut input, mut output) = pipeline.take_endpoints();
 
         let result = input.write_all(b"hello").await;
         assert!(result.is_ok());
@@ -560,7 +560,7 @@ mod tests {
             "test",
         )
         .unwrap();
-        let (mut input, mut output) = pipeline.take_endpoints().unwrap();
+        let (mut input, mut output) = pipeline.take_endpoints();
 
         let result = input.write_all(b"hello").await;
         assert!(result.is_ok());
@@ -582,7 +582,7 @@ mod tests {
     #[tokio::test]
     async fn test_pipeline_write_1mb() {
         let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
-        let (mut input, mut output) = pipeline.take_endpoints().unwrap();
+        let (mut input, mut output) = pipeline.take_endpoints();
 
         let handle = tokio::spawn(async move {
             let mut buf = Vec::new();
@@ -609,7 +609,7 @@ mod tests {
     #[tokio::test]
     async fn test_pipeline_input_dropped() {
         let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
-        let (mut input, mut output) = pipeline.take_endpoints().unwrap();
+        let (mut input, mut output) = pipeline.take_endpoints();
 
         let _ = input.write_all(b"hello").await;
 
@@ -626,7 +626,7 @@ mod tests {
     #[tokio::test]
     async fn test_pipeline_output_dropped() {
         let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
-        let (mut input, output) = pipeline.take_endpoints().unwrap();
+        let (mut input, output) = pipeline.take_endpoints();
 
         drop(output);
 
@@ -675,7 +675,7 @@ mod tests {
 
         let mut pipeline =
             spawn_pipeline(vec!["sh -c 'exec 0<&-;'".to_string()], 0u8, "test").unwrap();
-        let (input, _) = pipeline.take_endpoints().unwrap();
+        let (input, _) = pipeline.take_endpoints();
 
         let (tx, rx) = oneshot::channel();
         let mut wrapper = Wrapper::new(input, Some(tx));

@@ -39,8 +39,6 @@ where
     }
 
     pub async fn scan_services(self) -> Vec<(EpgChannel, Option<IndexMap<ServiceId, EpgService>>)> {
-        tracing::debug!("Scanning services...");
-
         let command = &self.config.jobs.scan_services.command;
         let mut results = Vec::new();
 
@@ -55,14 +53,12 @@ where
                         Some(map)
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to scan services in {}: {}", channel.name, err);
+                        tracing::error!(%err, channel.name, "Failed to scan services");
                         None
                     }
                 };
             results.push((channel.clone().into(), result));
         }
-
-        tracing::debug!("Scanned {} channels", self.config.channels.len());
 
         results
     }
@@ -72,7 +68,7 @@ where
         command: &str,
         tuner_manager: &T,
     ) -> anyhow::Result<Vec<EpgService>> {
-        tracing::debug!("Scanning services in {}...", channel.name);
+        tracing::debug!(channel.name, "Scanning services...");
 
         let user = TunerUser {
             info: TunerUserInfo::Job {
@@ -100,7 +96,7 @@ where
 
         let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), "epg.service")?;
 
-        let (input, mut output) = pipeline.take_endpoints().unwrap();
+        let (input, mut output) = pipeline.take_endpoints();
 
         let handle = tokio::spawn(stream.pipe(input));
 
@@ -120,7 +116,11 @@ where
         anyhow::ensure!(buf.len() > 0, "No service, maybe out of service");
 
         let services: Vec<TsService> = serde_json::from_slice(&buf)?;
-        tracing::debug!("Found {} services in {}", services.len(), channel.name);
+        tracing::debug!(
+            channel.name,
+            services.len = services.len(),
+            "Found services"
+        );
 
         Ok(services
             .into_iter()

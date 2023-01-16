@@ -106,7 +106,7 @@ impl<T> Epg<T> {
 
         match self.save_services() {
             Ok(_) => (),
-            Err(err) => tracing::error!("Failed to save services: {}", err),
+            Err(err) => tracing::error!(%err, "Failed to save services"),
         }
 
         // Remove garbage.
@@ -153,7 +153,7 @@ impl<T> Epg<T> {
 
         match self.save_clocks() {
             Ok(_) => (),
-            Err(err) => tracing::error!("Failed to save clocks: {}", err),
+            Err(err) => tracing::error!(%err, "Failed to save clocks"),
         }
     }
 
@@ -183,12 +183,7 @@ impl<T> Epg<T> {
         let service = self.services.get(&service_id).expect("Service must exist");
 
         if num_programs > 0 {
-            tracing::info!(
-                "Collected {} programs of {} ({})",
-                num_programs,
-                service.name,
-                service_id,
-            );
+            tracing::info!(%service.id, service.name, programs.len = num_programs, "Collected programs");
         }
 
         for emitter in self.programs_emitters.iter() {
@@ -209,25 +204,25 @@ impl<T> Epg<T> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = cache_dir.join("services.json");
-                tracing::debug!("Loading schedules from {}...", json_path.display());
+                tracing::debug!(path = %json_path.display(), "Loading schedules...");
                 let reader = BufReader::new(File::open(&json_path)?);
                 let services: Vec<(ServiceId, EpgService)> = serde_json::from_reader(reader)?;
                 // Drop a service if the channel of the service has been
                 // changed.
-                let iter = services.into_iter().filter(|(_, sv)| {
-                    let not_changed = channels.iter().any(|ch| ch == &sv.channel);
+                let iter = services.into_iter().filter(|(_, service)| {
+                    let not_changed = channels.iter().any(|ch| ch == &service.channel);
                     if !not_changed {
                         // if changed
                         tracing::debug!(
-                            "Drop service#{} ({}) due to changes of the channel config",
-                            sv.id,
-                            sv.name
+                            %service.id,
+                            service.name,
+                            "Drop the service due to changes of the channel config"
                         );
                     }
                     not_changed
                 });
                 self.services = Arc::new(IndexMap::from_iter(iter));
-                tracing::info!("Loaded {} services", self.services.len());
+                tracing::info!(services.len = self.services.len(), "Loaded services");
             }
             None => {
                 tracing::warn!("No epg.cache-dir specified, skip to load services.json");
@@ -240,7 +235,7 @@ impl<T> Epg<T> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = cache_dir.join("clocks.json");
-                tracing::debug!("Loading clocks from {}...", json_path.display());
+                tracing::debug!(path = %json_path.display(), "Loading clocks...");
                 let reader = BufReader::new(File::open(&json_path)?);
                 let clocks: Vec<(ServiceId, Clock)> = serde_json::from_reader(reader)?;
                 // Drop a clock if the service ID of the clock is not
@@ -248,12 +243,15 @@ impl<T> Epg<T> {
                 let iter = clocks.into_iter().filter(|(service_id, _)| {
                     let contained = self.services.contains_key(service_id);
                     if !contained {
-                        tracing::debug!("Drop clock for missing service#{}", service_id);
+                        tracing::debug!(
+                            service.id = %service_id,
+                            "Drop clock for missing service"
+                        );
                     }
                     contained
                 });
                 self.clocks = Arc::new(HashMap::from_iter(iter));
-                tracing::info!("Loaded {} clocks", self.clocks.len());
+                tracing::info!(clocks.len = self.clocks.len(), "Loaded clocks");
             }
             None => {
                 tracing::warn!("No epg.cache-dir specified, skip to load clocks.json");
@@ -267,7 +265,7 @@ impl<T> Epg<T> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = cache_dir.join("schedules.json");
-                tracing::debug!("Loading schedules from {}...", json_path.display());
+                tracing::debug!(path = %json_path.display(), "Loading schedules...");
                 let reader = BufReader::new(File::open(&json_path)?);
                 let schedules: Vec<(ServiceId, Box<EpgSchedule>)> =
                     serde_json::from_reader(reader)?;
@@ -278,7 +276,10 @@ impl<T> Epg<T> {
                     .filter(|(service_id, _)| {
                         let contained = self.services.contains_key(service_id);
                         if !contained {
-                            tracing::debug!("Drop schedule for missing service#{}", service_id);
+                            tracing::debug!(
+                                service.id = %service_id,
+                                "Drop schedule for missing service"
+                            );
                         }
                         contained
                     })
@@ -287,7 +288,7 @@ impl<T> Epg<T> {
                         (service_id, sched)
                     });
                 self.schedules = HashMap::from_iter(iter);
-                tracing::info!("Loaded schedules for {} services", self.schedules.len());
+                tracing::info!(schedules.len = self.schedules.len(), "Loaded schedules");
             }
             None => {
                 tracing::warn!("No epg.cache-dir specified, skip to load schedules.json");
@@ -300,7 +301,7 @@ impl<T> Epg<T> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = cache_dir.join("services.json");
-                tracing::debug!("Saving services into {}...", json_path.display());
+                tracing::debug!(path = %json_path.display(), "Saving services...");
                 let writer = BufWriter::new(File::create(&json_path)?);
                 // Serialize as a list of tuples in order to avoid failures in
                 // serialization to JSON.
@@ -310,7 +311,7 @@ impl<T> Epg<T> {
                 // maintenance cost.
                 let services = self.services.iter().collect_vec();
                 serde_json::to_writer(writer, &services)?;
-                tracing::info!("Saved {} services", self.services.len());
+                tracing::info!(services.len = self.services.len(), "Saved services");
             }
             None => {
                 tracing::warn!("No epg.cache-dir specified, skip to save services");
@@ -323,7 +324,7 @@ impl<T> Epg<T> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = cache_dir.join("clocks.json");
-                tracing::debug!("Saving clocks into {}...", json_path.display());
+                tracing::debug!(path = %json_path.display(), "Saving clocks...");
                 let writer = BufWriter::new(File::create(&json_path)?);
                 // Serialize as a list of tuples in order to avoid failures in
                 // serialization to JSON.
@@ -333,7 +334,7 @@ impl<T> Epg<T> {
                 // maintenance cost.
                 let clocks = self.clocks.iter().collect_vec();
                 serde_json::to_writer(writer, &clocks)?;
-                tracing::info!("Saved {} clocks", self.clocks.len());
+                tracing::info!(clocks.len = self.clocks.len(), "Saved clocks");
             }
             None => {
                 tracing::warn!("No epg.cache-dir specified, skip to save clocks");
@@ -346,7 +347,7 @@ impl<T> Epg<T> {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
                 let json_path = cache_dir.join("schedules.json");
-                tracing::debug!("Saving schedules into {}...", json_path.display());
+                tracing::debug!(path = %json_path.display(), "Saving schedules...");
                 let writer = BufWriter::new(File::create(&json_path)?);
                 // Serialize as a list of tuples in order to avoid failures in
                 // serialization to JSON.
@@ -356,7 +357,7 @@ impl<T> Epg<T> {
                 // maintenance cost.
                 let schedules = self.schedules.iter().collect_vec();
                 serde_json::to_writer(writer, &schedules)?;
-                tracing::info!("Saved schedules for {} services", self.schedules.len());
+                tracing::info!(schedules.len = self.schedules.len(), "Saved schedules");
             }
             None => {
                 tracing::warn!("No epg.cache-dir specified, skip to save schedules");
@@ -383,13 +384,13 @@ where
         // It's guaranteed that no response is sent before cached EPG data is loaded.
         tracing::debug!("Started");
         if let Err(err) = self.load_services() {
-            tracing::warn!("Failed to load services: {}", err);
+            tracing::warn!(%err, "Failed to load services");
         }
         if let Err(err) = self.load_clocks() {
-            tracing::warn!("Failed to load clocks: {}", err);
+            tracing::warn!(%err, "Failed to load clocks");
         }
         if let Err(err) = self.load_schedules() {
-            tracing::warn!("Failed to load schedules: {}", err);
+            tracing::warn!(%err, "Failed to load schedules");
         }
         self.collect_programs();
 
@@ -758,7 +759,7 @@ where
         tracing::debug!(msg.name = "SaveSchedules");
         match self.save_schedules() {
             Ok(_) => (),
-            Err(err) => tracing::error!("Failed to save schedules: {}", err),
+            Err(err) => tracing::error!(%err, "Failed to save schedules"),
         }
     }
 }

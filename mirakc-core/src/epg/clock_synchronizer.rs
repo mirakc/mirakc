@@ -39,8 +39,6 @@ where
     }
 
     pub async fn sync_clocks(self) -> Vec<(EpgChannel, Option<HashMap<ServiceId, Clock>>)> {
-        tracing::debug!("Synchronizing clocks...");
-
         let command = &self.config.jobs.sync_clocks.command;
         let mut results = Vec::new();
 
@@ -56,14 +54,12 @@ where
                         Some(map)
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to synchronize clocks in {}: {}", channel.name, err);
+                        tracing::error!(%err, channel.name, "Failed to synchronize clocks");
                         None
                     }
                 };
             results.push((channel.clone().into(), result));
         }
-
-        tracing::debug!("Synchronized {} channels", self.config.channels.len());
 
         results
     }
@@ -73,7 +69,7 @@ where
         command: &str,
         tuner_manager: &T,
     ) -> anyhow::Result<Vec<SyncClock>> {
-        tracing::debug!("Synchronizing clocks in {}...", channel.name);
+        tracing::debug!(channel.name, "Synchronizing clocks...");
 
         let user = TunerUser {
             info: TunerUserInfo::Job {
@@ -101,7 +97,7 @@ where
 
         let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), "epg.clock")?;
 
-        let (input, mut output) = pipeline.take_endpoints().unwrap();
+        let (input, mut output) = pipeline.take_endpoints();
 
         let handle = tokio::spawn(stream.pipe(input));
 
@@ -121,7 +117,11 @@ where
         anyhow::ensure!(!buf.is_empty(), "No clock, maybe out of service");
 
         let clocks: Vec<SyncClock> = serde_json::from_slice(&buf)?;
-        tracing::debug!("Synchronized {} clocks in {}", clocks.len(), channel.name);
+        tracing::debug!(
+            channel.name,
+            clocks.len = clocks.len(),
+            "Synchronized clocks"
+        );
 
         Ok(clocks)
     }

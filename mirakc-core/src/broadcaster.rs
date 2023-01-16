@@ -94,6 +94,7 @@ impl Broadcaster {
                     tracing::warn!(
                         broadcaster.id = %self.id,
                         %subscriber.id,
+                        chunk.size = chunk_size,
                         "No space, drop the chunk"
                     );
                 }

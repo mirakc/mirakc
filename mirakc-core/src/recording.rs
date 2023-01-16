@@ -943,7 +943,7 @@ where
         }
 
         let mut pipeline = spawn_pipeline(filters, stream.id(), "recording")?;
-        let (input, mut output) = pipeline.take_endpoints()?;
+        let (input, mut output) = pipeline.take_endpoints();
 
         let fut = async move {
             let _ = stream.pipe(input).await;

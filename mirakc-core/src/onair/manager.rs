@@ -69,6 +69,7 @@ where
     E: Call<epg::RegisterEmitter>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
+        tracing::debug!("Started");
         for (name, config) in self.config.onair_program_trackers.iter() {
             let changed = ctx.address().clone().into();
             let tracker = match config {
@@ -88,7 +89,6 @@ where
             ))
             .await
             .expect("Failed to register emitter for epg::ServicesUpdated");
-        tracing::debug!("Started");
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
@@ -123,7 +123,7 @@ where
                 stopped,
             ))
             .await;
-        tracing::info!(tracker.kind = "local", tracker.name = name, "Spawned",);
+        tracing::info!(tracker.name = name, "Spawned");
         Tracker::Local(tracker)
     }
 
@@ -142,7 +142,7 @@ where
                 changed,
             ))
             .await;
-        tracing::info!(tracker.kind = "remote", tracker.name = name, "Spawned",);
+        tracing::info!(tracker.name = name, "Spawned");
         Tracker::Remote(tracker)
     }
 }
@@ -254,25 +254,19 @@ where
         msg: SpawnTemporalTracker,
         ctx: &mut Context<Self>,
     ) -> <SpawnTemporalTracker as Message>::Reply {
-        tracing::debug!(
-            msg.name = "SpawnTempralLocalTracker",
-            %msg.service.id,
-        );
+        tracing::debug!(msg.name = "SpawnTempralLocalTracker", %msg.service.id);
 
         let service_id = msg.service.id;
         for config in self.config.onair_program_trackers.values() {
             if config.matches(&msg.service) {
-                tracing::info!(
-                    service.id = %service_id,
-                    "Tracker for the service is already running",
-                );
+                tracing::info!(service.id = %service_id, "Tracker for the service is already running");
                 return;
             }
         }
 
         let name = format!(".{}", msg.stream_id);
         if self.trackers.contains_key(&name) {
-            tracing::info!(tracker.name = name, "Temporal tracker is already running",);
+            tracing::info!(tracker.name = name, "Temporal tracker is already running");
             return;
         }
 
@@ -291,11 +285,7 @@ where
             .await;
         self.trackers.insert(name.clone(), tracker);
         self.temporal_services.insert(name.clone(), service_id);
-        tracing::info!(
-            tracker.name = name,
-            %service_id,
-            "Created temporal tracker",
-        );
+        tracing::info!(tracker.name = name, service.id = %service_id, "Created temporal tracker");
     }
 }
 
@@ -360,14 +350,14 @@ impl<T, E> OnairProgramManager<T, E> {
         let program_id = program.id;
         let service_id = program_id.into();
         self.cache.entry(service_id).or_default().current = Some(program);
-        tracing::info!(%service_id, current.program.id = %program_id);
+        tracing::info!(service.id = %service_id, current.program.id = %program_id);
     }
 
     async fn update_next_program(&mut self, program: Arc<EpgProgram>) {
         let program_id = program.id;
         let service_id = program_id.into();
         self.cache.entry(service_id).or_default().next = Some(program);
-        tracing::info!(%service_id, next.program.id = %program_id);
+        tracing::info!(service.id = %service_id, next.program.id = %program_id);
     }
 }
 
@@ -388,12 +378,12 @@ where
         tracing::debug!(msg.name = "TrackerStopped", msg.tracker);
         match self.trackers.remove(&msg.tracker) {
             Some(_) => {
-                tracing::info!(tracker.name = msg.tracker, "Removed temporal tracker",);
+                tracing::info!(tracker.name = msg.tracker, "Removed temporal tracker");
             }
             None => {
                 tracing::error!(
                     tracker.name = msg.tracker,
-                    "INCONSISTENT: Temporal tracker has already been removed",
+                    "INCONSISTENT: Temporal tracker has already been removed"
                 );
             }
         }
@@ -402,8 +392,8 @@ where
                 let _ = self.cache.remove(&service_id);
                 tracing::info!(
                     tracker.name = msg.tracker,
-                    %service_id,
-                    "Removed cache entry for temporal trackers",
+                    service.id = %service_id,
+                    "Removed cache entry for temporal trackers"
                 );
             }
         }

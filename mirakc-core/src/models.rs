@@ -366,7 +366,7 @@ impl TimeshiftRecordId {
 
 impl fmt::Display for TimeshiftRecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Record#{:08X}", self.0)
+        write!(f, "{:08X}", self.0)
     }
 }
 
@@ -791,7 +791,7 @@ impl From<u32> for MirakurunLangCode {
         match SmallString::from_buf([c0, c1, c2]) {
             Ok(lang) => MirakurunLangCode(lang),
             Err(_) => {
-                tracing::warn!("Invalid lang code, replace it with `und`");
+                tracing::warn!(code = %format!("{:02X}{:02X}{:02X}", c0, c1, c2), "Invalid lang code, replace it with `und`");
                 MirakurunLangCode(SmallString::from_str("und"))
             }
         }

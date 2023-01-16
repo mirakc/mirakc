@@ -237,12 +237,12 @@ where
             Ok(_) => match receiver.await {
                 Ok(reply) => Ok(reply),
                 Err(_) => {
-                    tracing::error!("{} stopped", type_name::<A>());
+                    tracing::error!(actor = type_name::<A>(), "Recv failed");
                     Err(Error::Recv)
                 }
             },
             Err(_) => {
-                tracing::error!("{} stopped", type_name::<A>());
+                tracing::error!(actor = type_name::<A>(), "Send failed");
                 Err(Error::Send)
             }
         }
@@ -388,11 +388,15 @@ where
 {
     /// Called when the actor gets started running on a dedicated task.
     #[allow(unused_variables)]
-    async fn started(&mut self, ctx: &mut Context<Self>) {}
+    async fn started(&mut self, ctx: &mut Context<Self>) {
+        tracing::debug!(actor = type_name::<Self>(), "Started");
+    }
 
     /// Called when the actor stopped.
     #[allow(unused_variables)]
-    async fn stopped(&mut self, ctx: &mut Context<Self>) {}
+    async fn stopped(&mut self, ctx: &mut Context<Self>) {
+        tracing::debug!(actor = type_name::<Self>(), "Stopped");
+    }
 }
 
 /// A trait to spawn a new asynchronous task.
@@ -564,7 +568,9 @@ where
             .instrument(self.span.clone())
             .await;
         if sender.send(reply).is_err() {
-            tracing::error!(parent: &self.span, "Failed to send a reply, {} stopped", type_name::<A>());
+            self.span.in_scope(|| {
+                tracing::error!(actor = type_name::<A>(), "Reply failed");
+            });
         }
     }
 }
@@ -668,15 +674,7 @@ mod promoter {
     }
 
     #[async_trait]
-    impl Actor for Promoter {
-        async fn started(&mut self, _ctx: &mut Context<Self>) {
-            tracing::debug!(event = "started");
-        }
-
-        async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-            tracing::debug!(event = "stopped");
-        }
-    }
+    impl Actor for Promoter {}
 
     pub(crate) struct Spawn<A: Actor>(pub A);
     impl<A: Actor> Message for Spawn<A> {
