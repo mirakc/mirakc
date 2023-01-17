@@ -167,6 +167,10 @@ pub struct Address<A> {
 impl<A> Address<A> {
     const MAX_MESSAGES: usize = 256;
 
+    pub fn is_alive(&self) -> bool {
+        !self.sender.is_closed()
+    }
+
     fn pair() -> (Self, mpsc::Receiver<Box<dyn Dispatch<A> + Send>>) {
         let (sender, receiver) = mpsc::channel(Self::MAX_MESSAGES);
         let addr = Address { sender };
@@ -237,12 +241,20 @@ where
             Ok(_) => match receiver.await {
                 Ok(reply) => Ok(reply),
                 Err(_) => {
-                    tracing::error!(actor = type_name::<A>(), "Recv failed");
+                    tracing::error!(
+                        actor = type_name::<A>(),
+                        message = type_name::<M>(),
+                        "Recv failed"
+                    );
                     Err(Error::Recv)
                 }
             },
             Err(_) => {
-                tracing::error!(actor = type_name::<A>(), "Send failed");
+                tracing::error!(
+                    actor = type_name::<A>(),
+                    message = type_name::<M>(),
+                    "Send failed"
+                );
                 Err(Error::Send)
             }
         }
@@ -569,7 +581,11 @@ where
             .await;
         if sender.send(reply).is_err() {
             self.span.in_scope(|| {
-                tracing::error!(actor = type_name::<A>(), "Reply failed");
+                tracing::error!(
+                    actor = type_name::<A>(),
+                    message = type_name::<M>(),
+                    "Reply failed"
+                );
             });
         }
     }
