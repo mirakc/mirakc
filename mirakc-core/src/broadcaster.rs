@@ -1,3 +1,4 @@
+use std::env;
 use std::io;
 use std::pin::Pin;
 use std::time::Duration;
@@ -5,6 +6,7 @@ use std::time::Instant;
 
 use actlet::prelude::*;
 use bytes::Bytes;
+use once_cell::sync::Lazy;
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -15,9 +17,28 @@ use tokio_util::io::ReaderStream;
 use crate::tuner::TunerSessionId as BroadcasterId;
 use crate::tuner::TunerSubscriptionId as SubscriberId;
 
+const SLEEP_MS_DEFAULT: Duration = Duration::from_millis(100); // 100ms
+
+static SLEEP_MS: Lazy<Duration> = Lazy::new(|| {
+    let ms = env::var("MIRAKC_BROADCASTER_SLEEP_MS")
+        .ok()
+        .map(|s| {
+            s.parse::<u64>()
+                .expect("MIRAKC_BROADCASTER_SLEEP_MS must be a u64 value")
+        })
+        .map(|ms| Duration::from_millis(ms))
+        .unwrap_or(SLEEP_MS_DEFAULT);
+    tracing::debug!(
+        parent: None,
+        MIRAKC_BROADCASTER_SLEEP_MS = %humantime::format_duration(ms),
+    );
+    ms
+});
+
 struct Subscriber {
     id: SubscriberId,
     sender: mpsc::Sender<Bytes>,
+    trusted: bool,
 }
 
 pub struct Broadcaster {
@@ -29,7 +50,7 @@ pub struct Broadcaster {
 
 impl Broadcaster {
     // large enough for 10 sec buffering.
-    const MAX_CHUNKS: usize = 1000;
+    const MAX_CHUNKS: usize = 1024;
 
     // 32 KiB, large enough for 10 ms buffering.
     const CHUNK_SIZE: usize = 4096 * 8;
@@ -51,25 +72,64 @@ impl Broadcaster {
         let addr = ctx.address().clone();
         ctx.spawn_task(async move {
             let mut stream = ReaderStream::with_capacity(src, Self::CHUNK_SIZE);
+            let mut wait_count = 0;
+            loop {
+                let mut cap = loop {
+                    match addr.call(MinCapacity).await {
+                        Ok(0) => {
+                            match wait_count {
+                                0..=4 => tracing::debug!("No space, wait a while"),
+                                5 => tracing::debug!("No space, wait a while (suppressed)"),
+                                _ => (), // Suppress noisy logs
+                            }
+                            tokio::time::sleep(*SLEEP_MS).await;
+                            wait_count += 1;
+                            continue;
+                        }
+                        Ok(cap) => {
+                            break cap;
+                        }
+                        Err(err) => {
+                            tracing::error!(%err, broadcaster.id = %id, "Broadcaster stopped");
+                            return;
+                        }
+                    }
+                };
 
-            while let Some(chunk) = stream.next().await {
-                match chunk {
-                    Ok(chunk) => {
-                        addr.emit(Broadcast(chunk)).await;
+                while cap > 0 {
+                    match stream.next().await {
+                        Some(Ok(chunk)) => {
+                            if let Err(err) = addr.call(Broadcast(chunk)).await {
+                                tracing::error!(%err, broadcaster.id = %id, "Broadcaster stopped");
+                                return;
+                            }
+                        }
+                        Some(Err(err)) => {
+                            tracing::error!(%err, broadcaster.id = %id, "Error, stop");
+                            addr.emit(actlet::Stop).await;
+                            return;
+                        }
+                        None => {
+                            tracing::debug!(broadcaster.id = %id, "EOF, stop");
+                            addr.emit(actlet::Stop).await;
+                            return;
+                        }
                     }
-                    Err(err) => {
-                        tracing::error!(%err, broadcaster.id = %id, "Error, stop");
-                        addr.emit(actlet::Stop).await;
-                        break;
-                    }
+                    cap -= 1;
                 }
+
+                wait_count = 0;
             }
         });
     }
 
-    fn subscribe(&mut self, id: SubscriberId) -> BroadcasterStream {
+    fn subscribe(&mut self, id: SubscriberId, trusted: bool) -> BroadcasterStream {
         let (sender, receiver) = mpsc::channel(Self::MAX_CHUNKS);
-        self.subscribers.push(Subscriber { id, sender });
+        self.subscribers.push(Subscriber {
+            id,
+            sender,
+            trusted,
+        });
         BroadcasterStream::new(receiver)
     }
 
@@ -109,6 +169,20 @@ impl Broadcaster {
         }
 
         self.last_received = Instant::now();
+    }
+
+    fn min_capacity(&self) -> usize {
+        self.subscribers
+            .iter()
+            .filter_map(|subscriber| {
+                if subscriber.trusted {
+                    Some(subscriber.sender.capacity())
+                } else {
+                    None
+                }
+            })
+            .min()
+            .unwrap_or(Self::MAX_CHUNKS)
     }
 
     fn check_timeout(&mut self, ctx: &mut Context<Self>) {
@@ -164,6 +238,7 @@ where
 #[reply("BroadcasterStream")]
 pub struct Subscribe {
     pub id: SubscriberId,
+    pub trusted: bool,
 }
 
 #[async_trait]
@@ -173,8 +248,8 @@ impl Handler<Subscribe> for Broadcaster {
         msg: Subscribe,
         _ctx: &mut Context<Self>,
     ) -> <Subscribe as Message>::Reply {
-        tracing::debug!(msg.name = "Subscribe", %msg.id);
-        self.subscribe(msg.id)
+        tracing::debug!(msg.name = "Subscribe", %msg.id, msg.trusted);
+        self.subscribe(msg.id, msg.trusted)
     }
 }
 
@@ -196,16 +271,39 @@ impl Handler<Unsubscribe> for Broadcaster {
     }
 }
 
-// chunk
+// broadcast
 
 #[derive(Message)]
+#[reply("()")]
 pub struct Broadcast(pub Bytes);
 
 #[async_trait]
 impl Handler<Broadcast> for Broadcaster {
-    async fn handle(&mut self, msg: Broadcast, _ctx: &mut Context<Self>) {
+    async fn handle(
+        &mut self,
+        msg: Broadcast,
+        _ctx: &mut Context<Self>,
+    ) -> <Broadcast as Message>::Reply {
         tracing::trace!(msg.name = "Broadcast", msg.chunk.size = msg.0.len());
         self.broadcast(msg.0);
+    }
+}
+
+// min capacity
+
+#[derive(Message)]
+#[reply("usize")]
+pub struct MinCapacity;
+
+#[async_trait]
+impl Handler<MinCapacity> for Broadcaster {
+    async fn handle(
+        &mut self,
+        _msg: MinCapacity,
+        _ctx: &mut Context<Self>,
+    ) -> <MinCapacity as Message>::Reply {
+        tracing::trace!(msg.name = "MinCapacity");
+        self.min_capacity()
     }
 }
 
@@ -266,6 +364,7 @@ mod tests {
             let mut stream1 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 1),
+                    trusted: false,
                 })
                 .await
                 .unwrap();
@@ -273,11 +372,15 @@ mod tests {
             let mut stream2 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 2),
+                    trusted: false,
                 })
                 .await
                 .unwrap();
 
-            broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
+            broadcaster
+                .call(Broadcast(Bytes::from("hello")))
+                .await
+                .unwrap();
             broadcaster.emit(actlet::Stop).await;
 
             let chunk = stream1.next().await;
@@ -300,6 +403,7 @@ mod tests {
             let mut stream1 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 1),
+                    trusted: false,
                 })
                 .await
                 .unwrap();
@@ -307,6 +411,7 @@ mod tests {
             let mut stream2 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 2),
+                    trusted: false,
                 })
                 .await
                 .unwrap();
@@ -317,7 +422,10 @@ mod tests {
                 })
                 .await;
 
-            broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
+            broadcaster
+                .call(Broadcast(Bytes::from("hello")))
+                .await
+                .unwrap();
             broadcaster.emit(actlet::Stop).await;
 
             let chunk = stream1.next().await;
@@ -340,18 +448,21 @@ mod tests {
             let mut stream1 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 1),
+                    trusted: false,
                 })
                 .await
                 .unwrap();
 
-            broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
+            let result = broadcaster.call(Broadcast(Bytes::from("hello"))).await;
+            assert!(result.is_ok());
             broadcaster.emit(actlet::Stop).await;
 
             let chunk = stream1.next().await;
             assert!(chunk.is_some());
 
             tokio::time::sleep(Duration::from_millis(51)).await;
-            broadcaster.emit(Broadcast(Bytes::from("hello"))).await;
+            let result = broadcaster.call(Broadcast(Bytes::from("hello"))).await;
+            assert!(result.is_err());
 
             let chunk = stream1.next().await;
             assert!(chunk.is_none());

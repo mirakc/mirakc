@@ -282,6 +282,13 @@ pub enum TunerUserInfo {
 }
 
 impl TunerUserInfo {
+    fn is_trusted(&self) -> bool {
+        match self {
+            Self::Web { .. } => false,
+            _ => true,
+        }
+    }
+
     fn get_mirakurun_model(&self) -> (String, Option<String>) {
         match self {
             Self::Job { name } => (format!("job:{}", name), None),
@@ -339,6 +346,10 @@ pub struct TunerUser {
 }
 
 impl TunerUser {
+    pub fn is_trusted(&self) -> bool {
+        self.info.is_trusted()
+    }
+
     pub fn get_mirakurun_model(&self) -> MirakurunTunerUser {
         let (id, agent) = self.info.get_mirakurun_model();
         MirakurunTunerUser {

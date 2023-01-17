@@ -77,14 +77,16 @@ pub struct TunerManager {
 struct TunerSubscription {
     id: TunerSubscriptionId,
     broadcaster: Address<Broadcaster>,
+    trusted: bool,
     decoded: bool,
 }
 
 impl TunerSubscription {
-    fn new(id: TunerSubscriptionId, broadcaster: Address<Broadcaster>) -> Self {
+    fn new(id: TunerSubscriptionId, broadcaster: Address<Broadcaster>, trusted: bool) -> Self {
         Self {
             id,
             broadcaster,
+            trusted,
             decoded: false,
         }
     }
@@ -317,6 +319,7 @@ impl Handler<StartStreaming> for TunerManager {
             .broadcaster
             .call(Subscribe {
                 id: subscription.id,
+                trusted: subscription.trusted,
             })
             .await;
         match result {
@@ -647,7 +650,7 @@ impl TunerSession {
         tracing::debug!(subscription.id = %id, %user.info, "Subscribed");
         self.subscribers.insert(serial_number, user.clone());
 
-        TunerSubscription::new(id, self.broadcaster.clone())
+        TunerSubscription::new(id, self.broadcaster.clone(), user.is_trusted())
     }
 
     fn can_grab(&self, priority: TunerUserPriority) -> bool {
