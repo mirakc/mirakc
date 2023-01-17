@@ -36,6 +36,7 @@ use crate::tuner::*;
 use eit_feeder::EitFeeder;
 use job::JobManager;
 
+pub use clock_synchronizer::SyncClock;
 pub use models::AudioComponentDescriptor;
 pub use models::ComponentDescriptor;
 pub use models::EitDescriptor;

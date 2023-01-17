@@ -45,6 +45,7 @@ pub struct TimeshiftManager<T, E> {
     tuner_manager: T,
     epg: E,
     recorders: IndexMap<String, TimeshiftManagerRecorderHolder>,
+    rebuild_mode: bool,
 }
 
 struct TimeshiftManagerRecorderHolder {
@@ -60,6 +61,17 @@ impl<T, E> TimeshiftManager<T, E> {
             tuner_manager,
             epg,
             recorders: IndexMap::new(),
+            rebuild_mode: false,
+        }
+    }
+
+    pub fn new_for_rebuild(config: Arc<Config>, tuner_manager: T, epg: E) -> Self {
+        TimeshiftManager {
+            config,
+            tuner_manager,
+            epg,
+            recorders: IndexMap::new(),
+            rebuild_mode: true,
         }
     }
 }
@@ -74,7 +86,7 @@ where
     E: Call<RegisterEmitter>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!("Started");
+        tracing::debug!(rebuild_mode = self.rebuild_mode, "Started");
 
         self.epg
             .call(RegisterEmitter::ServicesUpdated(
@@ -366,8 +378,14 @@ where
     E: Send + Sync + 'static,
     E: Call<RegisterEmitter>,
 {
-    async fn handle(&mut self, msg: ReactivateTimeshiftRecorder, _ctx: &mut Context<Self>) {
+    async fn handle(&mut self, msg: ReactivateTimeshiftRecorder, ctx: &mut Context<Self>) {
         const MAX_REACTIVATION_COUNT: usize = 5;
+
+        if self.rebuild_mode {
+            tracing::info!("Finished rebuilding a segment");
+            ctx.stop();
+            return;
+        }
 
         if self.recorders[&msg.name].activated {
             if self.recorders[&msg.name].reactivation_count < MAX_REACTIVATION_COUNT {

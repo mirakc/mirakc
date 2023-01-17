@@ -1,13 +1,11 @@
+mod rebuild_timeshift;
+mod serve;
+
 use std::path::PathBuf;
 
-use actlet::prelude::*;
 use clap::Parser;
+use clap::Subcommand;
 use clap::ValueEnum;
-use mirakc_core::error::Error;
-use mirakc_core::tracing_ext::init_tracing;
-use mirakc_core::*;
-use tokio::signal::unix::signal;
-use tokio::signal::unix::SignalKind;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -24,6 +22,9 @@ struct Opt {
     /// Logging format.
     #[arg(long, value_enum, env = "MIRAKC_LOG_FORMAT", default_value = "text")]
     log_format: LogFormat,
+
+    #[command(subcommand)]
+    command: Option<Command>,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -32,77 +33,25 @@ enum LogFormat {
     Json,
 }
 
+#[derive(Subcommand)]
+enum Command {
+    /// Rebuild timeshift files.
+    RebuildTimeshift(rebuild_timeshift::Opt),
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() {
     let opt = Opt::parse();
 
-    init_tracing(match opt.log_format {
+    mirakc_core::tracing_ext::init_tracing(match opt.log_format {
         LogFormat::Text => "text",
         LogFormat::Json => "json",
     });
 
-    let config = config::load(&opt.config);
-    let string_table = string_table::load(&config.resource.strings_yaml);
+    let config = mirakc_core::config::load(&opt.config);
 
-    let system = System::new();
-
-    let tuner_manager = system
-        .spawn_actor(tuner::TunerManager::new(config.clone()))
-        .await;
-
-    let epg = system
-        .spawn_actor(epg::Epg::new(config.clone(), tuner_manager.clone()))
-        .await;
-
-    let onair_manager = system
-        .spawn_actor(onair::OnairProgramManager::new(
-            config.clone(),
-            tuner_manager.clone(),
-            epg.clone(),
-        ))
-        .await;
-
-    let recording_manager = system
-        .spawn_actor(recording::RecordingManager::new(
-            config.clone(),
-            tuner_manager.clone(),
-            epg.clone(),
-            onair_manager.clone(),
-        ))
-        .await;
-
-    let timeshift_manager = system
-        .spawn_actor(timeshift::TimeshiftManager::new(
-            config.clone(),
-            tuner_manager.clone(),
-            epg.clone(),
-        ))
-        .await;
-
-    let _script_runner = system
-        .spawn_actor(script_runner::ScriptRunner::new(
-            config.clone(),
-            epg.clone(),
-            recording_manager.clone(),
-            onair_manager.clone(),
-        ))
-        .await;
-
-    let mut sigint = signal(SignalKind::interrupt())?;
-    let mut sigterm = signal(SignalKind::terminate())?;
-
-    tokio::select! {
-        result = web::serve(config, string_table, tuner_manager, epg, recording_manager, timeshift_manager, onair_manager) => result?,
-        _ = sigint.recv() => {
-            tracing::info!("SIGINT received");
-        }
-        _ = sigterm.recv() => {
-            tracing::info!("SIGTERM received");
-        }
+    match opt.command {
+        Some(Command::RebuildTimeshift(opt)) => rebuild_timeshift::main(config, opt).await,
+        None => serve::main(config).await,
     }
-
-    tracing::info!("Stopping...");
-    system.stop();
-
-    Ok(())
 }

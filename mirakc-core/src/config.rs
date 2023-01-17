@@ -445,6 +445,20 @@ impl TunerConfig {
     }
 }
 
+impl Default for TunerConfig {
+    fn default() -> Self {
+        TunerConfig {
+            name: "".to_string(),
+            channel_types: vec![],
+            command: "".to_string(),
+            time_limit: Self::default_time_limit(),
+            disabled: false,
+            decoded: false,
+            dedicated_for: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]

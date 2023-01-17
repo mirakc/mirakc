@@ -130,12 +130,12 @@ where
 #[derive(Clone, Deserialize)]
 #[cfg_attr(test, derive(Serialize))]
 #[serde(rename_all = "camelCase")]
-struct SyncClock {
-    nid: Nid,
+pub struct SyncClock {
+    pub nid: Nid,
     #[allow(dead_code)]
-    tsid: Tsid,
-    sid: Sid,
-    clock: Clock,
+    pub tsid: Tsid,
+    pub sid: Sid,
+    pub clock: Clock,
 }
 
 // <coverage:exclude>
