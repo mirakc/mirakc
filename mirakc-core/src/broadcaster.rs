@@ -38,7 +38,22 @@ static SLEEP_MS: Lazy<Duration> = Lazy::new(|| {
 struct Subscriber {
     id: SubscriberId,
     sender: mpsc::Sender<Bytes>,
-    trusted: bool,
+    max_stuck_time: Duration,
+    stuck_start_time: Option<Instant>,
+    // Used for suppressing noisy logs.
+    drop_count: usize,
+}
+
+impl Subscriber {
+    fn new(id: SubscriberId, sender: mpsc::Sender<Bytes>, max_stuck_time: Duration) -> Self {
+        Subscriber {
+            id,
+            sender,
+            max_stuck_time,
+            stuck_start_time: None,
+            drop_count: 0,
+        }
+    }
 }
 
 pub struct Broadcaster {
@@ -123,13 +138,10 @@ impl Broadcaster {
         });
     }
 
-    fn subscribe(&mut self, id: SubscriberId, trusted: bool) -> BroadcasterStream {
+    fn subscribe(&mut self, id: SubscriberId, max_stuck_time: Duration) -> BroadcasterStream {
         let (sender, receiver) = mpsc::channel(Self::MAX_CHUNKS);
-        self.subscribers.push(Subscriber {
-            id,
-            sender,
-            trusted,
-        });
+        self.subscribers
+            .push(Subscriber::new(id, sender, max_stuck_time));
         BroadcasterStream::new(receiver)
     }
 
@@ -149,14 +161,25 @@ impl Broadcaster {
                         chunk.size = chunk_size,
                         "Sent the chunk"
                     );
+                    subscriber.drop_count = 0;
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
-                    tracing::warn!(
-                        broadcaster.id = %self.id,
-                        %subscriber.id,
-                        chunk.size = chunk_size,
-                        "No space, drop the chunk"
-                    );
+                    match subscriber.drop_count {
+                        0..=4 => tracing::warn!(
+                            broadcaster.id = %self.id,
+                            %subscriber.id,
+                            chunk.size = chunk_size,
+                            "No space, drop the chunk"
+                        ),
+                        5 => tracing::warn!(
+                            broadcaster.id = %self.id,
+                            %subscriber.id,
+                            chunk.size = chunk_size,
+                            "No space, drop the chunk (suppressed)"
+                        ),
+                        _ => (),
+                    }
+                    subscriber.drop_count += 0;
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     tracing::debug!(
@@ -171,14 +194,28 @@ impl Broadcaster {
         self.last_received = Instant::now();
     }
 
-    fn min_capacity(&self) -> usize {
+    fn min_capacity(&mut self) -> usize {
+        let now = Instant::now();
         self.subscribers
-            .iter()
+            .iter_mut()
             .filter_map(|subscriber| {
-                if subscriber.trusted {
-                    Some(subscriber.sender.capacity())
-                } else {
-                    None
+                let cap = subscriber.sender.capacity();
+                match (cap, subscriber.stuck_start_time) {
+                    (0, Some(time)) => {
+                        if now - time < subscriber.max_stuck_time {
+                            Some(0)
+                        } else {
+                            None
+                        }
+                    }
+                    (0, None) => {
+                        subscriber.stuck_start_time = Some(now);
+                        Some(0)
+                    }
+                    _ => {
+                        subscriber.stuck_start_time = None;
+                        Some(cap)
+                    }
                 }
             })
             .min()
@@ -238,7 +275,7 @@ where
 #[reply("BroadcasterStream")]
 pub struct Subscribe {
     pub id: SubscriberId,
-    pub trusted: bool,
+    pub max_stuck_time: Duration,
 }
 
 #[async_trait]
@@ -248,8 +285,8 @@ impl Handler<Subscribe> for Broadcaster {
         msg: Subscribe,
         _ctx: &mut Context<Self>,
     ) -> <Subscribe as Message>::Reply {
-        tracing::debug!(msg.name = "Subscribe", %msg.id, msg.trusted);
-        self.subscribe(msg.id, msg.trusted)
+        tracing::debug!(msg.name = "Subscribe", %msg.id, ?msg.max_stuck_time);
+        self.subscribe(msg.id, msg.max_stuck_time)
     }
 }
 
@@ -364,7 +401,7 @@ mod tests {
             let mut stream1 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 1),
-                    trusted: false,
+                    max_stuck_time: Default::default(),
                 })
                 .await
                 .unwrap();
@@ -372,7 +409,7 @@ mod tests {
             let mut stream2 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 2),
-                    trusted: false,
+                    max_stuck_time: Default::default(),
                 })
                 .await
                 .unwrap();
@@ -403,7 +440,7 @@ mod tests {
             let mut stream1 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 1),
-                    trusted: false,
+                    max_stuck_time: Default::default(),
                 })
                 .await
                 .unwrap();
@@ -411,7 +448,7 @@ mod tests {
             let mut stream2 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 2),
-                    trusted: false,
+                    max_stuck_time: Default::default(),
                 })
                 .await
                 .unwrap();
@@ -448,7 +485,7 @@ mod tests {
             let mut stream1 = broadcaster
                 .call(Subscribe {
                     id: SubscriberId::new(Default::default(), 1),
-                    trusted: false,
+                    max_stuck_time: Default::default(),
                 })
                 .await
                 .unwrap();

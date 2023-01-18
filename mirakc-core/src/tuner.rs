@@ -77,16 +77,20 @@ pub struct TunerManager {
 struct TunerSubscription {
     id: TunerSubscriptionId,
     broadcaster: Address<Broadcaster>,
-    trusted: bool,
+    max_stuck_time: std::time::Duration,
     decoded: bool,
 }
 
 impl TunerSubscription {
-    fn new(id: TunerSubscriptionId, broadcaster: Address<Broadcaster>, trusted: bool) -> Self {
+    fn new(
+        id: TunerSubscriptionId,
+        broadcaster: Address<Broadcaster>,
+        max_stuck_time: std::time::Duration,
+    ) -> Self {
         Self {
             id,
             broadcaster,
-            trusted,
+            max_stuck_time,
             decoded: false,
         }
     }
@@ -319,7 +323,7 @@ impl Handler<StartStreaming> for TunerManager {
             .broadcaster
             .call(Subscribe {
                 id: subscription.id,
-                trusted: subscription.trusted,
+                max_stuck_time: subscription.max_stuck_time,
             })
             .await;
         match result {
@@ -650,7 +654,7 @@ impl TunerSession {
         tracing::debug!(subscription.id = %id, %user.info, "Subscribed");
         self.subscribers.insert(serial_number, user.clone());
 
-        TunerSubscription::new(id, self.broadcaster.clone(), user.is_trusted())
+        TunerSubscription::new(id, self.broadcaster.clone(), user.max_stuck_time())
     }
 
     fn can_grab(&self, priority: TunerUserPriority) -> bool {

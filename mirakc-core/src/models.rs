@@ -282,10 +282,10 @@ pub enum TunerUserInfo {
 }
 
 impl TunerUserInfo {
-    fn is_trusted(&self) -> bool {
+    fn max_stuck_time(&self) -> std::time::Duration {
         match self {
-            Self::Web { .. } => false,
-            _ => true,
+            Self::Web { .. } => std::time::Duration::from_secs(1),
+            _ => std::time::Duration::from_secs(5),
         }
     }
 
@@ -346,8 +346,8 @@ pub struct TunerUser {
 }
 
 impl TunerUser {
-    pub fn is_trusted(&self) -> bool {
-        self.info.is_trusted()
+    pub fn max_stuck_time(&self) -> std::time::Duration {
+        self.info.max_stuck_time()
     }
 
     pub fn get_mirakurun_model(&self) -> MirakurunTunerUser {
