@@ -212,7 +212,7 @@ impl<A: Actor> Address<A> {
     /// Inspect an actor.
     pub async fn inspect<F>(&self, inspect: F) -> Result<()>
     where
-        F: FnOnce(&A) + Send,
+        F: FnOnce(&mut A) + Send,
         // The function will be sent to a task.
         F: 'static,
     {
@@ -302,7 +302,11 @@ where
     async fn emit(&self, msg: M) {
         let dispatcher = Box::new(SignalDispatcher::new(msg));
         if let Err(_) = self.sender.send(dispatcher).await {
-            tracing::warn!(actor = type_name::<A>(), message = type_name::<M>(), "Stopped");
+            tracing::warn!(
+                actor = type_name::<A>(),
+                message = type_name::<M>(),
+                "Stopped"
+            );
         }
     }
 
@@ -319,13 +323,21 @@ where
                 let sender = self.sender.clone();
                 let task = async move {
                     if let Err(_) = sender.send(dispatcher).await {
-                        tracing::warn!(actor = type_name::<A>(), message = type_name::<M>(), "Stopped");
+                        tracing::warn!(
+                            actor = type_name::<A>(),
+                            message = type_name::<M>(),
+                            "Stopped"
+                        );
                     }
                 };
                 tokio::spawn(task.in_current_span());
             }
             Err(TrySendError::Closed(_)) => {
-                tracing::warn!(actor = type_name::<A>(), message = type_name::<M>(), "Stopped");
+                tracing::warn!(
+                    actor = type_name::<A>(),
+                    message = type_name::<M>(),
+                    "Stopped"
+                );
             }
         }
     }
@@ -659,7 +671,7 @@ struct Inspect<A, F> {
 impl<A, F> Message for Inspect<A, F>
 where
     A: Actor,
-    F: FnOnce(&A) + Send,
+    F: FnOnce(&mut A) + Send,
 {
     type Reply = ();
 }
@@ -667,7 +679,7 @@ where
 impl<A, F> Action for Inspect<A, F>
 where
     A: Actor,
-    F: FnOnce(&A) + Send,
+    F: FnOnce(&mut A) + Send,
 {
 }
 
@@ -675,7 +687,7 @@ where
 impl<A, F> Handler<Inspect<A, F>> for A
 where
     A: Actor,
-    F: FnOnce(&A) + Send + 'static,
+    F: FnOnce(&mut A) + Send + 'static,
 {
     async fn handle(&mut self, msg: Inspect<A, F>, _ctx: &mut Context<Self>) {
         (msg.inspect)(self);
@@ -706,9 +718,7 @@ mod promoter {
 
     impl Promoter {
         fn new(system_span: Span) -> Self {
-            Promoter {
-                system_span,
-            }
+            Promoter { system_span }
         }
 
         fn spawn<A>(&self, actor: A, ctx: &mut Context<Self>) -> Address<A>
