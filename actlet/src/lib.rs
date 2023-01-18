@@ -29,22 +29,44 @@ pub struct System {
     addr: Address<promoter::Promoter>,
     /// A cancellation token used for gracefully stopping the actor system.
     stop_token: CancellationToken,
+    /// A span the actor system belongs to.
+    span: Span,
 }
 
 impl System {
     /// Create an actor system.
     pub fn new() -> Self {
+        Self::with_span(Span::current())
+    }
+
+    /// Create an actor system with a specified span.
+    pub fn with_span(span: Span) -> Self {
         let stop_token = CancellationToken::new();
-        let addr = promoter::spawn(stop_token.child_token());
-        System { addr, stop_token }
+        let addr = promoter::spawn(stop_token.child_token(), span.clone());
+        System {
+            addr,
+            stop_token,
+            span,
+        }
     }
 
     /// Invoke gracefully stopping the actor system.
     ///
     /// This function doesn't wait for all tasks spawned by the system getting
     /// stopped.
-    pub fn stop(self) {
+    ///
+    /// Use [`System::shutdown()`].
+    pub fn stop(&self) {
         self.stop_token.cancel();
+    }
+
+    /// Gracefully shutdown the actor system.
+    ///
+    /// Unlike [`System::stop()`], this function waits for all tasks spawned by
+    /// the system getting stopped.
+    pub async fn shutdown(self) {
+        self.stop();
+        self.addr.wait().await;
     }
 }
 
@@ -54,10 +76,12 @@ impl Spawn for System {
     where
         A: Actor,
     {
-        self.addr
-            .call(promoter::Spawn(actor))
-            .await
-            .expect("Promoter died?")
+        let call = self.span.in_scope(|| {
+            // `ActionDispatcher::new()` will be called in the `Address::call()`
+            // and the current span will be set to the `ActionDispatcher::span`.
+            self.addr.call(promoter::Spawn(actor)).in_current_span()
+        });
+        call.await.expect("Promoter died?")
     }
 
     fn spawn_task<F>(&self, fut: F) -> CancellationToken
@@ -66,12 +90,13 @@ impl Spawn for System {
     {
         let stop_token = self.stop_token.child_token();
         let token = stop_token.clone();
-        tokio::spawn(async move {
+        let task = async move {
             tokio::select! {
                 _ = fut => (),
                 _ = stop_token.cancelled() => (),
             }
-        });
+        };
+        tokio::spawn(task.instrument(self.span.clone()));
         token
     }
 }
@@ -125,12 +150,15 @@ impl<A> Spawn for Context<A> {
     {
         let stop_token = self.stop_token.child_token();
         let token = stop_token.clone();
-        tokio::spawn(async move {
+        let task = async move {
             tokio::select! {
                 _ = fut => (),
                 _ = stop_token.cancelled() => (),
             }
-        });
+        };
+        // The context is available only in the message loop which is running
+        // inside the actor system's span.
+        tokio::spawn(task.in_current_span());
         token
     }
 }
@@ -169,6 +197,10 @@ impl<A> Address<A> {
 
     pub fn is_alive(&self) -> bool {
         !self.sender.is_closed()
+    }
+
+    pub async fn wait(&self) {
+        self.sender.closed().await
     }
 
     fn pair() -> (Self, mpsc::Receiver<Box<dyn Dispatch<A> + Send>>) {
@@ -287,11 +319,12 @@ where
             Err(TrySendError::Full(dispatcher)) => {
                 // Need sending using an async task.
                 let sender = self.sender.clone();
-                tokio::spawn(async move {
+                let task = async move {
                     if let Err(_) = sender.send(dispatcher).await {
                         tracing::warn!(actor = type_name::<A>(), "Stopped");
                     }
-                });
+                };
+                tokio::spawn(task.in_current_span());
             }
             Err(TrySendError::Closed(_)) => {
                 tracing::warn!(actor = type_name::<A>(), "Stopped");
@@ -571,7 +604,7 @@ where
     A: Handler<M>,
     M: Action,
 {
-    // Don't use Span::enter() in async functions.
+    // Don't use `Span::enter()` in async functions.
     async fn dispatch(mut self: Box<Self>, actor: &mut A, ctx: &mut Context<A>) {
         let message = self.message.take().unwrap();
         let sender = self.sender.take().unwrap();
@@ -579,15 +612,15 @@ where
             .handle(message, ctx)
             .instrument(self.span.clone())
             .await;
-        if sender.send(reply).is_err() {
-            self.span.in_scope(|| {
+        self.span.in_scope(|| {
+            if sender.send(reply).is_err() {
                 tracing::error!(
                     actor = type_name::<A>(),
                     message = type_name::<M>(),
                     "Reply failed"
                 );
-            });
-        }
+            }
+        });
     }
 }
 
@@ -656,14 +689,15 @@ mod promoter {
 
     pub(crate) struct Promoter;
 
-    pub(crate) fn spawn(stop_token: CancellationToken) -> Address<Promoter> {
+    pub(crate) fn spawn(stop_token: CancellationToken, span: Span) -> Address<Promoter> {
         let (addr, receiver) = Address::pair();
         let context = Context::new(addr.clone(), addr.clone(), stop_token);
-        tokio::spawn(async move {
+        let task = async move {
             MessageLoop::new(Promoter::new(), receiver, context)
                 .run()
                 .await;
-        });
+        };
+        tokio::spawn(task.instrument(span));
         addr
     }
 
@@ -676,15 +710,15 @@ mod promoter {
         where
             A: Actor,
         {
+            let stop_token = ctx.stop_token.child_token();
             let (addr, receiver) = Address::pair();
-            let ctx = Context::new(
-                addr.clone(),
-                ctx.address().clone(),
-                ctx.stop_token.child_token(),
-            );
-            tokio::spawn(async move {
+            let ctx = Context::new(addr.clone(), ctx.address().clone(), stop_token);
+            let task = async move {
                 MessageLoop::new(actor, receiver, ctx).run().await;
-            });
+            };
+            // This function called in the `ActionDispatcher::dispatch()`
+            // where the `ActionDispatcher::span` has been entered.
+            tokio::spawn(task.in_current_span());
             addr
         }
     }
