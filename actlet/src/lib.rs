@@ -76,12 +76,10 @@ impl Spawn for System {
     where
         A: Actor,
     {
-        let call = self.span.in_scope(|| {
-            // `ActionDispatcher::new()` will be called in the `Address::call()`
-            // and the current span will be set to the `ActionDispatcher::span`.
-            self.addr.call(promoter::Spawn(actor)).in_current_span()
-        });
-        call.await.expect("Promoter died?")
+        self.addr
+            .call(promoter::Spawn(actor))
+            .await
+            .expect("Promoter died?")
     }
 
     fn spawn_task<F>(&self, fut: F) -> CancellationToken
@@ -304,7 +302,7 @@ where
     async fn emit(&self, msg: M) {
         let dispatcher = Box::new(SignalDispatcher::new(msg));
         if let Err(_) = self.sender.send(dispatcher).await {
-            tracing::warn!(actor = type_name::<A>(), "Stopped");
+            tracing::warn!(actor = type_name::<A>(), message = type_name::<M>(), "Stopped");
         }
     }
 
@@ -321,13 +319,13 @@ where
                 let sender = self.sender.clone();
                 let task = async move {
                     if let Err(_) = sender.send(dispatcher).await {
-                        tracing::warn!(actor = type_name::<A>(), "Stopped");
+                        tracing::warn!(actor = type_name::<A>(), message = type_name::<M>(), "Stopped");
                     }
                 };
                 tokio::spawn(task.in_current_span());
             }
             Err(TrySendError::Closed(_)) => {
-                tracing::warn!(actor = type_name::<A>(), "Stopped");
+                tracing::warn!(actor = type_name::<A>(), message = type_name::<M>(), "Stopped");
             }
         }
     }
@@ -687,23 +685,30 @@ where
 mod promoter {
     use super::*;
 
-    pub(crate) struct Promoter;
+    pub(crate) struct Promoter {
+        system_span: Span,
+    }
 
-    pub(crate) fn spawn(stop_token: CancellationToken, span: Span) -> Address<Promoter> {
+    pub(crate) fn spawn(stop_token: CancellationToken, system_span: Span) -> Address<Promoter> {
         let (addr, receiver) = Address::pair();
         let context = Context::new(addr.clone(), addr.clone(), stop_token);
-        let task = async move {
-            MessageLoop::new(Promoter::new(), receiver, context)
-                .run()
-                .await;
+        let task = {
+            let span = system_span.clone();
+            async move {
+                MessageLoop::new(Promoter::new(span), receiver, context)
+                    .run()
+                    .await;
+            }
         };
-        tokio::spawn(task.instrument(span));
+        tokio::spawn(task.instrument(system_span));
         addr
     }
 
     impl Promoter {
-        fn new() -> Self {
-            Promoter
+        fn new(system_span: Span) -> Self {
+            Promoter {
+                system_span,
+            }
         }
 
         fn spawn<A>(&self, actor: A, ctx: &mut Context<Self>) -> Address<A>
@@ -718,7 +723,9 @@ mod promoter {
             };
             // This function called in the `ActionDispatcher::dispatch()`
             // where the `ActionDispatcher::span` has been entered.
-            tokio::spawn(task.in_current_span());
+            // However, every actor lives in the actor system.  So, the
+            // main loop should be executed in the system span.
+            tokio::spawn(task.instrument(self.system_span.clone()));
             addr
         }
     }
