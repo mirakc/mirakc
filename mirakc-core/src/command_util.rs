@@ -37,8 +37,7 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
         .map(|nanos| Duration::from_nanos(nanos))
         .unwrap_or(COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT);
     tracing::debug!(
-        parent: None,
-        MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS = %humantime::format_duration(nanos),
+        COMMAND_PIPELINE_TERMINATION_WAIT_NANOS = %humantime::format_duration(nanos),
     );
     nanos
 });

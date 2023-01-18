@@ -7,6 +7,7 @@ use tokio::io::AsyncReadExt;
 
 #[cfg(test)]
 use serde::Serialize;
+use tracing::Instrument;
 
 use crate::command_util;
 use crate::config::ChannelConfig;
@@ -98,7 +99,7 @@ where
 
         let (input, mut output) = pipeline.take_endpoints();
 
-        let handle = tokio::spawn(stream.pipe(input));
+        let handle = tokio::spawn(stream.pipe(input).in_current_span());
 
         let mut buf = Vec::new();
         output.read_to_end(&mut buf).await?;

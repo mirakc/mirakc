@@ -6,6 +6,7 @@ use std::time::Instant;
 use actlet::prelude::*;
 use chrono::DateTime;
 use chrono_jst::Jst;
+use once_cell::sync::Lazy;
 
 use crate::config::Config;
 use crate::epg::clock_synchronizer::ClockSynchronizer;
@@ -389,7 +390,7 @@ static EPG_FRESH_PERIOD: Lazy<Option<std::time::Duration>> = Lazy::new(|| {
         .ok()
         .map(|s| humantime::parse_duration(&s).ok())
         .flatten();
-    tracing::debug!(MIRAKC_EPG_FRESH_PERIOD = ?period);
+    tracing::debug!(EPG_FRESH_PERIOD = ?period);
     period
 });
 

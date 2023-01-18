@@ -5,6 +5,7 @@ use std::sync::Arc;
 use actlet::prelude::*;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
+use tracing::Instrument;
 
 use crate::command_util;
 use crate::config::Config;
@@ -193,7 +194,7 @@ where
 
         let (input, output) = pipeline.take_endpoints();
 
-        let handle = tokio::spawn(stream.pipe(input));
+        let handle = tokio::spawn(stream.pipe(input).in_current_span());
 
         let mut reader = BufReader::new(output);
         let mut json = String::new();

@@ -28,9 +28,7 @@ static SLEEP_MS: Lazy<Duration> = Lazy::new(|| {
         })
         .map(|ms| Duration::from_millis(ms))
         .unwrap_or(SLEEP_MS_DEFAULT);
-    tracing::debug!(
-        parent: None,
-        MIRAKC_BROADCASTER_SLEEP_MS = %humantime::format_duration(ms),
+    tracing::debug!(SLEEP_MS = %humantime::format_duration(ms),
     );
     ms
 });

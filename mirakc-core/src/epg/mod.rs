@@ -23,7 +23,6 @@ use chrono_jst::serde::ts_milliseconds_option;
 use chrono_jst::Jst;
 use indexmap::IndexMap;
 use itertools::Itertools;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 use serde::Serialize;
 

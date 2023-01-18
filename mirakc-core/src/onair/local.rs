@@ -6,6 +6,7 @@ use actlet::prelude::*;
 use chrono_jst::Jst;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
+use tracing::Instrument;
 
 use crate::config::LocalOnairProgramTrackerConfig;
 use crate::epg::EitSection;
@@ -210,7 +211,7 @@ where
         let cmd = template.render_data_to_string(&data)?;
         let mut pipeline = crate::command_util::spawn_pipeline(vec![cmd], stream.id(), "onair")?;
         let (input, output) = pipeline.take_endpoints();
-        let handle = tokio::spawn(stream.pipe(input));
+        let handle = tokio::spawn(stream.pipe(input).in_current_span());
 
         let mut changed = false;
         let mut reader = BufReader::new(output);

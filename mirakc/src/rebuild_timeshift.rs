@@ -58,7 +58,7 @@ pub async fn main(config: Arc<config::Config>, opt: Opt) {
         return;
     }
 
-    rebuild(&config, &opt, segments).await;
+    rebuild_all(&config, &opt, segments).await;
     let elapsed = start_time.elapsed();
     tracing::info!(elapsed = %humantime::format_duration(elapsed), "Done");
 }
@@ -108,21 +108,25 @@ fn validate(config: &config::Config, opt: &Opt) {
     }
 }
 
+#[tracing::instrument(level = "info", skip_all)]
 fn scan(opt: &Opt) -> Vec<Segment> {
-    Scanner::default().scan(opt)
+    let start_time = Instant::now();
+    let segments = Scanner::default().scan(opt);
+    let elapsed = start_time.elapsed();
+    tracing::debug!(elapsed = %humantime::format_duration(elapsed));
+    segments
 }
 
-async fn rebuild(config: &config::Config, opt: &Opt, segments: Vec<Segment>) {
+async fn rebuild_all(config: &config::Config, opt: &Opt, segments: Vec<Segment>) {
     for segment in segments.into_iter() {
-        let start_time = Instant::now();
-        rebuild_segment(config, opt, segment).await;
-        let elapsed = start_time.elapsed();
-        tracing::debug!(rebuild_segment.elapsed = %humantime::format_duration(elapsed));
+        rebuild(config, opt, segment).await;
     }
 }
 
-async fn rebuild_segment(config: &config::Config, opt: &Opt, segment: Segment) {
-    tracing::info!("Rebuilding {:?}...", segment);
+#[tracing::instrument(level = "info", skip_all, fields(?segment))]
+async fn rebuild(config: &config::Config, opt: &Opt, segment: Segment) {
+    tracing::info!("Rebuilding...");
+    let start_time = Instant::now();
     let tempdir = TempDir::new().unwrap();
     let script = create_tuner_script(opt, tempdir.path(), &segment);
     let config = create_config(config, opt, &script);
@@ -131,6 +135,8 @@ async fn rebuild_segment(config: &config::Config, opt: &Opt, segment: Segment) {
         tracing::warn!("Canceled");
         std::process::exit(1);
     }
+    let elapsed = start_time.elapsed();
+    tracing::debug!(elapsed = %humantime::format_duration(elapsed));
 }
 
 fn create_tuner_script(opt: &Opt, tempdir: &Path, segment: &Segment) -> PathBuf {
@@ -222,7 +228,7 @@ async fn do_recording(config: Arc<config::Config>) -> bool {
         }
     };
 
-    system.stop();
+    system.shutdown().await;
 
     ok
 }
