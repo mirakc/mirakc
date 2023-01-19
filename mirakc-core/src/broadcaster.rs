@@ -405,7 +405,7 @@ where
                 }
                 Ok(cap) => {
                     if cap > Broadcaster::MAX_CHUNKS / 8 {
-                        return Some(cap)
+                        return Some(cap);
                     } else {
                         // Wait
                     }
