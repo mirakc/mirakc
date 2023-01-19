@@ -36,10 +36,13 @@ static SLEEP_MS: Lazy<Duration> = Lazy::new(|| {
 struct Subscriber {
     id: SubscriberId,
     sender: Option<mpsc::Sender<Bytes>>,
+    // Start dropping chunks if the stuck time exceeds this value.
     max_stuck_time: Duration,
     stuck_start_time: Option<Instant>,
-    // Used for suppressing noisy logs.
-    drop_count: usize,
+    // NOT the total number of dropped bytes.
+    // Used for suppressing noisy logs and reporting the number of bytes dropped
+    // while streaming stopped.
+    dropped_bytes: Option<usize>,
 }
 
 impl Subscriber {
@@ -49,7 +52,7 @@ impl Subscriber {
             sender: Some(sender),
             max_stuck_time,
             stuck_start_time: None,
-            drop_count: 0,
+            dropped_bytes: None,
         }
     }
 }
@@ -79,14 +82,17 @@ impl Broadcaster {
         }
     }
 
-    fn bind_stream<R>(&mut self, src: R, ctx: &mut Context<Self>)
+    fn bind_stream<R>(&mut self, reader: R, ctx: &mut Context<Self>)
     where
         R: AsyncRead + Send + Unpin + 'static,
     {
         assert!(!self.stream_bounded);
         let id = self.id.clone();
         let addr = ctx.address().clone();
-        ctx.spawn_task(process_input_stream(src, id, addr));
+        let task = async move {
+            ChunkSource::new(reader, id, addr).feed_chunks().await;
+        };
+        ctx.spawn_task(task);
         self.stream_bounded = true;
     }
 
@@ -120,31 +126,32 @@ impl Broadcaster {
         for subscriber in active_subscribers {
             match subscriber.sender.as_ref().unwrap().try_send(chunk.clone()) {
                 Ok(_) => {
+                    if let Some(dropped_bytes) = subscriber.dropped_bytes {
+                        tracing::trace!(
+                            broadcaster.id = %self.id,
+                            %subscriber.id,
+                            dropped_bytes,
+                        );
+                        subscriber.dropped_bytes = None;
+                    }
                     tracing::trace!(
                         broadcaster.id = %self.id,
                         %subscriber.id,
-                        chunk.size = chunk_size,
-                        "Sent the chunk"
+                        chunk.size = chunk_size
                     );
-                    subscriber.drop_count = 0;
                 }
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    match subscriber.drop_count {
-                        0..=4 => tracing::warn!(
+                Err(mpsc::error::TrySendError::Full(chunk)) => {
+                    if let Some(dropped_bytes) = subscriber.dropped_bytes {
+                        // `subscriber.dropped_bytes` might overflow.
+                        subscriber.dropped_bytes = Some(dropped_bytes + chunk.len());
+                    } else {
+                        tracing::warn!(
                             broadcaster.id = %self.id,
                             %subscriber.id,
-                            chunk.size = chunk_size,
-                            "No space, drop the chunk"
-                        ),
-                        5 => tracing::warn!(
-                            broadcaster.id = %self.id,
-                            %subscriber.id,
-                            chunk.size = chunk_size,
-                            "No space, drop the chunk (suppressed)"
-                        ),
-                        _ => (),
+                            "No space, drop chunks for a while"
+                        );
+                        subscriber.dropped_bytes = Some(chunk.len());
                     }
-                    subscriber.drop_count += 0;
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
                     tracing::debug!(
@@ -348,107 +355,138 @@ impl Handler<StreamEnded> for Broadcaster {
     }
 }
 
-// input stream
+// chunk source
 
-async fn process_input_stream<R>(mut src: R, id: BroadcasterId, addr: Address<Broadcaster>)
+struct ChunkSource<R> {
+    reader: R,
+    id: BroadcasterId,
+    addr: Address<Broadcaster>,
+}
+
+impl<R> ChunkSource<R>
 where
     R: AsyncRead + Send + Unpin + 'static,
 {
-    loop {
-        let mut cap = match check_capacity(&id, &addr).await {
-            Some(cap) => cap,
-            None => return,
-        };
+    fn new(reader: R, id: BroadcasterId, addr: Address<Broadcaster>) -> Self {
+        ChunkSource { reader, id, addr }
+    }
 
-        while cap > 0 {
-            // Allocate a new chunk each time.
-            // It will be sent to the broadcaster and shared with subscribers.
-            // It will be freed when no subscriber uses it anymore.
-            let mut chunk = BytesMut::with_capacity(Broadcaster::CHUNK_SIZE);
-            // Fill the chunk with bytes as many as possible in order to avoid
-            // a situation that a subscriber's queue is filled with small
-            // chunks.
-            match fill_chunk(&mut src, &mut chunk).await {
-                Ok(0) => {
-                    tracing::debug!(
-                        broadcaster.id = %id,
-                        "EOF, unbind stream"
-                    );
-                    addr.emit(StreamEnded).await;
+    async fn feed_chunks(&mut self) {
+        loop {
+            let mut cap = match self.check_capacity().await {
+                Some(cap) => cap,
+                None => return,
+            };
+            while cap > 0 {
+                let stop = self.feed_chunk().await;
+                if stop {
                     return;
                 }
-                Ok(_) => {
-                    let chunk = chunk.freeze();
-                    if let Err(err) = addr.call(Broadcast(chunk)).await {
-                        tracing::error!(
-                            %err,
-                            broadcaster.id = %id,
-                            "Broadcaster stopped"
+                cap -= 1;
+            }
+        }
+    }
+
+    // Some of TS packets outside mirakc may be lost while waiting.
+    async fn check_capacity(&mut self) -> Option<usize> {
+        let mut waiting = false;
+        loop {
+            match self.addr.call(MinCapacity).await {
+                Ok(0) => {
+                    // At least one buffer for a subscriber is full.
+                    if !waiting {
+                        tracing::debug!(
+                            broadcaster.id = %self.id,
+                            "No space, wait for a while"
                         );
-                        return;
+                        waiting = true;
+                    }
+                    tokio::time::sleep(*SLEEP_MS).await;
+                }
+                Ok(cap) => {
+                    if cap > Broadcaster::MAX_CHUNKS / 8 {
+                        return Some(cap)
+                    } else {
+                        // Wait
                     }
                 }
                 Err(err) => {
+                    // Normally this error does not happen.
+                    // An abnormal termination of the broadcaster might cause
+                    // this error.
                     tracing::error!(
                         %err,
-                        broadcaster.id = %id,
-                        "Error, unbind stream"
+                        broadcaster.id = %self.id,
+                        "Broadcaster stopped"
                     );
-                    addr.emit(StreamEnded).await;
-                    return;
+                    return None;
                 }
             }
-            cap -= 1;
         }
     }
-}
 
-async fn check_capacity(id: &BroadcasterId, addr: &Address<Broadcaster>) -> Option<usize> {
-    let mut wait_count = 0;
-    loop {
-        match addr.call(MinCapacity).await {
-            Ok(0) => {
-                match wait_count {
-                    0..=4 => tracing::debug!(
-                        broadcaster.id = %id,
-                        "No space, wait a while"
-                    ),
-                    5 => tracing::debug!(
-                        broadcaster.id = %id,
-                        "No space, wait a while (suppressed)"
-                    ),
-                    _ => (), // Suppress noisy logs
-                }
-                tokio::time::sleep(*SLEEP_MS).await;
-                wait_count += 1;
-                continue;
+    async fn feed_chunk(&mut self) -> bool {
+        match self.read_chunk().await {
+            Ok(None) => {
+                tracing::debug!(
+                    broadcaster.id = %self.id,
+                    "EOF, unbind stream"
+                );
+                self.addr.emit(StreamEnded).await;
+                return true;
             }
-            Ok(cap) => return Some(cap),
+            Ok(Some(chunk)) => {
+                if let Err(err) = self.addr.call(Broadcast(chunk)).await {
+                    // Normally this error does not happen.
+                    // An abnormal termination of the broadcaster might cause
+                    // this error.
+                    tracing::error!(
+                        %err,
+                        broadcaster.id = %self.id,
+                        "Broadcaster stopped"
+                    );
+                    return true;
+                }
+            }
             Err(err) => {
                 tracing::error!(
                     %err,
-                    broadcaster.id = %id,
-                    "Broadcaster stopped"
+                    broadcaster.id = %self.id,
+                    "Error, unbind stream"
                 );
-                return None;
+                self.addr.emit(StreamEnded).await;
+                return true;
             }
         }
+        false // continue
     }
-}
 
-async fn fill_chunk<R>(src: &mut R, chunk: &mut BytesMut) -> io::Result<usize>
-where
-    R: AsyncRead + Send + Unpin + 'static,
-{
-    loop {
-        assert!(chunk.capacity() > chunk.len());
-        match src.read_buf(chunk).await? {
-            0 => break,                                    // EOF
-            _ if chunk.capacity() == chunk.len() => break, // Filled
-            _ => (),                                       // continue
+    async fn read_chunk(&mut self) -> io::Result<Option<Bytes>> {
+        fn is_full(chunk: &BytesMut) -> bool {
+            chunk.capacity() == chunk.len()
+        }
+
+        // Allocate a new chunk each time.
+        // It will be sent to the broadcaster and shared with subscribers.
+        // It will be freed when no subscriber uses it anymore.
+        let mut chunk = BytesMut::with_capacity(Broadcaster::CHUNK_SIZE);
+
+        // Fill the chunk with bytes as many as possible in order to avoid
+        // a situation that a subscriber's queue is filled with small chunks.
+        loop {
+            assert!(!is_full(&chunk));
+            match self.reader.read_buf(&mut chunk).await? {
+                0 => break,                    // EOF
+                _ if is_full(&chunk) => break, // Filled
+                _ => (),                       // continue
+            }
+        }
+        if chunk.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(chunk.freeze()))
         }
     }
-    Ok(chunk.len())
 }
 
 // broadcaster stream
