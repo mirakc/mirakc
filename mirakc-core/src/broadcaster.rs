@@ -647,7 +647,7 @@ mod tests {
             let chunk = stream1.next().await;
             assert!(chunk.is_some());
 
-            tokio::time::sleep(Duration::from_millis(51)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             let result = broadcaster.call(Broadcast(Bytes::from("hello"))).await;
             assert!(result.is_err());
 
