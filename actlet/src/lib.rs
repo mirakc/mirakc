@@ -101,6 +101,9 @@ impl Spawn for System {
 
 /// An actor execution context.
 pub struct Context<A> {
+    // An actor execution context owns an address of the actor and this prevents
+    // the actor from stopping even if external modules release addresses of the
+    // actor.
     own_addr: Address<A>,
     promoter_addr: Address<promoter::Promoter>,
     stop_token: CancellationToken,
