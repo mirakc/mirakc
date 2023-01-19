@@ -23,13 +23,15 @@ use tempfile::TempDir;
 use tokio::signal::unix::signal;
 use tokio::signal::unix::SignalKind;
 
+const MIN_CHUNKS: u64 = 3;
+
 #[derive(Args)]
 pub struct Opt {
     /// Stop after the scan phase.
     #[arg(long)]
     scan_only: bool,
 
-    /// Chunk size.
+    /// Chunk size of `TS_FILE`.
     #[arg(long, default_value = "154009600")]
     chunk_size: u64,
 
@@ -40,7 +42,25 @@ pub struct Opt {
     /// Target recorder name defined in config.yml.
     recorder: String,
 
-    /// Path to a TS file.
+    /// Path to a TS file used for rebuilding timeshift files for `RECORDER`.
+    ///
+    /// At least 3 chunks has to be contained in the TS file.
+    ///
+    /// Chunks in the TS file are divided into segments.  A segment consists of
+    /// chronologically continuous chunks.  Then, a timeshift recording is
+    /// performed for each segment.  While timeshift recording, a segment is
+    /// used as a source of TS packets.
+    ///
+    /// Some of chunks will be dropped while rebuilding in the following reasons:
+    ///
+    ///   * The first chunk in the first segment or the last chunk in the last
+    ///     segment may contain garbage
+    ///
+    ///   * The size of the last chunk in a segment is less than the chunk size
+    ///     defined in config.yml
+    ///
+    /// In addition, some of bytes will be dropped due to TS packet resync.
+    #[arg(verbatim_doc_comment)]
     ts_file: PathBuf,
 }
 
@@ -251,8 +271,8 @@ impl Scanner {
         }
 
         let num_chunks = ts_file_size / opt.chunk_size;
-        if num_chunks < 3 {
-            tracing::warn!("At least 3 chunks are needed for rebuilding");
+        if num_chunks < MIN_CHUNKS {
+            tracing::warn!("At least {MIN_CHUNKS} chunks are needed for the rebuild");
             return vec![];
         }
 

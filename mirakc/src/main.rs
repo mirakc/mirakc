@@ -16,7 +16,7 @@ struct Opt {
     /// specified.  Its value has to be an absolute path.
     ///
     /// See docs/config.md for details of the YAML format.
-    #[arg(short, long, env = "MIRAKC_CONFIG")]
+    #[arg(short, long, env = "MIRAKC_CONFIG", verbatim_doc_comment)]
     config: PathBuf,
 
     /// Logging format.
