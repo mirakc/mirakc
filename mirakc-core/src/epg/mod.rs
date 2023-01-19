@@ -225,7 +225,9 @@ impl<T> Epg<T> {
                 tracing::info!(services.len = self.services.len(), "Loaded services");
             }
             None => {
-                tracing::warn!("No epg.cache-dir specified, skip to load services.json");
+                if !crate::timeshift::is_rebuild_mode() {
+                    tracing::warn!("No epg.cache-dir specified, skip to load services.json");
+                }
             }
         }
         Ok(())
@@ -254,7 +256,9 @@ impl<T> Epg<T> {
                 tracing::info!(clocks.len = self.clocks.len(), "Loaded clocks");
             }
             None => {
-                tracing::warn!("No epg.cache-dir specified, skip to load clocks.json");
+                if !crate::timeshift::is_rebuild_mode() {
+                    tracing::warn!("No epg.cache-dir specified, skip to load clocks.json");
+                }
             }
         }
         Ok(())
@@ -291,7 +295,9 @@ impl<T> Epg<T> {
                 tracing::info!(schedules.len = self.schedules.len(), "Loaded schedules");
             }
             None => {
-                tracing::warn!("No epg.cache-dir specified, skip to load schedules.json");
+                if !crate::timeshift::is_rebuild_mode() {
+                    tracing::warn!("No epg.cache-dir specified, skip to load schedules.json");
+                }
             }
         }
         Ok(())
@@ -314,7 +320,9 @@ impl<T> Epg<T> {
                 tracing::info!(services.len = self.services.len(), "Saved services");
             }
             None => {
-                tracing::warn!("No epg.cache-dir specified, skip to save services");
+                if !crate::timeshift::is_rebuild_mode() {
+                    tracing::warn!("No epg.cache-dir specified, skip to save services");
+                }
             }
         }
         Ok(())
@@ -337,7 +345,9 @@ impl<T> Epg<T> {
                 tracing::info!(clocks.len = self.clocks.len(), "Saved clocks");
             }
             None => {
-                tracing::warn!("No epg.cache-dir specified, skip to save clocks");
+                if !crate::timeshift::is_rebuild_mode() {
+                    tracing::warn!("No epg.cache-dir specified, skip to save clocks");
+                }
             }
         }
         Ok(())
@@ -360,7 +370,9 @@ impl<T> Epg<T> {
                 tracing::info!(schedules.len = self.schedules.len(), "Saved schedules");
             }
             None => {
-                tracing::warn!("No epg.cache-dir specified, skip to save schedules");
+                if !crate::timeshift::is_rebuild_mode() {
+                    tracing::warn!("No epg.cache-dir specified, skip to save schedules");
+                }
             }
         }
         Ok(())

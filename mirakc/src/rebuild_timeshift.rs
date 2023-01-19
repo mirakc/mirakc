@@ -49,6 +49,8 @@ pub async fn main(config: Arc<config::Config>, opt: Opt) {
 
     validate(&config, &opt);
 
+    std::env::set_var("MIRAKC_REBUILD_TIMESHIFT", "1");
+
     let segments = scan(&opt);
     if segments.is_empty() {
         tracing::warn!("You can simply remove data-file and restart timeshift recording");
@@ -200,7 +202,7 @@ async fn do_recording(config: Arc<config::Config>) -> bool {
         .await;
 
     let timeshift_manager = system
-        .spawn_actor(timeshift::TimeshiftManager::new_for_rebuild(
+        .spawn_actor(timeshift::TimeshiftManager::new(
             config.clone(),
             tuner_manager.clone(),
             epg.clone(),

@@ -35,6 +35,13 @@ use crate::models::*;
 use crate::mpeg_ts_stream::*;
 use crate::tuner::*;
 
+pub fn is_rebuild_mode() -> bool {
+    match std::env::var_os("MIRAKC_REBUILD_TIMESHIFT") {
+        Some(v) => v == "1",
+        None => false,
+    }
+}
+
 // timeshift manager
 
 type TimeshiftLiveStream = MpegTsStream<String, ReaderStream<TimeshiftFileReader>>;
@@ -45,7 +52,6 @@ pub struct TimeshiftManager<T, E> {
     tuner_manager: T,
     epg: E,
     recorders: IndexMap<String, TimeshiftManagerRecorderHolder>,
-    rebuild_mode: bool,
 }
 
 struct TimeshiftManagerRecorderHolder {
@@ -61,17 +67,6 @@ impl<T, E> TimeshiftManager<T, E> {
             tuner_manager,
             epg,
             recorders: IndexMap::new(),
-            rebuild_mode: false,
-        }
-    }
-
-    pub fn new_for_rebuild(config: Arc<Config>, tuner_manager: T, epg: E) -> Self {
-        TimeshiftManager {
-            config,
-            tuner_manager,
-            epg,
-            recorders: IndexMap::new(),
-            rebuild_mode: true,
         }
     }
 }
@@ -86,7 +81,7 @@ where
     E: Call<RegisterEmitter>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!(rebuild_mode = self.rebuild_mode, "Started");
+        tracing::debug!("Started");
 
         self.epg
             .call(RegisterEmitter::ServicesUpdated(
@@ -381,7 +376,7 @@ where
     async fn handle(&mut self, msg: ReactivateTimeshiftRecorder, ctx: &mut Context<Self>) {
         const MAX_REACTIVATION_COUNT: usize = 5;
 
-        if self.rebuild_mode {
+        if is_rebuild_mode() {
             tracing::info!("Finished rebuilding a segment");
             ctx.stop();
             return;
@@ -897,7 +892,10 @@ impl Actor for TimeshiftRecorder {
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        self.deactivate();
+        // The session may be inactive.
+        if self.session.is_some() {
+            self.deactivate();
+        }
         tracing::debug!(recorder.name = self.name, "Stopped");
     }
 }
@@ -1117,10 +1115,12 @@ impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
             }
             TimeshiftRecorderMessage::Finish => {
                 if self.session.is_some() {
-                    tracing::error!(
-                        recorder.name = self.name,
-                        "Recording pipeline broken, reactivate"
-                    );
+                    if !is_rebuild_mode() {
+                        tracing::error!(
+                            recorder.name = self.name,
+                            "Recording pipeline broken, reactivate"
+                        );
+                    }
                     self.deactivate();
                     self.activator
                         .emit(ReactivateTimeshiftRecorder {
