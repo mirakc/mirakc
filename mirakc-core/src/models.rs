@@ -273,7 +273,7 @@ impl EpgGenre {
 
 // user
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TunerUserInfo {
     Job { name: String },
     OnairProgramTracker(String),
@@ -282,6 +282,14 @@ pub enum TunerUserInfo {
 }
 
 impl TunerUserInfo {
+    // Used for suppressing noisy logs.
+    fn is_short_term_user(&self) -> bool {
+        match self {
+            Self::OnairProgramTracker(_) => true,
+            _ => false,
+        }
+    }
+
     fn max_stuck_time(&self) -> std::time::Duration {
         match self {
             Self::Web { .. } => std::time::Duration::from_secs(1),
@@ -339,13 +347,17 @@ impl fmt::Display for TunerUserPriority {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TunerUser {
     pub info: TunerUserInfo,
     pub priority: TunerUserPriority,
 }
 
 impl TunerUser {
+    pub fn is_short_term_user(&self) -> bool {
+        self.info.is_short_term_user()
+    }
+
     pub fn max_stuck_time(&self) -> std::time::Duration {
         self.info.max_stuck_time()
     }
