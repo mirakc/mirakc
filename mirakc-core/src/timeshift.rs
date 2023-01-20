@@ -189,25 +189,10 @@ pub enum TimeshiftRecorderQuery {
     ByName(String),
 }
 
-impl fmt::Display for TimeshiftRecorderQuery {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            TimeshiftRecorderQuery::ByIndex(index) => write!(f, "index({})", index),
-            TimeshiftRecorderQuery::ByName(ref name) => write!(f, "name({})", name),
-        }
-    }
-}
-
 #[derive(Message)]
 #[reply("Result<TimeshiftRecorderModel, Error>")]
 pub struct QueryTimeshiftRecorder {
     pub recorder: TimeshiftRecorderQuery,
-}
-
-impl fmt::Display for QueryTimeshiftRecorder {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryTimeshiftRecorder: recorder={}", self.recorder)
-    }
 }
 
 impl_proxy_handler!(QueryTimeshiftRecorder);
@@ -216,12 +201,6 @@ impl_proxy_handler!(QueryTimeshiftRecorder);
 #[reply("Result<Vec<TimeshiftRecordModel>, Error>")]
 pub struct QueryTimeshiftRecords {
     pub recorder: TimeshiftRecorderQuery,
-}
-
-impl fmt::Display for QueryTimeshiftRecords {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "QueryTimeshiftRecords: recoder={}", self.recorder)
-    }
 }
 
 impl_proxy_handler!(QueryTimeshiftRecords);
@@ -233,16 +212,6 @@ pub struct QueryTimeshiftRecord {
     pub record_id: TimeshiftRecordId,
 }
 
-impl fmt::Display for QueryTimeshiftRecord {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "QueryTimeshiftRecord: recoder={} record_id={}",
-            self.recorder, self.record_id
-        )
-    }
-}
-
 impl_proxy_handler!(QueryTimeshiftRecord);
 
 #[derive(Message)]
@@ -250,27 +219,6 @@ impl_proxy_handler!(QueryTimeshiftRecord);
 pub struct CreateTimeshiftLiveStreamSource {
     pub recorder: TimeshiftRecorderQuery,
     pub record_id: Option<TimeshiftRecordId>,
-}
-
-impl fmt::Display for CreateTimeshiftLiveStreamSource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.record_id {
-            Some(id) => {
-                write!(
-                    f,
-                    "CreateTimeshiftLiveStreamSource: recoder={} record_id={}",
-                    self.recorder, id
-                )
-            }
-            None => {
-                write!(
-                    f,
-                    "CreateTimeshiftLiveStreamSource: recorder={}",
-                    self.recorder
-                )
-            }
-        }
-    }
 }
 
 impl_proxy_handler!(CreateTimeshiftLiveStreamSource);
@@ -281,28 +229,6 @@ pub struct CreateTimeshiftRecordStreamSource {
     pub recorder: TimeshiftRecorderQuery,
     pub record_id: TimeshiftRecordId,
     pub start_pos: Option<u64>,
-}
-
-impl fmt::Display for CreateTimeshiftRecordStreamSource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.start_pos {
-            Some(pos) => {
-                write!(
-                    f,
-                    "CreateTimeshiftRecordStreamSource: \
-                           recorder={} record_id={} start_pos={}",
-                    self.recorder, self.record_id, pos
-                )
-            }
-            None => {
-                write!(
-                    f,
-                    "CreateTimeshiftRecordStreamSource: recorder={} record_id={}",
-                    self.recorder, self.record_id
-                )
-            }
-        }
-    }
 }
 
 impl_proxy_handler!(CreateTimeshiftRecordStreamSource);
