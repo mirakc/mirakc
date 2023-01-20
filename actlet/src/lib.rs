@@ -276,7 +276,7 @@ where
                 Err(_) => {
                     tracing::error!(
                         actor = type_name::<A>(),
-                        message = type_name::<M>(),
+                        msg = type_name::<M>(),
                         "Recv failed"
                     );
                     Err(Error::Recv)
@@ -285,7 +285,7 @@ where
             Err(_) => {
                 tracing::error!(
                     actor = type_name::<A>(),
-                    message = type_name::<M>(),
+                    msg = type_name::<M>(),
                     "Send failed"
                 );
                 Err(Error::Send)
@@ -305,11 +305,7 @@ where
     async fn emit(&self, msg: M) {
         let dispatcher = Box::new(SignalDispatcher::new(msg));
         if let Err(_) = self.sender.send(dispatcher).await {
-            tracing::warn!(
-                actor = type_name::<A>(),
-                message = type_name::<M>(),
-                "Stopped"
-            );
+            tracing::warn!(actor = type_name::<A>(), msg = type_name::<M>(), "Stopped");
         }
     }
 
@@ -326,21 +322,13 @@ where
                 let sender = self.sender.clone();
                 let task = async move {
                     if let Err(_) = sender.send(dispatcher).await {
-                        tracing::warn!(
-                            actor = type_name::<A>(),
-                            message = type_name::<M>(),
-                            "Stopped"
-                        );
+                        tracing::warn!(actor = type_name::<A>(), msg = type_name::<M>(), "Stopped");
                     }
                 };
                 tokio::spawn(task.in_current_span());
             }
             Err(TrySendError::Closed(_)) => {
-                tracing::warn!(
-                    actor = type_name::<A>(),
-                    message = type_name::<M>(),
-                    "Stopped"
-                );
+                tracing::warn!(actor = type_name::<A>(), msg = type_name::<M>(), "Stopped");
             }
         }
     }
@@ -629,7 +617,7 @@ where
             if sender.send(reply).is_err() {
                 tracing::error!(
                     actor = type_name::<A>(),
-                    message = type_name::<M>(),
+                    msg = type_name::<M>(),
                     "Reply failed"
                 );
             }
