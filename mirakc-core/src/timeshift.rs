@@ -586,7 +586,7 @@ impl TimeshiftRecorder {
             return;
         }
 
-        tracing::info!(
+        tracing::debug!(
             recorder.name = self.name,
             records.len = records.len(),
             "Saved records successfully",
@@ -752,9 +752,9 @@ impl TimeshiftRecorder {
             Some(record) => {
                 record.update(program, point, end);
                 if end {
-                    tracing::debug!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record ended");
+                    tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record ended");
                 } else {
-                    tracing::debug!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record updated");
+                    tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record updated");
                 }
             }
             None => {
