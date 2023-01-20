@@ -62,7 +62,7 @@ pub struct Broadcaster {
     subscribers: Vec<Subscriber>,
     time_limit: Duration,
     last_received: Instant,
-    stream_bounded: bool,
+    stream_bound: bool,
 }
 
 impl Broadcaster {
@@ -78,7 +78,7 @@ impl Broadcaster {
             subscribers: Vec::new(),
             time_limit: Duration::from_millis(time_limit),
             last_received: Instant::now(),
-            stream_bounded: false,
+            stream_bound: false,
         }
     }
 
@@ -86,26 +86,29 @@ impl Broadcaster {
     where
         R: AsyncRead + Send + Unpin + 'static,
     {
-        assert!(!self.stream_bounded);
+        assert!(!self.stream_bound);
         let id = self.id.clone();
+        let time_limit = self.time_limit;
         let addr = ctx.address().clone();
         let task = async move {
-            ChunkSource::new(reader, id, addr).feed_chunks().await;
+            ChunkSource::new(reader, id, time_limit, addr)
+                .feed_chunks()
+                .await;
         };
         ctx.spawn_task(task);
-        self.stream_bounded = true;
+        self.stream_bound = true;
     }
 
     fn unbind_stream(&mut self) {
-        assert!(self.stream_bounded);
+        assert!(self.stream_bound);
         for subscriber in self.subscribers.iter_mut() {
             subscriber.sender = None;
         }
-        self.stream_bounded = false;
+        self.stream_bound = false;
     }
 
     fn subscribe(&mut self, id: SubscriberId, max_stuck_time: Duration) -> BroadcasterStream {
-        assert!(self.stream_bounded);
+        assert!(self.stream_bound);
         let (sender, receiver) = mpsc::channel(Self::MAX_CHUNKS);
         self.subscribers
             .push(Subscriber::new(id, sender, max_stuck_time));
@@ -196,35 +199,15 @@ impl Broadcaster {
             .unwrap_or(Self::MAX_CHUNKS)
     }
 
-    fn check_timeout(&mut self) {
-        let elapsed = self.last_received.elapsed();
-        if elapsed > self.time_limit {
-            tracing::error!(
-                broadcaster.id = %self.id,
-                broadcaster.time_limit = %humantime::format_duration(self.time_limit),
-                "No packet came from the tuner within the time limit, stop"
-            );
-            self.unbind_stream();
-        }
-    }
-
     fn is_inactive(&self) -> bool {
-        self.subscribers.is_empty() && !self.stream_bounded
+        self.subscribers.is_empty() && !self.stream_bound
     }
 }
 
 #[async_trait]
 impl Actor for Broadcaster {
-    async fn started(&mut self, ctx: &mut Context<Self>) {
+    async fn started(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!(broadcaster.id = %self.id, "Started");
-        let addr = ctx.address().clone();
-        let mut interval = tokio::time::interval(self.time_limit);
-        ctx.spawn_task(async move {
-            loop {
-                interval.tick().await;
-                addr.emit(CheckTimeout).await;
-            }
-        });
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
@@ -324,19 +307,6 @@ impl Handler<MinCapacity> for Broadcaster {
     }
 }
 
-// check timeout
-
-#[derive(Message)]
-struct CheckTimeout;
-
-#[async_trait]
-impl Handler<CheckTimeout> for Broadcaster {
-    async fn handle(&mut self, _msg: CheckTimeout, _ctx: &mut Context<Self>) {
-        tracing::trace!(broadcaster.id = %self.id, msg.name = "CheckTimeout");
-        self.check_timeout();
-    }
-}
-
 // stream ended
 
 #[derive(Message)]
@@ -346,7 +316,6 @@ pub struct StreamEnded;
 impl Handler<StreamEnded> for Broadcaster {
     async fn handle(&mut self, _msg: StreamEnded, ctx: &mut Context<Self>) {
         tracing::debug!(broadcaster.id = %self.id, msg.name = "StreamEnded");
-        assert!(self.stream_bounded);
         self.unbind_stream();
         if self.is_inactive() {
             tracing::debug!(broadcaster.id = %self.id, "Inactive, stop");
@@ -357,30 +326,53 @@ impl Handler<StreamEnded> for Broadcaster {
 
 // chunk source
 
-struct ChunkSource<R> {
+struct ChunkSource<R, B> {
     reader: R,
     id: BroadcasterId,
-    addr: Address<Broadcaster>,
+    time_limit: Duration,
+    broadcaster: B,
 }
 
-impl<R> ChunkSource<R>
+impl<R, B> ChunkSource<R, B>
 where
     R: AsyncRead + Send + Unpin + 'static,
+    B: Send + Sync + 'static,
+    B: Call<Broadcast>,
+    B: Call<MinCapacity>,
+    B: Emit<StreamEnded>,
 {
-    fn new(reader: R, id: BroadcasterId, addr: Address<Broadcaster>) -> Self {
-        ChunkSource { reader, id, addr }
+    fn new(reader: R, id: BroadcasterId, time_limit: Duration, broadcaster: B) -> Self {
+        ChunkSource {
+            reader,
+            id,
+            time_limit,
+            broadcaster,
+        }
     }
 
     async fn feed_chunks(&mut self) {
+        let time_limit = self.time_limit;
         loop {
             let mut cap = match self.check_capacity().await {
                 Some(cap) => cap,
                 None => return,
             };
             while cap > 0 {
-                let stop = self.feed_chunk().await;
-                if stop {
-                    return;
+                tokio::select! {
+                    stop = self.feed_chunk() => {
+                        if stop {
+                            return;
+                        }
+                    }
+                    _ = tokio::time::sleep(time_limit) => {
+                        tracing::error!(
+                            broadcaster.id = %self.id,
+                            broadcaster.time_limit = %humantime::format_duration(time_limit),
+                            "No packet came from the tuner within the time limit, stop streaming"
+                        );
+                        self.broadcaster.emit(StreamEnded).await;
+                        return;
+                    }
                 }
                 cap -= 1;
             }
@@ -391,7 +383,7 @@ where
     async fn check_capacity(&mut self) -> Option<usize> {
         let mut waiting = false;
         loop {
-            match self.addr.call(MinCapacity).await {
+            match self.broadcaster.call(MinCapacity).await {
                 Ok(0) => {
                     // At least one buffer for a subscriber is full.
                     if !waiting {
@@ -432,11 +424,11 @@ where
                     broadcaster.id = %self.id,
                     "EOF, unbind stream"
                 );
-                self.addr.emit(StreamEnded).await;
+                self.broadcaster.emit(StreamEnded).await;
                 return true;
             }
             Ok(Some(chunk)) => {
-                if let Err(err) = self.addr.call(Broadcast(chunk)).await {
+                if let Err(err) = self.broadcaster.call(Broadcast(chunk)).await {
                     // Normally this error does not happen.
                     // An abnormal termination of the broadcaster might cause
                     // this error.
@@ -454,7 +446,7 @@ where
                     broadcaster.id = %self.id,
                     "Error, unbind stream"
                 );
-                self.addr.emit(StreamEnded).await;
+                self.broadcaster.emit(StreamEnded).await;
                 return true;
             }
         }
@@ -522,7 +514,10 @@ impl Stream for BroadcasterStream {
 // <coverage:exclude>
 #[cfg(test)]
 mod tests {
+    use crate::command_util::CommandPipeline;
+
     use super::*;
+    use assert_matches::assert_matches;
     use tokio_stream::StreamExt;
 
     #[tokio::test]
@@ -534,7 +529,7 @@ mod tests {
                 .await;
 
             broadcaster
-                .inspect(|b| b.stream_bounded = true)
+                .inspect(|b| b.stream_bound = true)
                 .await
                 .unwrap();
 
@@ -562,9 +557,18 @@ mod tests {
 
             let chunk = stream1.next().await;
             assert!(chunk.is_some());
+            let chunk = stream1.next().await;
+            assert!(chunk.is_none());
 
             let chunk = stream2.next().await;
             assert!(chunk.is_some());
+            let chunk = stream2.next().await;
+            assert!(chunk.is_none());
+
+            broadcaster
+                .inspect(|actor| assert!(!actor.is_inactive()))
+                .await
+                .unwrap();
         }
         system.stop();
     }
@@ -578,7 +582,7 @@ mod tests {
                 .await;
 
             broadcaster
-                .inspect(|b| b.stream_bounded = true)
+                .inspect(|b| b.stream_bound = true)
                 .await
                 .unwrap();
 
@@ -615,46 +619,103 @@ mod tests {
 
             let chunk = stream2.next().await;
             assert!(chunk.is_some());
+
+            broadcaster
+                .inspect(|actor| assert!(!actor.is_inactive()))
+                .await
+                .unwrap();
+
+            broadcaster
+                .emit(Unsubscribe {
+                    id: SubscriberId::new(Default::default(), 2),
+                })
+                .await;
+
+            // We cannot use Address::inspect() because the previous
+            // `Unsubscribe` message stops the broadcaster.
+            broadcaster.wait().await;
         }
         system.stop();
     }
 
     #[tokio::test]
-    async fn test_timeout() {
-        let system = System::new();
-        {
-            let broadcaster = system
-                .spawn_actor(Broadcaster::new(Default::default(), 50))
-                .await;
+    async fn test_chunk_source_read_chunk() {
+        let mut mock = MockBroadcaster::new();
+        mock.expect_emit().returning(|_| ());
+        let mut chunk_source = ChunkSource::new(
+            tokio::io::empty(),
+            Default::default(),
+            Default::default(),
+            mock,
+        );
+        assert_matches!(chunk_source.read_chunk().await, Ok(None));
 
-            broadcaster
-                .inspect(|b| b.stream_bounded = true)
-                .await
-                .unwrap();
+        let mut mock = MockBroadcaster::new();
+        mock.expect_emit().returning(|_| ());
+        let mut chunk_source = ChunkSource::new(
+            tokio::io::repeat(0xAB),
+            Default::default(),
+            Default::default(),
+            mock,
+        );
+        assert_matches!(chunk_source.read_chunk().await, Ok(Some(chunk)) => {
+            assert_eq!(chunk.len(), Broadcaster::CHUNK_SIZE);
+        });
+    }
 
-            let mut stream1 = broadcaster
-                .call(Subscribe {
-                    id: SubscriberId::new(Default::default(), 1),
-                    max_stuck_time: Default::default(),
-                })
-                .await
-                .unwrap();
+    #[tokio::test]
+    async fn test_chunk_source_eof() {
+        let time_limit = Duration::from_secs(1);
 
-            let result = broadcaster.call(Broadcast(Bytes::from("hello"))).await;
-            assert!(result.is_ok());
-            broadcaster.emit(StreamEnded).await;
+        let mut mock = MockBroadcaster::new();
+        mock.expect_emit().times(1).returning(|_| ());
 
-            let chunk = stream1.next().await;
-            assert!(chunk.is_some());
+        let mut chunk_source =
+            ChunkSource::new(tokio::io::empty(), Default::default(), time_limit, mock);
 
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            let result = broadcaster.call(Broadcast(Bytes::from("hello"))).await;
-            assert!(result.is_err());
+        let start = std::time::Instant::now();
+        chunk_source.feed_chunks().await;
+        assert!(start.elapsed() < time_limit);
+    }
 
-            let chunk = stream1.next().await;
-            assert!(chunk.is_none());
+    #[tokio::test]
+    async fn test_chunk_source_timeout() {
+        let time_limit = Duration::from_millis(10);
+
+        let mut pipeline: CommandPipeline<u8> = pipeline!["sleep 1"];
+        let (_, output) = pipeline.take_endpoints();
+
+        let mut mock = MockBroadcaster::new();
+        mock.expect_emit().times(1).returning(|_| ());
+
+        let mut chunk_source = ChunkSource::new(output, Default::default(), time_limit, mock);
+
+        let start = std::time::Instant::now();
+        chunk_source.feed_chunks().await;
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+
+    mockall::mock! {
+        Broadcaster {}
+
+        #[async_trait]
+        impl Emit<StreamEnded> for Broadcaster {
+            async fn emit(&self, msg: StreamEnded);
         }
-        system.stop();
+    }
+
+    #[async_trait]
+    impl Call<Broadcast> for MockBroadcaster {
+        async fn call(&self, _msg: Broadcast) -> actlet::Result<<Broadcast as Message>::Reply> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl Call<MinCapacity> for MockBroadcaster {
+        async fn call(&self, _msg: MinCapacity) -> actlet::Result<<MinCapacity as Message>::Reply> {
+            Ok(Broadcaster::MAX_CHUNKS)
+        }
     }
 }
 // </coverage:exclude>
