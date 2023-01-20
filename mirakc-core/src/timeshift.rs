@@ -562,22 +562,6 @@ impl TimeshiftRecorder {
             points,
         };
 
-        // Serialize records in advance in order to improve error traceability.
-        let buf = match serde_json::to_vec(&data) {
-            Ok(buf) => {
-                tracing::debug!(recorder.name = self.name, "Serialized records successfully");
-                buf
-            }
-            Err(err) => {
-                tracing::error!(
-                    %err,
-                    recorder.name = self.name,
-                    "Failed to serialize records",
-                );
-                return;
-            }
-        };
-
         // issue#676
         // ---------
         // In order to keep records as much as possible, we perform the following steps
@@ -594,7 +578,7 @@ impl TimeshiftRecorder {
         // start timeshift recording based on the *old* data file.  As a result, newer
         // records will be lost.  Additionally, TS packets for older records will be
         // lost if a wrap-around occurred in the TS file.
-        if !file_util::save_data(&buf, &self.config().data_file) {
+        if !file_util::save_json(&data, &self.config().data_file) {
             tracing::error!(
                 recorder.name = self.name,
                 "Sync between <ts-file> and <data-file> was lost"

@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
-use std::io::BufWriter;
 use std::sync::Arc;
 
 use actlet::prelude::*;
@@ -29,6 +28,7 @@ use serde::Serialize;
 use crate::config::ChannelConfig;
 use crate::config::Config;
 use crate::error::Error;
+use crate::file_util;
 use crate::models::*;
 use crate::tuner::*;
 
@@ -104,10 +104,7 @@ impl<T> Epg<T> {
                 .await;
         }
 
-        match self.save_services() {
-            Ok(_) => (),
-            Err(err) => tracing::error!(%err, "Failed to save services"),
-        }
+        self.save_services();
 
         // Remove garbage.
         // clocks will be updated in update_clocks().
@@ -151,10 +148,7 @@ impl<T> Epg<T> {
                 .await;
         }
 
-        match self.save_clocks() {
-            Ok(_) => (),
-            Err(err) => tracing::error!(%err, "Failed to save clocks"),
-        }
+        self.save_clocks();
     }
 
     fn prepare_schedule(&mut self, service_id: ServiceId, today: NaiveDate) {
@@ -303,12 +297,9 @@ impl<T> Epg<T> {
         Ok(())
     }
 
-    fn save_services(&self) -> Result<(), Error> {
+    fn save_services(&self) {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = cache_dir.join("services.json");
-                tracing::debug!(path = %json_path.display(), "Saving services...");
-                let writer = BufWriter::new(File::create(&json_path)?);
                 // Serialize as a list of tuples in order to avoid failures in
                 // serialization to JSON.
                 //
@@ -316,8 +307,11 @@ impl<T> Epg<T> {
                 // but we simply create `Vec<(&K, &V)>` in order to reduce
                 // maintenance cost.
                 let services = self.services.iter().collect_vec();
-                serde_json::to_writer(writer, &services)?;
-                tracing::info!(services.len = self.services.len(), "Saved services");
+                if file_util::save_json(&services, cache_dir.join("services.json")) {
+                    tracing::info!(services.len = self.services.len(), "Saved services");
+                } else {
+                    tracing::error!("Failed to save services");
+                }
             }
             None => {
                 if !crate::timeshift::is_rebuild_mode() {
@@ -325,15 +319,11 @@ impl<T> Epg<T> {
                 }
             }
         }
-        Ok(())
     }
 
-    fn save_clocks(&self) -> Result<(), Error> {
+    fn save_clocks(&self) {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = cache_dir.join("clocks.json");
-                tracing::debug!(path = %json_path.display(), "Saving clocks...");
-                let writer = BufWriter::new(File::create(&json_path)?);
                 // Serialize as a list of tuples in order to avoid failures in
                 // serialization to JSON.
                 //
@@ -341,8 +331,11 @@ impl<T> Epg<T> {
                 // but we simply create `Vec<(&K, &V)>` in order to reduce
                 // maintenance cost.
                 let clocks = self.clocks.iter().collect_vec();
-                serde_json::to_writer(writer, &clocks)?;
-                tracing::info!(clocks.len = self.clocks.len(), "Saved clocks");
+                if file_util::save_json(&clocks, cache_dir.join("clocks.json")) {
+                    tracing::info!(clocks.len = self.clocks.len(), "Saved clocks");
+                } else {
+                    tracing::error!("Failed to save clocks");
+                }
             }
             None => {
                 if !crate::timeshift::is_rebuild_mode() {
@@ -350,15 +343,11 @@ impl<T> Epg<T> {
                 }
             }
         }
-        Ok(())
     }
 
-    fn save_schedules(&self) -> Result<(), Error> {
+    fn save_schedules(&self) {
         match self.config.epg.cache_dir {
             Some(ref cache_dir) => {
-                let json_path = cache_dir.join("schedules.json");
-                tracing::debug!(path = %json_path.display(), "Saving schedules...");
-                let writer = BufWriter::new(File::create(&json_path)?);
                 // Serialize as a list of tuples in order to avoid failures in
                 // serialization to JSON.
                 //
@@ -366,8 +355,11 @@ impl<T> Epg<T> {
                 // but we simply create `Vec<(&K, &V)>` in order to reduce
                 // maintenance cost.
                 let schedules = self.schedules.iter().collect_vec();
-                serde_json::to_writer(writer, &schedules)?;
-                tracing::info!(schedules.len = self.schedules.len(), "Saved schedules");
+                if file_util::save_json(&schedules, cache_dir.join("schedules.json")) {
+                    tracing::info!(schedules.len = self.schedules.len(), "Saved schedules");
+                } else {
+                    tracing::error!("Failed to save schedules");
+                }
             }
             None => {
                 if !crate::timeshift::is_rebuild_mode() {
@@ -375,7 +367,6 @@ impl<T> Epg<T> {
                 }
             }
         }
-        Ok(())
     }
 
     fn collect_programs(&mut self) {
@@ -769,10 +760,7 @@ where
 {
     async fn handle(&mut self, _msg: SaveSchedules, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "SaveSchedules");
-        match self.save_schedules() {
-            Ok(_) => (),
-            Err(err) => tracing::error!(%err, "Failed to save schedules"),
-        }
+        self.save_schedules();
     }
 }
 

@@ -3,6 +3,29 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use serde::Serialize;
+
+pub fn save_json<D, P>(data: D, path: P) -> bool
+where
+    D: Serialize,
+    P: AsRef<Path>,
+    P: std::fmt::Debug,
+{
+    // Serialize records in advance in order to improve error traceability.
+    let buf = match serde_json::to_vec(&data) {
+        Ok(buf) => {
+            tracing::debug!(?path, "Serialized data successfully");
+            buf
+        }
+        Err(err) => {
+            tracing::error!(%err, ?path, "Failed to serialize data");
+            return false;
+        }
+    };
+
+    save_data(&buf, path)
+}
+
 pub fn save_data<P>(data: &[u8], path: P) -> bool
 where
     P: AsRef<Path>,

@@ -28,6 +28,7 @@ use crate::epg::QueryClock;
 use crate::epg::QueryPrograms;
 use crate::epg::QueryService;
 use crate::error::Error;
+use crate::file_util;
 use crate::filter::FilterPipelineBuilder;
 use crate::models::ProgramId;
 use crate::models::ServiceId;
@@ -132,23 +133,16 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 
     fn save_schedules(&self) {
-        fn do_save(schedules: Vec<&RecordingSchedule>, path: &Path) -> Result<(), Error> {
-            let file = std::fs::File::create(path)?;
-            serde_json::to_writer(file, &schedules)?;
-            Ok(())
-        }
-
         let basedir = match self.config.recording.basedir {
             Some(ref basedir) => basedir,
             None => return,
         };
 
-        let path = basedir.join("schedules.json");
         let schedules = self.schedules.values().collect_vec();
-
-        match do_save(schedules, &path) {
-            Ok(_) => tracing::info!(?path, "Saved"),
-            Err(err) => tracing::error!(%err, ?path, "Failed to save"),
+        if file_util::save_json(&schedules, basedir.join("schedules.json")) {
+            tracing::info!(schedules.len = schedules.len(), "Saved schedules");
+        } else {
+            tracing::error!("Failed to save schedules");
         }
     }
 
