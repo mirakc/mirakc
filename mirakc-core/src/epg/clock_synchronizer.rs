@@ -30,7 +30,7 @@ where
     T: Call<StartStreaming>,
     T: Into<Emitter<StopStreaming>>,
 {
-    const LABEL: &'static str = "clock-synchronizer";
+    const LABEL: &'static str = "epg.sync-clocks";
 
     pub fn new(config: Arc<Config>, tuner_manager: T) -> Self {
         ClockSynchronizer {
@@ -96,7 +96,7 @@ where
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), "epg.clock")?;
+        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL)?;
 
         let (input, mut output) = pipeline.take_endpoints();
 

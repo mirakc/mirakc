@@ -139,7 +139,7 @@ where
     E: Emit<PrepareSchedule>,
     E: Emit<UpdateSchedule>,
 {
-    const LABEL: &'static str = "eit-collector";
+    const LABEL: &'static str = "epg.update-schedules";
 
     pub fn new(command: String, channels: Vec<EpgChannel>, tuner_manager: T, epg: E) -> Self {
         EitCollector {
@@ -190,7 +190,7 @@ where
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), "epg.sched")?;
+        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL)?;
 
         let (input, output) = pipeline.take_endpoints();
 
