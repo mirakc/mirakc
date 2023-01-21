@@ -93,7 +93,7 @@ where
 struct CommandData {
     command: String,
     process: Child,
-    span: Span,
+    pid: u32,
 }
 
 impl<T> CommandPipeline<T>
@@ -123,16 +123,16 @@ where
             .stdin(input)
             .stdout(Stdio::piped())
             .spawn()?;
+        let pid = process.id().unwrap();
 
         if self.stdin.is_none() {
             self.stdin = process.stdin.take();
         }
         self.stdout = process.stdout.take();
-        let span = tracing::debug_span!("cmd", pid = process.id().unwrap());
         self.commands.push(CommandData {
             command,
             process,
-            span,
+            pid,
         });
 
         Ok(())
@@ -184,23 +184,26 @@ where
         for mut data in commands.into_iter() {
             self.span
                 .in_scope(|| tracing::debug!("Wait for termination..."));
-            result.push(data.process.wait().instrument(data.span.clone()).await);
+            result.push(data.process.wait().instrument(self.span.clone()).await);
         }
         self.span.in_scope(|| tracing::debug!("Terminated"));
         result
     }
 
     fn log_to_console(&mut self) {
-        let streams = self
-            .commands
-            .iter_mut()
-            .filter_map(|data| data.process.stderr.take())
-            .map(logging::new_stream);
+        let streams =
+            self.commands
+                .iter_mut()
+                .filter_map(|data| match data.process.stderr.take() {
+                    Some(stderr) => Some(logging::new_stream(stderr, data.pid)),
+                    None => None,
+                });
         let mut stream = futures::stream::select_all(streams);
         let fut = async move {
-            while let Some(Ok(raw)) = stream.next().await {
+            while let Some(Ok((raw, pid))) = stream.next().await {
                 // data may contain non-utf8 sequence.
-                tracing::debug!("{}", String::from_utf8_lossy(&raw).trim_end());
+                let log = String::from_utf8_lossy(&raw);
+                tracing::debug!(pid, "{}", log.trim_end());
             }
         };
         tokio::spawn(fut.instrument(self.span.clone()));
@@ -219,11 +222,10 @@ where
             return;
         }
         for mut data in std::mem::replace(&mut self.commands, vec![]).into_iter() {
-            let _enter = data.span.enter();
             match data.process.id() {
                 Some(_) => {
                     // Always send a SIGKILL to the process.
-                    tracing::debug!("Kill");
+                    tracing::debug!(pid = data.pid, "Kill");
                     let _ = data.process.start_kill();
 
                     // It's necessary to wait for the process termination because
@@ -240,7 +242,7 @@ where
                         sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
                     }
                 }
-                None => tracing::debug!("Already terminated"),
+                None => tracing::debug!(pid = data.pid, "Already terminated"),
             }
         }
         tracing::debug!("Terminated");
@@ -417,24 +419,37 @@ impl<'a> CommandBuilder<'a> {
             .spawn()
             .map_err(|err| Error::UnableToSpawn(self.command.to_string(), err))?;
 
-        let span = tracing::debug_span!("cmd", pid = child.id().unwrap());
-        // We can safely use Span::enter() in non-async functions.
-        let _enter = span.enter();
+        let pid = child.id().unwrap();
+
+        // At this point, tracing_subscriber::filter::EnvFilter doesn't support
+        // expressions for filtering nested spans.  For example, there are two
+        // spans `parent` and `child` and `parent` contains `child`.  In this
+        // case, `RUST_LOG='[parent],[child]'` shows logs from the both.
+        //
+        // See https://github.com/tokio-rs/tracing/issues/722 for more details.
+        //
+        // Therefore, we don't stop creating a `cmd` span for each process
+        // spawned in this function.  Instead, put the process metadata to each
+        // event.
+        //
+        //let span = tracing::debug_span!("cmd", pid);
+        //let _enter = span.enter();
 
         if self.logging.is_default() {
             if let Some(stderr) = child.stderr.take() {
                 let fut = async move {
-                    let mut stream = logging::new_stream(stderr);
-                    while let Some(Ok(raw)) = stream.next().await {
+                    let mut stream = logging::new_stream(stderr, pid);
+                    while let Some(Ok((raw, pid))) = stream.next().await {
                         // data may contain non-utf8 sequence.
-                        tracing::debug!("{}", String::from_utf8_lossy(&raw).trim_end());
+                        let log = String::from_utf8_lossy(&raw);
+                        tracing::debug!(pid, "{}", log.trim_end());
                     }
                 };
-                tokio::spawn(fut.instrument(span.clone()));
+                tokio::spawn(fut.in_current_span());
             }
         }
 
-        tracing::debug!(command = self.command, "Spawned");
+        tracing::debug!(command = self.command, pid, "Spawned");
         Ok(child)
     }
 }
@@ -469,6 +484,7 @@ impl CommandLogging {
 mod logging {
     use tokio::io::AsyncRead;
     use tokio_util::codec::AnyDelimiterCodec;
+    use tokio_util::codec::Decoder;
     use tokio_util::codec::FramedRead;
 
     pub const DELIM: u8 = b'\n';
@@ -477,12 +493,37 @@ mod logging {
     // BufReader::read_line() gets stuck if an invalid character sequence is
     // found.  Therefore, we use AnyDelimiterCodec here in order to avoid
     // such a situation.
-    fn new_codec() -> AnyDelimiterCodec {
-        AnyDelimiterCodec::new_with_max_length(vec![DELIM], vec![DELIM], BUFSIZE)
+    fn new_codec(pid: u32) -> LogCodec {
+        LogCodec::new(pid)
     }
 
-    pub fn new_stream<R: AsyncRead>(read: R) -> FramedRead<R, AnyDelimiterCodec> {
-        FramedRead::new(read, new_codec())
+    pub fn new_stream<R>(read: R, pid: u32) -> FramedRead<R, LogCodec>
+    where
+        R: AsyncRead,
+    {
+        FramedRead::new(read, new_codec(pid))
+    }
+
+    pub struct LogCodec {
+        inner: AnyDelimiterCodec,
+        pid: u32,
+    }
+
+    impl LogCodec {
+        fn new(pid: u32) -> Self {
+            let inner = AnyDelimiterCodec::new_with_max_length(vec![DELIM], vec![DELIM], BUFSIZE);
+            LogCodec { inner, pid }
+        }
+    }
+
+    impl Decoder for LogCodec {
+        type Item = (bytes::Bytes, u32);
+        type Error = <AnyDelimiterCodec as Decoder>::Error;
+
+        fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+            let log = self.inner.decode(src)?;
+            Ok(log.map(|raw| (raw, self.pid)))
+        }
     }
 }
 
