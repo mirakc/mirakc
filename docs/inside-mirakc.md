@@ -24,12 +24,12 @@ Broadcaster
   +--> tokio::sync::mpsc::channel --> subscriber-2
 ```
 
-## Streaming Pipeline
+## Web Streaming
 
-mirakc has a pipeline to process MPEG-TS packets.
+A web streaming is performed with the following pipeline:
 
 ```
-+------------ CommandPipeline ---------------+
++------CommandPipeline{label=tuner}----------+
 | tuner-command (external process)           |
 |   |                                        |
 |   V                                        |
@@ -44,7 +44,7 @@ mirakc has a pipeline to process MPEG-TS packets.
     |
     +--(when using filters)
     |      |
-    |  +---V-- CommandPipeline (Filter Pipeline) -----+
+    |  +---V--- CommandPipeline{label=web.stream} ----+
     |  | pre-filters (external process) [optional]    |
     |  |   |                                          |
     |  |   V                                          |
@@ -87,17 +87,17 @@ The `web-buffer` can be tuned by the following configuration properties:
 See also the Japanese discussion on
 [issues/18](https://github.com/mirakc/mirakc/issues/18).
 
-## Timeshift Recording
+## Recording
 
-The timeshift recording consists of the following pipeline.
+A (normal) recording is performed with the following pipeline:
 
 ```
-+------------ CommandPipeline ----------------+
-| tuner-command (external process)            |
-|   |                                         |
-|   V                                         |
-| tuner-filter (external process) [optional]  |
-+---|-----------------------------------------+
++------CommandPipeline{label=tuner}----------+
+| tuner-command (external process)           |
+|   |                                        |
+|   V                                        |
+| tuner-filter (external process) [optional] |
++---|----------------------------------------+
     |
 +---V------ Broadcaster -----------------+
 | tokio::sync::mpsc::channel (as buffer) |
@@ -105,7 +105,42 @@ The timeshift recording consists of the following pipeline.
     V
   MpegTsStream
     |
-+---V--------- CommandPipeline -----------------+
++---V---- CommandPipeline{label=recording} ----+
+| pre-filters (external process) [optional]    |
+|   |                                          |
+|   V                                          |
+| decode-filter (external process) [optional]  |
+|   |                                          |
+|   V                                          |
+| program-filter (external process) [optional] |
+|   |                                          |
+|   V                                          |
+| post-filters (external process) [optional]   |
+|   |                                          |
++---|------------------------------------------+
+    V
+  RecordingOptions::content_path
+```
+
+## Timeshift Recording
+
+A timeshift recording is performed with the following pipeline:
+
+```
++------CommandPipeline{label=tuner}----------+
+| tuner-command (external process)           |
+|   |                                        |
+|   V                                        |
+| tuner-filter (external process) [optional] |
++---|----------------------------------------+
+    |
++---V------ Broadcaster -----------------+
+| tokio::sync::mpsc::channel (as buffer) |
++---|------------------------------------+
+    V
+  MpegTsStream
+    |
++---V---- CommandPipeline{label=timeshift} -----+
 | decode-filter (external process)              |
 |   |                                           |
 |   V                                           |
@@ -122,7 +157,7 @@ The timeshift recording consists of the following pipeline.
     V
   TimeshiftRecorder (Actor)
       |
-      |<Timeshift data like records>
+      |<Timeshift data such as records>
       |
       +--> config.timeshift.recorders[].data-file
 ```
