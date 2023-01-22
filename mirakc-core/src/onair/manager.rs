@@ -231,7 +231,16 @@ where
         _ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
         tracing::debug!(msg.name = "RegisterEmitter");
-        self.program_changed.register(msg.0)
+        let emitter = msg.0;
+        for (&service_id, entry) in self.cache.iter() {
+            let msg = OnairProgramChanged {
+                service_id,
+                current: entry.current.clone(),
+                next: entry.next.clone(),
+            };
+            emitter.emit(msg).await;
+        }
+        self.program_changed.register(emitter)
     }
 }
 

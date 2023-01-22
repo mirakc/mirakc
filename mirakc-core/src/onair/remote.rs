@@ -42,24 +42,8 @@ where
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!(tracker.name = self.0.name, "Started");
-
         let tracker = self.0.clone();
         ctx.spawn_task(async move { tracker.process_events().await });
-
-        let onair_programs = match self.0.fetch_onair_programs().await {
-            Ok(onair_programs) => onair_programs,
-            Err(err) => {
-                tracing::error!(
-                    %err,
-                    tracker.name = self.0.name,
-                    "Failed to fetch on-air programs",
-                );
-                return;
-            }
-        };
-        for onair_program in onair_programs.into_iter() {
-            self.0.emit(onair_program).await;
-        }
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
@@ -208,13 +192,6 @@ where
             converted.event_group = epg.event_group;
         }
         Some(Arc::new(converted))
-    }
-
-    async fn fetch_onair_programs(&self) -> reqwest::Result<Vec<WebOnairProgram>> {
-        reqwest::get(self.config.onair_url())
-            .await?
-            .json::<Vec<WebOnairProgram>>()
-            .await
     }
 
     async fn fetch_onair_program(&self, service_id: ServiceId) -> reqwest::Result<WebOnairProgram> {
