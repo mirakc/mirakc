@@ -54,13 +54,6 @@ suitable for your environment.
 | [timeshift.recorders\[\].num-chunks]     |                                   |
 | [timeshift.recorders\[\].num-reserves]   | `!number 1`                       |
 | [timeshift.recorders\[\].priority]       | `128`                             |
-| [events.concurrency]                     | `1`                               |
-| [events.epg.programs-updated]            | `''`                              |
-| [events.recording.started]               | `''`                              |
-| [events.recording.stopped]               | `''`                              |
-| [events.recording.failed]                | `''`                              |
-| [events.recording.rescheduled]           | `''`                              |
-| [events.onair.program-changed]           | `''`                              |
 | [onair-program-trackers]                 | `{}`                              |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
@@ -110,13 +103,6 @@ suitable for your environment.
 [timeshift.recorders\[\].num-chunks]: #timeshiftrecorders
 [timeshift.recorders\[\].num-reserves]: #timeshiftrecorders
 [timeshift.recorders\[\].priority]: #timeshiftrecorders
-[events.concurrency]: #eventsconcurrency
-[events.epg.programs-updated]: #eventsepgprograms-updated
-[events.recording.started]: #eventsrecordingstarted
-[events.recording.stopped]: #eventsrecordingstopped
-[events.recording.failed]: #eventsrecordingfailed
-[events.recording.rescheduled]: #eventsrecordingrescheduled
-[events.onair.program-changed]: #eventsonairprogram-changed
 [onair-program-trackers]: #onair-program-trackers
 [resource.strings-yaml]: #resourcestrings-yaml
 [resource.logos]: #resourcelogos
@@ -782,166 +768,6 @@ new configuration values:
 
 There is no tool for the solution#2 at this point.  We have a plan to provide it
 in the future.
-
-## events
-
-Definitions for scripts to be executed when a particular event occurs.
-
-### events.concurrency
-
-The maximum number of scripts that can be executed in parallel.
-
-The following values can be specified:
-
-```yaml
-# up to 2
-concurrency: !number 2
-
-# up to half of the number of CPUs
-concurrency: !num-cpus 0.5
-
-# unlimited
-concurrency: !unlimited
-```
-
-### events.epg.programs-updated
-
-A script to be executed when EPG programs of a service are updated.
-
-A JSON defined in the following schema is passed to the script via STDIN:
-
-```json5
-{
-  "type": "object",
-  "properties": {
-    "serviceId": { "type": "number" }  // ServiceId
-  }
-}
-```
-### events.recording.started
-
-A script to be executed when recording for a program is started.
-
-A JSON defined in the following schema is passed to the script via STDIN:
-
-```json5
-{
-  "type": "object",
-  "properties": {
-    "programId": { "type": "number" }  // ProgramId
-  }
-}
-```
-
-### events.recording.stopped
-
-A script to be executed when recording for a program is stopped.
-
-A JSON defined in the following schema is passed to the script via STDIN:
-
-```json5
-{
-  "type": "object",
-  "properties": {
-    "programId": { "type": "number" }  // ProgramId
-  }
-}
-```
-
-### events.recording.failed
-
-A script to be executed when recording for a program is failed.
-
-A JSON defined in the following schema is passed to the script via STDIN:
-
-```json5
-{
-  "type": "object",
-  "properties": {
-    "programId": { "type": "number" },  // ProgramId
-    "reason": {
-      "oneOf": [
-        // start-recording-failed
-        {
-          "type": "object",
-          "properties": {
-            "type": { "type": "string", "const": "start-recording-failed" },
-            "message": { "type": "string" },
-          }
-        },
-        // io-error
-        {
-          "type": "object",
-          "properties": {
-            "type": { "type": "string", "const": "io-error" },
-            "message": { "type": "string" },
-            "osError": { "type": ["number", null] }
-          }
-        },
-        // pipeline-error
-        {
-          "type": "object",
-          "properties": {
-            "type": { "type": "string", "const": "pipeline-error" },
-            "exitCode": { "type": "number" }
-          }
-        },
-        // need-rescheduling
-        {
-          "type": "object",
-          "properties": {
-            "type": { "type": "string", "const": "need-rescheduling" },
-          }
-        },
-        // schedule-expired
-        {
-          "type": "object",
-          "properties": {
-            "type": { "type": "string", "const": "schedule-expired" },
-          }
-        },
-        // removed-from-epg
-        {
-          "type": "object",
-          "properties": {
-            "type": { "type": "string", "const": "removed-from-epg" },
-          }
-        },
-      ]
-    }
-  }
-}
-```
-
-### events.recording.rescheduled
-
-A script to be executed when recording for a program is rescheduled.
-
-A JSON defined in the following schema is passed to the script via STDIN:
-
-```json5
-{
-  "type": "object",
-  "properties": {
-    "programId": { "type": "number" }  // ProgramId
-  }
-}
-```
-
-### events.onair.program-changed
-
-A script to be executed when an on-air TV program of a service is changed.
-
-A JSON defined in the following schema is passed to the script via STDIN:
-
-```json5
-{
-  "type": "object",
-  "properties": {
-    "serviceId": { "type": "number" }  // ServiceId
-  }
-}
-```
 
 ## onair-program-trackers
 
