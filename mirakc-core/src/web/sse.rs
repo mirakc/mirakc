@@ -1,10 +1,10 @@
-use std::convert::Infallible;
-
 use super::*;
+
+use std::convert::Infallible;
+use std::pin::Pin;
 
 use axum::response::sse::Event;
 use axum::response::sse::Sse;
-use axum::response::IntoResponse;
 use futures::stream::Stream;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -15,7 +15,7 @@ pub(super) async fn events<E, R, O>(
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
-) -> Result<SseWrapper<impl Stream<Item = Result<Event, Infallible>>>, Error>
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error>
 where
     E: Clone,
     E: Call<crate::epg::RegisterEmitter>,
@@ -91,15 +91,19 @@ where
         msg: Some(crate::onair::UnregisterEmitter(id)),
     };
 
-    Ok(SseWrapper {
-        inner: Sse::new(ReceiverStream::new(receiver)).keep_alive(Default::default()),
+    // The Sse instance will be dropped in IntoResponse::into_response().
+    // So, we have to create a wrapper for the event stream in order to
+    // unregister emitters.
+    let sse = Sse::new(EventStreamWrapper {
+        inner: ReceiverStream::new(receiver),
         _epg_programs_updated_cleaner,
         _recording_started_cleaner,
         _recording_stopped_cleaner,
         _recording_failed_cleaner,
         _recording_rescheduled_cleaner,
         _onair_program_changed_cleaner,
-    })
+    });
+    Ok(sse.keep_alive(Default::default()))
 }
 
 #[derive(Clone)]
@@ -146,8 +150,8 @@ impl<M: Signal> Drop for Cleaner<M> {
     }
 }
 
-pub struct SseWrapper<S> {
-    inner: Sse<S>,
+struct EventStreamWrapper<S> {
+    inner: S,
     _epg_programs_updated_cleaner: Cleaner<crate::epg::UnregisterEmitter>,
     _recording_started_cleaner: Cleaner<crate::recording::UnregisterEmitter>,
     _recording_stopped_cleaner: Cleaner<crate::recording::UnregisterEmitter>,
@@ -156,12 +160,16 @@ pub struct SseWrapper<S> {
     _onair_program_changed_cleaner: Cleaner<crate::onair::UnregisterEmitter>,
 }
 
-impl<S, E> IntoResponse for SseWrapper<S>
+impl<S> Stream for EventStreamWrapper<S>
 where
-    S: Stream<Item = Result<Event, E>> + Send + 'static,
-    E: Into<axum::BoxError>,
+    S: Stream + Unpin,
 {
-    fn into_response(self) -> axum::response::Response {
-        self.inner.into_response()
+    type Item = S::Item;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
     }
 }
