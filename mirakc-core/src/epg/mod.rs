@@ -787,20 +787,26 @@ where
                     services: self.services.clone(),
                 };
                 emitter.emit(msg).await;
-                self.service_updated.register(emitter)
+                let id = self.service_updated.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::ServicesUpdated", id);
+                id
             }
             RegisterEmitter::ClocksUpdated(emitter) => {
                 let msg = ClocksUpdated {
                     clocks: self.clocks.clone(),
                 };
                 emitter.emit(msg).await;
-                self.clocks_updated.register(emitter)
+                let id = self.clocks_updated.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::ClocksUpdated", id);
+                id
             }
             RegisterEmitter::ProgramsUpdated(emitter) => {
                 for service_id in self.schedules.keys().cloned() {
                     emitter.emit(ProgramsUpdated { service_id }).await;
                 }
-                self.programs_updated.register(emitter)
+                let id = self.programs_updated.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::ProgramsUpdated");
+                id
             }
         }
     }
@@ -825,12 +831,15 @@ where
     async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
         match msg {
             UnregisterEmitter::ServicesUpdated(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::ServicesUpdated", id);
                 self.service_updated.unregister(id);
             }
             UnregisterEmitter::ClocksUpdated(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::ClocksUpdated", id);
                 self.clocks_updated.unregister(id);
             }
             UnregisterEmitter::ProgramsUpdated(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::ProgramsUpdated", id);
                 self.programs_updated.unregister(id);
             }
         }

@@ -1020,11 +1020,25 @@ where
         _ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
         match msg {
-            RegisterEmitter::RecordingStarted(emitter) => self.recording_started.register(emitter),
-            RegisterEmitter::RecordingStopped(emitter) => self.recording_stopped.register(emitter),
-            RegisterEmitter::RecordingFailed(emitter) => self.recording_failed.register(emitter),
+            RegisterEmitter::RecordingStarted(emitter) => {
+                let id = self.recording_started.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::RecordingStarted", id);
+                id
+            }
+            RegisterEmitter::RecordingStopped(emitter) => {
+                let id = self.recording_stopped.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::RecordingStopped", id);
+                id
+            }
+            RegisterEmitter::RecordingFailed(emitter) => {
+                let id = self.recording_failed.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::RecordingFailed", id);
+                id
+            }
             RegisterEmitter::RecordingRescheduled(emitter) => {
-                self.recording_rescheduled.register(emitter)
+                let id = self.recording_rescheduled.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::RecordingRescheduled", id);
+                id
             }
         }
     }
@@ -1056,11 +1070,21 @@ where
 {
     async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
         match msg {
-            UnregisterEmitter::RecordingStarted(id) => self.recording_started.unregister(id),
-            UnregisterEmitter::RecordingStopped(id) => self.recording_stopped.unregister(id),
-            UnregisterEmitter::RecordingFailed(id) => self.recording_failed.unregister(id),
+            UnregisterEmitter::RecordingStarted(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::RecordingStarted", id);
+                self.recording_started.unregister(id);
+            }
+            UnregisterEmitter::RecordingStopped(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::RecordingStopped", id);
+                self.recording_stopped.unregister(id);
+            }
+            UnregisterEmitter::RecordingFailed(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::RecordingFailed", id);
+                self.recording_failed.unregister(id);
+            }
             UnregisterEmitter::RecordingRescheduled(id) => {
-                self.recording_rescheduled.unregister(id)
+                tracing::debug!(msg.name = "UnregisterEmitter::RecordingRescheduled", id);
+                self.recording_rescheduled.unregister(id);
             }
         }
     }

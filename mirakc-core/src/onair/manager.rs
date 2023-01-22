@@ -235,7 +235,6 @@ where
         msg: RegisterEmitter,
         _ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
-        tracing::debug!(msg.name = "RegisterEmitter");
         let emitter = msg.0;
         for (&service_id, entry) in self.cache.iter() {
             let msg = OnairProgramChanged {
@@ -245,7 +244,9 @@ where
             };
             emitter.emit(msg).await;
         }
-        self.program_changed.register(emitter)
+        let id = self.program_changed.register(emitter);
+        tracing::debug!(msg.name = "RegisterEmitter", id);
+        id
     }
 }
 
@@ -267,7 +268,7 @@ where
     E: Call<epg::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "UnregisterEmitter");
+        tracing::debug!(msg.name = "UnregisterEmitter", id = msg.0);
         self.program_changed.unregister(msg.0);
     }
 }
