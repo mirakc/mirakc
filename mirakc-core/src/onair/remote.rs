@@ -8,6 +8,7 @@ use reqwest_eventsource::EventSource;
 use crate::config::RemoteOnairProgramTrackerConfig;
 use crate::epg::EpgProgram;
 use crate::epg::QueryProgram;
+use crate::epg::QueryService;
 use crate::models::MirakurunProgram;
 use crate::models::ServiceId;
 use crate::web::WebOnairProgram;
@@ -39,6 +40,7 @@ impl<E> Actor for RemoteTracker<E>
 where
     E: Clone + Send + Sync + 'static,
     E: Call<QueryProgram>,
+    E: Call<QueryService>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!(tracker.name = self.0.name, "Started");
@@ -64,6 +66,7 @@ impl<E> Inner<E>
 where
     E: Clone + Send + Sync + 'static,
     E: Call<QueryProgram>,
+    E: Call<QueryService>,
 {
     async fn process_events(&self) {
         let mut es = EventSource::get(self.config.events_url());
@@ -89,6 +92,10 @@ where
                             continue;
                         }
                     };
+                    match self.epg.call(QueryService { service_id }).await {
+                        Ok(Ok(_)) => (), // found in EPG
+                        _ => continue,
+                    }
                     let onair_program = match self.fetch_onair_program(service_id).await {
                         Ok(onair_program) => onair_program,
                         Err(err) => {

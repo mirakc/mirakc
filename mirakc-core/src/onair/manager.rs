@@ -67,6 +67,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -105,6 +106,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
 {
     async fn spawn_local_tracker<C: Spawn>(
@@ -163,6 +165,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -192,6 +195,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -222,6 +226,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -257,6 +262,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -283,6 +289,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -345,6 +352,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -365,6 +373,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
@@ -406,6 +415,7 @@ where
     T: Into<Emitter<StopStreaming>>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
