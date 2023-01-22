@@ -1,4 +1,5 @@
 use std::any::type_name;
+use std::collections::HashMap;
 use std::future::Future;
 use std::marker::PhantomData;
 
@@ -406,6 +407,87 @@ where
     }
 }
 
+/// A type that holds emitters.
+pub struct EmitterRegistry<M> {
+    emitters: HashMap<usize, Emitter<M>>,
+    capacity: usize,
+    next_id: usize,
+}
+
+impl<M> EmitterRegistry<M>
+where
+    M: Clone + Signal,
+{
+    /// Default capacity.
+    pub const DEFAULT_CAPACITY: usize = 32;
+
+    /// Creates with the default capacity.
+    pub fn new() -> Self {
+        Self::with_capacity(Self::DEFAULT_CAPACITY)
+    }
+
+    /// Creates with a specified capacity.
+    pub fn with_capacity(capacity: usize) -> Self {
+        EmitterRegistry {
+            emitters: HashMap::with_capacity(capacity),
+            capacity,
+            next_id: 1,
+        }
+    }
+
+    /// Emits messages.
+    pub async fn emit(&self, msg: M) {
+        for emitter in self.emitters.values() {
+            emitter.emit(msg.clone()).await
+        }
+    }
+
+    /// Registers an emitter.
+    pub fn register(&mut self, emitter: Emitter<M>) -> usize {
+        if self.is_full() {
+            return 0;
+        }
+        let id = self.unique_id();
+        self.emitters.insert(id, emitter);
+        id
+    }
+
+    /// Unregisters an emitter by ID.
+    pub fn unregister(&mut self, id: usize) {
+        assert!(self.emitters.contains_key(&id));
+        self.emitters.remove(&id);
+    }
+
+    fn unique_id(&mut self) -> usize {
+        assert!(!self.is_full());
+        let limit = self.capacity + 1; // `id` starts from 1.
+        loop {
+            let id = self.next_id;
+            self.next_id += 1;
+            if self.next_id == limit {
+                self.next_id = 1;
+            }
+            if !self.emitters.contains_key(&id) {
+                return id;
+            }
+        }
+    }
+
+    fn is_full(&self) -> bool {
+        assert!(self.emitters.len() <= self.capacity);
+        self.emitters.len() == self.capacity
+    }
+}
+
+impl<M> Default for EmitterRegistry<M>
+where
+    M: Clone + Signal,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A message to stop an actor.
 pub struct Stop;
 impl Message for Stop {
@@ -761,6 +843,7 @@ pub mod prelude {
     pub use crate::Caller;
     pub use crate::Context;
     pub use crate::Emitter;
+    pub use crate::EmitterRegistry;
     pub use crate::System;
 
     // traits
