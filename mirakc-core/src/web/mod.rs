@@ -74,6 +74,7 @@ where
     E: Call<crate::epg::QueryService>,
     E: Call<crate::epg::QueryServices>,
     E: Call<crate::epg::RegisterEmitter>,
+    E: Into<Emitter<crate::epg::UnregisterEmitter>>,
     R: Clone + Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingRecorder>,
@@ -84,6 +85,7 @@ where
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
     R: Call<crate::recording::StartRecording>,
+    R: Into<Emitter<crate::recording::UnregisterEmitter>>,
     S: Clone + Send + Sync + 'static,
     S: Call<crate::timeshift::CreateTimeshiftLiveStreamSource>,
     S: Call<crate::timeshift::CreateTimeshiftRecordStreamSource>,
@@ -96,6 +98,7 @@ where
     O: Call<crate::onair::QueryOnairPrograms>,
     O: Call<crate::onair::RegisterEmitter>,
     O: Call<crate::onair::SpawnTemporalTracker>,
+    O: Into<Emitter<crate::onair::UnregisterEmitter>>,
 {
     // Disable caching.
     let mut default_headers = HeaderMap::new();
@@ -173,6 +176,7 @@ where
     E: Call<crate::epg::QueryService>,
     E: Call<crate::epg::QueryServices>,
     E: Call<crate::epg::RegisterEmitter>,
+    E: Into<Emitter<crate::epg::UnregisterEmitter>>,
     R: Clone + Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingRecorder>,
@@ -183,6 +187,7 @@ where
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
     R: Call<crate::recording::StartRecording>,
+    R: Into<Emitter<crate::recording::UnregisterEmitter>>,
     S: Clone + Send + Sync + 'static,
     S: Call<crate::timeshift::CreateTimeshiftLiveStreamSource>,
     S: Call<crate::timeshift::CreateTimeshiftRecordStreamSource>,
@@ -195,6 +200,7 @@ where
     O: Call<crate::onair::QueryOnairPrograms>,
     O: Call<crate::onair::RegisterEmitter>,
     O: Call<crate::onair::SpawnTemporalTracker>,
+    O: Into<Emitter<crate::onair::UnregisterEmitter>>,
 {
     let mut router = Router::new()
         .nest("/api", api::build_api(config))

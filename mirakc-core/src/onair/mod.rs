@@ -15,6 +15,7 @@ pub use manager::QueryOnairProgram;
 pub use manager::QueryOnairPrograms;
 pub use manager::RegisterEmitter;
 pub use manager::SpawnTemporalTracker;
+pub use manager::UnregisterEmitter;
 
 #[cfg(test)]
 pub(crate) use manager::stub;

@@ -65,10 +65,10 @@ pub struct RecordingManager<T, E, O> {
     recorders: HashMap<ProgramId, Recorder>,
     timer_token: Option<CancellationToken>,
 
-    recording_started_emitters: Vec<Emitter<RecordingStarted>>,
-    recording_stopped_emitters: Vec<Emitter<RecordingStopped>>,
-    recording_failed_emitters: Vec<Emitter<RecordingFailed>>,
-    recording_rescheduled_emitters: Vec<Emitter<RecordingRescheduled>>,
+    recording_started: EmitterRegistry<RecordingStarted>,
+    recording_stopped: EmitterRegistry<RecordingStopped>,
+    recording_failed: EmitterRegistry<RecordingFailed>,
+    recording_rescheduled: EmitterRegistry<RecordingRescheduled>,
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
@@ -82,10 +82,10 @@ impl<T, E, O> RecordingManager<T, E, O> {
             schedules: Default::default(),
             recorders: Default::default(),
             timer_token: None,
-            recording_started_emitters: Default::default(),
-            recording_stopped_emitters: Default::default(),
-            recording_failed_emitters: Default::default(),
-            recording_rescheduled_emitters: Default::default(),
+            recording_started: Default::default(),
+            recording_stopped: Default::default(),
+            recording_failed: Default::default(),
+            recording_rescheduled: Default::default(),
         }
     }
 }
@@ -992,7 +992,7 @@ where
 // register emitter
 
 #[derive(Message)]
-#[reply("()")]
+#[reply("usize")]
 pub enum RegisterEmitter {
     RecordingStarted(Emitter<RecordingStarted>),
     RecordingStopped(Emitter<RecordingStopped>),
@@ -1020,17 +1020,47 @@ where
         _ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
         match msg {
-            RegisterEmitter::RecordingStarted(emitter) => {
-                self.recording_started_emitters.push(emitter);
-            }
-            RegisterEmitter::RecordingStopped(emitter) => {
-                self.recording_stopped_emitters.push(emitter);
-            }
-            RegisterEmitter::RecordingFailed(emitter) => {
-                self.recording_failed_emitters.push(emitter);
-            }
+            RegisterEmitter::RecordingStarted(emitter) => self.recording_started.register(emitter),
+            RegisterEmitter::RecordingStopped(emitter) => self.recording_stopped.register(emitter),
+            RegisterEmitter::RecordingFailed(emitter) => self.recording_failed.register(emitter),
             RegisterEmitter::RecordingRescheduled(emitter) => {
-                self.recording_rescheduled_emitters.push(emitter);
+                self.recording_rescheduled.register(emitter)
+            }
+        }
+    }
+}
+
+// unregister emitter
+
+#[derive(Message)]
+pub enum UnregisterEmitter {
+    RecordingStarted(usize),
+    RecordingStopped(usize),
+    RecordingFailed(usize),
+    RecordingRescheduled(usize),
+}
+
+#[async_trait]
+impl<T, E, O> Handler<UnregisterEmitter> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
+        match msg {
+            UnregisterEmitter::RecordingStarted(id) => self.recording_started.unregister(id),
+            UnregisterEmitter::RecordingStopped(id) => self.recording_stopped.unregister(id),
+            UnregisterEmitter::RecordingFailed(id) => self.recording_failed.unregister(id),
+            UnregisterEmitter::RecordingRescheduled(id) => {
+                self.recording_rescheduled.unregister(id)
             }
         }
     }
@@ -1038,7 +1068,7 @@ where
 
 // recording started
 
-#[derive(Message)]
+#[derive(Clone, Message)]
 pub struct RecordingStarted {
     pub program_id: ProgramId,
 }
@@ -1069,15 +1099,14 @@ impl<T, E, O> RecordingManager<T, E, O> {
             schedule.program.id = %program_id,
             "Recording started",
         );
-        for emitter in self.recording_started_emitters.iter() {
-            emitter.emit(RecordingStarted { program_id }).await;
-        }
+        let msg = RecordingStarted { program_id };
+        self.recording_started.emit(msg).await;
     }
 }
 
 // recording stopped
 
-#[derive(Message)]
+#[derive(Clone, Message)]
 pub struct RecordingStopped {
     pub program_id: ProgramId,
 }
@@ -1173,9 +1202,8 @@ impl<T, E, O> RecordingManager<T, E, O> {
         // It has already been removed.
         //
         // TODO: Save recording logs to a file.
-        for emitter in self.recording_stopped_emitters.iter() {
-            emitter.emit(RecordingStopped { program_id }).await;
-        }
+        let msg = RecordingStopped { program_id };
+        self.recording_stopped.emit(msg).await;
 
         changed
     }
@@ -1183,7 +1211,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 // recording failed
 
-#[derive(Message)]
+#[derive(Clone, Message)]
 pub struct RecordingFailed {
     pub program_id: ProgramId,
     pub reason: RecordingFailedReason,
@@ -1232,13 +1260,11 @@ where
 
 impl<T, E, O> RecordingManager<T, E, O> {
     async fn emit_recording_failed(&self, program_id: ProgramId, reason: RecordingFailedReason) {
-        for emitter in self.recording_failed_emitters.iter() {
-            let msg = RecordingFailed {
-                program_id,
-                reason: reason.clone(),
-            };
-            emitter.emit(msg).await;
-        }
+        let msg = RecordingFailed {
+            program_id,
+            reason: reason.clone(),
+        };
+        self.recording_failed.emit(msg).await;
     }
 }
 
@@ -1251,9 +1277,8 @@ pub struct RecordingRescheduled {
 
 impl<T, E, O> RecordingManager<T, E, O> {
     async fn emit_recording_rescheduled(&self, program_id: ProgramId) {
-        for emitter in self.recording_rescheduled_emitters.iter() {
-            emitter.emit(RecordingRescheduled { program_id }).await;
-        }
+        let msg = RecordingRescheduled { program_id };
+        self.recording_rescheduled.emit(msg).await;
     }
 }
 
@@ -2023,13 +2048,11 @@ mod tests {
         stopped.expect_emit().times(1).returning(|msg| {
             assert_eq!(msg.program_id, (0, 1, 1).into());
         });
-        manager
-            .recording_stopped_emitters
-            .push(Emitter::new(stopped));
+        manager.recording_stopped.register(Emitter::new(stopped));
 
         let mut failed = MockRecordingFailedValidator::new();
         failed.expect_emit().never();
-        manager.recording_failed_emitters.push(Emitter::new(failed));
+        manager.recording_failed.register(Emitter::new(failed));
 
         let start_time = now - Duration::minutes(30);
 
@@ -2064,16 +2087,14 @@ mod tests {
         stopped.expect_emit().times(1).returning(|msg| {
             assert_eq!(msg.program_id, (0, 1, 1).into());
         });
-        manager
-            .recording_stopped_emitters
-            .push(Emitter::new(stopped));
+        manager.recording_stopped.register(Emitter::new(stopped));
 
         let mut failed = MockRecordingFailedValidator::new();
         failed.expect_emit().times(1).returning(|msg| {
             assert_eq!(msg.program_id, (0, 1, 1).into());
             assert_matches!(msg.reason, RecordingFailedReason::NeedRescheduling);
         });
-        manager.recording_failed_emitters.push(Emitter::new(failed));
+        manager.recording_failed.register(Emitter::new(failed));
 
         let start_time = now - Duration::minutes(30);
 
@@ -2113,9 +2134,7 @@ mod tests {
         stopped.expect_emit().times(1).returning(|msg| {
             assert_eq!(msg.program_id, (0, 1, 1).into());
         });
-        manager
-            .recording_stopped_emitters
-            .push(Emitter::new(stopped));
+        manager.recording_stopped.register(Emitter::new(stopped));
 
         let mut failed = MockRecordingFailedValidator::new();
         failed.expect_emit().times(1).returning(|msg| {
@@ -2125,7 +2144,7 @@ mod tests {
                 RecordingFailedReason::PipelineError { exit_code: 1 }
             );
         });
-        manager.recording_failed_emitters.push(Emitter::new(failed));
+        manager.recording_failed.register(Emitter::new(failed));
 
         let start_time = now - Duration::minutes(30);
 
@@ -2160,7 +2179,7 @@ mod tests {
             assert_eq!(msg.program_id, (0, 2, 1).into());
             assert_matches!(msg.reason, RecordingFailedReason::RemovedFromEpg);
         });
-        manager.recording_failed_emitters.push(Emitter::new(mock));
+        manager.recording_failed.register(Emitter::new(mock));
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
@@ -2215,15 +2234,13 @@ mod tests {
             assert_eq!(msg.program_id, (0, 1, 2).into());
             assert_matches!(msg.reason, RecordingFailedReason::RemovedFromEpg);
         });
-        manager
-            .recording_failed_emitters
-            .push(Emitter::new(failed_mock));
+        manager.recording_failed.register(Emitter::new(failed_mock));
 
         let mut rescheduled_mock = MockRecordingRescheduledValidator::new();
         rescheduled_mock.expect_emit().never();
         manager
-            .recording_rescheduled_emitters
-            .push(Emitter::new(rescheduled_mock));
+            .recording_rescheduled
+            .register(Emitter::new(rescheduled_mock));
 
         let schedule = schedule!(
             RecordingScheduleState::Rescheduling,
@@ -2279,9 +2296,7 @@ mod tests {
         mock.expect_emit().times(1).returning(|msg| {
             assert_eq!(msg.program_id, (0, 1, 1).into());
         });
-        manager
-            .recording_rescheduled_emitters
-            .push(Emitter::new(mock));
+        manager.recording_rescheduled.register(Emitter::new(mock));
 
         let schedule = schedule!(
             RecordingScheduleState::Rescheduling,
@@ -2438,7 +2453,19 @@ pub(crate) mod stub {
             &self,
             _msg: RegisterEmitter,
         ) -> actlet::Result<<RegisterEmitter as Message>::Reply> {
-            Ok(())
+            Ok(0)
+        }
+    }
+
+    #[async_trait]
+    impl Emit<UnregisterEmitter> for RecordingManagerStub {
+        async fn emit(&self, _msg: UnregisterEmitter) {}
+        fn fire(&self, _msg: UnregisterEmitter) {}
+    }
+
+    impl Into<Emitter<UnregisterEmitter>> for RecordingManagerStub {
+        fn into(self) -> Emitter<UnregisterEmitter> {
+            Emitter::new(self)
         }
     }
 

@@ -26,10 +26,12 @@ pub struct OnairProgramManager<T, E> {
     config: Arc<Config>,
     tuner_manager: T,
     epg: E,
+
     cache: HashMap<ServiceId, OnairProgram>,
     trackers: HashMap<String, Tracker<T, E>>,
     temporal_services: HashMap<String, ServiceId>,
-    emitters: Vec<Emitter<OnairProgramChanged>>,
+
+    program_changed: EmitterRegistry<OnairProgramChanged>,
 }
 
 enum Tracker<T, E> {
@@ -50,7 +52,7 @@ where
             cache: Default::default(),
             trackers: Default::default(),
             temporal_services: Default::default(),
-            emitters: Default::default(),
+            program_changed: Default::default(),
         }
     }
 }
@@ -209,7 +211,7 @@ where
 // register emitter
 
 #[derive(Message)]
-#[reply("()")]
+#[reply("usize")]
 pub struct RegisterEmitter(pub Emitter<OnairProgramChanged>);
 
 #[async_trait]
@@ -223,9 +225,35 @@ where
     E: Call<epg::QueryServices>,
     E: Call<epg::RegisterEmitter>,
 {
-    async fn handle(&mut self, msg: RegisterEmitter, _ctx: &mut Context<Self>) {
+    async fn handle(
+        &mut self,
+        msg: RegisterEmitter,
+        _ctx: &mut Context<Self>,
+    ) -> <RegisterEmitter as Message>::Reply {
         tracing::debug!(msg.name = "RegisterEmitter");
-        self.emitters.push(msg.0);
+        self.program_changed.register(msg.0)
+    }
+}
+
+// unregister emitter
+
+#[derive(Message)]
+pub struct UnregisterEmitter(pub usize);
+
+#[async_trait]
+impl<T, E> Handler<UnregisterEmitter> for OnairProgramManager<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryServices>,
+    E: Call<epg::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "UnregisterEmitter");
+        self.program_changed.unregister(msg.0);
     }
 }
 
@@ -339,9 +367,7 @@ where
         if let Some(program) = msg.next.clone() {
             self.update_next_program(program).await;
         }
-        for emitter in self.emitters.iter() {
-            emitter.emit(msg.clone()).await;
-        }
+        self.program_changed.emit(msg).await;
     }
 }
 
@@ -452,7 +478,19 @@ pub(crate) mod stub {
             &self,
             _msg: RegisterEmitter,
         ) -> actlet::Result<<RegisterEmitter as Message>::Reply> {
-            Ok(())
+            Ok(0)
+        }
+    }
+
+    #[async_trait]
+    impl Emit<UnregisterEmitter> for OnairProgramManagerStub {
+        async fn emit(&self, _msg: UnregisterEmitter) {}
+        fn fire(&self, _msg: UnregisterEmitter) {}
+    }
+
+    impl Into<Emitter<UnregisterEmitter>> for OnairProgramManagerStub {
+        fn into(self) -> Emitter<UnregisterEmitter> {
+            Emitter::new(self)
         }
     }
 
@@ -461,7 +499,7 @@ pub(crate) mod stub {
         async fn call(
             &self,
             _msg: SpawnTemporalTracker,
-        ) -> actlet::Result<<RegisterEmitter as Message>::Reply> {
+        ) -> actlet::Result<<SpawnTemporalTracker as Message>::Reply> {
             Ok(())
         }
     }

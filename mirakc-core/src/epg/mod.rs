@@ -47,14 +47,16 @@ pub use models::SeriesDescriptor;
 pub struct Epg<T> {
     config: Arc<Config>,
     tuner_manager: T,
-    services_emitters: Vec<Emitter<ServicesUpdated>>,
-    clocks_emitters: Vec<Emitter<ClocksUpdated>>,
-    programs_emitters: Vec<Emitter<ProgramsUpdated>>,
+
     services: Arc<IndexMap<ServiceId, EpgService>>, // keeps insertion order
     clocks: Arc<HashMap<ServiceId, Clock>>,
     // Allocate EpgSchedule in the heap in order to avoid stack overflow in
     // serialization using serde_json.
     schedules: HashMap<ServiceId, Box<EpgSchedule>>,
+
+    service_updated: EmitterRegistry<ServicesUpdated>,
+    clocks_updated: EmitterRegistry<ClocksUpdated>,
+    programs_updated: EmitterRegistry<ProgramsUpdated>,
 }
 
 impl<T> Epg<T> {
@@ -62,12 +64,12 @@ impl<T> Epg<T> {
         Epg {
             config,
             tuner_manager,
-            services_emitters: Default::default(),
-            clocks_emitters: Default::default(),
-            programs_emitters: Default::default(),
             services: Default::default(),
             clocks: Default::default(),
             schedules: Default::default(),
+            service_updated: Default::default(),
+            clocks_updated: Default::default(),
+            programs_updated: Default::default(),
         }
     }
 
@@ -96,13 +98,10 @@ impl<T> Epg<T> {
 
         self.services = Arc::new(services);
 
-        for emitter in self.services_emitters.iter() {
-            emitter
-                .emit(ServicesUpdated {
-                    services: self.services.clone(),
-                })
-                .await;
-        }
+        let msg = ServicesUpdated {
+            services: self.services.clone(),
+        };
+        self.service_updated.emit(msg).await;
 
         self.save_services();
 
@@ -140,13 +139,10 @@ impl<T> Epg<T> {
 
         self.clocks = Arc::new(clocks);
 
-        for emitter in self.clocks_emitters.iter() {
-            emitter
-                .emit(ClocksUpdated {
-                    clocks: self.clocks.clone(),
-                })
-                .await;
-        }
+        let msg = ClocksUpdated {
+            clocks: self.clocks.clone(),
+        };
+        self.clocks_updated.emit(msg).await;
 
         self.save_clocks();
     }
@@ -180,9 +176,8 @@ impl<T> Epg<T> {
             tracing::info!(%service.id, service.name, programs.len = num_programs, "Collected programs");
         }
 
-        for emitter in self.programs_emitters.iter() {
-            emitter.emit(ProgramsUpdated { service_id }).await;
-        }
+        let msg = ProgramsUpdated { service_id };
+        self.programs_updated.emit(msg).await;
     }
 
     // Must be called before other load functions.
@@ -767,7 +762,7 @@ where
 // register emitter
 
 #[derive(Message)]
-#[reply("()")]
+#[reply("usize")]
 pub enum RegisterEmitter {
     ServicesUpdated(Emitter<ServicesUpdated>),
     ClocksUpdated(Emitter<ClocksUpdated>),
@@ -788,26 +783,55 @@ where
     ) -> <RegisterEmitter as Message>::Reply {
         match msg {
             RegisterEmitter::ServicesUpdated(emitter) => {
-                emitter
-                    .emit(ServicesUpdated {
-                        services: self.services.clone(),
-                    })
-                    .await;
-                self.services_emitters.push(emitter);
+                let msg = ServicesUpdated {
+                    services: self.services.clone(),
+                };
+                emitter.emit(msg).await;
+                self.service_updated.register(emitter)
             }
             RegisterEmitter::ClocksUpdated(emitter) => {
-                emitter
-                    .emit(ClocksUpdated {
-                        clocks: self.clocks.clone(),
-                    })
-                    .await;
-                self.clocks_emitters.push(emitter);
+                let msg = ClocksUpdated {
+                    clocks: self.clocks.clone(),
+                };
+                emitter.emit(msg).await;
+                self.clocks_updated.register(emitter)
             }
             RegisterEmitter::ProgramsUpdated(emitter) => {
                 for service_id in self.schedules.keys().cloned() {
                     emitter.emit(ProgramsUpdated { service_id }).await;
                 }
-                self.programs_emitters.push(emitter);
+                self.programs_updated.register(emitter)
+            }
+        }
+    }
+}
+
+// unregister emitter
+
+#[derive(Message)]
+pub enum UnregisterEmitter {
+    ServicesUpdated(usize),
+    ClocksUpdated(usize),
+    ProgramsUpdated(usize),
+}
+
+#[async_trait]
+impl<T> Handler<UnregisterEmitter> for Epg<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: Into<Emitter<StopStreaming>>,
+{
+    async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
+        match msg {
+            UnregisterEmitter::ServicesUpdated(id) => {
+                self.service_updated.unregister(id);
+            }
+            UnregisterEmitter::ClocksUpdated(id) => {
+                self.clocks_updated.unregister(id);
+            }
+            UnregisterEmitter::ProgramsUpdated(id) => {
+                self.programs_updated.unregister(id);
             }
         }
     }
@@ -815,17 +839,17 @@ where
 
 // notifications
 
-#[derive(Message)]
+#[derive(Clone, Message)]
 pub struct ServicesUpdated {
     pub services: Arc<IndexMap<ServiceId, EpgService>>,
 }
 
-#[derive(Message)]
+#[derive(Clone, Message)]
 pub struct ClocksUpdated {
     pub clocks: Arc<HashMap<ServiceId, Clock>>,
 }
 
-#[derive(Message)]
+#[derive(Clone, Message)]
 pub struct ProgramsUpdated {
     pub service_id: ServiceId,
 }

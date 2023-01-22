@@ -127,7 +127,19 @@ impl Call<RegisterEmitter> for EpgStub {
         &self,
         _msg: RegisterEmitter,
     ) -> actlet::Result<<RegisterEmitter as Message>::Reply> {
-        Ok(())
+        Ok(0)
+    }
+}
+
+#[async_trait]
+impl Emit<UnregisterEmitter> for EpgStub {
+    async fn emit(&self, _msg: UnregisterEmitter) {}
+    fn fire(&self, _msg: UnregisterEmitter) {}
+}
+
+impl Into<Emitter<UnregisterEmitter>> for EpgStub {
+    fn into(self) -> Emitter<UnregisterEmitter> {
+        Emitter::new(self)
     }
 }
 // </coverage:exclude>
