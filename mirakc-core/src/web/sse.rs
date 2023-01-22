@@ -41,7 +41,7 @@ where
         msg: Some(crate::epg::UnregisterEmitter::ProgramsUpdated(id)),
     };
 
-    recording_manager
+    let id = recording_manager
         .call(crate::recording::RegisterEmitter::RecordingStarted(
             feeder.clone().into(),
         ))
@@ -51,7 +51,7 @@ where
         msg: Some(crate::recording::UnregisterEmitter::RecordingStarted(id)),
     };
 
-    recording_manager
+    let id = recording_manager
         .call(crate::recording::RegisterEmitter::RecordingStopped(
             feeder.clone().into(),
         ))
@@ -61,7 +61,7 @@ where
         msg: Some(crate::recording::UnregisterEmitter::RecordingStopped(id)),
     };
 
-    recording_manager
+    let id = recording_manager
         .call(crate::recording::RegisterEmitter::RecordingFailed(
             feeder.clone().into(),
         ))
@@ -71,7 +71,7 @@ where
         msg: Some(crate::recording::UnregisterEmitter::RecordingFailed(id)),
     };
 
-    recording_manager
+    let id = recording_manager
         .call(crate::recording::RegisterEmitter::RecordingRescheduled(
             feeder.clone().into(),
         ))
@@ -83,7 +83,7 @@ where
         )),
     };
 
-    onair_manager
+    let id = onair_manager
         .call(crate::onair::RegisterEmitter(feeder.clone().into()))
         .await?;
     let _onair_program_changed_cleaner = Cleaner {
