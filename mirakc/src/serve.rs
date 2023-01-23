@@ -43,15 +43,6 @@ pub async fn main(config: Arc<config::Config>) {
         ))
         .await;
 
-    let _script_runner = system
-        .spawn_actor(script_runner::ScriptRunner::new(
-            config.clone(),
-            epg.clone(),
-            recording_manager.clone(),
-            onair_manager.clone(),
-        ))
-        .await;
-
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
 

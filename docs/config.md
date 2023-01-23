@@ -832,7 +832,7 @@ executes the `command` every minute.
 
 ### Remote Tracker
 
-A remote tracker tracks on-air TV programs by listening events from the `evets`
+A remote tracker tracks on-air TV programs by listening events from the `events`
 Web endpoint.
 
 ```yaml

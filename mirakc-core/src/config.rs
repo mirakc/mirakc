@@ -70,8 +70,6 @@ pub struct Config {
     #[serde(default)]
     pub timeshift: TimeshiftConfig,
     #[serde(default)]
-    pub events: EventsConfig,
-    #[serde(default)]
     pub onair_program_trackers: HashMap<String, OnairProgramTrackerConfig>,
     #[serde(default)]
     pub resource: ResourceConfig,
@@ -885,69 +883,6 @@ impl TimeshiftRecorderConfig {
 
     fn default_priority() -> i32 {
         TunerUserPriority::MAX
-    }
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(test, derive(Debug))]
-pub struct EventsConfig {
-    #[serde(default)]
-    pub concurrency: Concurrency,
-    #[serde(default)]
-    pub epg: EpgEventsConfig,
-    #[serde(default)]
-    pub recording: RecordingEventsConfig,
-    #[serde(default)]
-    pub onair: OnairEventsConfig,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(test, derive(Debug))]
-pub struct EpgEventsConfig {
-    #[serde(default)]
-    pub programs_updated: String,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(test, derive(Debug))]
-pub struct RecordingEventsConfig {
-    #[serde(default)]
-    pub started: String,
-    #[serde(default)]
-    pub stopped: String,
-    #[serde(default)]
-    pub failed: String,
-    #[serde(default)]
-    pub rescheduled: String,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(test, derive(Debug))]
-pub struct OnairEventsConfig {
-    #[serde(default)]
-    pub program_changed: String,
-}
-
-#[derive(Clone, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-#[cfg_attr(test, derive(Debug))]
-pub enum Concurrency {
-    Unlimited,
-    Number(usize),
-    NumCpus(f32),
-}
-
-impl Default for Concurrency {
-    fn default() -> Self {
-        Concurrency::Number(1)
     }
 }
 
@@ -2971,53 +2906,6 @@ mod tests {
             priority: TimeshiftRecorderConfig::default_priority(),
         };
         config.validate("test");
-    }
-
-    #[test]
-    fn test_events_config() {
-        assert_eq!(
-            serde_yaml::from_str::<EventsConfig>("{}").unwrap(),
-            Default::default()
-        );
-
-        assert_eq!(
-            serde_yaml::from_str::<EventsConfig>(
-                r#"
-                concurrency: !number 2
-            "#
-            )
-            .unwrap(),
-            EventsConfig {
-                concurrency: Concurrency::Number(2),
-                ..Default::default()
-            }
-        );
-
-        assert_eq!(
-            serde_yaml::from_str::<EventsConfig>(
-                r#"
-                concurrency: !num-cpus 0.5
-            "#
-            )
-            .unwrap(),
-            EventsConfig {
-                concurrency: Concurrency::NumCpus(0.5),
-                ..Default::default()
-            }
-        );
-
-        assert_eq!(
-            serde_yaml::from_str::<EventsConfig>(
-                r#"
-                concurrency: !unlimited
-            "#
-            )
-            .unwrap(),
-            EventsConfig {
-                concurrency: Concurrency::Unlimited,
-                ..Default::default()
-            }
-        );
     }
 
     #[test]

@@ -1080,7 +1080,6 @@ dependencies = [
  "mime",
  "mockall",
  "mustache",
- "num_cpus",
  "once_cell",
  "path-dedot",
  "reqwest",
