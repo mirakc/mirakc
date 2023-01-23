@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use actlet::prelude::*;
 use futures::StreamExt;
@@ -45,7 +46,7 @@ where
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!(tracker.name = self.0.name, "Started");
         let tracker = self.0.clone();
-        ctx.spawn_task(async move { tracker.process_events().await });
+        ctx.spawn_task(async move { tracker.run().await });
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
@@ -68,6 +69,14 @@ where
     E: Call<QueryProgram>,
     E: Call<QueryService>,
 {
+    async fn run(&self) {
+        loop {
+            self.process_events().await;
+            tracing::debug!(tracker.name = self.name, "Reconnect after 10s");
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    }
+
     async fn process_events(&self) {
         let mut es = EventSource::get(self.config.events_url());
         while let Some(event) = es.next().await {
@@ -111,10 +120,10 @@ where
                     self.emit(onair_program).await;
                 }
                 Err(err) => {
-                    tracing::error!(
+                    tracing::debug!(
                         %err,
                         tracker.name = self.name,
-                        "Error occurs, close EventSource",
+                        "Error, close EventSource",
                     );
                     es.close();
                 }
