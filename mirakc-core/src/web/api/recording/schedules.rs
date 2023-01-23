@@ -154,7 +154,7 @@ where
 /// any of the following conditions won't be deleted:
 ///
 ///   * Recording schedules without the specified tag
-///   * Recording schedules in the `tracing` or `recording` state
+///   * Recording schedules in the `tracking` or `recording` state
 ///   * Recording schedules in the `scheduled` state and will start recording
 ///     soon
 #[utoipa::path(
