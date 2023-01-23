@@ -2,6 +2,7 @@ use std::any::type_name;
 use std::collections::HashMap;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -336,8 +337,9 @@ where
 }
 
 /// A type that implements [`Call<M>`] for a particular message.
+#[derive(Clone)]
 pub struct Caller<M> {
-    inner: Box<dyn Call<M> + Send + Sync>,
+    inner: Arc<dyn Call<M> + Send + Sync>,
 }
 
 impl<M> Caller<M>
@@ -351,7 +353,7 @@ where
         T: 'static,
     {
         Caller {
-            inner: Box::new(inner),
+            inner: Arc::new(inner),
         }
     }
 }
@@ -367,8 +369,9 @@ where
 }
 
 /// A type that implements [`Emit<M>`] for a particular message.
+#[derive(Clone)]
 pub struct Emitter<M> {
-    inner: Box<dyn Emit<M> + Send + Sync>,
+    inner: Arc<dyn Emit<M> + Send + Sync>,
 }
 
 impl<M> Emitter<M>
@@ -382,7 +385,7 @@ where
         T: 'static,
     {
         Emitter {
-            inner: Box::new(inner),
+            inner: Arc::new(inner),
         }
     }
 }
@@ -445,6 +448,7 @@ where
     /// Registers an emitter.
     pub fn register(&mut self, emitter: Emitter<M>) -> usize {
         if self.is_full() {
+            tracing::error!(msg = type_name::<M>(), "No space to register emitter");
             return 0;
         }
         let id = self.unique_id();
