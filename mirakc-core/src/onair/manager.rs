@@ -233,18 +233,29 @@ where
     async fn handle(
         &mut self,
         msg: RegisterEmitter,
-        _ctx: &mut Context<Self>,
+        ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
-        let emitter = msg.0;
-        for (&service_id, entry) in self.cache.iter() {
-            let msg = OnairProgramChanged {
-                service_id,
-                current: entry.current.clone(),
-                next: entry.next.clone(),
-            };
-            emitter.emit(msg).await;
-        }
-        let id = self.program_changed.register(emitter);
+        // Create a task to send messages.
+        //
+        // Sending many messages in the message handler may cause a dead lock
+        // when the number of messages to be sent is larger than the capacity
+        // of the emitter's channel.  See the issue #705 for details.
+        let task = {
+            let cache = self.cache.clone();
+            let emitter = msg.0.clone();
+            async move {
+                for (&service_id, entry) in cache.iter() {
+                    let msg = OnairProgramChanged {
+                        service_id,
+                        current: entry.current.clone(),
+                        next: entry.next.clone(),
+                    };
+                    emitter.emit(msg).await;
+                }
+            }
+        };
+        ctx.spawn_task(task);
+        let id = self.program_changed.register(msg.0);
         tracing::debug!(msg.name = "RegisterEmitter", id);
         id
     }

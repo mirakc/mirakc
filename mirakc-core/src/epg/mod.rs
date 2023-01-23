@@ -779,7 +779,7 @@ where
     async fn handle(
         &mut self,
         msg: RegisterEmitter,
-        _ctx: &mut Context<Self>,
+        ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
         match msg {
             RegisterEmitter::ServicesUpdated(emitter) => {
@@ -801,9 +801,21 @@ where
                 id
             }
             RegisterEmitter::ProgramsUpdated(emitter) => {
-                for service_id in self.schedules.keys().cloned() {
-                    emitter.emit(ProgramsUpdated { service_id }).await;
-                }
+                // Create a task to send messages.
+                //
+                // Sending many messages in the message handler may cause a dead lock
+                // when the number of messages to be sent is larger than the capacity
+                // of the emitter's channel.  See the issue #705 for example.
+                let task = {
+                    let service_ids = self.schedules.keys().cloned().collect_vec();
+                    let emitter = emitter.clone();
+                    async move {
+                        for service_id in service_ids.into_iter() {
+                            emitter.emit(ProgramsUpdated { service_id }).await;
+                        }
+                    }
+                };
+                ctx.spawn_task(task);
                 let id = self.programs_updated.register(emitter);
                 tracing::debug!(msg.name = "RegisterEmitter::ProgramsUpdated");
                 id
