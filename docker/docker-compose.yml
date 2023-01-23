@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   mirakc:
     # In this sample, we build a image from source.

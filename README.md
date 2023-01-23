@@ -55,8 +55,6 @@ filters:
 Create `docker-compose.yml`:
 
 ```yaml
-version: '3'
-
 services:
   mirakc:
     image: docker.io/mirakc/mirakc:alpine

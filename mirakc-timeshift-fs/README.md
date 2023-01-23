@@ -33,8 +33,6 @@ recorded in the `mirakc` container are exposed to the filesystem on the Docker h
 `mirakc-timeshift-fs` container:
 
 ```yaml
-version: '3'
-
 x-environment: &default-environment
   TZ: Asia/Tokyo
 

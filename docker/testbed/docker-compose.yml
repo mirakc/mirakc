@@ -1,5 +1,3 @@
-version: '3'
-
 x-epgstation: &common-properties
   init: true
   restart: unless-stopped
