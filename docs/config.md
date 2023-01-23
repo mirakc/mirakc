@@ -871,7 +871,7 @@ used in mirakc at runtime.
 resource:
   logos:
     - service-id: 400101
-    - image: /path/to/bs1.png  # you can use any format of image
+      image: /path/to/bs1.png  # you can use any format of image
 ```
 
 mirakc does not collect logo images from TS streams at runtime.  However, you
