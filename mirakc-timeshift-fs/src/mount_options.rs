@@ -1,4 +1,5 @@
-// Took from https://github.com/cberner/fuser/blob/v0.12.0/src/mnt/mount_options.rs
+// Based-On: https://github.com/cberner/fuser/blob/v0.12.0/src/mnt/mount_options.rs
+// SPDX-License-Identifier: MIT
 
 use fuser::MountOption;
 

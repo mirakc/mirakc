@@ -11,8 +11,8 @@ use chrono::Utc;
 
 // The following implementation is based on chrono::offset::Utc.
 //
-// See https://github.com/chronotope/chrono/blob/master/src/offset/utc.rs for
-// details.
+// Based-On: https://github.com/chronotope/chrono/blob/39127e2a8fa0bfc6ded046b158788f692e028b3a/src/offset/utc.rs
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Jst;

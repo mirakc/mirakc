@@ -1,3 +1,6 @@
+// Based-On: https://github.com/actix/actix-derive/tree/f586e319e97fd463f960162f8030a8c26ad70a79
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use quote::quote;
