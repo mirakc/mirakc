@@ -1,5 +1,5 @@
 [workspace]
-members = ["actlet", "actlet-derive", "axum-test-helper", "chrono-jst", "mirakc", "mirakc-core", "mirakc-timeshift-fs"]
+members = ["actlet", "actlet-derive", "chrono-jst", "mirakc", "mirakc-core", "mirakc-timeshift-fs"]
 # Use the version "2" resolver in order to solve an issue in mirakc-timeshift-fs/Cargo.toml.
 # In this file, features of the fuser module change for each target.  The version "1" resolver
 # cannot handle properly such a situation.
