@@ -11,9 +11,10 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::models::events::*;
 
-pub(super) async fn events<E, R, O>(
+pub(super) async fn events<E, R, S, O>(
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
+    State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
     State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error>
 where
@@ -23,6 +24,9 @@ where
     R: Clone,
     R: Call<crate::recording::RegisterEmitter>,
     R: Into<Emitter<crate::recording::UnregisterEmitter>>,
+    S: Clone,
+    S: Call<crate::timeshift::RegisterEmitter>,
+    S: Into<Emitter<crate::timeshift::UnregisterEmitter>>,
     O: Clone,
     O: Call<crate::onair::RegisterEmitter>,
     O: Into<Emitter<crate::onair::UnregisterEmitter>>,
@@ -83,6 +87,14 @@ where
         )),
     };
 
+    let id = timeshift_manager
+        .call(crate::timeshift::RegisterEmitter(feeder.clone().into()))
+        .await?;
+    let _timeshift_event_cleaner = Cleaner {
+        emitter: timeshift_manager.clone().into(),
+        msg: Some(crate::timeshift::UnregisterEmitter(id)),
+    };
+
     let id = onair_manager
         .call(crate::onair::RegisterEmitter(feeder.clone().into()))
         .await?;
@@ -101,6 +113,7 @@ where
         _recording_stopped_cleaner,
         _recording_failed_cleaner,
         _recording_rescheduled_cleaner,
+        _timeshift_event_cleaner,
         _onair_program_changed_cleaner,
     });
     Ok(sse.keep_alive(Default::default()))
@@ -108,6 +121,16 @@ where
 
 #[derive(Clone)]
 struct EventFeeder(mpsc::Sender<Result<Event, Infallible>>);
+
+macro_rules! impl_into_emitter {
+    ($msg:path) => {
+        impl Into<Emitter<$msg>> for EventFeeder {
+            fn into(self) -> Emitter<$msg> {
+                Emitter::new(self)
+            }
+        }
+    };
+}
 
 macro_rules! impl_emit {
     ($msg:path, $event:ty) => {
@@ -124,20 +147,68 @@ macro_rules! impl_emit {
             }
         }
 
-        impl Into<Emitter<$msg>> for EventFeeder {
-            fn into(self) -> Emitter<$msg> {
-                Emitter::new(self)
-            }
-        }
+        impl_into_emitter! {$msg}
     };
 }
 
-impl_emit!(crate::epg::ProgramsUpdated, EpgProgramsUpdated);
-impl_emit!(crate::recording::RecordingStarted, RecordingStarted);
-impl_emit!(crate::recording::RecordingStopped, RecordingStopped);
-impl_emit!(crate::recording::RecordingFailed, RecordingFailed);
-impl_emit!(crate::recording::RecordingRescheduled, RecordingRescheduled);
-impl_emit!(crate::onair::OnairProgramChanged, OnairProgramChanged);
+impl_emit! {crate::epg::ProgramsUpdated, EpgProgramsUpdated}
+impl_emit! {crate::recording::RecordingStarted, RecordingStarted}
+impl_emit! {crate::recording::RecordingStopped, RecordingStopped}
+impl_emit! {crate::recording::RecordingFailed, RecordingFailed}
+impl_emit! {crate::recording::RecordingRescheduled, RecordingRescheduled}
+impl_emit! {crate::onair::OnairProgramChanged, OnairProgramChanged}
+
+#[async_trait]
+impl Emit<crate::timeshift::TimeshiftEvent> for EventFeeder {
+    async fn emit(&self, msg: crate::timeshift::TimeshiftEvent) {
+        use crate::timeshift::TimeshiftEvent::*;
+        let event = match msg {
+            Started { recorder } => Event::default()
+                .event("timeshift.started")
+                .json_data(TimeshiftStarted { recorder })
+                .unwrap(),
+            Stopped { recorder } => Event::default()
+                .event("timeshift.stopped")
+                .json_data(TimeshiftStopped { recorder })
+                .unwrap(),
+            RecordStarted {
+                recorder,
+                record_id,
+            } => Event::default()
+                .event("timeshift.record-started")
+                .json_data(TimeshiftRecordStarted {
+                    recorder,
+                    record_id,
+                })
+                .unwrap(),
+            RecordUpdated {
+                recorder,
+                record_id,
+            } => Event::default()
+                .event("timeshift.record-updated")
+                .json_data(TimeshiftRecordUpdated {
+                    recorder,
+                    record_id,
+                })
+                .unwrap(),
+            RecordEnded {
+                recorder,
+                record_id,
+            } => Event::default()
+                .event("timeshift.record-ended")
+                .json_data(TimeshiftRecordEnded {
+                    recorder,
+                    record_id,
+                })
+                .unwrap(),
+        };
+        if let Err(_) = self.0.send(Ok(event)).await {
+            tracing::warn!("Client disconnected");
+        }
+    }
+}
+
+impl_into_emitter! {crate::timeshift::TimeshiftEvent}
 
 struct Cleaner<M: Signal> {
     emitter: Emitter<M>,
@@ -157,6 +228,7 @@ struct EventStreamWrapper<S> {
     _recording_stopped_cleaner: Cleaner<crate::recording::UnregisterEmitter>,
     _recording_failed_cleaner: Cleaner<crate::recording::UnregisterEmitter>,
     _recording_rescheduled_cleaner: Cleaner<crate::recording::UnregisterEmitter>,
+    _timeshift_event_cleaner: Cleaner<crate::timeshift::UnregisterEmitter>,
     _onair_program_changed_cleaner: Cleaner<crate::onair::UnregisterEmitter>,
 }
 

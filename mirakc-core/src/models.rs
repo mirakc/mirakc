@@ -930,6 +930,39 @@ pub mod events {
 
     #[derive(Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
+    pub struct TimeshiftStarted {
+        pub recorder: String,
+    }
+
+    #[derive(Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TimeshiftStopped {
+        pub recorder: String,
+    }
+
+    #[derive(Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TimeshiftRecordStarted {
+        pub recorder: String,
+        pub record_id: TimeshiftRecordId,
+    }
+
+    #[derive(Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TimeshiftRecordUpdated {
+        pub recorder: String,
+        pub record_id: TimeshiftRecordId,
+    }
+
+    #[derive(Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TimeshiftRecordEnded {
+        pub recorder: String,
+        pub record_id: TimeshiftRecordId,
+    }
+
+    #[derive(Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
     pub struct OnairProgramChanged {
         pub service_id: ServiceId,
     }

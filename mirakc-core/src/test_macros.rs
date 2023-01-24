@@ -64,3 +64,19 @@ macro_rules! pipeline {
         }
     };
 }
+
+macro_rules! stub_impl_emit_fire {
+    ($stub:ty, $msg:ty) => {
+        #[async_trait]
+        impl Emit<$msg> for $stub {
+            async fn emit(&self, _msg: $msg) {}
+            fn fire(&self, _msg: $msg) {}
+        }
+
+        impl Into<Emitter<$msg>> for $stub {
+            fn into(self) -> Emitter<$msg> {
+                Emitter::new(self)
+            }
+        }
+    };
+}

@@ -120,6 +120,74 @@ An event sent when recording for a TV program is rescheduled.
 }
 ```
 
+## timeshift.started
+
+An event sent when timeshift recording for a service is started.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recorder": { "type": "string" }
+  }
+}
+```
+
+## timeshift.stopped
+
+An event sent when timeshift recording for a service is stopped.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recorder": { "type": "string" }
+  }
+}
+```
+
+## timeshift.record-started
+
+An event sent when timeshift recording for a TV program is started.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recorder": { "type": "string" },
+    "recordId": { "type": "number" }
+  }
+}
+```
+
+## timeshift.record-updated
+
+An event sent when timeshift recording for a TV program is updated.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recorder": { "type": "string" },
+    "recordId": { "type": "number" }
+  }
+}
+```
+
+## timeshift.record-ended
+
+An event sent when timeshift recording for a TV program is ended.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recorder": { "type": "string" },
+    "recordId": { "type": "number" }
+  }
+}
+```
+
 ## onair.program-changed
 
 An event sent when the on-air TV program of a service is changed.

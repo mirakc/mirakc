@@ -117,6 +117,8 @@ pub(in crate::web) struct WebTimeshiftRecorder {
     pub duration: Duration,
     pub pipeline: Vec<WebProcessModel>,
     pub recording: bool,
+    #[schema(value_type = Option<u32>)]
+    pub current_record_id: Option<TimeshiftRecordId>,
 }
 
 impl From<TimeshiftRecorderModel> for WebTimeshiftRecorder {
@@ -132,6 +134,7 @@ impl From<TimeshiftRecorderModel> for WebTimeshiftRecorder {
                 .map(WebProcessModel::from)
                 .collect(),
             recording: model.recording,
+            current_record_id: model.current_record_id,
         }
     }
 }
