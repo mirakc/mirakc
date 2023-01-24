@@ -1085,6 +1085,7 @@ where
                     let addr = ctx.address().clone();
                     let name = self.name.clone();
                     ctx.spawn_task(async move {
+                        let _trigger = addr.trigger(TimeshiftPipelineStopped);
                         let mut lines = reader.lines();
                         loop {
                             match lines.next_line().await {
@@ -1117,7 +1118,6 @@ where
                                 }
                             }
                         }
-                        addr.emit(TimeshiftRecorderMessage::Finish).await;
                     });
                 }
                 Err(err) => {
@@ -1205,6 +1205,30 @@ impl Handler<CreateTimeshiftRecordStreamSource> for TimeshiftRecorder {
     }
 }
 
+#[derive(Message)]
+struct TimeshiftPipelineStopped;
+
+#[async_trait]
+impl Handler<TimeshiftPipelineStopped> for TimeshiftRecorder {
+    async fn handle(&mut self, _msg: TimeshiftPipelineStopped, _ctx: &mut Context<Self>) {
+        if self.session.is_some() {
+            if !is_rebuild_mode() {
+                tracing::error!(
+                    recorder.name = self.name,
+                    "Recording pipeline broken, reactivate"
+                );
+            }
+            self.deactivate();
+            self.activator
+                .emit(ReactivateTimeshiftRecorder {
+                    name: self.name.clone(),
+                    service: self.service.clone(),
+                })
+                .await;
+        }
+    }
+}
+
 #[async_trait]
 impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
     async fn handle(&mut self, msg: TimeshiftRecorderMessage, _ctx: &mut Context<Self>) {
@@ -1236,23 +1260,6 @@ impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
                 self.handle_event_end(program_id, msg.event, msg.record)
                     .await;
             }
-            TimeshiftRecorderMessage::Finish => {
-                if self.session.is_some() {
-                    if !is_rebuild_mode() {
-                        tracing::error!(
-                            recorder.name = self.name,
-                            "Recording pipeline broken, reactivate"
-                        );
-                    }
-                    self.deactivate();
-                    self.activator
-                        .emit(ReactivateTimeshiftRecorder {
-                            name: self.name.clone(),
-                            service: self.service.clone(),
-                        })
-                        .await;
-                }
-            }
         }
     }
 }
@@ -1267,7 +1274,6 @@ enum TimeshiftRecorderMessage {
     EventStart(TimeshiftRecorderEventMessage),
     EventUpdate(TimeshiftRecorderEventMessage),
     EventEnd(TimeshiftRecorderEventMessage),
-    Finish,
 }
 
 #[derive(Deserialize)]
