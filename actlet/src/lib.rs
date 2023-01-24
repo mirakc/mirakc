@@ -205,6 +205,9 @@ where
 /// An address of an actor.
 pub struct Address<A> {
     sender: mpsc::Sender<Box<dyn Dispatch<A> + Send>>,
+    // A child token of the Actor's stop token.
+    // This cannot stop the Actor.
+    stop_token: CancellationToken,
 }
 
 impl<A> Address<A> {
@@ -218,9 +221,9 @@ impl<A> Address<A> {
         self.sender.closed().await
     }
 
-    fn pair() -> (Self, mpsc::Receiver<Box<dyn Dispatch<A> + Send>>) {
+    fn pair(stop_token: CancellationToken) -> (Self, mpsc::Receiver<Box<dyn Dispatch<A> + Send>>) {
         let (sender, receiver) = mpsc::channel(Self::MAX_MESSAGES);
-        let addr = Address { sender };
+        let addr = Address { sender, stop_token };
         (addr, receiver)
     }
 }
@@ -245,6 +248,7 @@ impl<A> Clone for Address<A> {
     fn clone(&self) -> Self {
         Address {
             sender: self.sender.clone(),
+            stop_token: self.stop_token.clone(),
         }
     }
 }
@@ -307,7 +311,11 @@ where
     async fn emit(&self, msg: M) {
         let dispatcher = Box::new(SignalDispatcher::new(msg));
         if let Err(_) = self.sender.send(dispatcher).await {
-            tracing::warn!(actor = type_name::<A>(), msg = type_name::<M>(), "Stopped");
+            tracing::warn!(
+                actor = type_name::<A>(),
+                msg = type_name::<M>(),
+                "The actor is stopped, the message is lost"
+            );
         }
     }
 }
@@ -343,15 +351,29 @@ where
             Err(TrySendError::Full(dispatcher)) => {
                 // Need sending using an async task.
                 let sender = self.sender.clone();
+                let stop_token = self.stop_token.clone();
                 let task = async move {
-                    if let Err(_) = sender.send(dispatcher).await {
-                        tracing::warn!(actor = type_name::<A>(), msg = type_name::<M>(), "Stopped");
+                    tokio::select! {
+                        result = sender.send(dispatcher) => {
+                            if let Err(_) = result {
+                                tracing::warn!(
+                                    actor = type_name::<A>(),
+                                    msg = type_name::<M>(),
+                                    "The actor is stopped, the message is lost"
+                                );
+                            }
+                        }
+                        _ = stop_token.cancelled() => (),
                     }
                 };
                 tokio::spawn(task.in_current_span());
             }
             Err(TrySendError::Closed(_)) => {
-                tracing::warn!(actor = type_name::<A>(), msg = type_name::<M>(), "Stopped");
+                tracing::warn!(
+                    actor = type_name::<A>(),
+                    msg = type_name::<M>(),
+                    "The actor is stopped, the message is lost"
+                );
             }
         }
     }
@@ -554,20 +576,6 @@ where
 {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// A message to stop an actor.
-pub struct Stop;
-impl Message for Stop {
-    type Reply = ();
-}
-impl Signal for Stop {}
-
-#[async_trait]
-impl<A: Actor> Handler<Stop> for A {
-    async fn handle(&mut self, _msg: Stop, ctx: &mut Context<Self>) {
-        ctx.stop();
     }
 }
 
@@ -852,7 +860,7 @@ mod promoter {
     }
 
     pub(crate) fn spawn(stop_token: CancellationToken, system_span: Span) -> Address<Promoter> {
-        let (addr, receiver) = Address::pair();
+        let (addr, receiver) = Address::pair(stop_token.child_token());
         let context = Context::new(addr.clone(), addr.clone(), stop_token);
         let task = {
             let span = system_span.clone();
@@ -876,7 +884,7 @@ mod promoter {
             A: Actor,
         {
             let stop_token = ctx.stop_token.child_token();
-            let (addr, receiver) = Address::pair();
+            let (addr, receiver) = Address::pair(stop_token.child_token());
             let ctx = Context::new(addr.clone(), ctx.address().clone(), stop_token);
             let task = async move {
                 MessageLoop::new(actor, receiver, ctx).run().await;
