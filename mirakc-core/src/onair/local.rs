@@ -20,7 +20,6 @@ use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
 use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
-use crate::tuner::TunerStreamStopTrigger;
 
 use super::OnairProgramChanged;
 use super::TrackerStopped;
@@ -63,7 +62,7 @@ impl<T, E> Actor for LocalTracker<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<QueryServices>,
 {
@@ -113,7 +112,7 @@ impl<T, E> Handler<UpdateOnairPrograms> for LocalTracker<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<QueryServices>,
 {
@@ -140,7 +139,7 @@ impl<T, E> LocalTracker<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<QueryServices>,
 {
@@ -201,8 +200,8 @@ where
             })
             .await??;
 
-        let stop_trigger =
-            TunerStreamStopTrigger::new(stream.id(), self.tuner_manager.clone().into());
+        let msg = StopStreaming { id: stream.id() };
+        let stop_trigger = self.tuner_manager.trigger(msg);
 
         let template = mustache::compile_str(&self.config.command)?;
         let data = mustache::MapBuilder::new()

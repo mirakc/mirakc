@@ -20,16 +20,16 @@ pub(super) async fn events<E, R, S, O>(
 where
     E: Clone,
     E: Call<crate::epg::RegisterEmitter>,
-    E: Into<Emitter<crate::epg::UnregisterEmitter>>,
+    E: TriggerFactory<crate::epg::UnregisterEmitter>,
     R: Clone,
     R: Call<crate::recording::RegisterEmitter>,
-    R: Into<Emitter<crate::recording::UnregisterEmitter>>,
+    R: TriggerFactory<crate::recording::UnregisterEmitter>,
     S: Clone,
     S: Call<crate::timeshift::RegisterEmitter>,
-    S: Into<Emitter<crate::timeshift::UnregisterEmitter>>,
+    S: TriggerFactory<crate::timeshift::UnregisterEmitter>,
     O: Clone,
     O: Call<crate::onair::RegisterEmitter>,
-    O: Into<Emitter<crate::onair::UnregisterEmitter>>,
+    O: TriggerFactory<crate::onair::UnregisterEmitter>,
 {
     let (sender, receiver) = mpsc::channel(32);
 
@@ -40,81 +40,66 @@ where
             feeder.clone().into(),
         ))
         .await?;
-    let _epg_programs_updated_cleaner = Cleaner {
-        emitter: epg.clone().into(),
-        msg: Some(crate::epg::UnregisterEmitter::ProgramsUpdated(id)),
-    };
+    let _epg_programs_updated_unregister_trigger =
+        epg.trigger(crate::epg::UnregisterEmitter::ProgramsUpdated(id));
 
     let id = recording_manager
         .call(crate::recording::RegisterEmitter::RecordingStarted(
             feeder.clone().into(),
         ))
         .await?;
-    let _recording_started_cleaner = Cleaner {
-        emitter: recording_manager.clone().into(),
-        msg: Some(crate::recording::UnregisterEmitter::RecordingStarted(id)),
-    };
+    let _recording_started_unregister_trigger =
+        recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingStarted(id));
 
     let id = recording_manager
         .call(crate::recording::RegisterEmitter::RecordingStopped(
             feeder.clone().into(),
         ))
         .await?;
-    let _recording_stopped_cleaner = Cleaner {
-        emitter: recording_manager.clone().into(),
-        msg: Some(crate::recording::UnregisterEmitter::RecordingStopped(id)),
-    };
+    let _recording_stopped_unregister_trigger =
+        recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingStopped(id));
 
     let id = recording_manager
         .call(crate::recording::RegisterEmitter::RecordingFailed(
             feeder.clone().into(),
         ))
         .await?;
-    let _recording_failed_cleaner = Cleaner {
-        emitter: recording_manager.clone().into(),
-        msg: Some(crate::recording::UnregisterEmitter::RecordingFailed(id)),
-    };
+    let _recording_failed_unregister_trigger =
+        recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingFailed(id));
 
     let id = recording_manager
         .call(crate::recording::RegisterEmitter::RecordingRescheduled(
             feeder.clone().into(),
         ))
         .await?;
-    let _recording_rescheduled_cleaner = Cleaner {
-        emitter: recording_manager.clone().into(),
-        msg: Some(crate::recording::UnregisterEmitter::RecordingRescheduled(
-            id,
-        )),
-    };
+    let _recording_rescheduled_unregister_trigger = recording_manager.trigger(
+        crate::recording::UnregisterEmitter::RecordingRescheduled(id),
+    );
 
     let id = timeshift_manager
         .call(crate::timeshift::RegisterEmitter(feeder.clone().into()))
         .await?;
-    let _timeshift_event_cleaner = Cleaner {
-        emitter: timeshift_manager.clone().into(),
-        msg: Some(crate::timeshift::UnregisterEmitter(id)),
-    };
+    let _timeshift_event_unregister_trigger =
+        timeshift_manager.trigger(crate::timeshift::UnregisterEmitter(id));
 
     let id = onair_manager
         .call(crate::onair::RegisterEmitter(feeder.clone().into()))
         .await?;
-    let _onair_program_changed_cleaner = Cleaner {
-        emitter: onair_manager.clone().into(),
-        msg: Some(crate::onair::UnregisterEmitter(id)),
-    };
+    let _onair_program_changed_unregister_trigger =
+        onair_manager.trigger(crate::onair::UnregisterEmitter(id));
 
     // The Sse instance will be dropped in IntoResponse::into_response().
     // So, we have to create a wrapper for the event stream in order to
     // unregister emitters.
     let sse = Sse::new(EventStreamWrapper {
         inner: ReceiverStream::new(receiver),
-        _epg_programs_updated_cleaner,
-        _recording_started_cleaner,
-        _recording_stopped_cleaner,
-        _recording_failed_cleaner,
-        _recording_rescheduled_cleaner,
-        _timeshift_event_cleaner,
-        _onair_program_changed_cleaner,
+        _epg_programs_updated_unregister_trigger,
+        _recording_started_unregister_trigger,
+        _recording_stopped_unregister_trigger,
+        _recording_failed_unregister_trigger,
+        _recording_rescheduled_unregister_trigger,
+        _timeshift_event_unregister_trigger,
+        _onair_program_changed_unregister_trigger,
     });
     Ok(sse.keep_alive(Default::default()))
 }
@@ -210,26 +195,15 @@ impl Emit<crate::timeshift::TimeshiftEvent> for EventFeeder {
 
 impl_into_emitter! {crate::timeshift::TimeshiftEvent}
 
-struct Cleaner<M: Signal> {
-    emitter: Emitter<M>,
-    msg: Option<M>,
-}
-
-impl<M: Signal> Drop for Cleaner<M> {
-    fn drop(&mut self) {
-        self.emitter.fire(self.msg.take().unwrap());
-    }
-}
-
 struct EventStreamWrapper<S> {
     inner: S,
-    _epg_programs_updated_cleaner: Cleaner<crate::epg::UnregisterEmitter>,
-    _recording_started_cleaner: Cleaner<crate::recording::UnregisterEmitter>,
-    _recording_stopped_cleaner: Cleaner<crate::recording::UnregisterEmitter>,
-    _recording_failed_cleaner: Cleaner<crate::recording::UnregisterEmitter>,
-    _recording_rescheduled_cleaner: Cleaner<crate::recording::UnregisterEmitter>,
-    _timeshift_event_cleaner: Cleaner<crate::timeshift::UnregisterEmitter>,
-    _onair_program_changed_cleaner: Cleaner<crate::onair::UnregisterEmitter>,
+    _epg_programs_updated_unregister_trigger: Trigger<crate::epg::UnregisterEmitter>,
+    _recording_started_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,
+    _recording_stopped_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,
+    _recording_failed_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,
+    _recording_rescheduled_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,
+    _timeshift_event_unregister_trigger: Trigger<crate::timeshift::UnregisterEmitter>,
+    _onair_program_changed_unregister_trigger: Trigger<crate::onair::UnregisterEmitter>,
 }
 
 impl<S> Stream for EventStreamWrapper<S>

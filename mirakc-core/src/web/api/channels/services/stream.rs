@@ -39,7 +39,7 @@ pub(in crate::web::api) async fn get<T, E>(
 where
     T: Clone,
     T: Call<tuner::StartStreaming>,
-    T: Into<Emitter<tuner::StopStreaming>>,
+    T: TriggerFactory<tuner::StopStreaming>,
     E: Call<epg::QueryChannel>,
 {
     let channel = epg

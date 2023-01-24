@@ -28,7 +28,7 @@ impl<T> ClockSynchronizer<T>
 where
     T: Clone,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     const LABEL: &'static str = "epg.sync-clocks";
 
@@ -87,7 +87,8 @@ where
             })
             .await??;
 
-        let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().into());
+        let msg = StopStreaming { id: stream.id() };
+        let stop_trigger = tuner_manager.trigger(msg);
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()

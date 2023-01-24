@@ -64,7 +64,7 @@ impl<T, E> Actor for OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -74,7 +74,7 @@ where
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
         for (name, config) in self.config.onair_program_trackers.iter() {
-            let changed = ctx.address().clone().into();
+            let changed = ctx.emitter();
             let tracker = match config {
                 OnairProgramTrackerConfig::Local(config) => {
                     self.spawn_local_tracker(name, config, ctx, changed, None)
@@ -87,9 +87,7 @@ where
             self.trackers.insert(name.to_string(), tracker);
         }
         self.epg
-            .call(epg::RegisterEmitter::ServicesUpdated(
-                ctx.address().clone().into(),
-            ))
+            .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
             .expect("Failed to register emitter for epg::ServicesUpdated");
     }
@@ -103,7 +101,7 @@ impl<T, E> OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -162,7 +160,7 @@ impl<T, E> Handler<QueryOnairPrograms> for OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -192,7 +190,7 @@ impl<T, E> Handler<QueryOnairProgram> for OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -223,7 +221,7 @@ impl<T, E> Handler<RegisterEmitter> for OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -271,7 +269,7 @@ impl<T, E> Handler<UnregisterEmitter> for OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -298,7 +296,7 @@ impl<T, E> Handler<SpawnTemporalTracker> for OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -334,8 +332,8 @@ where
             command: LocalOnairProgramTrackerConfig::default_command(),
             stream_id: Some(msg.stream_id),
         });
-        let changed = ctx.address().clone().into();
-        let stopped = Some(ctx.address().clone().into());
+        let changed = ctx.emitter();
+        let stopped = Some(ctx.emitter());
         let tracker = self
             .spawn_local_tracker(&name, &config, ctx, changed, stopped)
             .await;
@@ -361,7 +359,7 @@ impl<T, E> Handler<epg::ServicesUpdated> for OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -382,7 +380,7 @@ impl<T, E> Handler<OnairProgramChanged> for OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -424,7 +422,7 @@ impl<T, E> Handler<TrackerStopped> for OnairProgramManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -513,17 +511,7 @@ pub(crate) mod stub {
         }
     }
 
-    #[async_trait]
-    impl Emit<UnregisterEmitter> for OnairProgramManagerStub {
-        async fn emit(&self, _msg: UnregisterEmitter) {}
-        fn fire(&self, _msg: UnregisterEmitter) {}
-    }
-
-    impl Into<Emitter<UnregisterEmitter>> for OnairProgramManagerStub {
-        fn into(self) -> Emitter<UnregisterEmitter> {
-            Emitter::new(self)
-        }
-    }
+    stub_impl_fire! {OnairProgramManagerStub, UnregisterEmitter}
 
     #[async_trait]
     impl Call<SpawnTemporalTracker> for OnairProgramManagerStub {

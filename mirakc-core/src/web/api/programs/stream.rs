@@ -51,7 +51,7 @@ pub(in crate::web::api) async fn get<T, E, O>(
 where
     T: Clone,
     T: Call<tuner::StartStreaming>,
-    T: Into<Emitter<tuner::StopStreaming>>,
+    T: TriggerFactory<tuner::StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<epg::QueryProgram>,
     E: Call<epg::QueryService>,
@@ -74,8 +74,8 @@ where
 
     // stream_stop_trigger must be created here in order to stop streaming when
     // an error occurs.
-    let stream_stop_trigger =
-        TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().into());
+    let msg = tuner::StopStreaming { id: stream.id() };
+    let stream_stop_trigger = tuner_manager.trigger(msg);
 
     let video_tags: Vec<u8> = program
         .video

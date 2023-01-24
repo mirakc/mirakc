@@ -131,15 +131,5 @@ impl Call<RegisterEmitter> for EpgStub {
     }
 }
 
-#[async_trait]
-impl Emit<UnregisterEmitter> for EpgStub {
-    async fn emit(&self, _msg: UnregisterEmitter) {}
-    fn fire(&self, _msg: UnregisterEmitter) {}
-}
-
-impl Into<Emitter<UnregisterEmitter>> for EpgStub {
-    fn into(self) -> Emitter<UnregisterEmitter> {
-        Emitter::new(self)
-    }
-}
+stub_impl_fire! {EpgStub, UnregisterEmitter}
 // </coverage:exclude>

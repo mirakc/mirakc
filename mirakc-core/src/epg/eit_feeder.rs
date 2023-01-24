@@ -24,7 +24,7 @@ impl<T, E> EitFeeder<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<QueryServices>,
     E: Emit<FlushSchedule>,
@@ -74,7 +74,7 @@ impl<T, E> Actor for EitFeeder<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<QueryServices>,
     E: Emit<FlushSchedule>,
@@ -101,7 +101,7 @@ impl<T, E> Handler<FeedEitSections> for EitFeeder<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<QueryServices>,
     E: Emit<FlushSchedule>,
@@ -134,7 +134,7 @@ impl<T, E> EitCollector<T, E>
 where
     T: Clone,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Emit<FlushSchedule>,
     E: Emit<PrepareSchedule>,
     E: Emit<UpdateSchedule>,
@@ -181,7 +181,8 @@ where
             })
             .await??;
 
-        let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().into());
+        let msg = StopStreaming { id: stream.id() };
+        let stop_trigger = tuner_manager.trigger(msg);
 
         let template = mustache::compile_str(command)?;
         let data = mustache::MapBuilder::new()

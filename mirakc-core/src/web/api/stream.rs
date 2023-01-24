@@ -33,7 +33,7 @@ pub(in crate::web::api) async fn do_get_service_stream<T>(
 where
     T: Clone,
     T: Call<tuner::StartStreaming>,
-    T: Into<Emitter<tuner::StopStreaming>>,
+    T: TriggerFactory<tuner::StopStreaming>,
 {
     let stream = tuner_manager
         .call(tuner::StartStreaming {
@@ -45,7 +45,8 @@ where
 
     // stop_trigger must be created here in order to stop streaming when an
     // error occurs.
-    let stop_trigger = TunerStreamStopTrigger::new(stream.id(), tuner_manager.clone().into());
+    let msg = tuner::StopStreaming { id: stream.id() };
+    let stop_trigger = tuner_manager.trigger(msg);
 
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &channel.name)

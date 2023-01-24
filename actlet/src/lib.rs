@@ -174,7 +174,7 @@ where
     M: 'static,
 {
     fn caller(&self) -> Caller<M> {
-        self.address().clone().into()
+        self.address().caller()
     }
 }
 
@@ -186,7 +186,19 @@ where
     M: 'static,
 {
     fn emitter(&self) -> Emitter<M> {
-        self.address().clone().into()
+        self.address().emitter()
+    }
+}
+
+impl<A, M> TriggerFactory<M> for Context<A>
+where
+    A: Handler<M>,
+    M: Signal,
+    // An message will be converted into `Box<dyn Dispatch>`.
+    M: 'static,
+{
+    fn trigger(&self, msg: M) -> Trigger<M> {
+        self.address().trigger(msg)
     }
 }
 
@@ -237,30 +249,6 @@ impl<A> Clone for Address<A> {
     }
 }
 
-impl<A, M> Into<Caller<M>> for Address<A>
-where
-    A: Handler<M>,
-    M: Action,
-    // An message will be converted into `Box<dyn Dispatch>`.
-    M: 'static,
-{
-    fn into(self) -> Caller<M> {
-        Caller::new(self)
-    }
-}
-
-impl<A, M> Into<Emitter<M>> for Address<A>
-where
-    A: Handler<M>,
-    M: Signal,
-    // An message will be converted into `Box<dyn Dispatch>`.
-    M: 'static,
-{
-    fn into(self) -> Emitter<M> {
-        Emitter::new(self)
-    }
-}
-
 #[async_trait]
 impl<A, M> Call<M> for Address<A>
 where
@@ -296,6 +284,18 @@ where
     }
 }
 
+impl<A, M> CallerFactory<M> for Address<A>
+where
+    A: Handler<M>,
+    M: Action,
+    // An message will be converted into `Box<dyn Dispatch>`.
+    M: 'static,
+{
+    fn caller(&self) -> Caller<M> {
+        Caller::new(self.clone())
+    }
+}
+
 #[async_trait]
 impl<A, M> Emit<M> for Address<A>
 where
@@ -310,7 +310,28 @@ where
             tracing::warn!(actor = type_name::<A>(), msg = type_name::<M>(), "Stopped");
         }
     }
+}
 
+impl<A, M> EmitterFactory<M> for Address<A>
+where
+    A: Handler<M>,
+    M: Signal,
+    // An message will be converted into `Box<dyn Dispatch>`.
+    M: 'static,
+{
+    fn emitter(&self) -> Emitter<M> {
+        Emitter::new(self.clone())
+    }
+}
+
+#[async_trait]
+impl<A, M> Fire<M> for Address<A>
+where
+    A: Handler<M>,
+    M: Signal,
+    // An message will be converted into `Box<dyn Dispatch>`.
+    M: 'static,
+{
     fn fire(&self, msg: M) {
         use mpsc::error::TrySendError;
 
@@ -336,6 +357,18 @@ where
     }
 }
 
+impl<A, M> TriggerFactory<M> for Address<A>
+where
+    A: Handler<M>,
+    M: Signal,
+    // An message will be converted into `Arc<dyn Dispatch>`.
+    M: 'static,
+{
+    fn trigger(&self, msg: M) -> Trigger<M> {
+        Trigger::new(self.clone(), msg)
+    }
+}
+
 /// A type that implements [`Call<M>`] for a particular message.
 #[derive(Clone)]
 pub struct Caller<M> {
@@ -349,7 +382,7 @@ where
     pub fn new<T>(inner: T) -> Self
     where
         T: Call<M> + Send + Sync,
-        // `T` will be converted into Box<dyn Call<M>>`.
+        // `T` will be converted into Arc<dyn Call<M>>`.
         T: 'static,
     {
         Caller {
@@ -381,7 +414,7 @@ where
     pub fn new<T>(inner: T) -> Self
     where
         T: Emit<M> + Send + Sync,
-        // `T` will be converted into Box<dyn Call<M>>`.
+        // `T` will be converted into Arc<dyn Emit<M>>`.
         T: 'static,
     {
         Emitter {
@@ -404,9 +437,41 @@ where
     async fn emit(&self, msg: M) {
         self.inner.emit(msg).await
     }
+}
 
-    fn fire(&self, msg: M) {
-        self.inner.fire(msg);
+/// A type that implements [`Fire<M>`] and emits an message only once when the
+/// object is destroyed.
+pub struct Trigger<M>
+where
+    M: Signal,
+{
+    inner: Box<dyn Fire<M> + Send + Sync>,
+    msg: Option<M>,
+}
+
+impl<M> Trigger<M>
+where
+    M: Signal,
+{
+    pub fn new<T>(inner: T, msg: M) -> Self
+    where
+        T: Fire<M> + Send + Sync,
+        // `T` will be converted into Box<dyn Fire<M>>`.
+        T: 'static,
+    {
+        Trigger {
+            inner: Box::new(inner),
+            msg: Some(msg),
+        }
+    }
+}
+
+impl<M> Drop for Trigger<M>
+where
+    M: Signal,
+{
+    fn drop(&mut self) {
+        self.inner.fire(self.msg.take().unwrap());
     }
 }
 
@@ -545,22 +610,6 @@ pub trait Spawn: Sized {
         F: Future<Output = ()> + Send + 'static;
 }
 
-/// A trait to create a caller.
-pub trait CallerFactory<M>
-where
-    M: Action,
-{
-    fn caller(&self) -> Caller<M>;
-}
-
-/// A trait to create an emitter.
-pub trait EmitterFactory<M>
-where
-    M: Signal,
-{
-    fn emitter(&self) -> Emitter<M>;
-}
-
 /// A trait that every message must implement.
 pub trait Message: Send {
     /// The type of reply for this message.
@@ -579,27 +628,51 @@ pub trait Call<M: Action> {
     async fn call(&self, msg: M) -> Result<M::Reply>;
 }
 
+/// A trait to create a caller.
+pub trait CallerFactory<M>
+where
+    M: Action,
+{
+    fn caller(&self) -> Caller<M>;
+}
+
 /// A trait that every message sent by [`Emit<M>`] must implement.
 pub trait Signal: Message<Reply = ()> {}
 
-/// A trait to send every message.
+/// A trait to send a message.
 #[async_trait]
 pub trait Emit<M: Signal> {
     /// Sends a message.
     ///
     /// The `msg` will be lost if the actor has already stopped.
     async fn emit(&self, msg: M);
+}
 
+/// A trait to create an emitter.
+pub trait EmitterFactory<M>
+where
+    M: Signal,
+{
+    fn emitter(&self) -> Emitter<M>;
+}
+
+/// A trait to send a message without blocking.
+pub trait Fire<M: Signal> {
     /// Sends a message synchronously if possible.
     ///
     /// This function is useful when a message has to be sent outside `async fn`
     /// and `async` blocks such as `Drop::drop()`.
     ///
     /// The `msg` will be lost if the actor has already stopped.
-    #[allow(unused_variables)]
-    fn fire(&self, msg: M) {
-        unimplemented!("Emit::fire");
-    }
+    fn fire(&self, msg: M);
+}
+
+/// A trait to create a trigger.
+pub trait TriggerFactory<M>
+where
+    M: Signal,
+{
+    fn trigger(&self, msg: M) -> Trigger<M>;
 }
 
 /// A trait to handle a message.
@@ -849,6 +922,7 @@ pub mod prelude {
     pub use crate::Emitter;
     pub use crate::EmitterRegistry;
     pub use crate::System;
+    pub use crate::Trigger;
 
     // traits
     pub use crate::Action;
@@ -857,10 +931,12 @@ pub mod prelude {
     pub use crate::CallerFactory;
     pub use crate::Emit;
     pub use crate::EmitterFactory;
+    pub use crate::Fire;
     pub use crate::Handler;
     pub use crate::Message;
     pub use crate::Signal;
     pub use crate::Spawn;
+    pub use crate::TriggerFactory;
 
     // dependencies
     pub use async_trait::async_trait;

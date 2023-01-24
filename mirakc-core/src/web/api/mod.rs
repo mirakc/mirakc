@@ -19,7 +19,6 @@ use crate::models::*;
 use crate::recording::RecordingOptions;
 use crate::recording::RecordingScheduleState;
 use crate::tuner;
-use crate::tuner::TunerStreamStopTrigger;
 
 use super::body::StaticFileBody;
 use super::qs::Qs;
@@ -47,7 +46,7 @@ where
     T: Clone + Send + Sync + 'static,
     T: Call<crate::tuner::QueryTuners>,
     T: Call<crate::tuner::StartStreaming>,
-    T: Into<Emitter<crate::tuner::StopStreaming>>,
+    T: TriggerFactory<crate::tuner::StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Call<crate::epg::QueryChannel>,
     E: Call<crate::epg::QueryChannels>,

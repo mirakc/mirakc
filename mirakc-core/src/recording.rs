@@ -37,7 +37,6 @@ use crate::models::TunerUserInfo;
 use crate::onair;
 use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
-use crate::tuner::TunerStreamStopTrigger;
 use crate::tuner::TunerSubscriptionId;
 
 const EXIT_RETRY: i32 = 222;
@@ -201,7 +200,7 @@ impl<T, E, O> Actor for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -213,19 +212,15 @@ where
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
         self.epg
-            .call(epg::RegisterEmitter::ServicesUpdated(
-                ctx.address().clone().into(),
-            ))
+            .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
             .expect("Failed to register emitter for epg::ServicesUpdated");
         self.epg
-            .call(epg::RegisterEmitter::ProgramsUpdated(
-                ctx.address().clone().into(),
-            ))
+            .call(epg::RegisterEmitter::ProgramsUpdated(ctx.emitter()))
             .await
             .expect("Failed to register emitter for epg::ProgramsUpdated");
         self.onair_program_tracker
-            .call(onair::RegisterEmitter(ctx.address().clone().into()))
+            .call(onair::RegisterEmitter(ctx.emitter()))
             .await
             .expect("Failed to register emitter for OnairProgramUpdated");
         self.load_schedules();
@@ -249,7 +244,7 @@ impl<T, E, O> Handler<QueryRecordingSchedules> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -303,7 +298,7 @@ impl<T, E, O> Handler<QueryRecordingSchedule> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -344,7 +339,7 @@ impl<T, E, O> Handler<AddRecordingSchedule> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -450,7 +445,7 @@ impl<T, E, O> Handler<RemoveRecordingSchedule> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -539,7 +534,7 @@ impl<T, E, O> Handler<RemoveRecordingSchedules> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -623,7 +618,7 @@ impl<T, E, O> Handler<QueryRecordingRecorders> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -658,7 +653,7 @@ impl<T, E, O> Handler<QueryRecordingRecorder> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -693,7 +688,7 @@ impl<T, E, O> Handler<StartRecording> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -734,7 +729,7 @@ impl<T, E, O> Handler<ProcessRecording> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -840,7 +835,7 @@ impl<T, E, O> RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -883,8 +878,8 @@ where
 
         // stop_trigger must be created here in order to stop streaming when
         // an error occurs.
-        let stop_trigger =
-            TunerStreamStopTrigger::new(stream.id(), self.tuner_manager.clone().into());
+        let msg = StopStreaming { id: stream.id() };
+        let stop_trigger = self.tuner_manager.trigger(msg);
 
         let video_tags: Vec<u8> = schedule
             .program
@@ -1005,7 +1000,7 @@ impl<T, E, O> Handler<RegisterEmitter> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -1059,7 +1054,7 @@ impl<T, E, O> Handler<UnregisterEmitter> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -1102,7 +1097,7 @@ impl<T, E, O> Handler<RecordingStarted> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -1140,7 +1135,7 @@ impl<T, E, O> Handler<RecordingStopped> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -1267,7 +1262,7 @@ impl<T, E, O> Handler<RecordingFailed> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -1313,7 +1308,7 @@ impl<T, E, O> Handler<epg::ServicesUpdated> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -1367,7 +1362,7 @@ impl<T, E, O> Handler<epg::ProgramsUpdated> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -1460,7 +1455,7 @@ impl<T, E, O> Handler<onair::OnairProgramChanged> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<QueryClock>,
     E: Call<QueryPrograms>,
@@ -1629,7 +1624,7 @@ pub struct RecordingOptions {
 struct Recorder {
     started_at: DateTime<Jst>,
     pipeline: CommandPipeline<TunerSubscriptionId>,
-    stop_trigger: Option<TunerStreamStopTrigger>,
+    stop_trigger: Option<Trigger<StopStreaming>>,
 }
 
 impl Recorder {
@@ -2481,17 +2476,7 @@ pub(crate) mod stub {
         }
     }
 
-    #[async_trait]
-    impl Emit<UnregisterEmitter> for RecordingManagerStub {
-        async fn emit(&self, _msg: UnregisterEmitter) {}
-        fn fire(&self, _msg: UnregisterEmitter) {}
-    }
-
-    impl Into<Emitter<UnregisterEmitter>> for RecordingManagerStub {
-        fn into(self) -> Emitter<UnregisterEmitter> {
-            Emitter::new(self)
-        }
-    }
+    stub_impl_fire! {RecordingManagerStub, UnregisterEmitter}
 
     #[async_trait]
     impl Call<RemoveRecordingSchedule> for RecordingManagerStub {

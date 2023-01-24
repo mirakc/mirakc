@@ -718,24 +718,6 @@ impl Drop for TunerSession {
     }
 }
 
-pub struct TunerStreamStopTrigger {
-    id: TunerSubscriptionId,
-    emitter: Emitter<StopStreaming>,
-}
-
-impl TunerStreamStopTrigger {
-    pub fn new(id: TunerSubscriptionId, emitter: Emitter<StopStreaming>) -> Self {
-        Self { id, emitter }
-    }
-}
-
-impl Drop for TunerStreamStopTrigger {
-    fn drop(&mut self) {
-        tracing::debug!(subscription.id = %self.id, "Stop streaming");
-        self.emitter.fire(StopStreaming { id: self.id });
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1087,16 +1069,6 @@ pub(crate) mod stub {
         }
     }
 
-    #[async_trait]
-    impl Emit<StopStreaming> for TunerManagerStub {
-        async fn emit(&self, _msg: StopStreaming) {}
-        fn fire(&self, _msg: StopStreaming) {}
-    }
-
-    impl Into<Emitter<StopStreaming>> for TunerManagerStub {
-        fn into(self) -> Emitter<StopStreaming> {
-            Emitter::new(self)
-        }
-    }
+    stub_impl_fire! {TunerManagerStub, StopStreaming}
 }
 // </coverage:exclude>

@@ -86,7 +86,7 @@ impl<T, E> Actor for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
 {
@@ -94,9 +94,7 @@ where
         tracing::debug!("Started");
 
         self.epg
-            .call(epg::RegisterEmitter::ServicesUpdated(
-                ctx.address().clone().into(),
-            ))
+            .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
             .expect("Failed to register the emitter");
 
@@ -107,8 +105,8 @@ where
                     index,
                     name.clone(),
                     self.config.clone(),
-                    ctx.address().clone().into(),
-                    ctx.address().clone().into(),
+                    ctx.emitter(),
+                    ctx.emitter(),
                 ))
                 .await;
             recorders.insert(
@@ -139,7 +137,7 @@ impl<T, E> Handler<QueryTimeshiftRecorders> for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
 {
@@ -172,7 +170,7 @@ impl<T, E> Handler<RegisterEmitter> for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
 {
@@ -233,7 +231,7 @@ impl<T, E> Handler<UnregisterEmitter> for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
 {
@@ -250,7 +248,7 @@ macro_rules! impl_proxy_handler {
         where
             T: Clone + Send + Sync + 'static,
             T: Call<StartStreaming>,
-            T: Into<Emitter<StopStreaming>>,
+            T: TriggerFactory<StopStreaming>,
             E: Send + Sync + 'static,
             E: Call<epg::RegisterEmitter>,
         {
@@ -331,7 +329,7 @@ impl<T, E> Handler<epg::ServicesUpdated> for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
 {
@@ -388,7 +386,7 @@ impl<T, E> Handler<ReactivateTimeshiftRecorder> for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
 {
@@ -457,7 +455,7 @@ impl<T, E> Handler<TimeshiftEvent> for TimeshiftManager<T, E>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Send + Sync + 'static,
     E: Call<epg::RegisterEmitter>,
 {
@@ -935,7 +933,7 @@ impl TimeshiftRecorder {
     where
         T: Clone + Send + Sync + 'static,
         T: Call<StartStreaming>,
-        T: Into<Emitter<StopStreaming>>,
+        T: TriggerFactory<StopStreaming>,
     {
         let config = &activation.config.timeshift.recorders[&activation.name];
         let channel = &activation.service.channel;
@@ -957,8 +955,8 @@ impl TimeshiftRecorder {
             .await??;
 
         // stop_trigger must be created here in order to stop streaming when an error occurs.
-        let stop_trigger =
-            TunerStreamStopTrigger::new(stream.id(), activation.tuner_manager.clone().into());
+        let msg = StopStreaming { id: stream.id() };
+        let stop_trigger = activation.tuner_manager.trigger(msg);
 
         let data = mustache::MapBuilder::new()
             .insert_str("channel_name", &channel.name)
@@ -1063,7 +1061,7 @@ impl<T> Handler<ActivateTimeshiftRecorder<T>> for TimeshiftRecorder
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(&mut self, msg: ActivateTimeshiftRecorder<T>, ctx: &mut Context<Self>) {
         self.service = msg.service;
@@ -1314,7 +1312,7 @@ impl fmt::Display for TimeshiftPoint {
 
 struct TimeshiftRecorderSession {
     pipeline: CommandPipeline<TunerSubscriptionId>,
-    _stop_trigger: TunerStreamStopTrigger,
+    _stop_trigger: Trigger<StopStreaming>,
 }
 
 struct TimeshiftActivation<T> {
@@ -1680,7 +1678,7 @@ mod tests {
             }],
             session: None,
             current_record_id: None,
-            activator: activator.clone().into(),
+            activator: activator.emitter(),
             event_emitter: Emitter::new(event_emitter),
         };
         recorder.purge_expired_records();
@@ -1742,7 +1740,7 @@ mod tests {
             }],
             session: None,
             current_record_id: None,
-            activator: activator.clone().into(),
+            activator: activator.emitter(),
             event_emitter: Emitter::new(event_emitter),
         };
         recorder.purge_expired_records();
@@ -1810,7 +1808,7 @@ mod tests {
 
         let system = System::new();
         let tuner_manager = TunerManagerStub(pipeline_rx);
-        let activator = ReactivatorStub.into();
+        let activator = ReactivatorStub.emitter();
 
         let temp_dir = TempDir::new().unwrap();
         let mut event_emitter = MockEventEmitter::new();
@@ -1894,31 +1892,11 @@ mod tests {
         }
     }
 
-    #[async_trait]
-    impl Emit<StopStreaming> for TunerManagerStub {
-        async fn emit(&self, _msg: StopStreaming) {}
-        fn fire(&self, _msg: StopStreaming) {}
-    }
-
-    impl Into<Emitter<StopStreaming>> for TunerManagerStub {
-        fn into(self) -> Emitter<StopStreaming> {
-            Emitter::new(self)
-        }
-    }
+    stub_impl_fire! {TunerManagerStub, StopStreaming}
 
     #[derive(Clone)]
     struct ReactivatorStub;
-
-    #[async_trait]
-    impl Emit<ReactivateTimeshiftRecorder> for ReactivatorStub {
-        async fn emit(&self, _msg: ReactivateTimeshiftRecorder) {}
-    }
-
-    impl Into<Emitter<ReactivateTimeshiftRecorder>> for ReactivatorStub {
-        fn into(self) -> Emitter<ReactivateTimeshiftRecorder> {
-            Emitter::new(self)
-        }
-    }
+    stub_impl_emit! {ReactivatorStub, ReactivateTimeshiftRecorder}
 
     struct TimeshiftManagerStub(watch::Sender<bool>);
 
@@ -1987,7 +1965,7 @@ pub(crate) mod stub {
         }
     }
 
-    stub_impl_emit_fire! {TimeshiftManagerStub, UnregisterEmitter}
+    stub_impl_fire! {TimeshiftManagerStub, UnregisterEmitter}
 
     #[async_trait]
     impl Call<QueryTimeshiftRecorder> for TimeshiftManagerStub {

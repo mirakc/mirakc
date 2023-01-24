@@ -28,7 +28,7 @@ impl<T, E, F> JobManager<T, E, F>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Emit<SaveSchedules>,
     E: Emit<UpdateClocks>,
@@ -197,7 +197,7 @@ impl<T, E, F> Actor for JobManager<T, E, F>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Emit<SaveSchedules>,
     E: Emit<UpdateClocks>,
@@ -255,7 +255,7 @@ impl<T, E, F> Handler<ScanServices> for JobManager<T, E, F>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Emit<SaveSchedules>,
     E: Emit<UpdateClocks>,
@@ -279,7 +279,7 @@ impl<T, E, F> Handler<InvokeScanServices> for JobManager<T, E, F>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Emit<SaveSchedules>,
     E: Emit<UpdateClocks> + 'static,
@@ -303,7 +303,7 @@ impl<T, E, F> Handler<SyncClocks> for JobManager<T, E, F>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Emit<SaveSchedules>,
     E: Emit<UpdateClocks>,
@@ -327,7 +327,7 @@ impl<T, E, F> Handler<InvokeSyncClocks> for JobManager<T, E, F>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Emit<SaveSchedules>,
     E: Emit<UpdateClocks>,
@@ -351,7 +351,7 @@ impl<T, E, F> Handler<UpdateSchedules> for JobManager<T, E, F>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Emit<SaveSchedules>,
     E: Emit<UpdateClocks>,
@@ -375,7 +375,7 @@ impl<T, E, F> Handler<InvokeUpdateSchedules> for JobManager<T, E, F>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
     E: Clone + Send + Sync + 'static,
     E: Emit<SaveSchedules>,
     E: Emit<UpdateClocks>,

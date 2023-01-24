@@ -376,7 +376,7 @@ impl<T> Actor for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         // It's guaranteed that no response is sent before cached EPG data is loaded.
@@ -426,7 +426,7 @@ impl<T> Handler<QueryChannels> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(
         &mut self,
@@ -470,7 +470,7 @@ impl<T> Handler<QueryChannel> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(
         &mut self,
@@ -503,7 +503,7 @@ impl<T> Handler<QueryServices> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(
         &mut self,
@@ -528,7 +528,7 @@ impl<T> Handler<QueryService> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(
         &mut self,
@@ -556,7 +556,7 @@ impl<T> Handler<QueryClock> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(
         &mut self,
@@ -584,7 +584,7 @@ impl<T> Handler<QueryPrograms> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(
         &mut self,
@@ -612,7 +612,7 @@ impl<T> Handler<QueryProgram> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(
         &mut self,
@@ -645,7 +645,7 @@ impl<T> Handler<UpdateServices> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(&mut self, msg: UpdateServices, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "UpdateServices");
@@ -665,7 +665,7 @@ impl<T> Handler<UpdateClocks> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(&mut self, msg: UpdateClocks, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "UpdateClocks");
@@ -685,7 +685,7 @@ impl<T> Handler<PrepareSchedule> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(&mut self, msg: PrepareSchedule, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "PrepareSchedule", %msg.service_id);
@@ -705,7 +705,7 @@ impl<T> Handler<UpdateSchedule> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(&mut self, msg: UpdateSchedule, _ctx: &mut Context<Self>) {
         tracing::debug!(
@@ -733,7 +733,7 @@ impl<T> Handler<FlushSchedule> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(&mut self, msg: FlushSchedule, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "FlushSchedule", %msg.service_id);
@@ -751,7 +751,7 @@ impl<T> Handler<SaveSchedules> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(&mut self, _msg: SaveSchedules, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "SaveSchedules");
@@ -774,7 +774,7 @@ impl<T> Handler<RegisterEmitter> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(
         &mut self,
@@ -838,7 +838,7 @@ impl<T> Handler<UnregisterEmitter> for Epg<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
-    T: Into<Emitter<StopStreaming>>,
+    T: TriggerFactory<StopStreaming>,
 {
     async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
         match msg {

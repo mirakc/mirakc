@@ -65,17 +65,30 @@ macro_rules! pipeline {
     };
 }
 
-macro_rules! stub_impl_emit_fire {
+macro_rules! stub_impl_emit {
     ($stub:ty, $msg:ty) => {
         #[async_trait]
         impl Emit<$msg> for $stub {
             async fn emit(&self, _msg: $msg) {}
+        }
+
+        impl EmitterFactory<$msg> for $stub {
+            fn emitter(&self) -> Emitter<$msg> {
+                Emitter::new(self.clone())
+            }
+        }
+    };
+}
+
+macro_rules! stub_impl_fire {
+    ($stub:ty, $msg:ty) => {
+        impl Fire<$msg> for $stub {
             fn fire(&self, _msg: $msg) {}
         }
 
-        impl Into<Emitter<$msg>> for $stub {
-            fn into(self) -> Emitter<$msg> {
-                Emitter::new(self)
+        impl TriggerFactory<$msg> for $stub {
+            fn trigger(&self, msg: $msg) -> Trigger<$msg> {
+                Trigger::new(self.clone(), msg)
             }
         }
     };
