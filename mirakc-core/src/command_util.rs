@@ -249,6 +249,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct CommandPipelineProcessModel {
     pub command: String,
     pub pid: Option<u32>,

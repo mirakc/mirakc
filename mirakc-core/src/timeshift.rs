@@ -4,6 +4,7 @@ use std::io;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use actlet::prelude::*;
@@ -56,17 +57,32 @@ pub struct TimeshiftManager<T, E> {
     config: Arc<Config>,
     tuner_manager: T,
     epg: E,
-    recorders: IndexMap<String, TimeshiftManagerRecorderHolder>,
+    recorders: IndexMap<String, TimeshiftManagerRecorderHolder<T>>,
     event_emitters: EmitterRegistry<TimeshiftEvent>,
 }
 
-struct TimeshiftManagerRecorderHolder {
-    activated: bool,
-    reactivation_count: usize,
-    addr: Address<TimeshiftRecorder>,
+struct TimeshiftManagerRecorderHolder<T> {
+    addr: Address<TimeshiftRecorder<T>>,
 
+    // Cache the following recorder states in order to emit preceding events
+    // when a new emitter is registered.
+    //
+    // We can fetch these states by using `QueryTimeshiftRecorder` in the
+    // `RegisterEmitter` handler, but this may break consistency of the event
+    // sequence.  Because a `TimeshiftEvent` message could be sent to the
+    // manager while it's handling the RegisterEmitter message.
     started: bool,
     current_record_id: Option<TimeshiftRecordId>,
+}
+
+impl<T> TimeshiftManagerRecorderHolder<T> {
+    fn new(addr: Address<TimeshiftRecorder<T>>) -> Self {
+        TimeshiftManagerRecorderHolder {
+            addr,
+            started: false,
+            current_record_id: None,
+        }
+    }
 }
 
 impl<T, E> TimeshiftManager<T, E> {
@@ -81,6 +97,8 @@ impl<T, E> TimeshiftManager<T, E> {
     }
 }
 
+// actor
+
 #[async_trait]
 impl<T, E> Actor for TimeshiftManager<T, E>
 where
@@ -93,40 +111,55 @@ where
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
 
+        // Recorders will be activated in the message handler.
         self.epg
             .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
             .expect("Failed to register the emitter");
 
-        let mut recorders = IndexMap::new();
+        // Create recorders regardless of whether its service is available or not.
         for (index, name) in self.config.timeshift.recorders.keys().enumerate() {
-            let recorder = ctx
+            let addr = ctx
                 .spawn_actor(TimeshiftRecorder::new(
                     index,
                     name.clone(),
                     self.config.clone(),
-                    ctx.emitter(),
+                    self.tuner_manager.clone(),
                     ctx.emitter(),
                 ))
                 .await;
-            recorders.insert(
-                name.clone(),
-                TimeshiftManagerRecorderHolder {
-                    activated: false,
-                    reactivation_count: 0,
-                    addr: recorder,
-                    started: false,
-                    current_record_id: None,
-                },
-            );
+            let holder = TimeshiftManagerRecorderHolder::new(addr);
+            self.recorders.insert(name.clone(), holder);
         }
-        self.recorders = recorders;
+
+        // Perform health check for each recorder at 50s every minute.
+        let task = {
+            let addr = ctx.address().clone();
+            async move {
+                let schedule = cron::Schedule::from_str("50 * * * * * *").unwrap();
+                for next in schedule.upcoming(Jst) {
+                    let interval = (next - Jst::now()).to_std().unwrap();
+                    tokio::time::sleep(interval).await;
+                    if let Err(_) = addr.call(HealthCheck).await {
+                        // The manager has been gone.
+                        return;
+                    }
+                }
+            }
+        };
+        ctx.spawn_task(task);
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
+        for (name, recorder) in self.recorders.iter() {
+            tracing::debug!(recorder.name = name, "Waitting for the recorder to stop...");
+            recorder.addr.wait().await;
+        }
         tracing::debug!("Stopped");
     }
 }
+
+// query timeshift recorders
 
 #[derive(Message)]
 #[reply("Result<Vec<TimeshiftRecorderModel>, Error>")]
@@ -160,6 +193,8 @@ where
         Ok(models)
     }
 }
+
+// register emitter
 
 #[derive(Message)]
 #[reply("usize")]
@@ -222,6 +257,8 @@ where
         id
     }
 }
+
+// unregister emitter
 
 #[derive(Message)]
 pub struct UnregisterEmitter(pub usize);
@@ -324,6 +361,50 @@ pub struct CreateTimeshiftRecordStreamSource {
 
 impl_proxy_handler!(CreateTimeshiftRecordStreamSource);
 
+// health check
+
+#[derive(Message)]
+#[reply("()")]
+struct HealthCheck;
+
+#[async_trait]
+impl<T, E> Handler<HealthCheck> for TimeshiftManager<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<epg::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        _msg: HealthCheck,
+        ctx: &mut Context<Self>,
+    ) -> <HealthCheck as Message>::Reply {
+        tracing::debug!(msg.name = "HealthCheck");
+        for (index, (name, recorder)) in self.recorders.iter_mut().enumerate() {
+            if let Err(_) = recorder.addr.call(HealthCheck).await {
+                // The recorder has been gone.  Respawn it.
+                assert!(!recorder.addr.is_alive());
+                let addr = ctx
+                    .spawn_actor(TimeshiftRecorder::new(
+                        index,
+                        name.clone(),
+                        self.config.clone(),
+                        self.tuner_manager.clone(),
+                        ctx.emitter(),
+                    ))
+                    .await;
+                recorder.addr = addr;
+                recorder.started = false;
+                recorder.current_record_id = None;
+            }
+        }
+    }
+}
+
+// services updated
+
 #[async_trait]
 impl<T, E> Handler<epg::ServicesUpdated> for TimeshiftManager<T, E>
 where
@@ -335,93 +416,12 @@ where
 {
     async fn handle(&mut self, msg: epg::ServicesUpdated, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "ServicesUpdated");
-        for (name, config) in self.config.clone().timeshift.recorders.iter() {
-            let service_id = config.service_id;
-            if msg.services.contains_key(&service_id) {
-                if self.recorders[name].activated {
-                    continue;
-                }
-                tracing::info!(
-                    recorder.name = name,
-                    timeshift.service.id = %service_id,
-                    "Service is available, activate"
-                );
-                let service = msg.services[&service_id].clone();
-                self.recorders[name].activated = true;
-                self.recorders[name].reactivation_count = 0;
-                self.recorders[name]
-                    .addr
-                    .emit(ActivateTimeshiftRecorder {
-                        service,
-                        tuner_manager: self.tuner_manager.clone(),
-                    })
-                    .await;
-            } else {
-                if !self.recorders[name].activated {
-                    continue;
-                }
-                tracing::warn!(
-                    recorder.name = name,
-                    timeshift.service_id = %service_id,
-                    "Service is unavailable, deactivate"
-                );
-                self.recorders[name].activated = false;
-                self.recorders[name]
-                    .addr
-                    .emit(DeactivateTimeshiftRecorder)
-                    .await;
-            }
-        }
-    }
-}
-
-#[derive(Message)]
-pub struct ReactivateTimeshiftRecorder {
-    name: String,
-    service: EpgService,
-}
-
-#[async_trait]
-impl<T, E> Handler<ReactivateTimeshiftRecorder> for TimeshiftManager<T, E>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: TriggerFactory<StopStreaming>,
-    E: Send + Sync + 'static,
-    E: Call<epg::RegisterEmitter>,
-{
-    async fn handle(&mut self, msg: ReactivateTimeshiftRecorder, ctx: &mut Context<Self>) {
-        const MAX_REACTIVATION_COUNT: usize = 5;
-
-        if is_rebuild_mode() {
-            tracing::info!("Finished rebuilding a segment");
-            ctx.stop();
-            return;
-        }
-
-        if self.recorders[&msg.name].activated {
-            if self.recorders[&msg.name].reactivation_count < MAX_REACTIVATION_COUNT {
-                tracing::warn!(
-                    recorder.name = msg.name,
-                    "Recording stopped due to some accident, activate again"
-                );
-                self.recorders[&msg.name].reactivation_count += 1;
-                self.recorders[&msg.name]
-                    .addr
-                    .emit(ActivateTimeshiftRecorder {
-                        service: msg.service,
-                        tuner_manager: self.tuner_manager.clone(),
-                    })
-                    .await;
-            } else {
-                tracing::error!(
-                    recorder.name = msg.name,
-                    "Recording stopped due to some accident, \
-                     reactivation count reached the maximum number"
-                );
-            }
-        } else {
-            tracing::debug!(recorder.name = msg.name, "Already deactivated");
+        for (name, holder) in self.recorders.iter() {
+            let config = self.config.timeshift.recorders.get(name).unwrap();
+            let msg = ServiceUpdated {
+                service: msg.services.get(&config.service_id).cloned(),
+            };
+            holder.addr.emit(msg).await;
         }
     }
 }
@@ -461,13 +461,8 @@ where
 {
     async fn handle(&mut self, msg: TimeshiftEvent, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "TimeshiftEvent");
-        // Update the recorder states in order to emit preceding events when
-        // a new emitter is registered.
-        //
-        // We can fetch the recorder model by using a QueryTimeshiftRecorder
-        // message in the RegisterEmitter handler, but this breaks consistency
-        // of the event sequence.  Because a TimeshiftEvent message may be sent
-        // to the manager while it's handling the RegisterEmitter message.
+        // Update the recorder states.
+        // See the comment in `TimeshiftManagerRecorderHolder`.
         match msg {
             TimeshiftEvent::Started { ref recorder } => {
                 if let Some(recorder) = self.recorders.get_mut(recorder) {
@@ -500,31 +495,41 @@ where
 
 // recorder
 
-struct TimeshiftRecorder {
+struct TimeshiftRecorder<T> {
     index: usize,
     name: String,
     config: Arc<Config>,
+    tuner_manager: T,
+
+    // data to be stored in the `data-file`.
     service: EpgService,
     records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
     points: Vec<TimeshiftPoint>,
+
+    service_available: bool,
     session: Option<TimeshiftRecorderSession>,
     current_record_id: Option<TimeshiftRecordId>,
 
-    activator: Emitter<ReactivateTimeshiftRecorder>,
     event_emitter: Emitter<TimeshiftEvent>,
 }
 
-impl TimeshiftRecorder {
+impl<T> TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
     fn new(
         index: usize,
         name: String,
         config: Arc<Config>,
-        activator: Emitter<ReactivateTimeshiftRecorder>,
+        tuner_manager: T,
         event_emitter: Emitter<TimeshiftEvent>,
     ) -> Self {
         let recorder_config = &config.timeshift.recorders[&name];
+        // Dummy data.
+        // It will be filled when the data-file is loaded.
         let service = EpgService {
-            // dummy data
             id: recorder_config.service_id,
             service_type: 0,
             logo_id: 0,
@@ -544,12 +549,13 @@ impl TimeshiftRecorder {
             index,
             name,
             config,
+            tuner_manager,
             service,
             records: IndexMap::new(),
             points: Vec::with_capacity(max_chunks),
+            service_available: false,
             session: None,
             current_record_id: None,
-            activator,
             event_emitter,
         }
     }
@@ -601,10 +607,10 @@ impl TimeshiftRecorder {
 
         let data: TimeshiftRecorderData = serde_json::from_reader(file)?;
         let mut invalid = false;
-        if self.service.id != data.service.id {
+        if self.config().service_id != data.service.id {
             tracing::error!(
                 recorder.name = self.name,
-                timeshift.service.id =  %self.service.id,
+                config.service.id =  %self.config().service_id,
                 %data.service.id,
                 "Not matched",
             );
@@ -613,7 +619,7 @@ impl TimeshiftRecorder {
         if self.config().chunk_size != data.chunk_size {
             tracing::error!(
                 recorder.name = self.name,
-                timeshift.chunk_size = self.config().chunk_size,
+                config.chunk_size = self.config().chunk_size,
                 data.chunk_size,
                 "Not matched",
             );
@@ -622,7 +628,7 @@ impl TimeshiftRecorder {
         if self.config().max_chunks() != data.max_chunks {
             tracing::error!(
                 recorder.name = self.name,
-                timeshift.max_chunks = self.config().max_chunks(),
+                config.max_chunks = self.config().max_chunks(),
                 data.max_chunks,
                 "Not matched",
             );
@@ -631,6 +637,7 @@ impl TimeshiftRecorder {
         if invalid {
             return Err(Error::TimeshiftConfigInconsistent);
         }
+        self.service = data.service;
         self.records = data.records;
         self.points = data.points; // Don't remove the last item here.
         Ok(self.records.len())
@@ -692,7 +699,7 @@ impl TimeshiftRecorder {
         if self.session.is_some() {
             tracing::info!(recorder.name = self.name, "Deactivated");
         } else {
-            tracing::warn!(recorder.name = self.name, "Deactivated, but inactive");
+            tracing::warn!(recorder.name = self.name, "Not activated");
         }
         self.session = None;
     }
@@ -730,11 +737,6 @@ impl TimeshiftRecorder {
             // remove the sentinel item if it exists
             tracing::debug!(recorder.name = self.name, %point, "Removed the sentinel point");
         }
-
-        let msg = TimeshiftEvent::Started {
-            recorder: self.name.clone(),
-        };
-        self.event_emitter.emit(msg).await;
     }
 
     async fn handle_stop_recording(&mut self, reset: bool) {
@@ -745,11 +747,6 @@ impl TimeshiftRecorder {
         }
 
         self.current_record_id = None;
-
-        let msg = TimeshiftEvent::Stopped {
-            recorder: self.name.clone(),
-        };
-        self.event_emitter.emit(msg).await;
     }
 
     fn handle_chunk(&mut self, point: TimeshiftPoint) {
@@ -926,26 +923,34 @@ impl TimeshiftRecorder {
         }
     }
 
-    async fn activate<T>(
-        activation: TimeshiftActivation<T>,
-        ctx: &mut Context<Self>,
-    ) -> Result<TimeshiftActivationResult, Error>
-    where
-        T: Clone + Send + Sync + 'static,
-        T: Call<StartStreaming>,
-        T: TriggerFactory<StopStreaming>,
-    {
-        let config = &activation.config.timeshift.recorders[&activation.name];
-        let channel = &activation.service.channel;
+    async fn start_recording(&mut self, ctx: &mut Context<Self>) {
+        tracing::debug!(recorder.name = self.name, "Starting recording...");
+        match self.do_start_recording(ctx).await {
+            Ok(_) => {
+                tracing::debug!(recorder.name = self.name, "Recording started successfully");
+            }
+            Err(err) => {
+                tracing::debug!(
+                    %err,
+                    recorder.name = self.name,
+                    "Failed to start recording"
+                );
+            }
+        }
+    }
+
+    async fn do_start_recording(&mut self, ctx: &mut Context<Self>) -> Result<(), Error> {
+        let config = &self.config.timeshift.recorders[&self.name];
+        let channel = &self.service.channel;
 
         let user = TunerUser {
             info: TunerUserInfo::Recorder {
-                name: format!("timeshift#{}", activation.name),
+                name: format!("timeshift#{}", self.name),
             },
             priority: config.priority.into(),
         };
 
-        let stream = activation
+        let stream = self
             .tuner_manager
             .call(StartStreaming {
                 channel: channel.clone(),
@@ -956,13 +961,13 @@ impl TimeshiftRecorder {
 
         // stop_trigger must be created here in order to stop streaming when an error occurs.
         let msg = StopStreaming { id: stream.id() };
-        let stop_trigger = activation.tuner_manager.trigger(msg);
+        let stop_trigger = self.tuner_manager.trigger(msg);
 
         let data = mustache::MapBuilder::new()
             .insert_str("channel_name", &channel.name)
             .insert("channel_type", &channel.channel_type)?
             .insert_str("channel", &channel.channel)
-            .insert("sid", &activation.service.sid())?
+            .insert("sid", &self.service.sid())?
             .build();
         let mut builder = FilterPipelineBuilder::new(data);
         // NOTE
@@ -973,18 +978,19 @@ impl TimeshiftRecorder {
         // packet before streaming and we cannot start streaming from a specific position that
         // is specified by the media player using a HTTP Range header.
         if !stream.is_decoded() {
-            builder.add_decode_filter(&activation.config.filters.decode_filter)?;
+            builder.add_decode_filter(&self.config.filters.decode_filter)?;
         }
         let (mut cmds, _) = builder.build();
 
+        let start_pos = self.points.last().map_or(0, |point| point.pos);
         let data = mustache::MapBuilder::new()
-            .insert("sid", &activation.service.sid())?
+            .insert("sid", &self.service.sid())?
             .insert_str("file", &config.ts_file)
             .insert("chunk_size", &config.chunk_size)?
             .insert("num_chunks", &config.num_chunks)?
-            .insert("start_pos", &activation.start_pos)?
+            .insert("start_pos", &start_pos)?
             .build();
-        let template = mustache::compile_str(&activation.config.timeshift.command)?;
+        let template = mustache::compile_str(&self.config.timeshift.command)?;
         cmds.push(template.render_data_to_string(&data)?);
 
         let mut pipeline = spawn_pipeline(cmds, stream.id(), "timeshift")?;
@@ -995,24 +1001,36 @@ impl TimeshiftRecorder {
             let _ = stream.pipe(input).await;
         });
 
-        let session = TimeshiftRecorderSession {
+        self.session = Some(TimeshiftRecorderSession {
             pipeline,
             _stop_trigger: stop_trigger,
-        };
+        });
 
-        Ok(TimeshiftActivationResult { session, output })
+        let src = PipelineMessageSource::new(self.name.clone(), output, ctx.address().clone());
+        ctx.spawn_task(async move {
+            src.run().await;
+        });
+
+        Ok(())
     }
 }
 
+// actor
+
 #[async_trait]
-impl Actor for TimeshiftRecorder {
+impl<T> Actor for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
     async fn started(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!(recorder.name = self.name, "Started");
         self.load_data();
+        // A recording will be started in the HealthCheck handler.
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        // The session may be inactive.
         if self.session.is_some() {
             self.deactivate();
         }
@@ -1040,108 +1058,38 @@ struct TimeshiftRecorderDataForSave<'a> {
 
 #[derive(Message)]
 struct ServiceUpdated {
-    service: EpgService,
+    service: Option<EpgService>,
 }
 
 #[async_trait]
-impl Handler<ServiceUpdated> for TimeshiftRecorder {
-    async fn handle(&mut self, msg: ServiceUpdated, _ctx: &mut Context<Self>) {
-        self.service = msg.service;
-    }
-}
-
-#[derive(Message)]
-struct ActivateTimeshiftRecorder<T: Send> {
-    service: EpgService,
-    tuner_manager: T,
-}
-
-#[async_trait]
-impl<T> Handler<ActivateTimeshiftRecorder<T>> for TimeshiftRecorder
+impl<T> Handler<ServiceUpdated> for TimeshiftRecorder<T>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<StartStreaming>,
     T: TriggerFactory<StopStreaming>,
 {
-    async fn handle(&mut self, msg: ActivateTimeshiftRecorder<T>, ctx: &mut Context<Self>) {
-        self.service = msg.service;
-        if self.session.is_none() {
-            tracing::debug!(recorder.name = self.name, "Start activation");
-            let activation = TimeshiftActivation {
-                config: self.config.clone(),
-                name: self.name.clone(),
-                service: self.service.clone(),
-                start_pos: self.points.last().map_or(0, |point| point.pos),
-                tuner_manager: msg.tuner_manager.clone(),
-            };
-            match Self::activate(activation, ctx).await {
-                Ok(result) => {
-                    tracing::debug!(
-                        recorder.name = self.name,
-                        "Activation finished successfully"
-                    );
-                    self.session = Some(result.session);
-                    let reader = BufReader::new(result.output);
-                    let addr = ctx.address().clone();
-                    let name = self.name.clone();
-                    ctx.spawn_task(async move {
-                        let _trigger = addr.trigger(TimeshiftPipelineStopped);
-                        let mut lines = reader.lines();
-                        loop {
-                            match lines.next_line().await {
-                                Ok(Some(json)) => {
-                                    let msg = match serde_json::from_str::<TimeshiftRecorderMessage>(
-                                        &json,
-                                    ) {
-                                        Ok(msg) => msg,
-                                        Err(err) => {
-                                            tracing::error!(
-                                                %err,
-                                                recorder.name = name,
-                                                "Failed parsing a JSON message"
-                                            );
-                                            break;
-                                        }
-                                    };
-                                    addr.emit(msg).await;
-                                }
-                                Ok(None) => {
-                                    break;
-                                }
-                                Err(err) => {
-                                    tracing::error!(
-                                        %err,
-                                        recorder.name = name,
-                                        "Failed reading output from the command pipeline"
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                    });
-                }
-                Err(err) => {
-                    tracing::error!(%err, recorder.name = self.name, "Activation failed");
-                }
+    async fn handle(&mut self, msg: ServiceUpdated, ctx: &mut Context<Self>) {
+        if let Some(service) = msg.service {
+            self.service = service;
+            self.service_available = true;
+            tracing::info!(recorder.name = self.name, "Service is now available");
+            if self.session.is_none() {
+                self.start_recording(ctx).await;
             }
         } else {
-            tracing::info!(recorder.name = self.name, "Already activated");
+            self.service_available = false;
+            tracing::info!(recorder.name = self.name, "Service is unavailable");
         }
     }
 }
 
-#[derive(Message)]
-struct DeactivateTimeshiftRecorder;
-
 #[async_trait]
-impl Handler<DeactivateTimeshiftRecorder> for TimeshiftRecorder {
-    async fn handle(&mut self, _msg: DeactivateTimeshiftRecorder, _ctx: &mut Context<Self>) {
-        self.deactivate();
-    }
-}
-
-#[async_trait]
-impl Handler<QueryTimeshiftRecorder> for TimeshiftRecorder {
+impl<T> Handler<QueryTimeshiftRecorder> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
     async fn handle(
         &mut self,
         _msg: QueryTimeshiftRecorder,
@@ -1152,7 +1100,12 @@ impl Handler<QueryTimeshiftRecorder> for TimeshiftRecorder {
 }
 
 #[async_trait]
-impl Handler<QueryTimeshiftRecords> for TimeshiftRecorder {
+impl<T> Handler<QueryTimeshiftRecords> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
     async fn handle(
         &mut self,
         _msg: QueryTimeshiftRecords,
@@ -1168,7 +1121,12 @@ impl Handler<QueryTimeshiftRecords> for TimeshiftRecorder {
 }
 
 #[async_trait]
-impl Handler<QueryTimeshiftRecord> for TimeshiftRecorder {
+impl<T> Handler<QueryTimeshiftRecord> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
     async fn handle(
         &mut self,
         msg: QueryTimeshiftRecord,
@@ -1184,7 +1142,12 @@ impl Handler<QueryTimeshiftRecord> for TimeshiftRecorder {
 }
 
 #[async_trait]
-impl Handler<CreateTimeshiftLiveStreamSource> for TimeshiftRecorder {
+impl<T> Handler<CreateTimeshiftLiveStreamSource> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
     async fn handle(
         &mut self,
         msg: CreateTimeshiftLiveStreamSource,
@@ -1195,7 +1158,12 @@ impl Handler<CreateTimeshiftLiveStreamSource> for TimeshiftRecorder {
 }
 
 #[async_trait]
-impl Handler<CreateTimeshiftRecordStreamSource> for TimeshiftRecorder {
+impl<T> Handler<CreateTimeshiftRecordStreamSource> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
     async fn handle(
         &mut self,
         msg: CreateTimeshiftRecordStreamSource,
@@ -1206,31 +1174,82 @@ impl Handler<CreateTimeshiftRecordStreamSource> for TimeshiftRecorder {
 }
 
 #[derive(Message)]
-struct TimeshiftPipelineStopped;
+struct PipelineStarted;
 
 #[async_trait]
-impl Handler<TimeshiftPipelineStopped> for TimeshiftRecorder {
-    async fn handle(&mut self, _msg: TimeshiftPipelineStopped, _ctx: &mut Context<Self>) {
+impl<T> Handler<PipelineStarted> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
+    async fn handle(&mut self, _msg: PipelineStarted, _ctx: &mut Context<Self>) {
+        tracing::debug!(recorder.name = self.name, msg.name = "PipelineStarted");
+        let msg = TimeshiftEvent::Started {
+            recorder: self.name.clone(),
+        };
+        self.event_emitter.emit(msg).await;
+    }
+}
+
+#[derive(Message)]
+struct PipelineStopped;
+
+#[async_trait]
+impl<T> Handler<PipelineStopped> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
+    async fn handle(&mut self, _msg: PipelineStopped, _ctx: &mut Context<Self>) {
+        tracing::debug!(recorder.name = self.name, msg.name = "PipelineStopped");
         if self.session.is_some() {
-            if !is_rebuild_mode() {
-                tracing::error!(
-                    recorder.name = self.name,
-                    "Recording pipeline broken, reactivate"
-                );
-            }
             self.deactivate();
-            self.activator
-                .emit(ReactivateTimeshiftRecorder {
-                    name: self.name.clone(),
-                    service: self.service.clone(),
-                })
-                .await;
         }
+        let msg = TimeshiftEvent::Stopped {
+            recorder: self.name.clone(),
+        };
+        self.event_emitter.emit(msg).await;
     }
 }
 
 #[async_trait]
-impl Handler<TimeshiftRecorderMessage> for TimeshiftRecorder {
+impl<T> Handler<HealthCheck> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
+    async fn handle(
+        &mut self,
+        _msg: HealthCheck,
+        ctx: &mut Context<Self>,
+    ) -> <HealthCheck as Message>::Reply {
+        tracing::debug!(recorder.name = self.name, msg.name = "HealthCheck");
+
+        if self.session.is_some() {
+            // Now recording, nothing to do.
+            return;
+        }
+
+        if !self.service_available {
+            // The service is unavailable.
+            // Will start recording when the service becomes available.
+            return;
+        }
+
+        self.start_recording(ctx).await;
+    }
+}
+
+#[async_trait]
+impl<T> Handler<TimeshiftRecorderMessage> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
     async fn handle(&mut self, msg: TimeshiftRecorderMessage, _ctx: &mut Context<Self>) {
         match msg {
             TimeshiftRecorderMessage::Start => {
@@ -1321,19 +1340,6 @@ struct TimeshiftRecorderSession {
     _stop_trigger: Trigger<StopStreaming>,
 }
 
-struct TimeshiftActivation<T> {
-    config: Arc<Config>,
-    name: String,
-    service: EpgService,
-    start_pos: u64,
-    tuner_manager: T,
-}
-
-struct TimeshiftActivationResult {
-    session: TimeshiftRecorderSession,
-    output: CommandPipelineOutput<TunerSubscriptionId>,
-}
-
 #[derive(Clone, Deserialize, Serialize)]
 pub struct TimeshiftRecord {
     pub id: TimeshiftRecordId,
@@ -1414,6 +1420,71 @@ impl TimeshiftRecord {
             MpegTsStreamRange::unbound(first, size)
         } else {
             MpegTsStreamRange::bound(first, size)
+        }
+    }
+}
+
+// pipeline message source
+struct PipelineMessageSource<T> {
+    recorder_name: String,
+    reader: CommandPipelineOutput<TunerSubscriptionId>,
+    addr: T,
+}
+
+impl<T> PipelineMessageSource<T>
+where
+    T: Emit<TimeshiftRecorderMessage>,
+    T: TriggerFactory<PipelineStopped>,
+{
+    fn new(
+        recorder_name: String,
+        reader: CommandPipelineOutput<TunerSubscriptionId>,
+        addr: T,
+    ) -> Self {
+        PipelineMessageSource {
+            recorder_name,
+            reader,
+            addr,
+        }
+    }
+
+    async fn run(self) {
+        let PipelineMessageSource {
+            recorder_name,
+            reader,
+            addr,
+        } = self;
+        let _trigger = addr.trigger(PipelineStopped);
+        let reader = BufReader::new(reader);
+        let mut lines = reader.lines();
+        loop {
+            match lines.next_line().await {
+                Ok(Some(json)) => {
+                    let msg = match serde_json::from_str::<TimeshiftRecorderMessage>(&json) {
+                        Ok(msg) => msg,
+                        Err(err) => {
+                            tracing::error!(
+                                %err,
+                                recorder.name = recorder_name,
+                                "Failed parsing a JSON message"
+                            );
+                            break;
+                        }
+                    };
+                    addr.emit(msg).await;
+                }
+                Ok(None) => {
+                    break;
+                }
+                Err(err) => {
+                    tracing::error!(
+                        %err,
+                        recorder.name = recorder_name,
+                        "Failed reading output from the command pipeline"
+                    );
+                    break;
+                }
+            }
         }
     }
 }
@@ -1622,6 +1693,7 @@ impl Drop for TimeshiftStreamStopTrigger {
     }
 }
 
+#[derive(Debug)]
 pub struct TimeshiftRecorderModel {
     pub index: usize,
     pub name: String,
@@ -1646,14 +1718,14 @@ pub struct TimeshiftRecordModel {
 mod tests {
     use super::*;
     use crate::broadcaster::BroadcasterStream;
+    use crate::tuner::stub::TunerManagerStub;
+    use assert_matches::assert_matches;
     use chrono::TimeZone;
     use tempfile::TempDir;
-    use tokio::sync::watch;
+    use tokio::sync::Notify;
 
     #[tokio::test]
     async fn test_timeshift_record_purge_expired_records() {
-        let activator = ReactivatorStub;
-
         let temp_dir = TempDir::new().unwrap();
         let mut event_emitter = MockEventEmitter::new();
         event_emitter.expect_emit().returning(|_| ());
@@ -1662,6 +1734,7 @@ mod tests {
             index: 0,
             name: "test".to_string(),
             config: create_config(temp_dir.path()),
+            tuner_manager: TunerManagerStub,
             service: create_epg_service(),
             records: indexmap::indexmap! {
                 1u32.into() => TimeshiftRecord {
@@ -1682,9 +1755,9 @@ mod tests {
                 timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 1, 0).unwrap(),
                 pos: 0,
             }],
+            service_available: true,
             session: None,
             current_record_id: None,
-            activator: activator.emitter(),
             event_emitter: Emitter::new(event_emitter),
         };
         recorder.purge_expired_records();
@@ -1698,6 +1771,7 @@ mod tests {
             index: 0,
             name: "test".to_string(),
             config: create_config(temp_dir.path()),
+            tuner_manager: TunerManagerStub,
             service: create_epg_service(),
             records: indexmap::indexmap! {
                 1u32.into() => TimeshiftRecord {
@@ -1744,9 +1818,9 @@ mod tests {
                 timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 1, 0).unwrap(),
                 pos: 0,
             }],
+            service_available: true,
             session: None,
             current_record_id: None,
-            activator: activator.emitter(),
             event_emitter: Emitter::new(event_emitter),
         };
         recorder.purge_expired_records();
@@ -1756,65 +1830,78 @@ mod tests {
 
     #[tokio::test]
     async fn test_timeshift_recorder_broken_pipeline() {
-        let (pipeline_tx, pipeline_rx) = watch::channel(false);
-        let (reactivate_tx, mut reactivate_rx) = watch::channel(false);
-
         let system = System::new();
-        let tuner_manager = TunerManagerStub(pipeline_rx);
-        let activator = TimeshiftManagerStub(reactivate_tx).into();
+
+        let broken = Arc::new(Notify::new());
+        let tuner_manager = BrokenTunerManagerStub(broken.clone());
 
         let temp_dir = TempDir::new().unwrap();
-        let mut event_emitter = MockEventEmitter::new();
-        event_emitter.expect_emit().returning(|_| ());
+
+        let stopped = Arc::new(Notify::new());
+        let event_emitter = {
+            let mut mock = MockEventEmitter::new();
+            let stopped = stopped.clone();
+            mock.expect_emit().returning(move |msg| match msg {
+                TimeshiftEvent::Stopped { .. } => stopped.notify_one(),
+                _ => (),
+            });
+            mock
+        };
 
         let recorder = system
             .spawn_actor(TimeshiftRecorder::new(
                 0,
                 "test".to_string(),
                 create_config(temp_dir.path()),
-                activator,
+                tuner_manager,
                 Emitter::new(event_emitter),
             ))
             .await;
 
         recorder
-            .emit(ActivateTimeshiftRecorder {
-                service: create_epg_service(),
-                tuner_manager: tuner_manager.clone(),
+            .emit(ServiceUpdated {
+                service: Some(create_epg_service()),
             })
             .await;
 
-        let active = recorder.call(QueryTimeshiftRecorderState).await.unwrap();
-        assert!(active);
+        let msg = QueryTimeshiftRecorder {
+            recorder: TimeshiftRecorderQuery::ByIndex(0), // dummy
+        };
+        let result = recorder.call(msg).await;
+        assert_matches!(result, Ok(Ok(model)) => {
+            assert!(model.recording);
+        });
 
         // emulate a broken pipeline
-        pipeline_tx.send(true).unwrap();
-        assert!(reactivate_rx.changed().await.is_ok());
-
-        let active = recorder.call(QueryTimeshiftRecorderState).await.unwrap();
-        assert!(!active);
+        broken.notify_one();
+        stopped.notified().await;
+        let msg = QueryTimeshiftRecorder {
+            recorder: TimeshiftRecorderQuery::ByIndex(0), // dummy
+        };
+        let result = recorder.call(msg).await;
+        assert_matches!(result, Ok(Ok(model)) => {
+            assert!(!model.recording);
+        });
 
         // reactivate
-        recorder
-            .emit(ActivateTimeshiftRecorder {
-                service: create_epg_service(),
-                tuner_manager: tuner_manager.clone(),
-            })
-            .await;
-
-        let active = recorder.call(QueryTimeshiftRecorderState).await.unwrap();
-        assert!(active);
+        recorder.call(HealthCheck).await.unwrap();
+        let msg = QueryTimeshiftRecorder {
+            recorder: TimeshiftRecorderQuery::ByIndex(0), // dummy
+        };
+        let result = recorder.call(msg).await;
+        assert_matches!(result, Ok(Ok(model)) => {
+            assert!(model.recording);
+        });
 
         system.stop();
     }
 
     #[tokio::test]
-    async fn test_timeshift_recorder_deactivate() {
-        let (_pipeline_tx, pipeline_rx) = watch::channel(false);
-
+    async fn test_timeshift_recorder_stop() {
         let system = System::new();
-        let tuner_manager = TunerManagerStub(pipeline_rx);
-        let activator = ReactivatorStub.emitter();
+
+        let notify = Arc::new(Notify::new());
+        let tuner_manager = BrokenTunerManagerStub(notify.clone());
 
         let temp_dir = TempDir::new().unwrap();
         let mut event_emitter = MockEventEmitter::new();
@@ -1825,25 +1912,27 @@ mod tests {
                 0,
                 "test".to_string(),
                 create_config(temp_dir.path()),
-                activator,
+                tuner_manager,
                 Emitter::new(event_emitter),
             ))
             .await;
 
         recorder
-            .emit(ActivateTimeshiftRecorder {
-                service: create_epg_service(),
-                tuner_manager: tuner_manager.clone(),
+            .emit(ServiceUpdated {
+                service: Some(create_epg_service()),
             })
             .await;
 
-        let active = recorder.call(QueryTimeshiftRecorderState).await.unwrap();
-        assert!(active);
+        let msg = QueryTimeshiftRecorder {
+            recorder: TimeshiftRecorderQuery::ByIndex(0), // dummy
+        };
+        let result = recorder.call(msg).await;
+        assert_matches!(result, Ok(Ok(model)) => {
+            assert!(model.recording);
+        });
 
-        recorder.emit(DeactivateTimeshiftRecorder).await;
-
-        let active = recorder.call(QueryTimeshiftRecorderState).await.unwrap();
-        assert!(!active);
+        recorder.emit(actlet::Stop).await;
+        recorder.wait().await;
 
         system.stop();
     }
@@ -1871,24 +1960,22 @@ mod tests {
     }
 
     fn create_epg_service() -> EpgService {
-        service!(1, "Service", channel!("ch", ChannelType::GR, "ch"))
+        service!(1, "Service", channel_gr!("ch", "ch"))
     }
 
     #[derive(Clone)]
-    struct TunerManagerStub(watch::Receiver<bool>);
+    struct BrokenTunerManagerStub(Arc<Notify>);
 
     #[async_trait]
-    impl Call<StartStreaming> for TunerManagerStub {
+    impl Call<StartStreaming> for BrokenTunerManagerStub {
         async fn call(
             &self,
             _msg: StartStreaming,
         ) -> actlet::Result<<StartStreaming as Message>::Reply> {
             let (tx, stream) = BroadcasterStream::new_for_test();
-            let mut rx = self.0.clone();
+            let notify = self.0.clone();
             tokio::spawn(async move {
-                while rx.changed().await.is_ok() {
-                    break;
-                }
+                notify.notified().await;
                 drop(tx);
             });
             Ok(Ok(MpegTsStream::new(
@@ -1898,41 +1985,7 @@ mod tests {
         }
     }
 
-    stub_impl_fire! {TunerManagerStub, StopStreaming}
-
-    #[derive(Clone)]
-    struct ReactivatorStub;
-    stub_impl_emit! {ReactivatorStub, ReactivateTimeshiftRecorder}
-
-    struct TimeshiftManagerStub(watch::Sender<bool>);
-
-    #[async_trait]
-    impl Emit<ReactivateTimeshiftRecorder> for TimeshiftManagerStub {
-        async fn emit(&self, _msg: ReactivateTimeshiftRecorder) {
-            self.0.send(true).unwrap();
-        }
-    }
-
-    impl Into<Emitter<ReactivateTimeshiftRecorder>> for TimeshiftManagerStub {
-        fn into(self) -> Emitter<ReactivateTimeshiftRecorder> {
-            Emitter::new(self)
-        }
-    }
-
-    #[derive(Message)]
-    #[reply("bool")]
-    struct QueryTimeshiftRecorderState;
-
-    #[async_trait]
-    impl Handler<QueryTimeshiftRecorderState> for TimeshiftRecorder {
-        async fn handle(
-            &mut self,
-            _msg: QueryTimeshiftRecorderState,
-            _ctx: &mut Context<Self>,
-        ) -> <QueryTimeshiftRecorderState as Message>::Reply {
-            self.session.is_some()
-        }
-    }
+    stub_impl_fire! {BrokenTunerManagerStub, StopStreaming}
 
     mockall::mock! {
         EventEmitter {}

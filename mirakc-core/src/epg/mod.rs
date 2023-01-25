@@ -1072,8 +1072,7 @@ impl From<EitSection> for EpgSection {
     }
 }
 
-#[derive(Clone, PartialEq, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug))]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct EpgChannel {
     pub name: String,
     #[serde(rename = "type")]
@@ -1104,7 +1103,7 @@ impl From<ChannelConfig> for EpgChannel {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpgService {
     pub id: ServiceId,

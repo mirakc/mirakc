@@ -229,17 +229,16 @@ async fn do_recording(config: Arc<config::Config>) -> bool {
         ))
         .await;
 
-    let done = tokio::spawn(async move {
-        while timeshift_manager.is_alive() {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-    });
+    let notify = Arc::new(tokio::sync::Notify::new());
+    let observer = Observer(notify.clone());
+    let msg = timeshift::RegisterEmitter(Emitter::new(observer));
+    timeshift_manager.call(msg).await.unwrap();
 
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
 
     let ok = tokio::select! {
-        _ = done => true,
+        _ = notify.notified() => true,
         _ = sigint.recv() => {
             tracing::info!("SIGINT received");
             false
@@ -549,6 +548,19 @@ impl Scanner {
         }
         assert_eq!(prev, end_chunk);
         assert_eq!(total, num_chunks);
+    }
+}
+
+struct Observer(Arc<tokio::sync::Notify>);
+
+#[async_trait]
+impl Emit<timeshift::TimeshiftEvent> for Observer {
+    async fn emit(&self, msg: timeshift::TimeshiftEvent) {
+        use timeshift::TimeshiftEvent::*;
+        match msg {
+            Stopped { .. } => self.0.notify_one(),
+            _ => (),
+        }
     }
 }
 

@@ -579,6 +579,20 @@ where
     }
 }
 
+/// A message to stop an actor.
+pub struct Stop;
+impl Message for Stop {
+    type Reply = ();
+}
+impl Signal for Stop {}
+
+#[async_trait]
+impl<A: Actor> Handler<Stop> for A {
+    async fn handle(&mut self, _msg: Stop, ctx: &mut Context<Self>) {
+        ctx.stop();
+    }
+}
+
 // traits
 
 /// A trait that every actor must implement.

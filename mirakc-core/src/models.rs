@@ -378,7 +378,7 @@ impl fmt::Display for TunerUser {
     }
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Deserialize, Serialize)]
 pub struct TimeshiftRecordId(u32);
 
 impl TimeshiftRecordId {

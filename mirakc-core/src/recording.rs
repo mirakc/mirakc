@@ -1717,9 +1717,6 @@ mod test_macros {
 mod tests {
     use super::*;
     use crate::epg::stub::EpgStub;
-    use crate::epg::EpgChannel;
-    use crate::epg::EpgService;
-    use crate::models::ChannelType;
     use crate::onair::stub::OnairProgramManagerStub;
     use crate::tuner::stub::TunerManagerStub;
     use assert_matches::assert_matches;
@@ -2217,7 +2214,7 @@ mod tests {
         assert_matches!(result, Ok(()));
 
         let services = indexmap! {
-            (0, 1).into() => service!((0, 1), "test", gr!("gr", "1")),
+            (0, 1).into() => service!((0, 1), "test", channel_gr!("gr", "1")),
         };
         let changed = manager.update_schedules_by_epg_services(&services).await;
         assert!(changed);

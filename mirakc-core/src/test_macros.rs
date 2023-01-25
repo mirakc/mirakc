@@ -1,6 +1,6 @@
 macro_rules! channel {
     ($name:expr, $channel_type:expr, $channel:expr) => {
-        EpgChannel {
+        crate::epg::EpgChannel {
             name: $name.to_string(),
             channel_type: $channel_type,
             channel: $channel.to_string(),
@@ -11,15 +11,15 @@ macro_rules! channel {
     };
 }
 
-macro_rules! gr {
+macro_rules! channel_gr {
     ($name:expr, $channel:expr) => {
-        channel!($name, ChannelType::GR, $channel)
+        channel!($name, crate::models::ChannelType::GR, $channel)
     };
 }
 
 macro_rules! service {
     ($id:expr, $name:expr, $channel:expr) => {{
-        EpgService {
+        crate::epg::EpgService {
             id: $id.into(),
             service_type: 1,
             logo_id: 0,
@@ -31,20 +31,21 @@ macro_rules! service {
 }
 macro_rules! program {
     ($id:expr, $start_at:expr, $duration:literal) => {{
-        let mut program = EpgProgram::new($id.into());
+        let mut program = crate::epg::EpgProgram::new($id.into());
         program.start_at = Some($start_at);
-        program.duration =
-            Some(Duration::from_std(humantime::parse_duration($duration).unwrap()).unwrap());
+        program.duration = Some(
+            chrono::Duration::from_std(humantime::parse_duration($duration).unwrap()).unwrap(),
+        );
         program
     }};
     ($id:expr, $start_at:expr) => {{
-        let mut program = EpgProgram::new($id.into());
+        let mut program = crate::epg::EpgProgram::new($id.into());
         program.start_at = Some($start_at);
         program.duration = None;
         program
     }};
     ($id:expr) => {
-        EpgProgram::new($id.into())
+        crate::epg::EpgProgram::new($id.into())
     };
 }
 
@@ -68,13 +69,13 @@ macro_rules! pipeline {
 macro_rules! stub_impl_emit {
     ($stub:ty, $msg:ty) => {
         #[async_trait]
-        impl Emit<$msg> for $stub {
+        impl actlet::Emit<$msg> for $stub {
             async fn emit(&self, _msg: $msg) {}
         }
 
-        impl EmitterFactory<$msg> for $stub {
-            fn emitter(&self) -> Emitter<$msg> {
-                Emitter::new(self.clone())
+        impl actlet::EmitterFactory<$msg> for $stub {
+            fn emitter(&self) -> actlet::Emitter<$msg> {
+                actlet::Emitter::new(self.clone())
             }
         }
     };
@@ -82,13 +83,13 @@ macro_rules! stub_impl_emit {
 
 macro_rules! stub_impl_fire {
     ($stub:ty, $msg:ty) => {
-        impl Fire<$msg> for $stub {
+        impl actlet::Fire<$msg> for $stub {
             fn fire(&self, _msg: $msg) {}
         }
 
-        impl TriggerFactory<$msg> for $stub {
-            fn trigger(&self, msg: $msg) -> Trigger<$msg> {
-                Trigger::new(self.clone(), msg)
+        impl actlet::TriggerFactory<$msg> for $stub {
+            fn trigger(&self, msg: $msg) -> actlet::Trigger<$msg> {
+                actlet::Trigger::new(self.clone(), msg)
             }
         }
     };
