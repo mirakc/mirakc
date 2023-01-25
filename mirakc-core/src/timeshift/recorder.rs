@@ -31,9 +31,14 @@ pub struct TimeshiftRecorder<T> {
     config: Arc<Config>,
     tuner_manager: T,
 
-    // data to be stored in the `data-file`.
+    // data to be stored in the data file.
     service: EpgService,
+    // The `end` property of the last record equals to the last item in `points`
+    // while recording.
     records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
+    // Each item in `points` corresponds to the start point of a chunk.
+    // `points` contains some kind of "garbage" items.  See comments in
+    // `save_data()` and `handle_start_recording()` for details.
     points: VecDeque<TimeshiftPoint>,
 
     service_available: bool,
@@ -184,8 +189,17 @@ impl<T> TimeshiftRecorder<T> {
             return;
         }
 
-        // The last item will be used as a sentinel and removed before recording starts.
+        // The best way is to remove "garbage" items from `points`, whose
+        // timestamp is newer than the timestamp of the last record in
+        // `records`.  However, serde has no built-in support for `Iterator`.
+        // So, we have to create a new `Vec<TimeshiftPoint>` every time
+        // the `points` is saved.
+        //
+        // We select a better way to save all items in `points` here, and
+        // remove "garbage" items before starting a new recording session.
+        // See `handle_start_recording()`.
         let points = &self.points;
+
         let data = TimeshiftRecorderDataForSave {
             service,
             chunk_size,
@@ -227,13 +241,13 @@ impl<T> TimeshiftRecorder<T> {
 
     fn get_model(&self) -> TimeshiftRecorderModel {
         let now = Jst::now();
-        let start_time = if let Some(point) = self.points.front() {
-            point.timestamp.clone()
+        let start_time = if let Some((_, record)) = self.records.first() {
+            record.start.timestamp.clone()
         } else {
             now.clone()
         };
-        let end_time = if let Some(point) = self.points.back() {
-            point.timestamp.clone()
+        let end_time = if let Some((_, record)) = self.records.last() {
+            record.end.timestamp.clone()
         } else {
             now.clone()
         };
@@ -676,9 +690,50 @@ where
 impl<T> TimeshiftRecorder<T> {
     async fn handle_start_recording(&mut self) {
         tracing::info!(recorder.name = self.name, "Recording started");
-        if let Some(point) = self.points.pop_back() {
-            // remove the sentinel item if it exists
-            tracing::debug!(recorder.name = self.name, %point, "Removed the sentinel point");
+
+        // As described in `save_data()`, we save `points` including "garbage"
+        // items.  Here we remove them before starting a new recording session.
+        // And we additionally check consistency between `records` and `points`
+        // for safety.
+        self.remove_garbage_points();
+        self.check_consistency();
+    }
+
+    fn remove_garbage_points(&mut self) {
+        if let Some(last_record) = self.records.values().last() {
+            while let Some(last_point) = self.points.back() {
+                // Don't use `pos`.  It's a position in a "ring" buffer and
+                // doesn't increase monotonically.
+                if last_record.end.timestamp > last_point.timestamp {
+                    break;
+                }
+                let point = self.points.pop_back().unwrap();
+                tracing::debug!(
+                    recorder.name = self.name,
+                    %point,
+                    "Removed garbage point \
+                     before starting a new recording session"
+                );
+            }
+        }
+    }
+
+    fn check_consistency(&self) {
+        if let Some(last_record) = self.records.values().last() {
+            let broken = if let Some(last_point) = self.points.back() {
+                let pos = last_point.pos + self.config().chunk_size as u64;
+                last_record.end.pos != pos % self.config().max_file_size()
+            } else {
+                true
+            };
+            if broken {
+                tracing::error!(
+                    recorder.name = self.name,
+                    "INCONSISTENT: data-file may be broken, \
+                     rebuild timeshift files or remove the data file"
+                );
+                std::process::exit(libc::EXIT_FAILURE);
+            }
         }
     }
 
