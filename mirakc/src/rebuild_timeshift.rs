@@ -382,7 +382,7 @@ impl Scanner {
             segments.push(segment);
         }
 
-        Self::validate_segments(&segments, start_chunk, end_chunk, num_chunks);
+        Self::validate_segments(&segments, start_chunk, end_chunk, num_chunks, num_chunks);
 
         // The first chunk in the first segment or the last chunk in the last
         // segment may contain garbage.  Drop the both chunks for safety.
@@ -413,6 +413,7 @@ impl Scanner {
             &segments,
             (start_chunk + 1) % num_chunks,
             end_chunk - 1,
+            num_chunks,
             num_chunks - 2,
         );
 
@@ -534,7 +535,13 @@ impl Scanner {
         true
     }
 
-    fn validate_segments(segments: &[Segment], start_chunk: u64, end_chunk: u64, num_chunks: u64) {
+    fn validate_segments(
+        segments: &[Segment],
+        start_chunk: u64,
+        end_chunk: u64,
+        num_chunks: u64,
+        total_chunks: u64,
+    ) {
         tracing::debug!(?segments, start_chunk, end_chunk, num_chunks);
         let mut prev = start_chunk;
         let mut total = 0;
@@ -547,7 +554,7 @@ impl Scanner {
             }
         }
         assert_eq!(prev, end_chunk);
-        assert_eq!(total, num_chunks);
+        assert_eq!(total, total_chunks);
     }
 }
 
