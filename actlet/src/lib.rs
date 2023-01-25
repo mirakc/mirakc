@@ -43,6 +43,7 @@ impl System {
 
     /// Create an actor system with a specified span.
     pub fn with_span(span: Span) -> Self {
+        tracing::debug!("System started");
         let stop_token = CancellationToken::new();
         let addr = promoter::spawn(stop_token.child_token(), span.clone());
         System {
@@ -69,6 +70,7 @@ impl System {
     pub async fn shutdown(self) {
         self.stop();
         self.addr.wait().await;
+        tracing::debug!("System stopped");
     }
 }
 
@@ -208,22 +210,32 @@ pub struct Address<A> {
     // A child token of the Actor's stop token.
     // This cannot stop the Actor.
     stop_token: CancellationToken,
+    // A token used to wait for the actor to stop.
+    // TODO: Replace it with a more suitable type.
+    wait_token: CancellationToken,
 }
 
 impl<A> Address<A> {
     const MAX_MESSAGES: usize = 256;
 
-    pub fn is_alive(&self) -> bool {
+    pub fn is_available(&self) -> bool {
         !self.sender.is_closed()
     }
 
     pub async fn wait(&self) {
-        self.sender.closed().await
+        self.wait_token.cancelled().await;
     }
 
-    fn pair(stop_token: CancellationToken) -> (Self, mpsc::Receiver<Box<dyn Dispatch<A> + Send>>) {
+    fn pair(
+        stop_token: CancellationToken,
+        wait_token: CancellationToken,
+    ) -> (Self, mpsc::Receiver<Box<dyn Dispatch<A> + Send>>) {
         let (sender, receiver) = mpsc::channel(Self::MAX_MESSAGES);
-        let addr = Address { sender, stop_token };
+        let addr = Address {
+            sender,
+            stop_token,
+            wait_token,
+        };
         (addr, receiver)
     }
 }
@@ -249,6 +261,7 @@ impl<A> Clone for Address<A> {
         Address {
             sender: self.sender.clone(),
             stop_token: self.stop_token.clone(),
+            wait_token: self.wait_token.clone(),
         }
     }
 }
@@ -715,6 +728,7 @@ struct MessageLoop<A> {
     actor: A,
     receiver: mpsc::Receiver<Box<dyn Dispatch<A> + Send>>,
     context: Context<A>,
+    wait_token: CancellationToken,
 }
 
 impl<A: Actor> MessageLoop<A> {
@@ -722,11 +736,13 @@ impl<A: Actor> MessageLoop<A> {
         actor: A,
         receiver: mpsc::Receiver<Box<dyn Dispatch<A> + Send>>,
         context: Context<A>,
+        wait_token: CancellationToken,
     ) -> Self {
         MessageLoop {
             actor,
             receiver,
             context,
+            wait_token,
         }
     }
 
@@ -750,6 +766,7 @@ impl<A: Actor> MessageLoop<A> {
             dispatch.dispatch(&mut self.actor, &mut self.context).await;
         }
         self.actor.stopped(&mut self.context).await;
+        self.wait_token.cancel();
     }
 }
 
@@ -871,15 +888,17 @@ mod promoter {
 
     pub(crate) struct Promoter {
         system_span: Span,
+        wait_tokens: Vec<CancellationToken>,
     }
 
     pub(crate) fn spawn(stop_token: CancellationToken, system_span: Span) -> Address<Promoter> {
-        let (addr, receiver) = Address::pair(stop_token.child_token());
+        let wait_token = CancellationToken::new();
+        let (addr, receiver) = Address::pair(stop_token.child_token(), wait_token.clone());
         let context = Context::new(addr.clone(), addr.clone(), stop_token);
         let task = {
             let span = system_span.clone();
             async move {
-                MessageLoop::new(Promoter::new(span), receiver, context)
+                MessageLoop::new(Promoter::new(span), receiver, context, wait_token)
                     .run()
                     .await;
             }
@@ -890,18 +909,24 @@ mod promoter {
 
     impl Promoter {
         fn new(system_span: Span) -> Self {
-            Promoter { system_span }
+            Promoter {
+                system_span,
+                wait_tokens: vec![],
+            }
         }
 
-        fn spawn<A>(&self, actor: A, ctx: &mut Context<Self>) -> Address<A>
+        fn spawn<A>(&mut self, actor: A, ctx: &mut Context<Self>) -> Address<A>
         where
             A: Actor,
         {
             let stop_token = ctx.stop_token.child_token();
-            let (addr, receiver) = Address::pair(stop_token.child_token());
+            let wait_token = self.create_wait_token();
+            let (addr, receiver) = Address::pair(stop_token.child_token(), wait_token.clone());
             let ctx = Context::new(addr.clone(), ctx.address().clone(), stop_token);
             let task = async move {
-                MessageLoop::new(actor, receiver, ctx).run().await;
+                MessageLoop::new(actor, receiver, ctx, wait_token)
+                    .run()
+                    .await;
             };
             // This function called in the `ActionDispatcher::dispatch()`
             // where the `ActionDispatcher::span` has been entered.
@@ -910,10 +935,30 @@ mod promoter {
             tokio::spawn(task.instrument(self.system_span.clone()));
             addr
         }
+
+        fn create_wait_token(&mut self) -> CancellationToken {
+            let wait_token = CancellationToken::new();
+            self.wait_tokens.push(wait_token.clone());
+            wait_token
+        }
     }
 
     #[async_trait]
-    impl Actor for Promoter {}
+    impl Actor for Promoter {
+        async fn started(&mut self, _ctx: &mut Context<Self>) {
+            tracing::debug!("Started");
+        }
+
+        async fn stopped(&mut self, _ctx: &mut Context<Self>) {
+            tracing::debug!("Waiting for actors to stop...");
+            let wait_tokens = std::mem::replace(&mut self.wait_tokens, vec![]);
+            for wait_token in wait_tokens.into_iter() {
+                // TODO: introduce id for each actor.
+                wait_token.cancelled().await;
+            }
+            tracing::debug!("Stopped");
+        }
+    }
 
     pub(crate) struct Spawn<A: Actor>(pub A);
     impl<A: Actor> Message for Spawn<A> {

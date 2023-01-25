@@ -267,7 +267,7 @@ where
         for (index, (name, recorder)) in self.recorders.iter_mut().enumerate() {
             if let Err(_) = recorder.addr.call(HealthCheck).await {
                 // The recorder has been gone.  Respawn it.
-                assert!(!recorder.addr.is_alive());
+                assert!(!recorder.addr.is_available());
                 let addr = ctx
                     .spawn_actor(TimeshiftRecorder::new(
                         index,
