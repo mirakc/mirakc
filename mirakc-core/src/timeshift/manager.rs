@@ -49,13 +49,13 @@ where
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
 
-        // Recorders will be activated in the message handler.
         self.epg
             .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
             .expect("Failed to register the emitter");
 
-        // Create recorders regardless of whether its service is available or not.
+        // Spawn recorders regardless of whether its service is available or not.
+        // Records should be accessible even if the service is unavailable.
         for (index, name) in self.config.timeshift.recorders.keys().enumerate() {
             let addr = ctx
                 .spawn_actor(TimeshiftRecorder::new(
@@ -89,9 +89,9 @@ where
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        for (name, recorder) in self.recorders.iter() {
-            tracing::debug!(recorder.name = name, "Waitting for the recorder to stop...");
-            recorder.addr.wait().await;
+        for (name, holder) in self.recorders.iter() {
+            tracing::debug!(recorder.name = name, "Waiting for the recorder to stop...");
+            holder.addr.wait().await;
         }
         tracing::debug!("Stopped");
     }
@@ -122,11 +122,11 @@ where
             let recorder_states = self
                 .recorders
                 .iter()
-                .map(|(name, recorder)| {
+                .map(|(name, holder)| {
                     (
                         name.clone(),
-                        recorder.started,
-                        recorder.current_record_id.clone(),
+                        holder.started,
+                        holder.current_record_id.clone(),
                     )
                 })
                 .collect_vec();
@@ -191,15 +191,11 @@ where
         _ctx: &mut Context<Self>,
     ) -> <QueryTimeshiftRecorders as Message>::Reply {
         let mut models = vec![];
-        for (index, recorder) in self.recorders.values().enumerate() {
-            models.push(
-                recorder
-                    .addr
-                    .call(QueryTimeshiftRecorder {
-                        recorder: TimeshiftRecorderQuery::ByIndex(index),
-                    })
-                    .await??,
-            );
+        for (index, holder) in self.recorders.values().enumerate() {
+            let msg = QueryTimeshiftRecorder {
+                recorder: TimeshiftRecorderQuery::ByIndex(index),
+            };
+            models.push(holder.addr.call(msg).await??);
         }
         Ok(models)
     }
@@ -227,12 +223,12 @@ macro_rules! impl_proxy_handler {
                     TimeshiftRecorderQuery::ByIndex(index) => self
                         .recorders
                         .get_index(index)
-                        .map(|(_, recorder)| recorder.addr.clone())
+                        .map(|(_, holder)| &holder.addr)
                         .ok_or(Error::RecordNotFound),
                     TimeshiftRecorderQuery::ByName(ref name) => self
                         .recorders
                         .get(name)
-                        .map(|recorder| recorder.addr.clone())
+                        .map(|holder| &holder.addr)
                         .ok_or(Error::RecordNotFound),
                 };
                 maybe_recorder?.call(msg).await?
@@ -264,10 +260,31 @@ where
         ctx: &mut Context<Self>,
     ) -> <HealthCheck as Message>::Reply {
         tracing::debug!(msg.name = "HealthCheck");
-        for (index, (name, recorder)) in self.recorders.iter_mut().enumerate() {
-            if let Err(_) = recorder.addr.call(HealthCheck).await {
-                // The recorder has been gone.  Respawn it.
-                assert!(!recorder.addr.is_available());
+        for (index, (name, holder)) in self.recorders.iter_mut().enumerate() {
+            if let Err(_) = holder.addr.call(HealthCheck).await {
+                // The recorder has been gone.
+                assert!(!holder.addr.is_available());
+
+                // Emit events if needed.
+
+                if let Some(record_id) = holder.current_record_id {
+                    let msg = TimeshiftEvent::RecordEnded {
+                        recorder: name.clone(),
+                        record_id,
+                    };
+                    self.event_emitters.emit(msg).await;
+                }
+                holder.current_record_id = None;
+
+                if holder.started {
+                    let msg = TimeshiftEvent::Stopped {
+                        recorder: name.clone(),
+                    };
+                    self.event_emitters.emit(msg).await;
+                }
+                holder.started = false;
+
+                // Respawn the recorder.
                 let addr = ctx
                     .spawn_actor(TimeshiftRecorder::new(
                         index,
@@ -277,9 +294,7 @@ where
                         ctx.emitter(),
                     ))
                     .await;
-                recorder.addr = addr;
-                recorder.started = false;
-                recorder.current_record_id = None;
+                holder.addr = addr;
             }
         }
     }
@@ -325,26 +340,36 @@ where
         // See the comment in `RecorderHolder`.
         match msg {
             TimeshiftEvent::Started { ref recorder } => {
-                if let Some(recorder) = self.recorders.get_mut(recorder) {
-                    recorder.started = true;
+                if let Some(holder) = self.recorders.get_mut(recorder) {
+                    holder.started = true;
                 }
             }
             TimeshiftEvent::Stopped { ref recorder } => {
-                if let Some(recorder) = self.recorders.get_mut(recorder) {
-                    recorder.started = false;
+                if let Some(holder) = self.recorders.get_mut(recorder) {
+                    holder.started = false;
+                    // The recording pipeline may stop before emitting
+                    // TimeshiftEvent::RecordEnded.
+                    if let Some(record_id) = holder.current_record_id {
+                        let msg = TimeshiftEvent::RecordStarted {
+                            recorder: recorder.clone(),
+                            record_id,
+                        };
+                        self.event_emitters.emit(msg).await;
+                    }
+                    holder.current_record_id = None;
                 }
             }
             TimeshiftEvent::RecordStarted {
                 ref recorder,
                 record_id,
             } => {
-                if let Some(recorder) = self.recorders.get_mut(recorder) {
-                    recorder.current_record_id = Some(record_id);
+                if let Some(holder) = self.recorders.get_mut(recorder) {
+                    holder.current_record_id = Some(record_id);
                 }
             }
             TimeshiftEvent::RecordEnded { ref recorder, .. } => {
-                if let Some(recorder) = self.recorders.get_mut(recorder) {
-                    recorder.current_record_id = None;
+                if let Some(holder) = self.recorders.get_mut(recorder) {
+                    holder.current_record_id = None;
                 }
             }
             _ => (),
