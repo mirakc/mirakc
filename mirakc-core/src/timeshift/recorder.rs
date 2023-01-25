@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -33,7 +34,7 @@ pub struct TimeshiftRecorder<T> {
     // data to be stored in the `data-file`.
     service: EpgService,
     records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
-    points: Vec<TimeshiftPoint>,
+    points: VecDeque<TimeshiftPoint>,
 
     service_available: bool,
     recording: bool,
@@ -80,7 +81,7 @@ impl<T> TimeshiftRecorder<T> {
             tuner_manager,
             service,
             records: IndexMap::new(),
-            points: Vec::with_capacity(max_chunks),
+            points: VecDeque::with_capacity(max_chunks),
             recording: false,
             service_available: false,
             session: None,
@@ -226,12 +227,12 @@ impl<T> TimeshiftRecorder<T> {
 
     fn get_model(&self) -> TimeshiftRecorderModel {
         let now = Jst::now();
-        let start_time = if let Some(point) = self.points.iter().next() {
+        let start_time = if let Some(point) = self.points.front() {
             point.timestamp.clone()
         } else {
             now.clone()
         };
-        let end_time = if let Some(point) = self.points.iter().last() {
+        let end_time = if let Some(point) = self.points.back() {
             point.timestamp.clone()
         } else {
             now.clone()
@@ -346,7 +347,7 @@ where
         }
         let (mut cmds, _) = builder.build();
 
-        let start_pos = self.points.last().map_or(0, |point| point.pos);
+        let start_pos = self.points.back().map_or(0, |point| point.pos);
         let data = mustache::MapBuilder::new()
             .insert("sid", &self.service.sid())?
             .insert_str("file", &config.ts_file)
@@ -406,7 +407,7 @@ struct TimeshiftRecorderDataForSave<'a> {
     chunk_size: usize,
     max_chunks: usize,
     records: &'a IndexMap<TimeshiftRecordId, TimeshiftRecord>,
-    points: &'a Vec<TimeshiftPoint>,
+    points: &'a VecDeque<TimeshiftPoint>,
 }
 
 #[async_trait]
@@ -675,7 +676,7 @@ where
 impl<T> TimeshiftRecorder<T> {
     async fn handle_start_recording(&mut self) {
         tracing::info!(recorder.name = self.name, "Recording started");
-        if let Some(point) = self.points.pop() {
+        if let Some(point) = self.points.pop_back() {
             // remove the sentinel item if it exists
             tracing::debug!(recorder.name = self.name, %point, "Removed the sentinel point");
         }
@@ -770,7 +771,7 @@ impl<T> TimeshiftRecorder<T> {
 
     fn invalidate_first_chunk(&mut self) {
         assert!(self.points.len() == self.config().max_chunks());
-        let point = self.points.remove(0);
+        let point = self.points.pop_front().unwrap();
         let index = point.pos / (self.config().chunk_size as u64);
         tracing::debug!(recorder.name = self.name, chunk = index, %point, "Chunk invalidated");
     }
@@ -817,7 +818,7 @@ impl<T> TimeshiftRecorder<T> {
         let index = point.pos / (self.config().chunk_size as u64);
         assert!(point.pos % (self.config().chunk_size as u64) == 0);
         tracing::debug!(recorder.name = self.name, chunk = index, %point, "Chunk started");
-        self.points.push(point.clone());
+        self.points.push_back(point.clone());
         assert!(self.points.len() <= self.config().max_chunks());
     }
 
@@ -980,7 +981,7 @@ mod tests {
                 point!("2021-01-01T00:00:00+09:00", 0)
             },
         };
-        recorder.points = vec![point!("2021-01-01T00:01:00+09:00", 0)];
+        recorder.points = vecdeque![point!("2021-01-01T00:01:00+09:00", 0)];
         recorder.purge_expired_records();
         assert!(recorder.records.is_empty());
 
@@ -1005,7 +1006,7 @@ mod tests {
                 point!("2021-01-01T00:02:00+09:00", 0)
             },
         };
-        recorder.points = vec![point!("2021-01-01T00:01:00+09:00", 0)];
+        recorder.points = vecdeque![point!("2021-01-01T00:01:00+09:00", 0)];
         recorder.purge_expired_records();
         assert_eq!(recorder.records.len(), 1);
         assert_eq!(recorder.records[0].program.id, (0, 1, 3).into());

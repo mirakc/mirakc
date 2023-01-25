@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use chrono::DateTime;
 use chrono_jst::serde::ts_milliseconds;
 use chrono_jst::Jst;
@@ -257,5 +259,5 @@ pub struct TimeshiftRecorderData {
     pub chunk_size: usize,
     pub max_chunks: usize,
     pub records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
-    pub points: Vec<TimeshiftPoint>,
+    pub points: VecDeque<TimeshiftPoint>,
 }

@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[macro_use]
+mod vecdeque_lit;
+
 mod filereader;
 mod manager;
 mod models;
