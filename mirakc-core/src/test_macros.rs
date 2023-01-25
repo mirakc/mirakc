@@ -1,3 +1,11 @@
+macro_rules! jst {
+    ($datetime:literal) => {
+        chrono::DateTime::parse_from_rfc3339($datetime)
+            .unwrap()
+            .with_timezone(&chrono_jst::Jst)
+    };
+}
+
 macro_rules! channel {
     ($name:expr, $channel_type:expr, $channel:expr) => {
         crate::epg::EpgChannel {

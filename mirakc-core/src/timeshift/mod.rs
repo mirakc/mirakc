@@ -15,7 +15,8 @@ use crate::models::TimeshiftRecordId;
 pub use manager::TimeshiftManager;
 pub use models::*;
 
-pub fn is_rebuild_mode() -> bool {
+// Used only for suppressing noisy logs in the rebuild mode.
+pub(crate) fn is_rebuild_mode() -> bool {
     match std::env::var_os("MIRAKC_REBUILD_TIMESHIFT") {
         Some(v) => v == "1",
         None => false,

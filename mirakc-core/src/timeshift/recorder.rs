@@ -36,25 +36,24 @@ pub struct TimeshiftRecorder<T> {
     points: Vec<TimeshiftPoint>,
 
     service_available: bool,
+    recording: bool,
     session: Option<TimeshiftRecorderSession>,
     current_record_id: Option<TimeshiftRecordId>,
 
     event_emitter: Emitter<TimeshiftEvent>,
 }
 
-impl<T> TimeshiftRecorder<T>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: TriggerFactory<StopStreaming>,
-{
-    pub fn new(
+impl<T> TimeshiftRecorder<T> {
+    pub fn new<E>(
         index: usize,
         name: String,
         config: Arc<Config>,
         tuner_manager: T,
-        event_emitter: Emitter<TimeshiftEvent>,
-    ) -> Self {
+        event_emitter: E,
+    ) -> Self
+    where
+        E: Emit<TimeshiftEvent> + Send + Sync + 'static,
+    {
         let recorder_config = &config.timeshift.recorders[&name];
         // Dummy data.
         // It will be filled when the data-file is loaded.
@@ -82,10 +81,11 @@ where
             service,
             records: IndexMap::new(),
             points: Vec::with_capacity(max_chunks),
+            recording: false,
             service_available: false,
             session: None,
             current_record_id: None,
-            event_emitter,
+            event_emitter: Emitter::new(event_emitter),
         }
     }
 
@@ -224,15 +224,42 @@ where
         );
     }
 
-    fn deactivate(&mut self) {
-        if self.session.is_some() {
-            tracing::info!(recorder.name = self.name, "Deactivated");
+    fn get_model(&self) -> TimeshiftRecorderModel {
+        let now = Jst::now();
+        let start_time = if let Some(point) = self.points.iter().next() {
+            point.timestamp.clone()
         } else {
-            tracing::warn!(recorder.name = self.name, "Not activated");
+            now.clone()
+        };
+        let end_time = if let Some(point) = self.points.iter().last() {
+            point.timestamp.clone()
+        } else {
+            now.clone()
+        };
+        let pipeline = self
+            .session
+            .as_ref()
+            .map(|session| session.pipeline.get_model())
+            .unwrap_or_default();
+        TimeshiftRecorderModel {
+            index: self.index,
+            name: self.name.clone(),
+            service: self.service.clone(),
+            start_time,
+            end_time,
+            pipeline,
+            recording: self.recording,
+            current_record_id: self.current_record_id.clone(),
         }
-        self.session = None;
     }
+}
 
+impl<T> TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
     fn create_live_stream_source(
         &self,
         record_id: Option<TimeshiftRecordId>,
@@ -258,198 +285,6 @@ where
     ) -> Result<TimeshiftRecordStreamSource, Error> {
         let record = self.records.get(&record_id).ok_or(Error::ProgramNotFound)?;
         record.create_record_stream_source(self.name.clone(), self.config(), start_pos)
-    }
-
-    async fn handle_start_recording(&mut self) {
-        tracing::info!(recorder.name = self.name, "Recording started");
-        if let Some(point) = self.points.pop() {
-            // remove the sentinel item if it exists
-            tracing::debug!(recorder.name = self.name, %point, "Removed the sentinel point");
-        }
-    }
-
-    async fn handle_stop_recording(&mut self, reset: bool) {
-        tracing::info!(recorder.name = self.name, "Recording stopped");
-        if reset {
-            tracing::warn!(recorder.name = self.name, "Reset data");
-            // TODO
-        }
-
-        self.current_record_id = None;
-    }
-
-    fn handle_chunk(&mut self, point: TimeshiftPoint) {
-        self.maintain();
-        self.append_point(&point);
-        self.save_data();
-    }
-
-    fn maintain(&mut self) {
-        if self.points.len() < self.config().max_chunks() {
-            return;
-        }
-        self.invalidate_first_chunk();
-        self.purge_expired_records();
-        self.crop_record_to_be_overwritten();
-    }
-
-    fn invalidate_first_chunk(&mut self) {
-        assert!(self.points.len() == self.config().max_chunks());
-        let point = self.points.remove(0);
-        let index = point.pos / (self.config().chunk_size as u64);
-        tracing::debug!(recorder.name = self.name, chunk = index, %point, "Chunk invalidated");
-    }
-
-    // Purge records which ended recording before the first timestamp.
-    //
-    // A record which started recording before the timestamp and ended recording after the
-    // timestamp it NOT purged.  Because it has data in available chunks and can be provided
-    // via Web endpoints for streaming.
-    fn purge_expired_records(&mut self) {
-        assert!(!self.points.is_empty());
-        let timestamp = self.points[0].timestamp;
-        let n = self
-            .records
-            .values()
-            .position(|record| record.end.timestamp > timestamp)
-            .unwrap_or(self.records.len());
-        for (_, record) in self.records.drain(0..n) {
-            // remove first n records
-            tracing::info!(recorder.name = self.name, %record.id, %record.program.id, "Record purged");
-        }
-    }
-
-    // Crop the beginning of a record to be overwritten.
-    //
-    // REMARKS
-    // -------
-    // The mtime and ctime of a file that corresponds to the cropped record exposed onto a
-    // timeshift-fs are not changed.  That may cause issues in other applications.
-    fn crop_record_to_be_overwritten(&mut self) {
-        assert!(!self.points.is_empty());
-        let start = self.points[0].clone();
-        // Checking the first record is enough because old records have already been purged in
-        // purge_expired_records().
-        if let Some((_, record)) = self.records.first_mut() {
-            if record.start.timestamp < start.timestamp {
-                record.start = start;
-                tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.start, "Record cropped");
-            }
-        }
-    }
-
-    fn append_point(&mut self, point: &TimeshiftPoint) {
-        let index = point.pos / (self.config().chunk_size as u64);
-        assert!(point.pos % (self.config().chunk_size as u64) == 0);
-        tracing::debug!(recorder.name = self.name, chunk = index, %point, "Chunk started");
-        self.points.push(point.clone());
-        assert!(self.points.len() <= self.config().max_chunks());
-    }
-
-    async fn handle_event_start(
-        &mut self,
-        program_id: ProgramId,
-        event: EitEvent,
-        point: TimeshiftPoint,
-    ) {
-        // Multiple records for the same TV program may be created when the
-        // timeshift recording restarts.  Therefore, we use the recording start
-        // time as the identifier of the record, instead of the start time in
-        // the EPG data.
-        let record_id = point.timestamp.timestamp().into();
-
-        let mut program = EpgProgram::new(program_id);
-        program.update(&event);
-        let record = TimeshiftRecord::new(record_id, program, point);
-        tracing::info!(
-            recorder.name = self.name,
-            %record.id,
-            %record.program.id,
-            %record.start,
-            "Record started"
-        );
-        self.records.insert(record_id, record);
-        self.current_record_id = Some(record_id);
-
-        let msg = TimeshiftEvent::RecordStarted {
-            recorder: self.name.clone(),
-            record_id,
-        };
-        self.event_emitter.emit(msg).await;
-    }
-
-    async fn handle_event_update(
-        &mut self,
-        program_id: ProgramId,
-        event: EitEvent,
-        point: TimeshiftPoint,
-    ) {
-        let record_id = point.timestamp.timestamp().into();
-        let mut program = EpgProgram::new(program_id);
-        program.update(&event);
-        self.update_last_record(program, point, false);
-
-        let msg = TimeshiftEvent::RecordUpdated {
-            recorder: self.name.clone(),
-            record_id,
-        };
-        self.event_emitter.emit(msg).await;
-    }
-
-    async fn handle_event_end(
-        &mut self,
-        program_id: ProgramId,
-        event: EitEvent,
-        point: TimeshiftPoint,
-    ) {
-        let mut program = EpgProgram::new(program_id);
-        program.update(&event);
-        self.update_last_record(program, point, true);
-        self.current_record_id = None;
-    }
-
-    fn update_last_record(&mut self, program: EpgProgram, point: TimeshiftPoint, end: bool) {
-        match self.records.values_mut().last() {
-            Some(record) => {
-                record.update(program, point, end);
-                if end {
-                    tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record ended");
-                } else {
-                    tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record updated");
-                }
-            }
-            None => {
-                tracing::warn!(recorder.name = self.name, "No record to update");
-            }
-        }
-    }
-
-    fn get_model(&self) -> TimeshiftRecorderModel {
-        let now = Jst::now();
-        let start_time = if let Some(point) = self.points.iter().next() {
-            point.timestamp.clone()
-        } else {
-            now.clone()
-        };
-        let end_time = if let Some(point) = self.points.iter().last() {
-            point.timestamp.clone()
-        } else {
-            now.clone()
-        };
-        let (pipeline, recording) = match self.session {
-            Some(ref session) => (session.pipeline.get_model(), true),
-            _ => (vec![], false),
-        };
-        TimeshiftRecorderModel {
-            index: self.index,
-            name: self.name.clone(),
-            service: self.service.clone(),
-            start_time,
-            end_time,
-            pipeline,
-            recording,
-            current_record_id: self.current_record_id.clone(),
-        }
     }
 
     async fn start_recording(&mut self, ctx: &mut Context<Self>) {
@@ -560,9 +395,7 @@ where
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        if self.session.is_some() {
-            self.deactivate();
-        }
+        self.session = None;
         tracing::debug!(recorder.name = self.name, "Stopped");
     }
 }
@@ -700,6 +533,7 @@ where
 {
     async fn handle(&mut self, _msg: PipelineStarted, _ctx: &mut Context<Self>) {
         tracing::debug!(recorder.name = self.name, msg.name = "PipelineStarted");
+        self.recording = true;
         let msg = TimeshiftEvent::Started {
             recorder: self.name.clone(),
         };
@@ -719,9 +553,8 @@ where
 {
     async fn handle(&mut self, _msg: PipelineStopped, _ctx: &mut Context<Self>) {
         tracing::debug!(recorder.name = self.name, msg.name = "PipelineStopped");
-        if self.session.is_some() {
-            self.deactivate();
-        }
+        self.recording = false;
+        self.session = None;
         let msg = TimeshiftEvent::Stopped {
             recorder: self.name.clone(),
         };
@@ -758,50 +591,12 @@ where
     }
 }
 
-#[async_trait]
-impl<T> Handler<TimeshiftRecorderMessage> for TimeshiftRecorder<T>
-where
-    T: Clone + Send + Sync + 'static,
-    T: Call<StartStreaming>,
-    T: TriggerFactory<StopStreaming>,
-{
-    async fn handle(&mut self, msg: TimeshiftRecorderMessage, _ctx: &mut Context<Self>) {
-        match msg {
-            TimeshiftRecorderMessage::Start => {
-                self.handle_start_recording().await;
-            }
-            TimeshiftRecorderMessage::Stop(msg) => {
-                self.handle_stop_recording(msg.reset).await;
-            }
-            TimeshiftRecorderMessage::Chunk(msg) => {
-                self.handle_chunk(msg.chunk);
-            }
-            TimeshiftRecorderMessage::EventStart(msg) => {
-                let program_id =
-                    ProgramId::new(msg.original_network_id, msg.service_id, msg.event.event_id);
-                self.handle_event_start(program_id, msg.event, msg.record)
-                    .await;
-            }
-            TimeshiftRecorderMessage::EventUpdate(msg) => {
-                let program_id =
-                    ProgramId::new(msg.original_network_id, msg.service_id, msg.event.event_id);
-                self.handle_event_update(program_id, msg.event, msg.record)
-                    .await;
-            }
-            TimeshiftRecorderMessage::EventEnd(msg) => {
-                let program_id =
-                    ProgramId::new(msg.original_network_id, msg.service_id, msg.event.event_id);
-                self.handle_event_end(program_id, msg.event, msg.record)
-                    .await;
-            }
-        }
-    }
-}
+// pipeline message
 
 #[derive(Deserialize, Message)]
 #[serde(rename_all = "kebab-case")]
 #[serde(tag = "type", content = "data")]
-enum TimeshiftRecorderMessage {
+enum PipelineMessage {
     Start,
     Stop(TimeshiftRecorderStopMessage),
     Chunk(TimeshiftRecorderChunkMessage),
@@ -837,6 +632,214 @@ struct TimeshiftRecorderEventMessage {
     record: TimeshiftPoint,
 }
 
+#[async_trait]
+impl<T> Handler<PipelineMessage> for TimeshiftRecorder<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+{
+    async fn handle(&mut self, msg: PipelineMessage, _ctx: &mut Context<Self>) {
+        match msg {
+            PipelineMessage::Start => {
+                self.handle_start_recording().await;
+            }
+            PipelineMessage::Stop(msg) => {
+                self.handle_stop_recording(msg.reset).await;
+            }
+            PipelineMessage::Chunk(msg) => {
+                self.handle_chunk(msg.chunk);
+            }
+            PipelineMessage::EventStart(msg) => {
+                let program_id =
+                    ProgramId::new(msg.original_network_id, msg.service_id, msg.event.event_id);
+                self.handle_event_start(program_id, msg.event, msg.record)
+                    .await;
+            }
+            PipelineMessage::EventUpdate(msg) => {
+                let program_id =
+                    ProgramId::new(msg.original_network_id, msg.service_id, msg.event.event_id);
+                self.handle_event_update(program_id, msg.event, msg.record)
+                    .await;
+            }
+            PipelineMessage::EventEnd(msg) => {
+                let program_id =
+                    ProgramId::new(msg.original_network_id, msg.service_id, msg.event.event_id);
+                self.handle_event_end(program_id, msg.event, msg.record)
+                    .await;
+            }
+        }
+    }
+}
+
+impl<T> TimeshiftRecorder<T> {
+    async fn handle_start_recording(&mut self) {
+        tracing::info!(recorder.name = self.name, "Recording started");
+        if let Some(point) = self.points.pop() {
+            // remove the sentinel item if it exists
+            tracing::debug!(recorder.name = self.name, %point, "Removed the sentinel point");
+        }
+    }
+
+    async fn handle_stop_recording(&mut self, reset: bool) {
+        tracing::info!(recorder.name = self.name, "Recording stopped");
+        if reset {
+            tracing::warn!(recorder.name = self.name, "Reset data");
+            // TODO
+        }
+
+        self.current_record_id = None;
+    }
+
+    fn handle_chunk(&mut self, point: TimeshiftPoint) {
+        self.maintain();
+        self.append_point(&point);
+        self.save_data();
+    }
+
+    async fn handle_event_start(
+        &mut self,
+        program_id: ProgramId,
+        event: EitEvent,
+        point: TimeshiftPoint,
+    ) {
+        // Multiple records for the same TV program may be created when the
+        // timeshift recording restarts.  Therefore, we use the recording start
+        // time as the identifier of the record, instead of the start time in
+        // the EPG data.
+        let record_id = point.timestamp.timestamp().into();
+
+        let mut program = EpgProgram::new(program_id);
+        program.update(&event);
+        let record = TimeshiftRecord::new(record_id, program, point);
+        tracing::info!(
+            recorder.name = self.name,
+            %record.id,
+            %record.program.id,
+            %record.start,
+            "Record started"
+        );
+        self.records.insert(record_id, record);
+        self.current_record_id = Some(record_id);
+
+        let msg = TimeshiftEvent::RecordStarted {
+            recorder: self.name.clone(),
+            record_id,
+        };
+        self.event_emitter.emit(msg).await;
+    }
+
+    async fn handle_event_update(
+        &mut self,
+        program_id: ProgramId,
+        event: EitEvent,
+        point: TimeshiftPoint,
+    ) {
+        let record_id = point.timestamp.timestamp().into();
+        let mut program = EpgProgram::new(program_id);
+        program.update(&event);
+        self.update_last_record(program, point, false);
+
+        let msg = TimeshiftEvent::RecordUpdated {
+            recorder: self.name.clone(),
+            record_id,
+        };
+        self.event_emitter.emit(msg).await;
+    }
+
+    async fn handle_event_end(
+        &mut self,
+        program_id: ProgramId,
+        event: EitEvent,
+        point: TimeshiftPoint,
+    ) {
+        let mut program = EpgProgram::new(program_id);
+        program.update(&event);
+        self.update_last_record(program, point, true);
+        self.current_record_id = None;
+    }
+
+    fn maintain(&mut self) {
+        if self.points.len() < self.config().max_chunks() {
+            return;
+        }
+        self.invalidate_first_chunk();
+        self.purge_expired_records();
+        self.crop_record_to_be_overwritten();
+    }
+
+    fn invalidate_first_chunk(&mut self) {
+        assert!(self.points.len() == self.config().max_chunks());
+        let point = self.points.remove(0);
+        let index = point.pos / (self.config().chunk_size as u64);
+        tracing::debug!(recorder.name = self.name, chunk = index, %point, "Chunk invalidated");
+    }
+
+    // Purge records which ended recording before the first timestamp.
+    //
+    // A record which started recording before the timestamp and ended recording after the
+    // timestamp it NOT purged.  Because it has data in available chunks and can be provided
+    // via Web endpoints for streaming.
+    fn purge_expired_records(&mut self) {
+        assert!(!self.points.is_empty());
+        let timestamp = self.points[0].timestamp;
+        let n = self
+            .records
+            .values()
+            .position(|record| record.end.timestamp > timestamp)
+            .unwrap_or(self.records.len());
+        for (_, record) in self.records.drain(0..n) {
+            // remove first n records
+            tracing::info!(recorder.name = self.name, %record.id, %record.program.id, "Record purged");
+        }
+    }
+
+    // Crop the beginning of a record to be overwritten.
+    //
+    // REMARKS
+    // -------
+    // The mtime and ctime of a file that corresponds to the cropped record exposed onto a
+    // timeshift-fs are not changed.  That may cause issues in other applications.
+    fn crop_record_to_be_overwritten(&mut self) {
+        assert!(!self.points.is_empty());
+        let start = self.points[0].clone();
+        // Checking the first record is enough because old records have already been purged in
+        // purge_expired_records().
+        if let Some((_, record)) = self.records.first_mut() {
+            if record.start.timestamp < start.timestamp {
+                record.start = start;
+                tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.start, "Record cropped");
+            }
+        }
+    }
+
+    fn append_point(&mut self, point: &TimeshiftPoint) {
+        let index = point.pos / (self.config().chunk_size as u64);
+        assert!(point.pos % (self.config().chunk_size as u64) == 0);
+        tracing::debug!(recorder.name = self.name, chunk = index, %point, "Chunk started");
+        self.points.push(point.clone());
+        assert!(self.points.len() <= self.config().max_chunks());
+    }
+
+    fn update_last_record(&mut self, program: EpgProgram, point: TimeshiftPoint, end: bool) {
+        match self.records.values_mut().last() {
+            Some(record) => {
+                record.update(program, point, end);
+                if end {
+                    tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record ended");
+                } else {
+                    tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record updated");
+                }
+            }
+            None => {
+                tracing::warn!(recorder.name = self.name, "No record to update");
+            }
+        }
+    }
+}
+
+// models
+
 struct TimeshiftRecorderSession {
     pipeline: CommandPipeline<TunerSubscriptionId>,
     _stop_trigger: Trigger<StopStreaming>,
@@ -851,7 +854,8 @@ struct PipelineMessageSource<T> {
 
 impl<T> PipelineMessageSource<T>
 where
-    T: Emit<TimeshiftRecorderMessage>,
+    T: Emit<PipelineMessage>,
+    T: Emit<PipelineStarted>,
     T: TriggerFactory<PipelineStopped>,
 {
     fn new(
@@ -872,27 +876,30 @@ where
             reader,
             addr,
         } = self;
+        addr.emit(PipelineStarted).await;
         let _trigger = addr.trigger(PipelineStopped);
         let reader = BufReader::new(reader);
         let mut lines = reader.lines();
         loop {
             match lines.next_line().await {
                 Ok(Some(json)) => {
-                    let msg = match serde_json::from_str::<TimeshiftRecorderMessage>(&json) {
+                    let msg = match serde_json::from_str::<PipelineMessage>(&json) {
                         Ok(msg) => msg,
                         Err(err) => {
-                            tracing::error!(
+                            tracing::debug!(
                                 %err,
                                 recorder.name = recorder_name,
-                                "Failed parsing a JSON message"
+                                json,
+                                "Failed parsing a JSON message, jsut ignore it"
                             );
-                            break;
+                            continue;
                         }
                     };
                     addr.emit(msg).await;
                 }
                 Ok(None) => {
-                    break;
+                    // EOF
+                    return;
                 }
                 Err(err) => {
                     tracing::error!(
@@ -900,7 +907,7 @@ where
                         recorder.name = recorder_name,
                         "Failed reading output from the command pipeline"
                     );
-                    break;
+                    return;
                 }
             }
         }
@@ -915,109 +922,90 @@ mod tests {
     use crate::mpeg_ts_stream::MpegTsStream;
     use crate::tuner::stub::TunerManagerStub;
     use assert_matches::assert_matches;
-    use chrono::TimeZone;
     use tempfile::TempDir;
     use tokio::sync::Notify;
 
+    macro_rules! point {
+        ($timestamp:literal, $pos:expr) => {
+            TimeshiftPoint {
+                timestamp: jst!($timestamp),
+                pos: $pos,
+            }
+        };
+    }
+
+    macro_rules! record {
+        ($id:expr, $program:expr, $start:expr, $end:expr) => {
+            TimeshiftRecord {
+                id: $id.into(),
+                program: $program,
+                start: $start,
+                end: $end,
+                recording: false,
+            }
+        };
+    }
+
+    macro_rules! recorder {
+        ($config:expr) => {
+            TimeshiftRecorder::new(
+                0,
+                "test".to_string(),
+                $config,
+                TunerManagerStub,
+                EventEmitterStub,
+            )
+        };
+        ($config:expr, $tuner_manager:expr, $event_emitter:expr) => {
+            TimeshiftRecorder::new(
+                0,
+                "test".to_string(),
+                $config,
+                $tuner_manager,
+                $event_emitter,
+            )
+        };
+    }
     #[tokio::test]
     async fn test_timeshift_record_purge_expired_records() {
         let temp_dir = TempDir::new().unwrap();
-        let mut event_emitter = MockEventEmitter::new();
-        event_emitter.expect_emit().returning(|_| ());
+        let config = create_config(temp_dir.path());
 
-        let mut recorder = TimeshiftRecorder {
-            index: 0,
-            name: "test".to_string(),
-            config: create_config(temp_dir.path()),
-            tuner_manager: TunerManagerStub,
-            service: create_epg_service(),
-            records: indexmap::indexmap! {
-                1u32.into() => TimeshiftRecord {
-                    id: 1u32.into(),
-                    program: program!((0, 1, 1)),
-                    start: TimeshiftPoint {
-                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
-                        pos: 0,
-                    },
-                    end: TimeshiftPoint {
-                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
-                        pos: 0,
-                    },
-                    recording: false,
-                },
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:00:00+09:00", 0)
             },
-            points: vec![TimeshiftPoint {
-                timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 1, 0).unwrap(),
-                pos: 0,
-            }],
-            service_available: true,
-            session: None,
-            current_record_id: None,
-            event_emitter: Emitter::new(event_emitter),
         };
+        recorder.points = vec![point!("2021-01-01T00:01:00+09:00", 0)];
         recorder.purge_expired_records();
         assert!(recorder.records.is_empty());
 
-        let temp_dir = TempDir::new().unwrap();
-        let mut event_emitter = MockEventEmitter::new();
-        event_emitter.expect_emit().returning(|_| ());
-
-        let mut recorder = TimeshiftRecorder {
-            index: 0,
-            name: "test".to_string(),
-            config: create_config(temp_dir.path()),
-            tuner_manager: TunerManagerStub,
-            service: create_epg_service(),
-            records: indexmap::indexmap! {
-                1u32.into() => TimeshiftRecord {
-                    id: 1u32.into(),
-                    program: program!((0, 1, 1)),
-                    start: TimeshiftPoint {
-                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
-                        pos: 0,
-                    },
-                    end: TimeshiftPoint {
-                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
-                        pos: 0,
-                    },
-                    recording: false,
-                },
-                2u32.into() => TimeshiftRecord {
-                    id: 2u32.into(),
-                    program: program!((0, 1, 2)),
-                    start: TimeshiftPoint {
-                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
-                        pos: 0,
-                    },
-                    end: TimeshiftPoint {
-                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 1, 0).unwrap(),
-                        pos: 0,
-                    },
-                    recording: false,
-                },
-                3u32.into() => TimeshiftRecord {
-                    id: 3u32.into(),
-                    program: program!((0, 1, 3)),
-                    start: TimeshiftPoint {
-                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 0, 0).unwrap(),
-                        pos: 0,
-                    },
-                    end: TimeshiftPoint {
-                        timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 2, 0).unwrap(),
-                        pos: 0,
-                    },
-                    recording: false,
-                },
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:00:00+09:00", 0)
             },
-            points: vec![TimeshiftPoint {
-                timestamp: Jst.with_ymd_and_hms(2021, 1, 1, 0, 1, 0).unwrap(),
-                pos: 0,
-            }],
-            service_available: true,
-            session: None,
-            current_record_id: None,
-            event_emitter: Emitter::new(event_emitter),
+            2u32.into() => record! {
+                2u32,
+                program!((0, 1, 2)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:01:00+09:00", 0)
+            },
+            3u32.into() => record! {
+                3u32,
+                program!((0, 1, 3)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:02:00+09:00", 0)
+            },
         };
+        recorder.points = vec![point!("2021-01-01T00:01:00+09:00", 0)];
         recorder.purge_expired_records();
         assert_eq!(recorder.records.len(), 1);
         assert_eq!(recorder.records[0].program.id, (0, 1, 3).into());
@@ -1027,30 +1015,16 @@ mod tests {
     async fn test_timeshift_recorder_broken_pipeline() {
         let system = System::new();
 
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_config(temp_dir.path());
+
         let broken = Arc::new(Notify::new());
         let tuner_manager = BrokenTunerManagerStub(broken.clone());
 
-        let temp_dir = TempDir::new().unwrap();
-
-        let stopped = Arc::new(Notify::new());
-        let event_emitter = {
-            let mut mock = MockEventEmitter::new();
-            let stopped = stopped.clone();
-            mock.expect_emit().returning(move |msg| match msg {
-                TimeshiftEvent::Stopped { .. } => stopped.notify_one(),
-                _ => (),
-            });
-            mock
-        };
+        let (observer, started, stopped) = Observer::new();
 
         let recorder = system
-            .spawn_actor(TimeshiftRecorder::new(
-                0,
-                "test".to_string(),
-                create_config(temp_dir.path()),
-                tuner_manager,
-                Emitter::new(event_emitter),
-            ))
+            .spawn_actor(recorder!(config, tuner_manager, observer))
             .await;
 
         recorder
@@ -1058,7 +1032,7 @@ mod tests {
                 service: Some(create_epg_service()),
             })
             .await;
-
+        started.notified().await;
         let msg = QueryTimeshiftRecorder {
             recorder: TimeshiftRecorderQuery::ByIndex(0), // dummy
         };
@@ -1080,6 +1054,7 @@ mod tests {
 
         // reactivate
         recorder.call(HealthCheck).await.unwrap();
+        started.notified().await;
         let msg = QueryTimeshiftRecorder {
             recorder: TimeshiftRecorderQuery::ByIndex(0), // dummy
         };
@@ -1095,21 +1070,16 @@ mod tests {
     async fn test_timeshift_recorder_stop() {
         let system = System::new();
 
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_config(temp_dir.path());
+
         let notify = Arc::new(Notify::new());
         let tuner_manager = BrokenTunerManagerStub(notify.clone());
 
-        let temp_dir = TempDir::new().unwrap();
-        let mut event_emitter = MockEventEmitter::new();
-        event_emitter.expect_emit().returning(|_| ());
+        let (observer, started, _stopped) = Observer::new();
 
         let recorder = system
-            .spawn_actor(TimeshiftRecorder::new(
-                0,
-                "test".to_string(),
-                create_config(temp_dir.path()),
-                tuner_manager,
-                Emitter::new(event_emitter),
-            ))
+            .spawn_actor(recorder!(config, tuner_manager, observer))
             .await;
 
         recorder
@@ -1117,7 +1087,7 @@ mod tests {
                 service: Some(create_epg_service()),
             })
             .await;
-
+        started.notified().await;
         let msg = QueryTimeshiftRecorder {
             recorder: TimeshiftRecorderQuery::ByIndex(0), // dummy
         };
@@ -1182,12 +1152,36 @@ mod tests {
 
     stub_impl_fire! {BrokenTunerManagerStub, StopStreaming}
 
-    mockall::mock! {
-        EventEmitter {}
+    #[derive(Clone)]
+    struct EventEmitterStub;
+    stub_impl_emit! {EventEmitterStub, TimeshiftEvent}
 
-        #[async_trait]
-        impl Emit<TimeshiftEvent> for EventEmitter {
-            async fn emit(&self, msg: TimeshiftEvent);
+    struct Observer {
+        started: Arc<Notify>,
+        stopped: Arc<Notify>,
+    }
+
+    impl Observer {
+        fn new() -> (Observer, Arc<Notify>, Arc<Notify>) {
+            let started = Arc::new(Notify::new());
+            let stopped = Arc::new(Notify::new());
+            let observer = Observer {
+                started: started.clone(),
+                stopped: stopped.clone(),
+            };
+            (observer, started, stopped)
+        }
+    }
+
+    #[async_trait]
+    impl Emit<TimeshiftEvent> for Observer {
+        async fn emit(&self, msg: TimeshiftEvent) {
+            use TimeshiftEvent::*;
+            match msg {
+                Started { .. } => self.started.notify_one(),
+                Stopped { .. } => self.stopped.notify_one(),
+                _ => (),
+            }
         }
     }
 }
