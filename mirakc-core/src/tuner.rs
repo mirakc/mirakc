@@ -718,6 +718,7 @@ impl Drop for TunerSession {
     }
 }
 
+// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1030,7 +1031,6 @@ mod tests {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 pub(crate) mod stub {
     use super::*;
