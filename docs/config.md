@@ -79,6 +79,7 @@ suitable for your environment.
 [tuners\[\].time-limit]: #tuners
 [tuners\[\].disabled]: #tuners
 [tuners\[\].decoded]: #tuners
+[tuners\[\].dedicated-for]: #tuners
 [filters.tuner-filter.command]: #filterstuner-filter
 [filters.service-filter.command]: #filtersservice-filter
 [filters.decode-filter.command]: #filtersdecode-filter
@@ -420,7 +421,7 @@ Definitions of tuners.  At least, one tuner must be defined.
   * PES packets are decoded by the tuner command
 * dedicated-for (optional)
   * Specify the name of a user who uses the tuner exclusively
-  * See [this section](#LocalTracker) for details
+  * See [this section](#local-tracker) for details
 
 Command template variables:
 

@@ -23,8 +23,8 @@ Web API endpoints listed below have been implemented at this moment:
 | [GET /api/iptv/channel.m3u8]                    |                            |
 | [GET /api/iptv/epg]                             |                            |
 | [GET /api/iptv/xmltv]                           | :heavy_check_mark:         |
-| [GET /onair]                                    |                            |
-| [GET /onair/{service_id}]                       |                            |
+| [GET /api/onair]                                |                            |
+| [GET /api/onair/{service_id}]                   |                            |
 | [GET /api/recording/schedules]                  |                            |
 | [POST /api/recording/schedules]                 |                            |
 | [GET /api/recording/schedules/{program_id}]     |                            |
@@ -106,6 +106,8 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [GET /api/timeshift/{recorder}/records/{record}]: #getapitimeshiftrecorderrecordsrecord
 [GET /api/timeshift/{recorder}/stream]: #getapitimeshiftrecorderstream
 [GET /api/timeshift/{recorder}/records/{record}/stream]: #getapitimeshiftrecorderrecordsrecordstream
+
+You can access the Swagger UI by opening `/api/debug` in a Web browser.
 
 ## Incompatibility of the `X-Mirakurun-Priority` header
 
@@ -267,6 +269,7 @@ The following query parameters can be specified:
 
 [EPGStation]: https://github.com/l3tnun/EPGStation
 [BonDriver_mirakc]: https://github.com/epgdatacapbon/BonDriver_mirakc
+[BonDriver_Mirakurun]: https://github.com/Chinachu/BonDriver_Mirakurun
 
 ### GET /api/iptv/xmltv
 
