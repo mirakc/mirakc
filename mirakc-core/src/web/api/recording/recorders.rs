@@ -1,7 +1,6 @@
 use super::*;
 
 use crate::recording::RecordingSchedule;
-use crate::recording::RecordingScheduleState;
 
 /// Lists recorders.
 #[utoipa::path(
@@ -71,6 +70,7 @@ where
     ),
 )]
 pub(in crate::web::api) async fn create<E, R>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     Json(input): Json<WebRecordingScheduleInput>,
@@ -79,20 +79,14 @@ where
     E: Call<epg::QueryProgram>,
     R: Call<recording::StartRecording>,
 {
-    let program = epg
-        .call(epg::QueryProgram {
-            program_id: input.program_id,
-        })
-        .await??;
-    let schedule = RecordingSchedule {
-        state: RecordingScheduleState::Recording,
-        program: Arc::new(program),
-        options: input.options,
-        tags: input.tags,
+    input.validate(&config)?;
+    let msg = epg::QueryProgram {
+        program_id: input.program_id,
     };
-    recording_manager
-        .call(recording::StartRecording { schedule })
-        .await??;
+    let program = epg.call(msg).await??;
+    let schedule = RecordingSchedule::new(Arc::new(program), input.options, input.tags);
+    let msg = recording::StartRecording { schedule };
+    recording_manager.call(msg).await??;
     Ok(StatusCode::CREATED)
 }
 

@@ -2,9 +2,7 @@ use super::*;
 
 use std::collections::HashMap;
 
-use path_dedot::ParseDot;
-
-use crate::recording::{RecordingSchedule, RecordingScheduleState};
+use crate::recording::RecordingSchedule;
 
 /// Lists recording schedules.
 #[utoipa::path(
@@ -81,39 +79,14 @@ where
     R: Call<recording::AddRecordingSchedule>,
     R: Call<recording::QueryRecordingSchedule>,
 {
-    if input.options.content_path.is_absolute() {
-        let err = Error::InvalidPath;
-        tracing::error!(%err, ?input.options.content_path);
-        return Err(err);
-    }
-
-    let basedir = config.recording.basedir.as_ref().unwrap();
-    if !basedir
-        .join(&input.options.content_path)
-        .parse_dot()?
-        .starts_with(basedir)
-    {
-        let err = Error::InvalidPath;
-        tracing::error!(%err, ?input.options.content_path);
-        return Err(err);
-    }
-
-    let program = epg
-        .call(epg::QueryProgram {
-            program_id: input.program_id,
-        })
-        .await??;
-
-    let schedule = RecordingSchedule {
-        state: RecordingScheduleState::Scheduled,
-        program: Arc::new(program),
-        options: input.options,
-        tags: input.tags,
+    input.validate(&config)?;
+    let msg = epg::QueryProgram {
+        program_id: input.program_id,
     };
-    let schedule = recording_manager
-        .call(recording::AddRecordingSchedule { schedule })
-        .await??;
-
+    let program = epg.call(msg).await??;
+    let schedule = RecordingSchedule::new(Arc::new(program), input.options, input.tags);
+    let msg = recording::AddRecordingSchedule { schedule };
+    let schedule = recording_manager.call(msg).await??;
     Ok((StatusCode::CREATED, Json(schedule.into())))
 }
 

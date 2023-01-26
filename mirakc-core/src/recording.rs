@@ -1661,6 +1661,15 @@ pub struct RecordingSchedule {
 }
 
 impl RecordingSchedule {
+    pub fn new(program: Arc<EpgProgram>, options: RecordingOptions, tags: HashSet<String>) -> Self {
+        RecordingSchedule {
+            state: RecordingScheduleState::Scheduled,
+            program,
+            options,
+            tags,
+        }
+    }
+
     fn can_be_updated_by_epg(&self) -> bool {
         use RecordingScheduleState::*;
         match self.state {

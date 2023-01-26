@@ -11,12 +11,15 @@ use chrono::Duration;
 use chrono_jst::serde::duration_milliseconds;
 use chrono_jst::serde::ts_milliseconds;
 use chrono_jst::Jst;
+use path_dedot::ParseDot;
 use serde::Deserialize;
 use serde::Serialize;
 use utoipa::IntoParams;
 use utoipa::ToSchema;
 
 use crate::command_util::CommandPipelineProcessModel;
+use crate::config::Config;
+use crate::error::Error;
 use crate::models::ChannelType;
 use crate::models::MirakurunProgram;
 use crate::models::MirakurunService;
@@ -77,6 +80,35 @@ pub(in crate::web) struct WebRecordingScheduleInput {
     #[serde(default)]
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
+}
+
+impl WebRecordingScheduleInput {
+    pub fn validate(&self, config: &Config) -> Result<(), Error> {
+        if self.options.content_path.is_absolute() {
+            let err = Error::InvalidPath;
+            tracing::error!(
+                %err,
+                input.options.content_path = ?self.options.content_path
+            );
+            return Err(err);
+        }
+
+        let basedir = config.recording.basedir.as_ref().unwrap();
+        if !basedir
+            .join(&self.options.content_path)
+            .parse_dot()?
+            .starts_with(basedir)
+        {
+            let err = Error::InvalidPath;
+            tracing::error!(
+                %err,
+                input.options.content_path = ?self.options.content_path
+            );
+            return Err(err);
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Serialize, ToSchema)]
