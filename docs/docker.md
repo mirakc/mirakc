@@ -38,7 +38,9 @@ Each image contains the following executables other than mirakc:
 * [recpt1] configured without `--enable-b25`
 * [mirakc-arib]
 * [curl]
+* [jq]
 * [socat]
+* [DVBv5 Tools]
 
 ## Build a custom image
 
@@ -120,5 +122,7 @@ See the following page for details about `BUILDPLATFORM` and `TARGETPLATFORM`:
 [recpt1]: https://github.com/stz2012/recpt1
 [mirakc-arib]: https://github.com/mirakc/mirakc-arib
 [curl]: https://curl.haxx.se/docs/manpage.html
+[jq]: https://stedolan.github.io/jq/
 [socat]: http://www.dest-unreach.org/socat/doc/socat.html
+[DVBv5 Tools]:https://linuxtv.org/wiki/index.php/DVBv5_Tools
 [Docker Hub]: https://hub.docker.com/r/mirakc/mirakc
