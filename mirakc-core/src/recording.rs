@@ -713,7 +713,7 @@ where
         let program_id = msg.schedule.program.id;
         self.add_schedule(msg.schedule)?;
         self.start_recording(program_id, ctx.address().clone(), ctx)
-            .await?;
+            .await;
         self.save_schedules();
         Ok(())
     }
@@ -794,35 +794,13 @@ where
         }
 
         let program_ids = self.dequeue_next_schedules(now);
+        if !program_ids.is_empty() {
+            changed = true;
+        }
 
         for program_id in program_ids.into_iter() {
-            match self
-                .start_recording(program_id, ctx.address().clone(), ctx)
-                .await
-            {
-                Ok(_) => {
-                    tracing::info!(
-                        schedule.program.id = %program_id,
-                        "Start recording",
-                    );
-                }
-                Err(err) => {
-                    tracing::error!(
-                        %err,
-                        schedule.program.id = %program_id,
-                        "Failed to start recording",
-                    );
-                    self.emit_recording_failed(
-                        program_id,
-                        RecordingFailedReason::StartRecordingFailed {
-                            message: format!("{}", err),
-                        },
-                    )
-                    .await;
-                    self.schedules.remove(&program_id);
-                }
-            }
-            changed = true;
+            self.start_recording(program_id, ctx.address().clone(), ctx)
+                .await;
         }
 
         self.set_timer(ctx);
@@ -904,6 +882,37 @@ where
     O: Call<onair::RegisterEmitter>,
 {
     async fn start_recording<C: Spawn>(
+        &mut self,
+        program_id: ProgramId,
+        addr: Address<Self>,
+        ctx: &C,
+    ) {
+        match self.do_start_recording(program_id, addr, ctx).await {
+            Ok(_) => {
+                tracing::info!(
+                    schedule.program.id = %program_id,
+                    "Start recording",
+                );
+            }
+            Err(err) => {
+                tracing::error!(
+                    %err,
+                    schedule.program.id = %program_id,
+                    "Failed to start recording",
+                );
+                self.schedules.get_mut(&program_id).unwrap().state = RecordingScheduleState::Failed;
+                self.emit_recording_failed(
+                    program_id,
+                    RecordingFailedReason::StartRecordingFailed {
+                        message: format!("{}", err),
+                    },
+                )
+                .await;
+            }
+        }
+    }
+
+    async fn do_start_recording<C: Spawn>(
         &mut self,
         program_id: ProgramId,
         addr: Address<Self>,
