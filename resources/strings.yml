@@ -1,5 +1,6 @@
+# Took-From: https://github.com/l3tnun/EPGStation/blob/v1.7.1/src/client/lib/event.ts
+# SPDX-License-Identifier: MIT
 genres:
-  # Took from https://github.com/l3tnun/EPGStation/blob/v1.7.1/src/client/lib/event.ts
   - genre: 'ニュース・報道'
     subgenres:
       - '定時・総合'
