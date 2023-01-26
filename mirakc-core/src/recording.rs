@@ -598,7 +598,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                     // Always retained.
                     true
                 }
-                Rescheduling => {
+                Rescheduling | Finished | Failed => {
                     // Always removed.
                     false
                 }
@@ -742,7 +742,7 @@ where
         tracing::debug!(msg.name = "ProcessRecording");
         let now = Jst::now();
 
-        let mut changed = self.remove_expired_schedules(now).await;
+        let mut changed = self.maintain_schedules(now).await;
         if changed {
             self.rebuild_queue();
         }
@@ -787,32 +787,45 @@ where
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn remove_expired_schedules(&mut self, now: DateTime<Jst>) -> bool {
+    async fn maintain_schedules(&mut self, now: DateTime<Jst>) -> bool {
+        use RecordingScheduleState::*;
+
         let max_delay = Duration::hours(MAX_DELAY_HOURS);
 
-        let mut removed = vec![];
+        let len = self.schedules.len();
+        let mut expired = vec![];
 
         self.schedules.retain(|_, schedule| {
             if schedule.is_recording() {
                 return true;
             }
-            if schedule.program.start_at.unwrap() + max_delay >= now {
+            if schedule.program.start_at.unwrap() + max_delay > now {
                 return true;
             }
-            tracing::error!(
-                %schedule.program.id,
-                "Schedule expired",
-            );
-            removed.push(schedule.program.id);
+            match schedule.state {
+                Scheduled | Tracking | Rescheduling => {
+                    tracing::error!(
+                        %schedule.program.id,
+                        "Schedule expired",
+                    );
+                    expired.push(schedule.program.id);
+                }
+                _ => {
+                    tracing::debug!(
+                        %schedule.program.id,
+                        "Removed old schedule for maintenance"
+                    );
+                }
+            }
             false
         });
 
-        for &program_id in removed.iter() {
+        for &program_id in expired.iter() {
             self.emit_recording_failed(program_id, RecordingFailedReason::ScheduleExpired)
                 .await;
         }
 
-        !removed.is_empty()
+        self.schedules.len() != len
     }
 
     fn dequeue_next_schedules(&mut self, now: DateTime<Jst>) -> Vec<ProgramId> {
@@ -953,8 +966,8 @@ where
         let fut = {
             async move {
                 addr.emit(RecordingStarted { program_id }).await;
+                let _stopped = addr.trigger(RecordingStopped { program_id });
                 let result = inner_fut.await;
-                addr.emit(RecordingStopped { program_id }).await;
                 if let Err(err) = result {
                     addr.emit(RecordingFailed {
                         program_id,
@@ -1155,11 +1168,17 @@ where
 
 impl<T, E, O> RecordingManager<T, E, O> {
     async fn handle_recording_stopped(&mut self, program_id: ProgramId) -> bool {
+        // The schedule is NOT removed for a while so that an external script
+        // listening recording events can access the details of the schedule.
+        //
+        // It will be removed in the `ProcessRecording` message handler.
+
         // The schedule may have been removed before the recording stops.
         // For example, `clear_schedules()` clears schedules before the
         // recordings stop.
-        let maybe_schedule = self.schedules.remove(&program_id);
-        let changed = maybe_schedule.is_some();
+        let maybe_schedule = self.schedules.get_mut(&program_id);
+
+        let mut changed = false;
 
         // Unlike the schedule, the recorder should be removed after the
         // recording stopped.
@@ -1184,7 +1203,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                             "Need rescheduling",
                         );
                         schedule.state = RecordingScheduleState::Rescheduling;
-                        self.schedules.insert(program_id, schedule);
+                        changed = true;
                         self.emit_recording_failed(
                             program_id,
                             RecordingFailedReason::NeedRescheduling,
@@ -1197,11 +1216,24 @@ impl<T, E, O> RecordingManager<T, E, O> {
                         schedule.program.id = %program_id,
                         "The recording pipeline terminated abnormally",
                     );
+                    if let Some(mut schedule) = maybe_schedule {
+                        schedule.state = RecordingScheduleState::Failed;
+                        changed = true;
+                    }
                     self.emit_recording_failed(
                         program_id,
                         RecordingFailedReason::PipelineError { exit_code },
                     )
                     .await;
+                } else {
+                    tracing::info!(
+                        schedule.program.id = %program_id,
+                        "The recording finished successfully",
+                    );
+                    if let Some(mut schedule) = maybe_schedule {
+                        schedule.state = RecordingScheduleState::Finished;
+                        changed = true;
+                    }
                 }
             }
             None => {
@@ -1212,14 +1244,6 @@ impl<T, E, O> RecordingManager<T, E, O> {
             }
         }
 
-        tracing::info!(
-            schedule.program.id = %program_id,
-            "Recording stopped",
-        );
-
-        // Receivers cannot access any data about the schedule.
-        // It has already been removed.
-        //
         // TODO: Save recording logs to a file.
         let msg = RecordingStopped { program_id };
         self.recording_stopped.emit(msg).await;
@@ -1513,6 +1537,9 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 Recording => {
                     schedule.program = program.clone();
                 }
+                Finished | Failed => {
+                    // Nothing to do.
+                }
             }
         }
 
@@ -1604,6 +1631,10 @@ pub enum RecordingScheduleState {
     // section ([schedule] or [p/f]) for the target TV program is emitted.
     // Otherwise, it will be expired eventually.
     Rescheduling,
+    // The recording finished successfully.
+    Finished,
+    // The recording failed for some reason.
+    Failed,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1702,6 +1733,15 @@ mod test_macros {
         };
     }
 
+    macro_rules! manager {
+        ($config:expr) => {
+            RecordingManager::new($config, TunerManagerStub, EpgStub, OnairProgramManagerStub)
+        };
+        ($config:expr, $tuner:expr, $epg:expr, $onair:expr) => {
+            RecordingManager::new($config, $tuner, $epg, $onair)
+        };
+    }
+
     macro_rules! recorder {
         ($started_at:expr, $pipeline:expr) => {
             Recorder {
@@ -1731,12 +1771,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager = RecordingManager::new(
-            config.clone(),
-            TunerManagerStub,
-            EpgStub,
-            OnairProgramManagerStub,
-        );
+        let mut manager = manager!(config.clone());
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
@@ -1767,12 +1802,7 @@ mod tests {
         manager.save_schedules();
         assert!(temp_dir.path().join("schedules.json").is_file());
 
-        let mut manager = RecordingManager::new(
-            config.clone(),
-            TunerManagerStub,
-            EpgStub,
-            OnairProgramManagerStub,
-        );
+        let mut manager = manager!(config.clone());
         manager.load_schedules();
         assert_eq!(manager.schedules.len(), num_schedules);
         assert!(manager.schedules.contains_key(&(0, 1, 1).into()));
@@ -1787,8 +1817,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut manager = manager!(config);
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
@@ -1842,8 +1871,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut manager = manager!(config);
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
@@ -1902,8 +1930,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut manager = manager!(config);
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
@@ -1928,8 +1955,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut manager = manager!(config);
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
@@ -1977,8 +2003,7 @@ mod tests {
 
         let config = config_for_test("/tmp");
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut manager = manager!(config);
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
@@ -2051,14 +2076,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_maintain_schedules() {
+        let now = Jst::now();
+        let config = config_for_test("/tmp");
+
+        let max_delay = Duration::hours(MAX_DELAY_HOURS);
+
+        let mut manager = manager!(config.clone());
+        let schedule = schedule!(
+            RecordingScheduleState::Scheduled,
+            program!((0, 1, 1), now + Duration::hours(1), "1h"),
+            options!("1.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        let changed = manager.maintain_schedules(now + max_delay).await;
+        assert!(!changed);
+        assert_eq!(manager.schedules.len(), 1);
+        manager.schedules.clear();
+
+        let mut manager = manager!(config.clone());
+        let schedule = schedule!(
+            RecordingScheduleState::Recording,
+            program!((0, 1, 1), now, "1h"),
+            options!("1.m2ts", 0)
+        );
+        let result = manager.add_schedule(schedule);
+        assert_matches!(result, Ok(()));
+        let changed = manager.maintain_schedules(now + max_delay).await;
+        assert!(!changed);
+        assert_eq!(manager.schedules.len(), 1);
+        manager.schedules.clear();
+
+        let states = [
+            RecordingScheduleState::Scheduled,
+            RecordingScheduleState::Tracking,
+            RecordingScheduleState::Rescheduling,
+        ];
+        for state in states {
+            let mut manager = manager!(config.clone());
+            let mut failed = MockRecordingFailedValidator::new();
+            failed.expect_emit().times(1).returning(|msg| {
+                assert_eq!(msg.program_id, (0, 1, 1).into());
+            });
+            manager.recording_failed.register(Emitter::new(failed));
+            let schedule = schedule!(state, program!((0, 1, 1), now, "1h"), options!("1.m2ts", 0));
+            let result = manager.add_schedule(schedule);
+            assert_matches!(result, Ok(()));
+            let changed = manager.maintain_schedules(now + max_delay).await;
+            assert!(changed);
+            assert!(manager.schedules.is_empty());
+        }
+
+        let states = [
+            RecordingScheduleState::Finished,
+            RecordingScheduleState::Failed,
+        ];
+        for state in states {
+            let mut manager = manager!(config.clone());
+            let mut failed = MockRecordingFailedValidator::new();
+            failed.expect_emit().never();
+            manager.recording_failed.register(Emitter::new(failed));
+            let schedule = schedule!(state, program!((0, 1, 1), now, "1h"), options!("1.m2ts", 0));
+            let result = manager.add_schedule(schedule);
+            assert_matches!(result, Ok(()));
+            let changed = manager.maintain_schedules(now + max_delay).await;
+            assert!(changed);
+            assert!(manager.schedules.is_empty());
+        }
+    }
+
+    #[tokio::test]
     async fn test_handle_recording_stopped() {
         let now = Jst::now();
 
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut manager = manager!(config);
 
         let mut stopped = MockRecordingStoppedValidator::new();
         stopped.expect_emit().times(1).returning(|msg| {
@@ -2086,7 +2181,9 @@ mod tests {
         let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
         assert!(changed);
         assert!(manager.recorders.get(&(0, 1, 1).into()).is_none());
-        assert_matches!(manager.schedules.get(&(0, 1, 1).into()), None);
+        assert_matches!(manager.schedules.get(&(0, 1, 1).into()), Some(schedule) => {
+            assert_matches!(schedule.state, RecordingScheduleState::Finished);
+        });
     }
 
     #[tokio::test]
@@ -2096,8 +2193,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut manager = manager!(config);
 
         let mut stopped = MockRecordingStoppedValidator::new();
         stopped.expect_emit().times(1).returning(|msg| {
@@ -2143,8 +2239,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut manager = manager!(config);
 
         let mut stopped = MockRecordingStoppedValidator::new();
         stopped.expect_emit().times(1).returning(|msg| {
@@ -2178,7 +2273,9 @@ mod tests {
         let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
         assert!(changed);
         assert!(manager.recorders.get(&(0, 1, 1).into()).is_none());
-        assert_matches!(manager.schedules.get(&(0, 1, 1).into()), None);
+        assert_matches!(manager.schedules.get(&(0, 1, 1).into()), Some(schedule) => {
+            assert_matches!(schedule.state, RecordingScheduleState::Failed);
+        });
     }
 
     #[tokio::test]
@@ -2188,8 +2285,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, EpgStub, OnairProgramManagerStub);
+        let mut manager = manager!(config);
         let mut mock = MockRecordingFailedValidator::new();
         mock.expect_emit().times(1).returning(|msg| {
             assert_eq!(msg.program_id, (0, 2, 1).into());
@@ -2243,8 +2339,7 @@ mod tests {
             });
         }
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, epg, OnairProgramManagerStub);
+        let mut manager = manager!(config, TunerManagerStub, epg, OnairProgramManagerStub);
         let mut failed_mock = MockRecordingFailedValidator::new();
         failed_mock.expect_emit().times(1).returning(|msg| {
             assert_eq!(msg.program_id, (0, 1, 2).into());
@@ -2305,8 +2400,7 @@ mod tests {
             });
         }
 
-        let mut manager =
-            RecordingManager::new(config, TunerManagerStub, epg, OnairProgramManagerStub);
+        let mut manager = manager!(config, TunerManagerStub, epg, OnairProgramManagerStub);
 
         let mut mock = MockRecordingRescheduledValidator::new();
         mock.expect_emit().times(1).returning(|msg| {
