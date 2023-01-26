@@ -505,6 +505,15 @@ async fn test_get_recording_recorder() {
 }
 
 #[tokio::test]
+async fn test_delete_recording_recorder() {
+    let res = delete("/api/recording/recorders/1").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = delete("/api/recording/recorders/0").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_get_timeshift_recorders() {
     let res = get("/api/timeshift").await;
     assert_eq!(res.status(), StatusCode::OK);

@@ -1,6 +1,7 @@
 use super::*;
 
-use crate::recording::{RecordingSchedule, RecordingScheduleState};
+use crate::recording::RecordingSchedule;
+use crate::recording::RecordingScheduleState;
 
 /// Lists recorders.
 #[utoipa::path(
@@ -93,4 +94,38 @@ where
         .call(recording::StartRecording { schedule })
         .await??;
     Ok(StatusCode::CREATED)
+}
+
+/// Stops recording.
+///
+/// Unlike `DELETE /api/recording/schedules/{program_id}`, this endpoint only
+/// stops the recording without removing the corresponding recording schedule.
+///
+/// A `recording.stopped` event will occur
+/// and `GET /api/recording/schedules/{program_id}` will return the schedule
+/// information.
+#[utoipa::path(
+    delete,
+    path = "/recording/recorders/{program_id}",
+    params(
+        ("program_id" = u64, Path, description = "Mirakurun program ID"),
+    ),
+    responses(
+        (status = 201, description = "Created"),
+        (status = 401, description = "Bad Request"),
+        (status = 404, description = "Not Found"),
+        (status = 505, description = "Internal Server Error"),
+    ),
+)]
+pub(in crate::web::api) async fn delete<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
+    Path(program_id): Path<ProgramId>,
+) -> Result<(), Error>
+where
+    R: Call<recording::StopRecording>,
+{
+    recording_manager
+        .call(recording::StopRecording { program_id })
+        .await??;
+    Ok(())
 }

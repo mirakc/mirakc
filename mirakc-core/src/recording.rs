@@ -719,6 +719,52 @@ where
     }
 }
 
+// stop recording
+
+#[derive(Message)]
+#[reply("Result<(), Error>")]
+pub struct StopRecording {
+    pub program_id: ProgramId,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<StopRecording> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: StopRecording,
+        _ctx: &mut Context<Self>,
+    ) -> <StopRecording as Message>::Reply {
+        tracing::debug!(
+            msg.name = "StopRecording",
+            %msg.program_id,
+        );
+        // This function doesn't wait for the recorder to stop completely.
+        //
+        // Dropping the stop trigger will stop the tuner pipeline and this
+        // will cause EOF in the recording pipeline.  A `RecordingStopped`
+        // signal will be emitted, and then it will be handled in the handler
+        // as usual.
+        self.recorders
+            .get_mut(&msg.program_id)
+            .ok_or(Error::RecorderNotFound)?
+            .stop_trigger
+            .take();
+        Ok(())
+    }
+}
+
 // process recording
 
 #[derive(Message)]
@@ -2655,6 +2701,19 @@ pub(crate) mod stub {
             msg: StartRecording,
         ) -> actlet::Result<<StartRecording as Message>::Reply> {
             match msg.schedule.program.id.eid().value() {
+                0 => Ok(Err(Error::RecorderNotFound)),
+                _ => Ok(Ok(())),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Call<StopRecording> for RecordingManagerStub {
+        async fn call(
+            &self,
+            msg: StopRecording,
+        ) -> actlet::Result<<StopRecording as Message>::Reply> {
+            match msg.program_id.eid().value() {
                 0 => Ok(Err(Error::RecorderNotFound)),
                 _ => Ok(Ok(())),
             }
