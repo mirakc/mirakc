@@ -1025,10 +1025,26 @@ where
     async fn handle(
         &mut self,
         msg: RegisterEmitter,
-        _ctx: &mut Context<Self>,
+        ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
         match msg {
             RegisterEmitter::RecordingStarted(emitter) => {
+                // Create a task to send messages.
+                //
+                // Sending many messages in the message handler may cause a dead lock
+                // when the number of messages to be sent is larger than the capacity
+                // of the emitter's channel.  See the issue #705 for example.
+                let task = {
+                    let program_ids = self.recorders.keys().cloned().collect_vec();
+                    let emitter = emitter.clone();
+                    async move {
+                        for program_id in program_ids.into_iter() {
+                            let msg = RecordingStarted { program_id };
+                            emitter.emit(msg).await;
+                        }
+                    }
+                };
+                ctx.spawn_task(task);
                 let id = self.recording_started.register(emitter);
                 tracing::debug!(msg.name = "RegisterEmitter::RecordingStarted", id);
                 id
