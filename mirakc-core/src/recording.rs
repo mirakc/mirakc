@@ -1735,17 +1735,22 @@ pub enum RecordingScheduleState {
     Failed,
 }
 
+/// Recording options.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[derive(ToSchema)]
 #[schema(title = "RecordingOptions")]
 pub struct RecordingOptions {
+    /// A relative path of a file to store recorded data.
     #[schema(value_type = String)]
     pub content_path: PathBuf,
+    /// A priority of tuner usage.
     #[serde(default)]
     pub priority: i32,
+    /// A list of pre-filters to use.
     #[serde(default)]
     pub pre_filters: Vec<String>,
+    /// A list of post-filters to use.
     #[serde(default)]
     pub post_filters: Vec<String>,
 }

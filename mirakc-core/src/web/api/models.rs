@@ -39,6 +39,7 @@ use crate::recording::RecordingScheduleState;
 use crate::timeshift::TimeshiftRecordModel;
 use crate::timeshift::TimeshiftRecorderModel;
 
+/// Version information of mirakc currently running.
 #[derive(Serialize, ToSchema)]
 pub(in crate::web) struct Version {
     /// Current version.
@@ -48,18 +49,27 @@ pub(in crate::web) struct Version {
     pub latest: &'static str,
 }
 
+/// State information of mirakc currently running.
 #[derive(Serialize, ToSchema)]
 pub(in crate::web) struct Status {}
 
+/// A recording schedule model.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(title = "RecordingSchedule")]
 pub(in crate::web) struct WebRecordingSchedule {
+    /// The current state of the recording schedule.
     pub state: RecordingScheduleState,
+    /// Metadata of the target TV program.
     pub program: MirakurunProgram,
+    /// Recording options.
     pub options: RecordingOptions,
+    /// A list of tags.
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
+    /// Reason of the recording failure.
+    ///
+    /// This property exists only when the recording failed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failed_reason: Option<RecordingFailedReason>,
 }
@@ -76,12 +86,17 @@ impl From<recording::RecordingSchedule> for WebRecordingSchedule {
     }
 }
 
+/// Input data used when creating a recording schedule.
 #[derive(Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "RecordingScheduleInput")]
 pub(in crate::web) struct WebRecordingScheduleInput {
+    /// A Mirakurun program ID of the target TV program.
     #[schema(value_type = u64)]
     pub program_id: ProgramId,
+    /// Recording options.
     pub options: RecordingOptions,
+    /// A list of tags.
     #[serde(default)]
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
@@ -116,14 +131,21 @@ impl WebRecordingScheduleInput {
     }
 }
 
+/// A recorder model.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "RecordingRecorder")]
 pub(in crate::web) struct WebRecordingRecorder {
+    /// A Mirakurun program ID of the TV program currently being recorded.
     #[schema(value_type = u64)]
     pub program_id: ProgramId,
+    /// A time when the recording started.
+    ///
+    /// It's may not be equal to the start time of the TV program.
     #[serde(with = "ts_milliseconds")]
     #[schema(value_type = i64)]
     pub started_at: DateTime<Jst>,
+    /// A list of process models constituting the recording pipeline.
     pub pipeline: Vec<WebProcessModel>,
 }
 
@@ -141,22 +163,42 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
     }
 }
 
+/// A timeshift recorder model.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "TimeshiftRecorder")]
 pub(in crate::web) struct WebTimeshiftRecorder {
+    /// The timeshift recorder name defined in `config.yml`.
     pub name: String,
+    /// Metadata of the service to be recorded.
     pub service: MirakurunService,
+    /// The start time of the timeshift timeline.
+    ///
+    /// `null` when there is no record.
     #[serde(with = "ts_milliseconds_option")]
     #[schema(value_type = Option<i64>)]
     pub start_time: Option<DateTime<Jst>>,
+    /// The end time of the timeshift timeline.
+    ///
+    /// `null` when there is no record.
     #[serde(with = "ts_milliseconds_option")]
     #[schema(value_type = Option<i64>)]
     pub end_time: Option<DateTime<Jst>>,
+    /// The duration of the timeshift timeline.
+    ///
+    /// `0` when there is no record.
     #[serde(with = "duration_milliseconds")]
     #[schema(value_type = i64)]
     pub duration: Duration,
+    /// A list of process models constituting the timeshift pipeline currently
+    /// running.
     pub pipeline: Vec<WebProcessModel>,
+    /// `true` while recording, `false` otherwise.
+    ///
+    /// Users can still access the records even if this property returns
+    /// `false`.
     pub recording: bool,
+    /// An ID of the record currently being recorded.
     #[schema(value_type = Option<u32>)]
     pub current_record_id: Option<TimeshiftRecordId>,
 }
@@ -180,10 +222,14 @@ impl From<TimeshiftRecorderModel> for WebTimeshiftRecorder {
     }
 }
 
+/// A process model constituting a pipeline.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "ProcessModel")]
 pub(in crate::web) struct WebProcessModel {
+    /// A command currently running in the pipeline.
     pub command: String,
+    /// The process ID of a process running the command.
     pub pid: Option<u32>,
 }
 
@@ -196,19 +242,27 @@ impl From<CommandPipelineProcessModel> for WebProcessModel {
     }
 }
 
+/// Metadata of a timeshift record.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "TimeshiftRecord")]
 pub(in crate::web) struct WebTimeshiftRecord {
+    /// A timeshift record ID.
     #[schema(value_type = u32)]
     pub id: TimeshiftRecordId,
+    /// Metadata of the TV program.
     pub program: MirakurunProgram,
     #[serde(with = "ts_milliseconds")]
     #[schema(value_type = i64)]
+    /// The start time of the timeshift record in UNIX time (milliseconds).
     pub start_time: DateTime<Jst>,
     #[serde(with = "duration_milliseconds")]
     #[schema(value_type = i64)]
+    /// The duration of the timeshift record in milliseconds.
     pub duration: Duration,
+    /// The size of the timeshift record in bytes.
     pub size: u64,
+    /// `true` while recording, `false` otherwise.
     pub recording: bool,
 }
 
@@ -225,11 +279,24 @@ impl From<TimeshiftRecordModel> for WebTimeshiftRecord {
     }
 }
 
+/// Metadata of TV program that is now on-air in a service.
+///
+/// The metadata is collected from EIT[p/f] sections, not from EIT[schedule]
+/// sections.
 #[derive(Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(title = "OnairProgram")]
 pub(crate) struct WebOnairProgram {
+    /// Mirakurun service ID.
+    #[schema(value_type = u64)]
     pub service_id: ServiceId,
+    /// A TV program that is now on-air.
+    ///
+    /// `null` when no TV program is broadcasted.
     pub current: Option<MirakurunProgram>,
+    /// A TV program that will start next.
+    ///
+    /// `null` when there is no next TV program.
     pub next: Option<MirakurunProgram>,
 }
 
@@ -261,10 +328,10 @@ pub(in crate::web) struct ChannelServicePath {
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Path)]
 pub(in crate::web) struct TimeshiftRecordPath {
-    /// Timeshift recorder name.
+    /// A timeshift recorder name.
     pub recorder: String,
 
-    /// Timeshift record ID.
+    /// A timeshift record ID.
     #[param(value_type = u32)]
     pub id: TimeshiftRecordId,
 }
@@ -281,11 +348,11 @@ pub(in crate::web) struct FilterSetting {
     #[serde(deserialize_with = "FilterSetting::deserialize_stream_decode_query")]
     pub decode: bool, // default: true
 
-    /// Pre-filters.
+    /// A list of pre-filters to use.
     #[serde(default)]
     pub pre_filters: Vec<String>, // default: empty
 
-    /// Post-filters.
+    /// A list of post-filters to use.
     #[serde(default)]
     pub post_filters: Vec<String>, // default: empty
 }
