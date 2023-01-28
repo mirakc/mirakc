@@ -111,6 +111,7 @@ pub struct Context<A> {
     own_addr: Address<A>,
     promoter_addr: Address<promoter::Promoter>,
     stop_token: CancellationToken,
+    post_process: Option<Box<dyn Dispatch<A> + Send + Sync>>,
 }
 
 impl<A> Context<A> {
@@ -123,6 +124,7 @@ impl<A> Context<A> {
             own_addr,
             promoter_addr,
             stop_token,
+            post_process: None,
         }
     }
 
@@ -134,6 +136,24 @@ impl<A> Context<A> {
     /// Stops the actor.
     pub fn stop(&mut self) {
         self.stop_token.cancel();
+    }
+
+    /// Set a message to be handled just after sending a reply for the message
+    /// currently handled, before dispatching any other messages.
+    ///
+    /// This can be used for avoiding some kind of deadlock in message handlers.
+    /// #705 is a good example.  In this case, we can solve the deadlock by
+    /// separating a process which causes the deadlock from others and
+    /// performing it after sending a reply.
+    pub fn set_post_process<M>(&mut self, msg: M)
+    where
+        A: Handler<M>,
+        M: Signal + Send + Sync,
+        // An message will be converted into `Box<dyn Dispatch>`.
+        M: 'static,
+    {
+        assert!(self.post_process.is_none());
+        self.post_process = Some(Box::new(SignalDispatcher::new(msg)));
     }
 }
 
@@ -753,6 +773,9 @@ impl<A: Actor> MessageLoop<A> {
             tokio::select! {
                 Some(dispatch) = self.receiver.recv() => {
                     dispatch.dispatch(&mut self.actor, &mut self.context).await;
+                    if let Some(post_process) = self.context.post_process.take() {
+                        post_process.dispatch(&mut self.actor, &mut self.context).await;
+                    }
                 }
                 _ = stop_token.cancelled() => {
                     self.receiver.close();
