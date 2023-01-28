@@ -148,6 +148,20 @@ impl Emit<crate::timeshift::TimeshiftEvent> for EventFeeder {
     async fn emit(&self, msg: crate::timeshift::TimeshiftEvent) {
         use crate::timeshift::TimeshiftEvent::*;
         let event = match msg {
+            Timeline {
+                recorder,
+                start_time,
+                end_time,
+                duration,
+            } => Event::default()
+                .event("timeshift.timeline")
+                .json_data(TimeshiftTimeline {
+                    recorder,
+                    start_time,
+                    end_time,
+                    duration,
+                })
+                .unwrap(),
             Started { recorder } => Event::default()
                 .event("timeshift.started")
                 .json_data(TimeshiftStarted { recorder })

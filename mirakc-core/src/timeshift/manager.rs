@@ -4,7 +4,6 @@ use std::sync::Arc;
 use actlet::prelude::*;
 use chrono_jst::Jst;
 use indexmap::IndexMap;
-use itertools::Itertools;
 
 use super::recorder::TimeshiftRecorder;
 use super::*;
@@ -113,47 +112,54 @@ where
         msg: RegisterEmitter,
         ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
-        // Create a task to send messages.
-        //
-        // Sending many messages in the message handler may cause a dead lock
-        // when the number of messages to be sent is larger than the capacity
-        // of the emitter's channel.  See the issue #705 for example.
-        let task = {
-            let recorder_states = self
-                .recorders
-                .iter()
-                .map(|(name, holder)| {
-                    (
-                        name.clone(),
-                        holder.started,
-                        holder.current_record_id.clone(),
-                    )
-                })
-                .collect_vec();
-            let emitter = msg.0.clone();
-            async move {
-                for (recorder, started, current_record_id) in recorder_states.into_iter() {
-                    if started {
-                        let recorder = recorder.clone();
-                        let msg = TimeshiftEvent::Started { recorder };
-                        emitter.emit(msg).await;
-                    }
-                    if let Some(record_id) = current_record_id {
-                        let recorder = recorder.clone();
-                        let msg = TimeshiftEvent::RecordStarted {
-                            recorder,
-                            record_id,
-                        };
-                        emitter.emit(msg).await;
-                    }
-                }
-            }
-        };
-        ctx.spawn_task(task);
-
-        let id = self.event_emitters.register(msg.0);
+        let id = self.event_emitters.register(msg.0.clone());
         tracing::debug!(msg.name = "RegisterEmitter", id);
+        if id != 0 {
+            // Sending many messages in the message handler may cause a deadlock
+            // when the number of messages to be sent is larger than the capacity
+            // of the emitter's channel.  See the issue #705 for example.
+            ctx.set_post_process(RegisterEmitterPostProcess(msg.0));
+        }
         id
+    }
+}
+
+#[derive(Message)]
+struct RegisterEmitterPostProcess(Emitter<TimeshiftEvent>);
+
+#[async_trait]
+impl<T, E> Handler<RegisterEmitterPostProcess> for TimeshiftManager<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<epg::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: RegisterEmitterPostProcess, _ctx: &mut Context<Self>) {
+        let emitter = msg.0;
+        for (recorder, holder) in self.recorders.iter() {
+            let msg = TimeshiftEvent::Timeline {
+                recorder: recorder.clone(),
+                start_time: holder.start_time.clone(),
+                end_time: holder.end_time.clone(),
+                duration: holder.duration.clone(),
+            };
+            emitter.emit(msg).await;
+            if holder.started {
+                let msg = TimeshiftEvent::Started {
+                    recorder: recorder.clone(),
+                };
+                emitter.emit(msg).await;
+            }
+            if let Some(record_id) = holder.current_record_id {
+                let msg = TimeshiftEvent::RecordStarted {
+                    recorder: recorder.clone(),
+                    record_id,
+                };
+                emitter.emit(msg).await;
+            }
+        }
     }
 }
 
@@ -339,6 +345,18 @@ where
         // Update the recorder states.
         // See the comment in `RecorderHolder`.
         match msg {
+            TimeshiftEvent::Timeline {
+                ref recorder,
+                start_time,
+                end_time,
+                duration,
+            } => {
+                if let Some(holder) = self.recorders.get_mut(recorder) {
+                    holder.start_time = start_time;
+                    holder.end_time = end_time;
+                    holder.duration = duration;
+                }
+            }
             TimeshiftEvent::Started { ref recorder } => {
                 if let Some(holder) = self.recorders.get_mut(recorder) {
                     holder.started = true;
@@ -367,12 +385,14 @@ where
                     holder.current_record_id = Some(record_id);
                 }
             }
+            TimeshiftEvent::RecordUpdated { .. } => {
+                // Nothing to do.
+            }
             TimeshiftEvent::RecordEnded { ref recorder, .. } => {
                 if let Some(holder) = self.recorders.get_mut(recorder) {
                     holder.current_record_id = None;
                 }
             }
-            _ => (),
         }
         self.event_emitters.emit(msg).await;
     }
@@ -380,6 +400,7 @@ where
 
 // models
 
+#[derive(Clone)]
 struct RecorderHolder<T> {
     addr: Address<TimeshiftRecorder<T>>,
 
@@ -390,6 +411,9 @@ struct RecorderHolder<T> {
     // `RegisterEmitter` handler, but this may break consistency of the event
     // sequence.  Because a `TimeshiftEvent` message could be sent to the
     // manager while it's handling the RegisterEmitter message.
+    start_time: Option<DateTime<Jst>>,
+    end_time: Option<DateTime<Jst>>,
+    duration: Duration,
     started: bool,
     current_record_id: Option<TimeshiftRecordId>,
 }
@@ -398,6 +422,9 @@ impl<T> RecorderHolder<T> {
     fn new(addr: Address<TimeshiftRecorder<T>>) -> Self {
         RecorderHolder {
             addr,
+            start_time: None,
+            end_time: None,
+            duration: Duration::zero(),
             started: false,
             current_record_id: None,
         }

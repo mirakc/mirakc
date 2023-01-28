@@ -10,6 +10,7 @@ use chrono::DateTime;
 use chrono::Duration;
 use chrono_jst::serde::duration_milliseconds;
 use chrono_jst::serde::ts_milliseconds;
+use chrono_jst::serde::ts_milliseconds_option;
 use chrono_jst::Jst;
 use path_dedot::ParseDot;
 use serde::Deserialize;
@@ -141,9 +142,12 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
 pub(in crate::web) struct WebTimeshiftRecorder {
     pub name: String,
     pub service: MirakurunService,
-    #[serde(with = "ts_milliseconds")]
-    #[schema(value_type = i64)]
-    pub start_time: DateTime<Jst>,
+    #[serde(with = "ts_milliseconds_option")]
+    #[schema(value_type = Option<i64>)]
+    pub start_time: Option<DateTime<Jst>>,
+    #[serde(with = "ts_milliseconds_option")]
+    #[schema(value_type = Option<i64>)]
+    pub end_time: Option<DateTime<Jst>>,
     #[serde(with = "duration_milliseconds")]
     #[schema(value_type = i64)]
     pub duration: Duration,
@@ -158,8 +162,9 @@ impl From<TimeshiftRecorderModel> for WebTimeshiftRecorder {
         Self {
             name: model.name,
             service: model.service.into(),
-            start_time: model.start_time.clone(),
-            duration: model.end_time - model.start_time,
+            start_time: model.start_time,
+            end_time: model.end_time,
+            duration: model.duration,
             pipeline: model
                 .pipeline
                 .into_iter()

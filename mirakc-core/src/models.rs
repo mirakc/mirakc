@@ -3,6 +3,7 @@ use std::fmt;
 use chrono::DateTime;
 use chrono::Duration;
 use chrono_jst::jst::Jst;
+use chrono_jst::serde::duration_milliseconds;
 use chrono_jst::serde::duration_milliseconds_option;
 use chrono_jst::serde::ts_milliseconds_option;
 use indexmap::IndexMap;
@@ -926,6 +927,18 @@ pub mod events {
                 program_id: msg.program_id.into(),
             }
         }
+    }
+
+    #[derive(Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TimeshiftTimeline {
+        pub recorder: String,
+        #[serde(with = "ts_milliseconds_option")]
+        pub start_time: Option<DateTime<Jst>>,
+        #[serde(with = "ts_milliseconds_option")]
+        pub end_time: Option<DateTime<Jst>>,
+        #[serde(with = "duration_milliseconds")]
+        pub duration: Duration,
     }
 
     #[derive(Clone, Deserialize, Serialize)]

@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use chrono::DateTime;
+use chrono::Duration;
 use chrono_jst::serde::ts_milliseconds;
 use chrono_jst::Jst;
 use indexmap::IndexMap;
@@ -26,8 +27,9 @@ pub struct TimeshiftRecorderModel {
     pub index: usize,
     pub name: String,
     pub service: EpgService,
-    pub start_time: DateTime<Jst>,
-    pub end_time: DateTime<Jst>,
+    pub start_time: Option<DateTime<Jst>>,
+    pub end_time: Option<DateTime<Jst>>,
+    pub duration: Duration,
     pub pipeline: Vec<CommandPipelineProcessModel>,
     pub recording: bool,
     pub current_record_id: Option<TimeshiftRecordId>,

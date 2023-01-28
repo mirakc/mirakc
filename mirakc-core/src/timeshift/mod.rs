@@ -11,6 +11,9 @@ mod recorder;
 pub(crate) mod stub;
 
 use actlet::prelude::*;
+use chrono::DateTime;
+use chrono::Duration;
+use chrono_jst::Jst;
 
 use crate::epg::EpgService;
 use crate::error::Error;
@@ -81,6 +84,12 @@ pub struct CreateTimeshiftRecordStreamSource {
 
 #[derive(Clone, Message)]
 pub enum TimeshiftEvent {
+    Timeline {
+        recorder: String,
+        start_time: Option<DateTime<Jst>>,
+        end_time: Option<DateTime<Jst>>,
+        duration: Duration,
+    },
     Started {
         recorder: String,
     },

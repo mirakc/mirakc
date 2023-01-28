@@ -1084,24 +1084,14 @@ where
     ) -> <RegisterEmitter as Message>::Reply {
         match msg {
             RegisterEmitter::RecordingStarted(emitter) => {
-                // Create a task to send messages.
-                //
-                // Sending many messages in the message handler may cause a dead lock
-                // when the number of messages to be sent is larger than the capacity
-                // of the emitter's channel.  See the issue #705 for example.
-                let task = {
-                    let program_ids = self.recorders.keys().cloned().collect_vec();
-                    let emitter = emitter.clone();
-                    async move {
-                        for program_id in program_ids.into_iter() {
-                            let msg = RecordingStarted { program_id };
-                            emitter.emit(msg).await;
-                        }
-                    }
-                };
-                ctx.spawn_task(task);
-                let id = self.recording_started.register(emitter);
+                let id = self.recording_started.register(emitter.clone());
                 tracing::debug!(msg.name = "RegisterEmitter::RecordingStarted", id);
+                if id != 0 {
+                    // Sending many messages in the message handler may cause a dead lock
+                    // when the number of messages to be sent is larger than the capacity
+                    // of the emitter's channel.  See the issue #705 for example.
+                    ctx.set_post_process(RegisterEmitterPostProcess(emitter));
+                }
                 id
             }
             RegisterEmitter::RecordingStopped(emitter) => {
@@ -1119,6 +1109,32 @@ where
                 tracing::debug!(msg.name = "RegisterEmitter::RecordingRescheduled", id);
                 id
             }
+        }
+    }
+}
+
+#[derive(Message)]
+pub struct RegisterEmitterPostProcess(Emitter<RecordingStarted>);
+
+#[async_trait]
+impl<T, E, O> Handler<RegisterEmitterPostProcess> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: RegisterEmitterPostProcess, _ctx: &mut Context<Self>) {
+        let emitter = msg.0;
+        for &program_id in self.recorders.keys() {
+            let msg = RecordingStarted { program_id };
+            emitter.emit(msg).await;
         }
     }
 }

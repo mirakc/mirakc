@@ -69,7 +69,7 @@ An event sent when recording for a TV program is failed.
           "properties": {
             "type": { "type": "string", "const": "io-error" },
             "message": { "type": "string" },
-            "osError": { "type": ["number", null] }
+            "osError": { "type": ["number", "null"] }
           }
         },
         // pipeline-error
@@ -116,6 +116,22 @@ An event sent when recording for a TV program is rescheduled.
   "type": "object",
   "properties": {
     "programId": { "type": "number" }  // ProgramId
+  }
+}
+```
+
+## timeshift.timeline
+
+An event sent when the timeshift timeline for a service advances.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recorder": { "type": "string" },
+    "startTime": { "type": ["number", "null"] },  // UNIX time in milliseconds or null
+    "endTime": { "type": ["number", "null"] },    // UNIX time in milliseconds or null
+    "duration": { "type": "number" }              // in milliseconds
   }
 }
 ```

@@ -233,29 +233,43 @@ where
         msg: RegisterEmitter,
         ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
-        // Create a task to send messages.
-        //
-        // Sending many messages in the message handler may cause a dead lock
-        // when the number of messages to be sent is larger than the capacity
-        // of the emitter's channel.  See the issue #705 for details.
-        let task = {
-            let cache = self.cache.clone();
-            let emitter = msg.0.clone();
-            async move {
-                for (&service_id, entry) in cache.iter() {
-                    let msg = OnairProgramChanged {
-                        service_id,
-                        current: entry.current.clone(),
-                        next: entry.next.clone(),
-                    };
-                    emitter.emit(msg).await;
-                }
-            }
-        };
-        ctx.spawn_task(task);
-        let id = self.program_changed.register(msg.0);
+        let id = self.program_changed.register(msg.0.clone());
         tracing::debug!(msg.name = "RegisterEmitter", id);
+        if id != 0 {
+            // Sending many messages in the message handler may cause a deadlock
+            // when the number of messages to be sent is larger than the capacity
+            // of the emitter's channel.  See the issue #705 for details.
+            ctx.set_post_process(RegisterEmitterPostProcess(msg.0))
+        }
         id
+    }
+}
+
+#[derive(Message)]
+struct RegisterEmitterPostProcess(Emitter<OnairProgramChanged>);
+
+#[async_trait]
+impl<T, E> Handler<RegisterEmitterPostProcess> for OnairProgramManager<T, E>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Clone + Send + Sync + 'static,
+    E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
+    E: Call<epg::QueryServices>,
+    E: Call<epg::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: RegisterEmitterPostProcess, _ctx: &mut Context<Self>) {
+        let emitter = msg.0;
+        for (&service_id, entry) in self.cache.iter() {
+            let msg = OnairProgramChanged {
+                service_id,
+                current: entry.current.clone(),
+                next: entry.next.clone(),
+            };
+            emitter.emit(msg).await;
+        }
     }
 }
 

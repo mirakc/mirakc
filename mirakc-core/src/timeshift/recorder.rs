@@ -3,6 +3,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use actlet::prelude::*;
+use chrono::DateTime;
+use chrono::Duration;
 use chrono_jst::Jst;
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -240,17 +242,6 @@ impl<T> TimeshiftRecorder<T> {
     }
 
     fn get_model(&self) -> TimeshiftRecorderModel {
-        let now = Jst::now();
-        let start_time = if let Some((_, record)) = self.records.first() {
-            record.start.timestamp.clone()
-        } else {
-            now.clone()
-        };
-        let end_time = if let Some((_, record)) = self.records.last() {
-            record.end.timestamp.clone()
-        } else {
-            now.clone()
-        };
         let pipeline = self
             .session
             .as_ref()
@@ -260,11 +251,31 @@ impl<T> TimeshiftRecorder<T> {
             index: self.index,
             name: self.name.clone(),
             service: self.service.clone(),
-            start_time,
-            end_time,
+            start_time: self.start_time(),
+            end_time: self.end_time(),
+            duration: self.duration(),
             pipeline,
             recording: self.recording,
             current_record_id: self.current_record_id.clone(),
+        }
+    }
+
+    fn start_time(&self) -> Option<DateTime<Jst>> {
+        self.records
+            .first()
+            .map(|(_, record)| record.start.timestamp.clone())
+    }
+
+    fn end_time(&self) -> Option<DateTime<Jst>> {
+        self.records
+            .last()
+            .map(|(_, record)| record.start.timestamp.clone())
+    }
+
+    fn duration(&self) -> Duration {
+        match (self.start_time(), self.end_time()) {
+            (Some(start_time), Some(end_time)) => end_time - start_time,
+            _ => Duration::zero(),
         }
     }
 }
@@ -663,7 +674,7 @@ where
                 self.handle_stop_recording(msg.reset).await;
             }
             PipelineMessage::Chunk(msg) => {
-                self.handle_chunk(msg.chunk);
+                self.handle_chunk(msg.chunk).await;
             }
             PipelineMessage::EventStart(msg) => {
                 let program_id =
@@ -747,10 +758,17 @@ impl<T> TimeshiftRecorder<T> {
         self.current_record_id = None;
     }
 
-    fn handle_chunk(&mut self, point: TimeshiftPoint) {
+    async fn handle_chunk(&mut self, point: TimeshiftPoint) {
         self.maintain();
         self.append_point(&point);
         self.save_data();
+        let msg = TimeshiftEvent::Timeline {
+            recorder: self.name.clone(),
+            start_time: self.start_time(),
+            end_time: self.end_time(),
+            duration: self.duration(),
+        };
+        self.event_emitter.emit(msg).await;
     }
 
     async fn handle_event_start(
