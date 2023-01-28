@@ -33,6 +33,7 @@ use crate::models::TunerUserInfo;
 use crate::models::TunerUserPriority;
 use crate::onair::OnairProgram;
 use crate::recording;
+use crate::recording::RecordingFailedReason;
 use crate::recording::RecordingOptions;
 use crate::recording::RecordingScheduleState;
 use crate::timeshift::TimeshiftRecordModel;
@@ -59,6 +60,8 @@ pub(in crate::web) struct WebRecordingSchedule {
     pub options: RecordingOptions,
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_reason: Option<RecordingFailedReason>,
 }
 
 impl From<recording::RecordingSchedule> for WebRecordingSchedule {
@@ -68,6 +71,7 @@ impl From<recording::RecordingSchedule> for WebRecordingSchedule {
             program: value.program.as_ref().clone().into(),
             options: value.options,
             tags: value.tags,
+            failed_reason: value.failed_reason,
         }
     }
 }

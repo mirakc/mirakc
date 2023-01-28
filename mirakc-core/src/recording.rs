@@ -900,14 +900,14 @@ where
                     schedule.program.id = %program_id,
                     "Failed to start recording",
                 );
-                self.schedules.get_mut(&program_id).unwrap().state = RecordingScheduleState::Failed;
-                self.emit_recording_failed(
-                    program_id,
-                    RecordingFailedReason::StartRecordingFailed {
-                        message: format!("{}", err),
-                    },
-                )
-                .await;
+                let reason = RecordingFailedReason::StartRecordingFailed {
+                    message: format!("{}", err),
+                };
+                if let Some(schedule) = self.schedules.get_mut(&program_id) {
+                    schedule.state = RecordingScheduleState::Failed;
+                    schedule.failed_reason = Some(reason.clone());
+                }
+                self.emit_recording_failed(program_id, reason).await;
             }
         }
     }
@@ -1303,15 +1303,13 @@ impl<T, E, O> RecordingManager<T, E, O> {
                         schedule.program.id = %program_id,
                         "The recording pipeline terminated abnormally",
                     );
+                    let reason = RecordingFailedReason::PipelineError { exit_code };
                     if let Some(mut schedule) = maybe_schedule {
                         schedule.state = RecordingScheduleState::Failed;
+                        schedule.failed_reason = Some(reason.clone());
                         changed = true;
                     }
-                    self.emit_recording_failed(
-                        program_id,
-                        RecordingFailedReason::PipelineError { exit_code },
-                    )
-                    .await;
+                    self.emit_recording_failed(program_id, reason).await;
                 } else {
                     tracing::info!(
                         schedule.program.id = %program_id,
@@ -1347,7 +1345,7 @@ pub struct RecordingFailed {
     pub reason: RecordingFailedReason,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum RecordingFailedReason {
     #[serde(rename_all = "camelCase")]
@@ -1673,7 +1671,10 @@ pub struct RecordingSchedule {
     pub state: RecordingScheduleState,
     pub program: Arc<EpgProgram>,
     pub options: RecordingOptions,
+    #[serde(default)]
     pub tags: HashSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_reason: Option<RecordingFailedReason>,
 }
 
 impl RecordingSchedule {
@@ -1683,6 +1684,7 @@ impl RecordingSchedule {
             program,
             options,
             tags,
+            failed_reason: None,
         }
     }
 
@@ -1817,6 +1819,7 @@ mod test_macros {
                 program: Arc::new($program),
                 options: $options,
                 tags: Default::default(),
+                failed_reason: None,
             }
         };
         ($state:expr, $program:expr, $options:expr, $tags:expr) => {
@@ -1825,6 +1828,7 @@ mod test_macros {
                 program: Arc::new($program),
                 options: $options,
                 tags: $tags,
+                failed_reason: None,
             }
         };
     }
