@@ -740,7 +740,8 @@ Definitions of timeshift recorders.
   * An absolute path to a file to save data like records encoded with JSON
 * chunk-size
   * Size of a data chunk
-  * Must be a multiple of `8192 * 188`
+  * Must be a multiple of `8192`
+  * Recommended to specify a number of a multiple of `8192 * 188`
 * num-chunks
   * The number of chunks in the ts-file
     * The maximum size of the ts-file is computed by `chunk-size * num-chunks`
