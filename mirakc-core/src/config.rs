@@ -866,11 +866,10 @@ impl TimeshiftRecorderConfig {
             name
         );
         assert!(
-            self.chunk_size % (Self::BUFSIZE * Self::TS_PACKET_SIZE) == 0,
-            "config.timeshift.recorders.{}: `chunk-size` must be a multiple of {}x{}",
+            self.chunk_size % (Self::BUFSIZE) == 0,
+            "config.timeshift.recorders.{}: `chunk-size` must be a multiple of {}",
             name,
             Self::BUFSIZE,
-            Self::TS_PACKET_SIZE
         );
         assert!(
             self.num_chunks > 2,
@@ -2868,7 +2867,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn test_timeshift_recorder_config_validate_chunk_size_8192() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
