@@ -42,7 +42,7 @@ pub struct Opt {
     /// Target recorder name defined in config.yml.
     recorder: String,
 
-    /// Path to a TS file used for rebuilding timeshift files for <RECORDER>.
+    /// Path to a TS file used for rebuilding timeshift files for `<RECORDER>`.
     ///
     /// Don't specify the TS file specified in `config.timeshift[<RECORDER>].ts-file`.
     ///
@@ -98,14 +98,13 @@ fn validate(config: &config::Config, opt: &Opt) {
         std::process::exit(1);
     }
 
-    let data_file = Path::new(
-        &config
-            .timeshift
-            .recorders
-            .get(&opt.recorder)
-            .unwrap()
-            .data_file,
-    );
+    let data_file = config
+        .timeshift
+        .recorders
+        .get(&opt.recorder)
+        .unwrap()
+        .data_file
+        .as_path();
     if data_file.exists() {
         tracing::error!(
             "{} exists, run agein after removing the data-file",
@@ -119,19 +118,18 @@ fn validate(config: &config::Config, opt: &Opt) {
         std::process::exit(1);
     }
 
-    let ts_file = Path::new(
-        &config
-            .timeshift
-            .recorders
-            .get(&opt.recorder)
-            .unwrap()
-            .ts_file,
-    );
+    let ts_file = config
+        .timeshift
+        .recorders
+        .get(&opt.recorder)
+        .unwrap()
+        .ts_file
+        .as_path();
     if ts_file.exists() {
         tracing::warn!("{} exists, its contents will be lost", ts_file.display());
     }
 
-    if ts_file.canonicalize().unwrap() == opt.ts_file.canonicalize().unwrap() {
+    if ts_file.is_file() && ts_file.canonicalize().unwrap() == opt.ts_file.canonicalize().unwrap() {
         tracing::error!(
             "<TS_FILE> must be different from `config.timeshift.recorders[<RECORDER>].ts-file`"
         );
