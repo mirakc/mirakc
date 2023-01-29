@@ -260,15 +260,13 @@ impl WebOnairProgram {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::RemoteOnairProgramTrackerUrl;
     use maplit::hashset;
 
     macro_rules! config {
         ($url:expr) => {
             RemoteOnairProgramTrackerConfig {
-                url: RemoteOnairProgramTrackerUrl::Mirakc($url.parse().unwrap()),
-                services: hashset![],
-                excluded_services: hashset![],
+                url: $url.parse().unwrap(),
+                ..Default::default()
             }
         };
     }

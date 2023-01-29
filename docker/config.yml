@@ -5,7 +5,7 @@ server:
   # Replace `localhost` with `0.0.0.0` (ipv4) or `::` (ipv6) if you like to
   # connect from other hosts.
   addrs:
-    - !http '0.0.0.0:40772'
+    - http: '0.0.0.0:40772'
 
 # Change the following settings according to your environment.
 channels:
@@ -40,4 +40,4 @@ filters:
   # The following command processes TS packets on a remote server.
   decode-filter:
     command: >-
-      socat -b 65536 - tcp-connect:tsd:40773
+      socat -b 65536 -,cool-write tcp-connect:tsd:40773

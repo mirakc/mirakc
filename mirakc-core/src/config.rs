@@ -40,7 +40,16 @@ pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
     Arc::new(config)
 }
 
-// result
+// Use the widely used map-style representation for enum types in YAML.
+//
+// `serde_yaml` serializes enum types using YAML tags by default.
+// This makes it impossible for other YAML libraries such as js-yaml to parse
+// config.yml without a custom schema definition for config.yml.
+//
+// Specify `#[serde(with = "serde_yaml::with::singleton_map_recursive")]` or
+// `#[serde(with = "serde_yaml::with::singleton_map")]` to every field
+// containing contains enum types which should be represented with the map-style
+// in YAML.
 
 #[derive(Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -70,6 +79,7 @@ pub struct Config {
     #[serde(default)]
     pub timeshift: TimeshiftConfig,
     #[serde(default)]
+    #[serde(with = "serde_yaml::with::singleton_map_recursive")]
     pub onair_program_trackers: HashMap<String, OnairProgramTrackerConfig>,
     #[serde(default)]
     pub resource: ResourceConfig,
@@ -159,6 +169,7 @@ impl EpgConfig {
 #[serde(deny_unknown_fields)]
 pub struct ServerConfig {
     #[serde(default = "ServerConfig::default_addrs")]
+    #[serde(with = "serde_yaml::with::singleton_map_recursive")]
     pub addrs: Vec<ServerAddr>,
     #[serde(default = "ServerConfig::default_stream_max_chunks")]
     pub stream_max_chunks: usize,
@@ -945,38 +956,54 @@ impl LocalOnairProgramTrackerConfig {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(Debug))]
 pub struct RemoteOnairProgramTrackerConfig {
-    pub url: RemoteOnairProgramTrackerUrl,
+    #[serde(with = "serde_yaml::with::singleton_map")]
+    pub url: Url,
     #[serde(default)]
     pub services: HashSet<ServiceId>,
     #[serde(default)]
     pub excluded_services: HashSet<ServiceId>,
+    #[serde(default = "RemoteOnairProgramTrackerConfig::default_events_endpoint")]
+    pub events_endpoint: String,
+    #[serde(default = "RemoteOnairProgramTrackerConfig::default_onair_endpoint")]
+    pub onair_endpoint: String,
 }
 
 impl RemoteOnairProgramTrackerConfig {
     pub fn events_url(&self) -> Url {
-        use RemoteOnairProgramTrackerUrl::*;
-        match self.url {
-            Mirakc(ref baseurl) => baseurl.join("/events").unwrap(),
-        }
+        self.url.join(&self.events_endpoint).unwrap()
     }
 
     pub fn onair_url(&self) -> Url {
-        use RemoteOnairProgramTrackerUrl::*;
-        match self.url {
-            Mirakc(ref baseurl) => baseurl.join("/api/onair").unwrap(),
-        }
+        self.url.join(&self.onair_endpoint).unwrap()
     }
 
     pub fn onair_url_of(&self, service_id: ServiceId) -> Url {
-        use RemoteOnairProgramTrackerUrl::*;
-        match self.url {
-            Mirakc(ref baseurl) => baseurl
-                .join(&format!("/api/onair/{}", service_id.value()))
-                .unwrap(),
-        }
+        self.onair_url()
+            .join(&service_id.value().to_string())
+            .unwrap()
+    }
+
+    fn default_events_endpoint() -> String {
+        "/events".to_string()
+    }
+
+    fn default_onair_endpoint() -> String {
+        "/api/onair".to_string()
     }
 
     fn validate(&self, _name: &str) {}
+}
+
+impl Default for RemoteOnairProgramTrackerConfig {
+    fn default() -> Self {
+        RemoteOnairProgramTrackerConfig {
+            url: Url::parse("http://localhost:40772/").unwrap(),
+            services: Default::default(),
+            excluded_services: Default::default(),
+            events_endpoint: Self::default_events_endpoint(),
+            onair_endpoint: Self::default_onair_endpoint(),
+        }
+    }
 }
 
 #[derive(Clone, Deserialize, PartialEq)]
@@ -1188,7 +1215,7 @@ mod tests {
             serde_yaml::from_str::<ServerConfig>(
                 r#"
                 addrs:
-                  - !http '0.0.0.0:40772'
+                  - http: '0.0.0.0:40772'
             "#
             )
             .unwrap(),
@@ -1207,7 +1234,7 @@ mod tests {
             serde_yaml::from_str::<ServerConfig>(
                 r#"
                 addrs:
-                  - !unix /path/to/sock
+                  - unix: /path/to/sock
             "#
             )
             .unwrap(),
@@ -1226,8 +1253,8 @@ mod tests {
             serde_yaml::from_str::<ServerConfig>(
                 r#"
                 addrs:
-                  - !http '0.0.0.0:40772'
-                  - !unix /path/to/sock
+                  - http: '0.0.0.0:40772'
+                  - unix: /path/to/sock
             "#
             )
             .unwrap(),

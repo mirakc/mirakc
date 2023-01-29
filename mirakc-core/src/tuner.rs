@@ -748,8 +748,9 @@ mod tests {
                     command: >-
                       sleep 1
                 onair-program-trackers:
-                  tracker: !local
-                    channel-types: [GR]
+                  tracker:
+                    local:
+                      channel-types: [GR]
                 "#,
                 )
                 .unwrap(),

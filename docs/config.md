@@ -9,7 +9,7 @@ suitable for your environment.
 | PROPERTY                                 | DEFAULT                           |
 |------------------------------------------|-----------------------------------|
 | [epg.cache-dir]                          | `None`                            |
-| [server.addrs]                           | `[!http 'localhost:40772']`       |
+| [server.addrs]                           | `[{http: 'localhost:40772'}]`     |
 | [server.stream-chunk-size]               | `32768` (32KiB)                   |
 | [server.stream-max-chunks]               | `1000`                            |
 | [server.stream-time-limit]               | `16000` (16s)                     |
@@ -52,7 +52,7 @@ suitable for your environment.
 | [timeshift.recorders\[\].data-file]      |                                   |
 | [timeshift.recorders\[\].chunk-size]     | `154009600` (~154MB)              |
 | [timeshift.recorders\[\].num-chunks]     |                                   |
-| [timeshift.recorders\[\].num-reserves]   | `!number 1`                       |
+| [timeshift.recorders\[\].num-reserves]   | `1`                               |
 | [timeshift.recorders\[\].priority]       | `128`                             |
 | [onair-program-trackers]                 | `{}`                              |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
@@ -131,7 +131,7 @@ HTTP protocol:
 ```yaml
 server:
   addrs:
-    - !http '0.0.0.0:40772'
+    - http: '0.0.0.0:40772'
 ```
 
 HTTPS protocol is not supported at this point.
@@ -141,7 +141,7 @@ UNIX domain socket:
 ```yaml
 server:
   addrs:
-    - !unix /var/run/mirakc.sock
+    - unix: /var/run/mirakc.sock
 ```
 
 mirakc never changes the ownership and permission of the socket.  Change them
@@ -153,8 +153,8 @@ Multiple addresses can be bound like below:
 ```yaml
 server:
   addrs:
-    - !http '0.0.0.0:40772'
-    - !unix /var/run/mirakc.sock
+    - http: '0.0.0.0:40772'
+    - unix: /var/run/mirakc.sock
 ```
 
 ## server.stream-chunk-size
@@ -799,8 +799,9 @@ tuners:
 onair-program-trackers:
   # The `gr` local tracker tracks on-air programs of every services
   # found by `jobs.scan-services` executed on `GR` channels.
-  gr: !local
-    channel-types: [GR]
+  gr:
+    local:
+      channel-types: [GR]
 ```
 
 The following properties can be specified:
@@ -838,19 +839,24 @@ Web endpoint.
 
 ```yaml
 onair-program-trackers:
-  remote: !remote
-    url: !mirakc http://remote:40772/
+  remote:
+    remote:
+      url: http://remote:40772/
 ```
 
 The following properties can be specified:
 
 * url (required)
-  * An URL of a remote server which provides the `/events` and `/api/onair` Web
-    endpoints
+  * An URL of a remote server which provides web endpoints compatible with
+    `/events` and `/api/onair` (and `/api/onair/{serviceId}`)
 * services (default: an empty list)
   * A list of service IDs that the local tracker handles
 * excluded-services (default: an empty list)
   * A list of service IDs that then local tracker doesn't handles
+* events-endpoint (default: `/events`)
+  * A web endpoint compatible with `/events`
+* onair-endpoint (default: `/api/onair`)
+  * A web endpoint compatible with `/api/onair` (and `/api/onair/{serviceId}`)
 
 `MirakurunProgram` is not compatible with `EpgProgram`.  So, some of the
 information might be lost.
