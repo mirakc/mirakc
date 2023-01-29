@@ -1,6 +1,8 @@
 use std::future::Future;
 use std::io;
 use std::io::SeekFrom;
+use std::path::Path;
+use std::path::PathBuf;
 use std::pin::Pin;
 
 use tokio::fs::File;
@@ -15,7 +17,7 @@ use crate::error::Error;
 
 pub struct TimeshiftFileReader {
     state: TimeshiftFileReaderState,
-    path: String,
+    path: PathBuf,
     file: File,
     stop_signal: Option<oneshot::Receiver<()>>,
 }
@@ -27,10 +29,11 @@ enum TimeshiftFileReaderState {
 }
 
 impl TimeshiftFileReader {
-    pub async fn open(path: &str) -> Result<Self, Error> {
+    pub async fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        let path = path.as_ref();
         let reader = TimeshiftFileReader {
             state: TimeshiftFileReaderState::Read,
-            path: path.to_string(),
+            path: path.to_owned(),
             file: File::open(path).await?,
             stop_signal: None,
         };
@@ -61,7 +64,7 @@ impl AsyncRead for TimeshiftFileReader {
         loop {
             if let Some(ref mut stop_signal) = self.stop_signal {
                 if Pin::new(stop_signal).poll(cx).is_ready() {
-                    tracing::debug!(path = self.path, "Stopped reading");
+                    tracing::debug!(path = %self.path.display(), "Stopped reading");
                     return Poll::Ready(Ok(()));
                 }
             }
@@ -71,7 +74,7 @@ impl AsyncRead for TimeshiftFileReader {
                     match Pin::new(&mut self.file).poll_read(cx, buf) {
                         Poll::Ready(Ok(_)) if buf.filled().len() == len => {
                             self.state = TimeshiftFileReaderState::Seek;
-                            tracing::debug!(path = self.path, "EOF");
+                            tracing::debug!(path = %self.path.display(), "EOF");
                         }
                         poll => {
                             return poll;
@@ -82,7 +85,7 @@ impl AsyncRead for TimeshiftFileReader {
                     match Pin::new(&mut self.file).start_seek(SeekFrom::Start(0)) {
                         Ok(_) => {
                             self.state = TimeshiftFileReaderState::Wait;
-                            tracing::debug!(path = self.path, "Seek to the beginning");
+                            tracing::debug!(path = %self.path.display(), "Seek to the beginning");
                         }
                         Err(err) => {
                             return Poll::Ready(Err(err));
@@ -95,7 +98,7 @@ impl AsyncRead for TimeshiftFileReader {
                             assert!(pos == 0);
                             self.state = TimeshiftFileReaderState::Read;
                             tracing::debug!(
-                                path = self.path,
+                                path = %self.path.display(),
                                 "The seek completed, restart streaming"
                             );
                         }

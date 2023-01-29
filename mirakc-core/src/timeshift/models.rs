@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use chrono::DateTime;
 use chrono::Duration;
@@ -52,7 +53,7 @@ type TimeshiftRecordStream = MpegTsStream<String, ReaderStream<Take<TimeshiftFil
 
 pub struct TimeshiftLiveStreamSource {
     pub(super) name: String,
-    pub(super) file: String,
+    pub(super) file: PathBuf,
     pub(super) point: TimeshiftPoint,
 }
 
@@ -74,7 +75,7 @@ impl TimeshiftLiveStreamSource {
     pub fn new_for_test(name: &str) -> Self {
         TimeshiftLiveStreamSource {
             name: name.to_string(),
-            file: "/dev/zero".to_string(),
+            file: "/dev/zero".into(),
             point: TimeshiftPoint {
                 timestamp: Jst::now(),
                 pos: 0,
@@ -85,7 +86,7 @@ impl TimeshiftLiveStreamSource {
 
 pub struct TimeshiftRecordStreamSource {
     recorder_name: String,
-    file: String,
+    file: PathBuf,
     id: TimeshiftRecordId,
     start: u64,
     range: MpegTsStreamRange,
@@ -123,7 +124,7 @@ impl TimeshiftRecordStreamSource {
     pub fn new_for_test(recorder_name: &str) -> Self {
         TimeshiftRecordStreamSource {
             recorder_name: recorder_name.to_string(),
-            file: "/dev/zero".to_string(),
+            file: "/dev/zero".into(),
             id: 1u32.into(),
             start: 0,
             range: MpegTsStreamRange::bound(0, 1).unwrap(),

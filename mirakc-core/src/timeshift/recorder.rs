@@ -375,7 +375,7 @@ where
         let start_pos = self.points.back().map_or(0, |point| point.pos);
         let data = mustache::MapBuilder::new()
             .insert("sid", &self.service.sid())?
-            .insert_str("file", &config.ts_file)
+            .insert_str("file", config.ts_file.to_str().unwrap())
             .insert("chunk_size", &config.chunk_size)?
             .insert("num_chunks", &config.num_chunks)?
             .insert("start_pos", &start_pos)?

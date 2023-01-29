@@ -778,8 +778,8 @@ impl Default for TimeshiftConfig {
 #[serde(deny_unknown_fields)]
 pub struct TimeshiftRecorderConfig {
     pub service_id: ServiceId,
-    pub ts_file: String,
-    pub data_file: String,
+    pub ts_file: PathBuf,
+    pub data_file: PathBuf,
     #[serde(default = "TimeshiftRecorderConfig::default_chunk_size")]
     pub chunk_size: usize,
     pub num_chunks: usize,
@@ -804,11 +804,17 @@ impl TimeshiftRecorderConfig {
 
     fn validate(&self, name: &str) {
         assert!(
-            !self.ts_file.is_empty(),
-            "config.timeshift.recorders.{}: `ts-file` must be a non-empty path",
+            self.ts_file.is_absolute(),
+            "config.timeshift.recorders.{}: `ts-file` must be an absolute path",
             name
         );
-        if let Some(parent) = Path::new(&self.ts_file).parent() {
+        assert!(
+            self.ts_file.to_str().is_some(),
+            "config.timeshift.recorders.{}: `ts-file` path must consist \
+             only of UTF-8 compatible characters",
+            name
+        );
+        if let Some(parent) = self.ts_file.parent() {
             assert!(
                 parent.is_dir(),
                 "config.timeshift.recorders.{}: \
@@ -822,11 +828,11 @@ impl TimeshiftRecorderConfig {
             );
         }
         assert!(
-            !self.data_file.is_empty(),
-            "config.timeshift.recorders.{}: `data-file` must be a non-empty path",
+            self.data_file.is_absolute(),
+            "config.timeshift.recorders.{}: `data-file` must be an absolute path",
             name
         );
-        if let Some(parent) = Path::new(&self.data_file).parent() {
+        if let Some(parent) = self.data_file.parent() {
             assert!(
                 parent.is_dir(),
                 "config.timeshift.recorders.{}: \
@@ -850,7 +856,7 @@ impl TimeshiftRecorderConfig {
         // We may support a binary format in the future if there is a crate that works well with
         // our data formats.
         assert!(
-            self.data_file.ends_with(".json"),
+            self.data_file.extension().is_some() && self.data_file.extension().unwrap() == "json",
             "config.timeshift.recorders.{}: `data-file` must be a JSON file",
             name
         );
@@ -2580,8 +2586,8 @@ mod tests {
                 recorders: indexmap! {
                     "test".to_string() => TimeshiftRecorderConfig {
                         service_id: 1.into(),
-                        ts_file: "/path/to/timeshift.m2ts".to_string(),
-                        data_file: "/path/to/timeshift.json".to_string(),
+                        ts_file: "/path/to/timeshift.m2ts".into(),
+                        data_file: "/path/to/timeshift.json".into(),
                         chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
                         num_chunks: 100,
                         num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2678,8 +2684,8 @@ mod tests {
             .unwrap(),
             TimeshiftRecorderConfig {
                 service_id: 1.into(),
-                ts_file: "/path/to/timeshift.m2ts".to_string(),
-                data_file: "/path/to/timeshift.data".to_string(),
+                ts_file: "/path/to/timeshift.m2ts".into(),
+                data_file: "/path/to/timeshift.data".into(),
                 chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
                 num_chunks: 100,
                 num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2702,8 +2708,8 @@ mod tests {
             .unwrap(),
             TimeshiftRecorderConfig {
                 service_id: 1.into(),
-                ts_file: "/path/to/timeshift.m2ts".to_string(),
-                data_file: "/path/to/timeshift.data".to_string(),
+                ts_file: "/path/to/timeshift.m2ts".into(),
+                data_file: "/path/to/timeshift.data".into(),
                 chunk_size: 8192,
                 num_chunks: 100,
                 num_reserves: 2,
@@ -2716,8 +2722,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2731,8 +2737,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_empty_ts_file() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "".into(),
+            data_file: "/data.json".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2746,8 +2752,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_ts_file_parent_dir() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/path/to/ts.m2ts".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/path/to/ts.m2ts".into(),
+            data_file: "/data.json".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2761,8 +2767,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_ts_file_is_file() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/".into(),
+            data_file: "/data.json".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2776,8 +2782,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_empty_data_file() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2791,8 +2797,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_empty_data_file_parent_dir() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/path/to/data.json".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/path/to/data.json".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2806,8 +2812,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_empty_data_file_is_file() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2821,8 +2827,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_data_bincode() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/data.bincode".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.bincode".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2836,8 +2842,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_chunk_size_0() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
             chunk_size: 0,
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2851,8 +2857,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_chunk_size_1() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
             chunk_size: 1,
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2866,8 +2872,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_chunk_size_8192() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
             chunk_size: 8192,
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2880,8 +2886,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_chunk_size_1540096() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
             chunk_size: 1540096,
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2895,8 +2901,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_num_chunks_1() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 1,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
@@ -2910,8 +2916,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_num_reserves_0() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: 0,
@@ -2925,8 +2931,8 @@ mod tests {
     fn test_timeshift_recorder_config_validate_available_chunks_1() {
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".to_string(),
-            data_file: "/data.json".to_string(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: 9,
