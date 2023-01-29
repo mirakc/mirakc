@@ -735,9 +735,9 @@ Definitions of timeshift recorders.
 * service-id
   * A service ID of a service stream to record
 * ts-file
-  * A path to a file used as a ring buffer to record TS packets
+  * An absolute path to a file used as a ring buffer to record TS packets
 * data-file
-  * A path to a file to save data like records encoded with JSON
+  * An absolute path to a file to save data like records encoded with JSON
 * chunk-size
   * Size of a data chunk
   * Must be a multiple of `8192 * 188`
@@ -765,10 +765,10 @@ you have to select one of the following solutions, and then relaunch mirakc with
 new configuration values:
 
 1. Remove the data-file
-2. Recover the data-file by using a tool and the ts-file
+2. Recover the data-file by using `mirakc rebuild-timeshift` and the ts-file
 
-There is no tool for the solution#2 at this point.  We have a plan to provide it
-in the future.
+See the command help shown by `mirakc rebuild-timeshift --help` for the details
+of this command.
 
 ## onair-program-trackers
 
