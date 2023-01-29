@@ -31,7 +31,7 @@ pub struct Opt {
     #[arg(long)]
     scan_only: bool,
 
-    /// Chunk size of `TS_FILE`.
+    /// Chunk size of <TS_FILE>.
     #[arg(long, default_value = "154009600")]
     chunk_size: u64,
 
@@ -42,7 +42,9 @@ pub struct Opt {
     /// Target recorder name defined in config.yml.
     recorder: String,
 
-    /// Path to a TS file used for rebuilding timeshift files for `RECORDER`.
+    /// Path to a TS file used for rebuilding timeshift files for <RECORDER>.
+    ///
+    /// Don't specify the TS file specified in `config.timeshift[<RECORDER>].ts-file`.
     ///
     /// At least 3 chunks has to be contained in the TS file.
     ///
@@ -87,7 +89,7 @@ pub async fn main(config: Arc<config::Config>, opt: Opt) {
 
 fn validate(config: &config::Config, opt: &Opt) {
     if opt.chunk_size % 8192 != 0 {
-        tracing::error!("chunk-size must be a multiple of 8192");
+        tracing::error!("<CHUNK_SIZE> must be a multiple of 8192");
         std::process::exit(1);
     }
 
@@ -127,6 +129,13 @@ fn validate(config: &config::Config, opt: &Opt) {
     );
     if ts_file.exists() {
         tracing::warn!("{} exists, its contents will be lost", ts_file.display());
+    }
+
+    if ts_file.canonicalize().unwrap() == opt.ts_file.canonicalize().unwrap() {
+        tracing::error!(
+            "<TS_FILE> must be different from `config.timeshift.recorders[<RECORDER>].ts-file`"
+        );
+        std::process::exit(1);
     }
 }
 
