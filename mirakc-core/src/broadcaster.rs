@@ -177,6 +177,12 @@ impl Broadcaster {
             .filter(|subscriber| subscriber.sender.is_some())
             .filter_map(|subscriber| {
                 let cap = subscriber.sender.as_ref().unwrap().capacity();
+                if crate::timeshift::is_rebuild_mode() {
+                    // In the timeshift rebuild mode, the broadcaster stops
+                    // feeding chunks while a subscriber's queue is getting
+                    // stuck.
+                    return Some(cap);
+                }
                 match (cap, subscriber.stuck_start_time) {
                     (0, Some(time)) => {
                         if now - time < subscriber.max_stuck_time {
@@ -519,6 +525,46 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use tokio_stream::StreamExt;
+
+    #[tokio::test]
+    async fn test_min_capacity() {
+        let mut broadcaster = Broadcaster::new(Default::default(), 0);
+        assert_eq!(broadcaster.min_capacity(), Broadcaster::MAX_CHUNKS);
+
+        let max_stuck_time = Duration::from_millis(50);
+
+        let (sender, mut receiver) = mpsc::channel(1);
+        let subscriber = Subscriber::new(
+            SubscriberId::new(Default::default(), 1),
+            sender,
+            max_stuck_time,
+        );
+        broadcaster.subscribers.push(subscriber);
+        assert_eq!(broadcaster.min_capacity(), 1);
+
+        // The subscriber gets stuck.
+        broadcaster.broadcast(Bytes::new());
+        assert_eq!(broadcaster.min_capacity(), 0);
+        assert!(broadcaster.subscribers[0].stuck_start_time.is_some());
+
+        // Sleep 100ms.
+        tokio::time::sleep(max_stuck_time).await;
+        tokio::time::sleep(max_stuck_time).await;
+
+        // In the timeshift rebuild mode, the stuck time is never checked.
+        std::env::set_var("MIRAKC_REBUILD_TIMESHIFT", "1");
+        assert_eq!(broadcaster.min_capacity(), 0);
+
+        // `max_stuck_time` has already been reached.
+        // Start dropping chunks.
+        std::env::remove_var("MIRAKC_REBUILD_TIMESHIFT");
+        assert_eq!(broadcaster.min_capacity(), Broadcaster::MAX_CHUNKS);
+
+        receiver.recv().await;
+        // Now, the queue has space.
+        assert_eq!(broadcaster.min_capacity(), 1);
+        assert!(broadcaster.subscribers[0].stuck_start_time.is_none());
+    }
 
     #[tokio::test]
     async fn test_broadcast() {
