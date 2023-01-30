@@ -984,7 +984,7 @@ impl RemoteOnairProgramTrackerConfig {
 
     pub fn onair_url_of(&self, service_id: ServiceId) -> Url {
         self.onair_url()
-            .join(&service_id.value().to_string())
+            .join(&format!("{}/{}", self.onair_endpoint, service_id.value()))
             .unwrap()
     }
 
@@ -3022,6 +3022,39 @@ mod tests {
             stream_id: None,
         };
         config.validate("test");
+    }
+
+    #[test]
+    fn test_remote_onair_program_tracker_config_events_url() {
+        let config = RemoteOnairProgramTrackerConfig {
+            events_endpoint: "/test".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.events_url(),
+            Url::parse("http://localhost:40772/test").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_remote_onair_program_tracker_config_onair_url() {
+        let config = RemoteOnairProgramTrackerConfig {
+            onair_endpoint: "/test".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.onair_url(),
+            Url::parse("http://localhost:40772/test").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_remote_onair_program_tracker_config_onair_url_of() {
+        let config = RemoteOnairProgramTrackerConfig::default();
+        assert_eq!(
+            config.onair_url_of(1.into()),
+            Url::parse("http://localhost:40772/api/onair/1").unwrap()
+        );
     }
 
     #[test]
