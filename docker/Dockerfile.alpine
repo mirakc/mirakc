@@ -14,11 +14,10 @@ FROM mirakc/tools:alpine AS mirakc-tools
 
 FROM mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 COPY . ./
-COPY ./docker/build-scripts/mirakc.sh /build-scripts/
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 ARG PROFILE=release
-RUN sh /build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM $PROFILE
+RUN sh ./docker/build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM $PROFILE
 
 FROM alpine AS mirakc
 LABEL maintainer="Contributors of mirakc"

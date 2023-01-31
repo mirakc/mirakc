@@ -1,4 +1,4 @@
-FROM rust:slim-buster
+FROM rust:slim-bullseye
 COPY ./docker/build-scripts/vars.* /build-scripts/
 COPY ./docker/build-scripts/buildenv.sh /build-scripts/
 ARG DISTRO

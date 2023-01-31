@@ -8,3 +8,4 @@ scripts/
 target/
 .gitignore
 Dockerfile.*
+heaptrack.*
