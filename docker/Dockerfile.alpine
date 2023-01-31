@@ -13,24 +13,28 @@
 FROM mirakc/tools:alpine AS mirakc-tools
 
 FROM mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
-ARG BUILDPLATFORM
-ARG TARGETPLATFORM
 COPY . ./
 COPY ./docker/build-scripts/mirakc.sh /build-scripts/
-RUN sh /build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+ARG PROFILE=release
+RUN sh /build-scripts/mirakc.sh alpine $BUILDPLATFORM $TARGETPLATFORM $PROFILE
 
 FROM alpine AS mirakc
 LABEL maintainer="Contributors of mirakc"
-ARG TARGETPLATFORM
 COPY --from=mirakc-tools /usr/local/bin /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
 COPY --from=mirakc-build /build/resources/strings.yml /etc/mirakc/strings.yml
+ARG TARGETPLATFORM
+ARG PROFILE=release
 RUN apk add --no-cache ca-certificates curl jq libstdc++ socat tzdata v4l-utils-dvbv5
+RUN if [ "PROFILE" = perf ]; then apk add --no-cache valgrind; fi
 # dirty hack for linux/arm/v6
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v6" ]; then ln -s /lib/ld-musl-armhf.so.1 /lib/ld-musl-arm.so.1; fi
 ENV MIRAKC_CONFIG=/etc/mirakc/config.yml
+ENV MIRAKC_BUILD_PROFILE=$PROFILE
 EXPOSE 40772
-ENTRYPOINT ["mirakc"]
+ENTRYPOINT ["/usr/local/bin/mirakc"]
 CMD []
 
 FROM alpine AS mirakc-timeshift-fs
@@ -38,8 +42,11 @@ LABEL maintainer="Contributors of mirakc"
 COPY --from=mirakc-build /usr/local/bin/mirakc-timeshift-fs /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/run-mirakc-timeshift-fs /usr/local/bin/
 COPY --from=mirakc-build /build/resources/strings.yml /etc/mirakc/strings.yml
+ARG PROFILE=release
 RUN apk add --no-cache fuse3 tzdata
+RUN if [ "PROFILE" = perf ]; then apk add --no-cache valgrind; fi
 # dirty hack for linux/arm/v6
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v6" ]; then ln -s /lib/ld-musl-armhf.so.1 /lib/ld-musl-arm.so.1; fi
 ENV MIRAKC_CONFIG=/etc/mirakc/config.yml
+ENV MIRAKC_BUILD_PROFILE=$PROFILE
 ENTRYPOINT ["/usr/local/bin/run-mirakc-timeshift-fs"]

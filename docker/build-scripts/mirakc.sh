@@ -4,6 +4,7 @@ BASEDIR=$(cd $(dirname $0); pwd)
 DISTRO=$1
 BUILDPLATFORM=$2
 TARGETPLATFORM=$3
+PROFILE=$4
 
 . $BASEDIR/vars.sh
 
@@ -31,13 +32,11 @@ fi
 
 export PKG_CONFIG_ALLOW_CROSS=1
 
-cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc
-cp ./target/$RUST_TARGET_TRIPLE/release/mirakc /usr/local/bin/
-$STRIP /usr/local/bin/mirakc
+cargo build -v --profile=$PROFILE --target $RUST_TARGET_TRIPLE --bin mirakc
+cp ./target/$RUST_TARGET_TRIPLE/$PROFILE/mirakc /usr/local/bin/
 
-cargo build -v --release --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs
-cp ./target/$RUST_TARGET_TRIPLE/release/mirakc-timeshift-fs /usr/local/bin/
-$STRIP /usr/local/bin/mirakc-timeshift-fs
+cargo build -v --profile=$PROFILE --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs
+cp ./target/$RUST_TARGET_TRIPLE/$PROFILE/mirakc-timeshift-fs /usr/local/bin/
 cat <<EOF >/usr/local/bin/run-mirakc-timeshift-fs
 #!/bin/sh
 trap 'umount /mnt' EXIT
