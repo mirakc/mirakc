@@ -129,7 +129,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push (docker.io/mirakc/mirakc)
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         with:
           context: .
           file: docker/Dockerfile.${{ matrix.distro }}
@@ -142,7 +142,7 @@ jobs:
             type=local,dest=/tmp/.docker-cache-new
           push: true
       - name: Build and push (docker.io/mirakc/timeshift-fs)
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         with:
           context: .
           file: docker/Dockerfile.${{ matrix.distro }}
