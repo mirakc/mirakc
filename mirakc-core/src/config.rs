@@ -884,8 +884,23 @@ impl TimeshiftRecorderConfig {
         assert!(
             self.num_chunks - self.num_reserves > 1,
             "config.timeshift.recorders.{}: Maximum number of available chunks \
-                 (`num-chunks` - `num-reserves`) must be larger than 1",
+             (`num-chunks` - `num-reserves`) must be larger than 1",
             name
+        );
+
+        let ts_file_size = match self.ts_file.metadata() {
+            Ok(metadata) => metadata.len(),
+            Err(err) => unreachable!(
+                "config.timeshift.recorders.{}: Failed to get the size of `ts-file`: {}",
+                name, err
+            ),
+        };
+        assert_eq!(
+            self.max_file_size(),
+            ts_file_size,
+            "config.timeshift.recorders.{}: `ts-file` must be allocated with {} in advance",
+            name,
+            self.max_file_size()
         );
     }
 
@@ -1084,10 +1099,13 @@ impl Default for ResourceConfig {
 // <coverage:exclude>
 #[cfg(test)]
 mod tests {
+    use std::os::fd::AsRawFd;
+
     use super::*;
     use indexmap::indexmap;
     use maplit::hashmap;
     use maplit::hashset;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_config() {
@@ -2719,12 +2737,21 @@ mod tests {
 
     #[test]
     fn test_timeshift_recorder_config_validate() {
+        // NOTE: The chunk size for this test should be the default chunk size,
+        //       but it's too large to allocate in /tmp...
+        let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
+        let num_chunks = 3;
+        let ts_file = NamedTempFile::new().unwrap();
+        let ts_file_size = (chunk_size * num_chunks) as i64;
+        unsafe {
+            let _ = libc::fallocate(ts_file.as_raw_fd(), 0, 0, ts_file_size);
+        }
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
+            ts_file: ts_file.path().to_owned(),
             data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
+            chunk_size,
+            num_chunks,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
         };
@@ -2868,12 +2895,19 @@ mod tests {
 
     #[test]
     fn test_timeshift_recorder_config_validate_chunk_size_8192() {
+        let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
+        let num_chunks = 3;
+        let ts_file = NamedTempFile::new().unwrap();
+        let ts_file_size = (chunk_size * num_chunks) as i64;
+        unsafe {
+            let _ = libc::fallocate(ts_file.as_raw_fd(), 0, 0, ts_file_size);
+        }
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
+            ts_file: ts_file.path().to_owned(),
             data_file: "/data.json".into(),
-            chunk_size: 8192,
-            num_chunks: 10,
+            chunk_size,
+            num_chunks,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
         };
@@ -2882,12 +2916,21 @@ mod tests {
 
     #[test]
     fn test_timeshift_recorder_config_validate_chunk_size_1540096() {
+        // The chunk size might be too large to allocate in /tmp on some
+        // platform.  However, that's no problem at least on GitHub Actions.
+        let chunk_size = TimeshiftRecorderConfig::BUFSIZE * TimeshiftRecorderConfig::TS_PACKET_SIZE;
+        let num_chunks = 3;
+        let ts_file = NamedTempFile::new().unwrap();
+        let ts_file_size = (chunk_size * num_chunks) as i64;
+        unsafe {
+            let _ = libc::fallocate(ts_file.as_raw_fd(), 0, 0, ts_file_size);
+        }
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
+            ts_file: ts_file.path().to_owned(),
             data_file: "/data.json".into(),
-            chunk_size: 1540096,
-            num_chunks: 10,
+            chunk_size,
+            num_chunks,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
         };
@@ -2934,6 +2977,37 @@ mod tests {
             chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
             num_chunks: 10,
             num_reserves: 9,
+            priority: TimeshiftRecorderConfig::default_priority(),
+        };
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_timeshift_recorder_config_validate_ts_file_must_exist() {
+        let config = TimeshiftRecorderConfig {
+            service_id: 1.into(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
+            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
+            num_chunks: 10,
+            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
+            priority: TimeshiftRecorderConfig::default_priority(),
+        };
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_timeshift_recorder_config_validate_ts_file_size() {
+        let ts_file = NamedTempFile::new().unwrap();
+        let config = TimeshiftRecorderConfig {
+            service_id: 1.into(),
+            ts_file: ts_file.path().to_owned(),
+            data_file: "/data.json".into(),
+            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
+            num_chunks: 10,
+            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
         };
         config.validate("test");
