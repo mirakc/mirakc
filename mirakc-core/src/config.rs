@@ -2735,6 +2735,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn test_timeshift_recorder_config_validate() {
         // NOTE: The chunk size for this test should be the default chunk size,
@@ -2742,9 +2743,9 @@ mod tests {
         let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
         let num_chunks = 3;
         let ts_file = NamedTempFile::new().unwrap();
-        let ts_file_size = (chunk_size * num_chunks) as i64;
+        let ts_file_size = (chunk_size * num_chunks) as libc::off64_t;
         unsafe {
-            let _ = libc::fallocate(ts_file.as_raw_fd(), 0, 0, ts_file_size);
+            let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
         }
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
@@ -2893,14 +2894,15 @@ mod tests {
         config.validate("test");
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn test_timeshift_recorder_config_validate_chunk_size_8192() {
         let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
         let num_chunks = 3;
         let ts_file = NamedTempFile::new().unwrap();
-        let ts_file_size = (chunk_size * num_chunks) as i64;
+        let ts_file_size = (chunk_size * num_chunks) as libc::off64_t;
         unsafe {
-            let _ = libc::fallocate(ts_file.as_raw_fd(), 0, 0, ts_file_size);
+            let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
         }
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
@@ -2914,6 +2916,7 @@ mod tests {
         config.validate("test");
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn test_timeshift_recorder_config_validate_chunk_size_1540096() {
         // The chunk size might be too large to allocate in /tmp on some
@@ -2921,9 +2924,9 @@ mod tests {
         let chunk_size = TimeshiftRecorderConfig::BUFSIZE * TimeshiftRecorderConfig::TS_PACKET_SIZE;
         let num_chunks = 3;
         let ts_file = NamedTempFile::new().unwrap();
-        let ts_file_size = (chunk_size * num_chunks) as i64;
+        let ts_file_size = (chunk_size * num_chunks) as libc::off64_t;
         unsafe {
-            let _ = libc::fallocate(ts_file.as_raw_fd(), 0, 0, ts_file_size);
+            let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
         }
         let config = TimeshiftRecorderConfig {
             service_id: 1.into(),
