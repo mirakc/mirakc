@@ -49,7 +49,7 @@ filters:
   # TCP port 40774.
   decode-filter:
     command: >-
-      socat - tcp-connect:remote:40774
+      socat -,cool-write tcp-connect:remote:40774
 ```
 
 Create `docker-compose.yml`:

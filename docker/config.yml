@@ -37,7 +37,8 @@ filters:
   # Optionally, you can specify a command to process TS packets before sending
   # them to a client.
   #
-  # The following command processes TS packets on a remote server.
+  # The following command processes TS packets on a remote server listening on
+  # TCP port 40774.
   decode-filter:
     command: >-
-      socat -b 65536 -,cool-write tcp-connect:tsd:40773
+      socat -,cool-write tcp-connect:remote:40774
