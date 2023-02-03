@@ -49,8 +49,14 @@ services:
     image: mirakc/timeshift-fs
     init: true
     restart: unless-stopped
+    # The `SYS_ADMIN` capability is needed to mount the timeshift-fs using FUSE.
     cap_add:
       - SYS_ADMIN
+    # In addition, you might have to run with no apparmor security profile
+    # in order to avoid "fusermount3: mount failed: Permission denied".
+    #security_opt:
+    #  - apparmor:unconfined
+    # Mounting `/dev/fuse` is needed for FUSE to work.
     devices:
       - /dev/fuse
     volumes:
