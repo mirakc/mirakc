@@ -18,4 +18,5 @@ pub mod tracing_ext;
 pub mod tuner;
 pub mod web;
 
+mod events;
 mod file_util;

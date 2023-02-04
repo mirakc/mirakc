@@ -6,11 +6,10 @@ use std::pin::Pin;
 use axum::response::sse::Event;
 use axum::response::sse::Sse;
 use futures::stream::Stream;
-use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::models::events::*;
+use crate::events::*;
 
 pub(super) async fn events<T, E, R, S, O>(
     State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
@@ -119,8 +118,17 @@ where
 #[derive(Clone)]
 struct EventFeeder(mpsc::Sender<Result<Event, Infallible>>);
 
-macro_rules! impl_into_emitter {
+macro_rules! impl_emit {
     ($msg:path) => {
+        #[async_trait]
+        impl Emit<$msg> for EventFeeder {
+            async fn emit(&self, msg: $msg) {
+                if let Err(_) = self.0.send(Ok(msg.into())).await {
+                    tracing::warn!("Client disconnected");
+                }
+            }
+        }
+
         impl Into<Emitter<$msg>> for EventFeeder {
             fn into(self) -> Emitter<$msg> {
                 Emitter::new(self)
@@ -129,62 +137,99 @@ macro_rules! impl_into_emitter {
     };
 }
 
-macro_rules! impl_emit {
-    ($msg:path, $event:ty) => {
-        #[async_trait]
-        impl Emit<$msg> for EventFeeder {
-            async fn emit(&self, msg: $msg) {
-                let event = Event::default()
-                    .event(<$event>::name())
-                    .json_data(<$event>::from(msg))
-                    .unwrap();
-                if let Err(_) = self.0.send(Ok(event)).await {
-                    tracing::warn!("Client disconnected");
-                }
-            }
-        }
+// tuner events
 
-        impl_into_emitter! {$msg}
-    };
-}
+impl_emit! {crate::tuner::Event}
 
-#[async_trait]
-impl Emit<crate::tuner::Event> for EventFeeder {
-    async fn emit(&self, msg: crate::tuner::Event) {
-        use crate::tuner::Event::*;
-        let event = match msg {
-            StatusChanged(tuner_index) => Event::default()
+impl Into<Event> for crate::tuner::Event {
+    fn into(self) -> Event {
+        match self {
+            Self::StatusChanged(tuner_index) => Event::default()
                 .event("tuner.status-changed")
                 .json_data(TunerStatusChanged { tuner_index })
                 .unwrap(),
-        };
-        if let Err(_) = self.0.send(Ok(event)).await {
-            tracing::warn!("Client disconnected");
         }
     }
 }
 
-impl_into_emitter! {crate::tuner::Event}
+// epg events
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TunerStatusChanged {
-    tuner_index: usize,
+impl_emit! {crate::epg::ProgramsUpdated}
+
+impl Into<Event> for crate::epg::ProgramsUpdated {
+    fn into(self) -> Event {
+        Event::default()
+            .event("epg.programs-updated")
+            .json_data(EpgProgramsUpdated {
+                service_id: self.service_id.into(),
+            })
+            .unwrap()
+    }
 }
 
-impl_emit! {crate::epg::ProgramsUpdated, EpgProgramsUpdated}
-impl_emit! {crate::recording::RecordingStarted, RecordingStarted}
-impl_emit! {crate::recording::RecordingStopped, RecordingStopped}
-impl_emit! {crate::recording::RecordingFailed, RecordingFailed}
-impl_emit! {crate::recording::RecordingRescheduled, RecordingRescheduled}
-impl_emit! {crate::onair::OnairProgramChanged, OnairProgramChanged}
+// recording events
 
-#[async_trait]
-impl Emit<crate::timeshift::TimeshiftEvent> for EventFeeder {
-    async fn emit(&self, msg: crate::timeshift::TimeshiftEvent) {
-        use crate::timeshift::TimeshiftEvent::*;
-        let event = match msg {
-            Timeline {
+impl_emit! {crate::recording::RecordingStarted}
+
+impl Into<Event> for crate::recording::RecordingStarted {
+    fn into(self) -> Event {
+        Event::default()
+            .event("recording.started")
+            .json_data(RecordingStarted {
+                program_id: self.program_id.into(),
+            })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::RecordingStopped}
+
+impl Into<Event> for crate::recording::RecordingStopped {
+    fn into(self) -> Event {
+        Event::default()
+            .event("recording.stopped")
+            .json_data(RecordingStopped {
+                program_id: self.program_id.into(),
+            })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::RecordingFailed}
+
+impl Into<Event> for crate::recording::RecordingFailed {
+    fn into(self) -> Event {
+        Event::default()
+            .event("recording.failed")
+            .json_data(RecordingFailed {
+                program_id: self.program_id.into(),
+                reason: self.reason,
+            })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::RecordingRescheduled}
+
+impl Into<Event> for crate::recording::RecordingRescheduled {
+    fn into(self) -> Event {
+        Event::default()
+            .event("recording.rescheduled")
+            .json_data(RecordingRescheduled {
+                program_id: self.program_id.into(),
+            })
+            .unwrap()
+    }
+}
+
+// timeshift events
+
+impl_emit! {crate::timeshift::TimeshiftEvent}
+
+impl Into<Event> for crate::timeshift::TimeshiftEvent {
+    fn into(self) -> Event {
+        match self {
+            Self::Timeline {
                 recorder,
                 start_time,
                 end_time,
@@ -198,15 +243,15 @@ impl Emit<crate::timeshift::TimeshiftEvent> for EventFeeder {
                     duration,
                 })
                 .unwrap(),
-            Started { recorder } => Event::default()
+            Self::Started { recorder } => Event::default()
                 .event("timeshift.started")
                 .json_data(TimeshiftStarted { recorder })
                 .unwrap(),
-            Stopped { recorder } => Event::default()
+            Self::Stopped { recorder } => Event::default()
                 .event("timeshift.stopped")
                 .json_data(TimeshiftStopped { recorder })
                 .unwrap(),
-            RecordStarted {
+            Self::RecordStarted {
                 recorder,
                 record_id,
             } => Event::default()
@@ -216,7 +261,7 @@ impl Emit<crate::timeshift::TimeshiftEvent> for EventFeeder {
                     record_id,
                 })
                 .unwrap(),
-            RecordUpdated {
+            Self::RecordUpdated {
                 recorder,
                 record_id,
             } => Event::default()
@@ -226,7 +271,7 @@ impl Emit<crate::timeshift::TimeshiftEvent> for EventFeeder {
                     record_id,
                 })
                 .unwrap(),
-            RecordEnded {
+            Self::RecordEnded {
                 recorder,
                 record_id,
             } => Event::default()
@@ -236,14 +281,26 @@ impl Emit<crate::timeshift::TimeshiftEvent> for EventFeeder {
                     record_id,
                 })
                 .unwrap(),
-        };
-        if let Err(_) = self.0.send(Ok(event)).await {
-            tracing::warn!("Client disconnected");
         }
     }
 }
 
-impl_into_emitter! {crate::timeshift::TimeshiftEvent}
+// on-air events
+
+impl_emit! {crate::onair::OnairProgramChanged}
+
+impl Into<Event> for crate::onair::OnairProgramChanged {
+    fn into(self) -> Event {
+        Event::default()
+            .event("onair.program-changed")
+            .json_data(OnairProgramChanged {
+                service_id: self.service_id.into(),
+            })
+            .unwrap()
+    }
+}
+
+// A wrapper type to send `UnregisterEmitter` messages when it's destroyed.
 
 struct EventStreamWrapper<S> {
     inner: S,

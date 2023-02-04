@@ -219,7 +219,7 @@ where
 }
 
 fn parse_message_data(data: &str) -> Result<ServiceId, serde_json::Error> {
-    use crate::models::events::OnairProgramChanged;
+    use crate::events::OnairProgramChanged;
     let event: OnairProgramChanged = serde_json::from_str(data)?;
     Ok(event.service_id)
 }
