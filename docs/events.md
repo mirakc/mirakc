@@ -6,11 +6,24 @@ Sever-Sent Events ([SSE]).
 Using this feature, users can implement useful functions such as a rule-based
 automatic recording scheduler like [this](https://github.com/mirakc/contrib/blob/main/recording/simple-rules.js).
 
+## tuner.status-changed
+
+An event sent when the status of a tuner is changed.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "tunerIndex": { "type": "number" }
+  }
+}
+```
+
 ## epg.programs-updated
 
 An event sent when EPG programs of a service are updated.
 
-```json5
+```jsonc
 {
   "type": "object",
   "properties": {

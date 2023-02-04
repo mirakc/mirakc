@@ -6,18 +6,23 @@ use std::pin::Pin;
 use axum::response::sse::Event;
 use axum::response::sse::Sse;
 use futures::stream::Stream;
+use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::models::events::*;
 
-pub(super) async fn events<E, R, S, O>(
+pub(super) async fn events<T, E, R, S, O>(
+    State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
     State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, Error>
 where
+    T: Clone,
+    T: Call<crate::tuner::RegisterEmitter>,
+    T: TriggerFactory<crate::tuner::UnregisterEmitter>,
     E: Clone,
     E: Call<crate::epg::RegisterEmitter>,
     E: TriggerFactory<crate::epg::UnregisterEmitter>,
@@ -34,6 +39,12 @@ where
     let (sender, receiver) = mpsc::channel(32);
 
     let feeder = EventFeeder(sender);
+
+    let id = tuner_manager
+        .call(crate::tuner::RegisterEmitter(feeder.clone().into()))
+        .await?;
+    let _tuner_event_unregister_trigger =
+        tuner_manager.trigger(crate::tuner::UnregisterEmitter(id));
 
     let id = epg
         .call(crate::epg::RegisterEmitter::ProgramsUpdated(
@@ -93,6 +104,7 @@ where
     // unregister emitters.
     let sse = Sse::new(EventStreamWrapper {
         inner: ReceiverStream::new(receiver),
+        _tuner_event_unregister_trigger,
         _epg_programs_updated_unregister_trigger,
         _recording_started_unregister_trigger,
         _recording_stopped_unregister_trigger,
@@ -134,6 +146,30 @@ macro_rules! impl_emit {
 
         impl_into_emitter! {$msg}
     };
+}
+
+#[async_trait]
+impl Emit<crate::tuner::Event> for EventFeeder {
+    async fn emit(&self, msg: crate::tuner::Event) {
+        use crate::tuner::Event::*;
+        let event = match msg {
+            StatusChanged(tuner_index) => Event::default()
+                .event("tuner.status-changed")
+                .json_data(TunerStatusChanged { tuner_index })
+                .unwrap(),
+        };
+        if let Err(_) = self.0.send(Ok(event)).await {
+            tracing::warn!("Client disconnected");
+        }
+    }
+}
+
+impl_into_emitter! {crate::tuner::Event}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TunerStatusChanged {
+    tuner_index: usize,
 }
 
 impl_emit! {crate::epg::ProgramsUpdated, EpgProgramsUpdated}
@@ -211,6 +247,7 @@ impl_into_emitter! {crate::timeshift::TimeshiftEvent}
 
 struct EventStreamWrapper<S> {
     inner: S,
+    _tuner_event_unregister_trigger: Trigger<crate::tuner::UnregisterEmitter>,
     _epg_programs_updated_unregister_trigger: Trigger<crate::epg::UnregisterEmitter>,
     _recording_started_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,
     _recording_stopped_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,

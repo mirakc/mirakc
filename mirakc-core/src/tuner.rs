@@ -72,6 +72,7 @@ impl fmt::Display for TunerSubscriptionId {
 pub struct TunerManager {
     config: Arc<Config>,
     tuners: Vec<Tuner>,
+    event_emitters: EmitterRegistry<Event>,
 }
 
 struct TunerSubscription {
@@ -101,6 +102,7 @@ impl TunerManager {
         TunerManager {
             config,
             tuners: Vec::new(),
+            event_emitters: Default::default(),
         }
     }
 
@@ -142,6 +144,9 @@ impl TunerManager {
             let tuner = &mut self.tuners[stream_id.session_id.tuner_index];
             if tuner.is_subscribed(&stream_id) {
                 tracing::debug!(tuner.index, %channel, %user.info, stream.id = %stream_id, "Reuse specified tuner");
+                self.event_emitters
+                    .emit(Event::StatusChanged(tuner.index))
+                    .await;
                 return Ok(tuner.subscribe(user));
             }
             tracing::error!(tuner.index, %channel, %user.info, stream.id = %stream_id, "Specified tuner is unavailable");
@@ -162,6 +167,9 @@ impl TunerManager {
                 )?;
                 tuner.activate(channel, filters, ctx).await?;
             }
+            self.event_emitters
+                .emit(Event::StatusChanged(tuner.index))
+                .await;
             return Ok(tuner.subscribe(user));
         }
 
@@ -172,6 +180,9 @@ impl TunerManager {
             .find(|tuner| tuner.is_reuseable(&channel));
         if let Some(tuner) = found {
             tracing::debug!(tuner.index, %channel, %user.info, "Reuse active tuner");
+            self.event_emitters
+                .emit(Event::StatusChanged(tuner.index))
+                .await;
             return Ok(tuner.subscribe(user));
         }
 
@@ -185,6 +196,9 @@ impl TunerManager {
             let filters =
                 Self::make_filter_commands(&tuner, &channel, &self.config.filters.tuner_filter)?;
             tuner.activate(channel, filters, ctx).await?;
+            self.event_emitters
+                .emit(Event::StatusChanged(tuner.index))
+                .await;
             return Ok(tuner.subscribe(user));
         }
 
@@ -201,6 +215,9 @@ impl TunerManager {
             let filters =
                 Self::make_filter_commands(&tuner, &channel, &self.config.filters.tuner_filter)?;
             tuner.deactivate();
+            self.event_emitters
+                .emit(Event::StatusChanged(tuner.index))
+                .await;
             tuner.activate(channel, filters, ctx).await?;
             return Ok(tuner.subscribe(user));
         }
@@ -217,9 +234,11 @@ impl TunerManager {
         &mut self,
         id: TunerSubscriptionId,
     ) -> Result<Option<TunerUser>, Error> {
-        self.tuners[id.session_id.tuner_index]
-            .stop_streaming(id)
-            .await
+        let tuner = &mut self.tuners[id.session_id.tuner_index];
+        self.event_emitters
+            .emit(Event::StatusChanged(tuner.index))
+            .await;
+        tuner.stop_streaming(id).await
     }
 
     fn make_filter_commands(
@@ -275,6 +294,57 @@ impl Actor for TunerManager {
             tuner.deactivate();
         }
         tracing::debug!("Stopped");
+    }
+}
+
+// register emitter
+
+#[derive(Message)]
+#[reply("usize")]
+pub struct RegisterEmitter(pub Emitter<Event>);
+
+#[async_trait]
+impl Handler<RegisterEmitter> for TunerManager {
+    async fn handle(
+        &mut self,
+        msg: RegisterEmitter,
+        ctx: &mut Context<Self>,
+    ) -> <RegisterEmitter as Message>::Reply {
+        let id = self.event_emitters.register(msg.0.clone());
+        tracing::debug!(msg.name = "RegisterEmitter", id);
+        if id != 0 {
+            // Sending many messages in the message handler may cause a deadlock
+            // when the number of messages to be sent is larger than the capacity
+            // of the emitter's channel.  See the issue #705 for example.
+            ctx.set_post_process(RegisterEmitterPostProcess(msg.0));
+        }
+        id
+    }
+}
+
+#[derive(Message)]
+struct RegisterEmitterPostProcess(Emitter<Event>);
+
+#[async_trait]
+impl Handler<RegisterEmitterPostProcess> for TunerManager {
+    async fn handle(&mut self, msg: RegisterEmitterPostProcess, _ctx: &mut Context<Self>) {
+        let emitter = msg.0;
+        for tuner in self.tuners.iter().filter(|tuner| tuner.is_active()) {
+            emitter.emit(Event::StatusChanged(tuner.index)).await;
+        }
+    }
+}
+
+// unregister emitter
+
+#[derive(Message)]
+pub struct UnregisterEmitter(pub usize);
+
+#[async_trait]
+impl Handler<UnregisterEmitter> for TunerManager {
+    async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "UnregisterEmitter", id = msg.0);
+        self.event_emitters.unregister(msg.0);
     }
 }
 
@@ -374,6 +444,13 @@ impl Handler<StopStreaming> for TunerManager {
             }
         }
     }
+}
+
+// event
+
+#[derive(Clone, Message)]
+pub enum Event {
+    StatusChanged(usize),
 }
 
 // tuner
@@ -1039,6 +1116,18 @@ pub(crate) mod stub {
 
     #[derive(Clone)]
     pub(crate) struct TunerManagerStub;
+
+    #[async_trait]
+    impl Call<RegisterEmitter> for TunerManagerStub {
+        async fn call(
+            &self,
+            _msg: RegisterEmitter,
+        ) -> actlet::Result<<RegisterEmitter as Message>::Reply> {
+            Ok(0)
+        }
+    }
+
+    stub_impl_fire! {TunerManagerStub, UnregisterEmitter}
 
     #[async_trait]
     impl Call<QueryTuners> for TunerManagerStub {
