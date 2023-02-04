@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::File;
+use std::io::BufReader;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -302,8 +303,9 @@ impl TimeshiftFilesystem {
     }
 
     fn load_data(config: &TimeshiftRecorderConfig) -> Result<TimeshiftRecorderData, Error> {
-        let file = std::fs::File::open(&config.data_file)?;
-        let data: TimeshiftRecorderData = serde_json::from_reader(file)?;
+        let file = File::open(&config.data_file)?;
+        let reader = BufReader::new(file);
+        let data: TimeshiftRecorderData = serde_json::from_reader(reader)?;
         if data.service.id == config.service_id
             && data.chunk_size == config.chunk_size
             && data.max_chunks == config.max_chunks()
