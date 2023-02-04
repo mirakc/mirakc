@@ -89,18 +89,18 @@ impl TimeshiftFilesystem {
                 let start_time = self
                     .caches
                     .get(&ino.recorder_index())
-                    .map(|cache| cache.records.values().next())
+                    .map(|cache| cache.records.first())
                     .flatten()
-                    .map(|record| record.start.timestamp.timestamp())
+                    .map(|(_, record)| record.start.timestamp.timestamp())
                     .map(system_time_from_unix_time)
                     .unwrap_or(std::time::UNIX_EPOCH);
 
                 let end_time = self
                     .caches
                     .get(&ino.recorder_index())
-                    .map(|cache| cache.records.values().last())
+                    .map(|cache| cache.records.last())
                     .flatten()
-                    .map(|record| record.end.timestamp.timestamp())
+                    .map(|(_, record)| record.end.timestamp.timestamp())
                     .map(system_time_from_unix_time)
                     .unwrap_or(std::time::UNIX_EPOCH);
 
