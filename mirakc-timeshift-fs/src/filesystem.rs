@@ -18,6 +18,8 @@ use mirakc_core::error::Error;
 use mirakc_core::models::*;
 use mirakc_core::timeshift::*;
 
+const BLOCK_SIZE: u64 = 4096;
+
 pub struct TimeshiftFilesystemConfig {
     pub uid: u32,
     pub gid: u32,
@@ -115,7 +117,7 @@ impl TimeshiftFilesystem {
                     uid: self.fs_config.uid,
                     gid: self.fs_config.gid,
                     rdev: 0,
-                    blksize: 512,
+                    blksize: BLOCK_SIZE as u32,
                     flags: 0,
                 }
             })
@@ -239,7 +241,7 @@ impl TimeshiftFilesystem {
             fuser::FileAttr {
                 ino: ino.0,
                 size,
-                blocks: (size + 511) / 512,
+                blocks: (size + BLOCK_SIZE - 1) / BLOCK_SIZE,
                 atime: std::time::UNIX_EPOCH,
                 mtime: end_time.clone(),
                 ctime: end_time.clone(),
@@ -250,7 +252,7 @@ impl TimeshiftFilesystem {
                 uid: self.fs_config.uid,
                 gid: self.fs_config.gid,
                 rdev: 0,
-                blksize: 512,
+                blksize: BLOCK_SIZE as u32,
                 flags: 0,
             }
         })
@@ -372,7 +374,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 gid: self.fs_config.gid,
                 rdev: 0,
                 flags: 0,
-                blksize: 512,
+                blksize: BLOCK_SIZE as u32,
             })
         } else if ino.is_recorder() {
             self.update_cache(ino);
