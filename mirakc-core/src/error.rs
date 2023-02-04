@@ -6,6 +6,8 @@ pub enum Error {
     StreamingTimedOut,
     #[error("Tuner unavailable")]
     TunerUnavailable,
+    #[error("Tuner not found")]
+    TunerNotFound,
     #[error("Channel not found")]
     ChannelNotFound,
     #[error("Service not found")]

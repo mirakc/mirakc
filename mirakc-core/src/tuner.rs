@@ -369,6 +369,27 @@ impl Handler<QueryTuners> for TunerManager {
     }
 }
 
+// query tuner
+
+#[derive(Message)]
+#[reply("Result<MirakurunTuner, Error>")]
+pub struct QueryTuner(pub usize);
+
+#[async_trait]
+impl Handler<QueryTuner> for TunerManager {
+    async fn handle(
+        &mut self,
+        msg: QueryTuner,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryTuner as Message>::Reply {
+        tracing::debug!(msg.name = "QueryTuner", msg.index = msg.0);
+        self.tuners
+            .get(msg.0)
+            .map(|tuner| tuner.get_mirakurun_model())
+            .ok_or(Error::TunerNotFound)
+    }
+}
+
 // start streaming
 
 #[derive(Message)]
@@ -1133,6 +1154,16 @@ pub(crate) mod stub {
     impl Call<QueryTuners> for TunerManagerStub {
         async fn call(&self, _msg: QueryTuners) -> actlet::Result<<QueryTuners as Message>::Reply> {
             Ok(vec![])
+        }
+    }
+
+    #[async_trait]
+    impl Call<QueryTuner> for TunerManagerStub {
+        async fn call(&self, msg: QueryTuner) -> actlet::Result<<QueryTuner as Message>::Reply> {
+            match msg.0 {
+                0 => Ok(Err(Error::TunerNotFound)),
+                _ => Ok(Ok(tuner!(msg.0))),
+            }
         }
     }
 

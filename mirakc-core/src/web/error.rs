@@ -42,6 +42,7 @@ impl IntoResponse for Error {
         match self {
             Error::StreamingTimedOut => error_response!(StatusCode::REQUEST_TIMEOUT),
             Error::TunerUnavailable => error_response!(StatusCode::NOT_FOUND),
+            Error::TunerNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::ChannelNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::ServiceNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::ProgramNotFound => error_response!(StatusCode::NOT_FOUND),

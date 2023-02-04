@@ -6,6 +6,23 @@ macro_rules! jst {
     };
 }
 
+macro_rules! tuner {
+    ($index:expr) => {
+        MirakurunTuner {
+            index: $index,
+            name: "tuner".to_string(),
+            channel_types: vec![crate::models::ChannelType::GR],
+            command: None,
+            pid: None,
+            users: vec![],
+            is_available: true,
+            is_remote: false,
+            is_free: true,
+            is_using: false,
+            is_fault: false,
+        }
+    };
+}
 macro_rules! channel {
     ($name:expr, $channel_type:expr, $channel:expr) => {
         crate::epg::EpgChannel {

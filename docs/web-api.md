@@ -18,6 +18,7 @@ Web API endpoints listed below have been implemented at this moment:
 | [GET /api/programs/{id}]                        | :heavy_check_mark:         |
 | [GET /api/programs/{id}/stream]                 | :heavy_check_mark:         |
 | [GET /api/tuners]                               | :heavy_check_mark:         |
+| [GET /api/tuners/{index}]                       | :heavy_check_mark:         |
 | [GET /api/docs]                                 | :heavy_check_mark:         |
 | [GET /api/iptv/playlist]                        | :heavy_check_mark:         |
 | [GET /api/iptv/channel.m3u8]                    |                            |
@@ -88,6 +89,7 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [GET /api/programs/{id}]: #getapiprogramsid
 [GET /api/programs/{id}/stream]: #getapiprogramsidstream
 [GET /api/tuners]: #getapituners
+[GET /api/tuners/{index}]: #getapitunersindex
 [GET /api/docs]: #getapidocs
 [GET /api/iptv/playlist]: #getapiiptvplaylist
 [GET /api/iptv/channel.m3u8]: #getapiiptvchannelm3u8
@@ -213,7 +215,9 @@ ends.
 
 Returns a list of tuners.
 
-Query parameters have **NOT** been supported.
+## GET /api/tuners/{index}
+
+Returns a tuner model.
 
 ## GET /api/docs
 

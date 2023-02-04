@@ -113,6 +113,15 @@ async fn test_get_tuners() {
 }
 
 #[tokio::test]
+async fn test_get_tuner() {
+    let res = get("/api/tuners/1").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = get("/api/tuners/0").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_get_channel_stream() {
     let res = get("/api/channels/GR/ch/stream").await;
     assert_eq!(res.status(), StatusCode::OK);

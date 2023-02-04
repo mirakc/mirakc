@@ -62,6 +62,7 @@ pub async fn serve<T, E, R, S, O>(
 ) -> Result<(), Error>
 where
     T: Clone + Send + Sync + 'static,
+    T: Call<crate::tuner::QueryTuner>,
     T: Call<crate::tuner::QueryTuners>,
     T: Call<crate::tuner::RegisterEmitter>,
     T: Call<crate::tuner::StartStreaming>,
@@ -169,6 +170,7 @@ const X_MIRAKURUN_TUNER_USER_ID: &'static str = "x-mirakurun-tuner-user-id";
 fn build_app<T, E, R, S, O>(config: &Config) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Clone + Send + Sync + 'static,
+    T: Call<crate::tuner::QueryTuner>,
     T: Call<crate::tuner::QueryTuners>,
     T: Call<crate::tuner::RegisterEmitter>,
     T: Call<crate::tuner::StartStreaming>,

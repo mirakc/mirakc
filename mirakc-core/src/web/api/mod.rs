@@ -44,6 +44,7 @@ use models::*;
 pub(super) fn build_api<T, E, R, S, O>(config: &Config) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Clone + Send + Sync + 'static,
+    T: Call<crate::tuner::QueryTuner>,
     T: Call<crate::tuner::QueryTuners>,
     T: Call<crate::tuner::StartStreaming>,
     T: TriggerFactory<crate::tuner::StopStreaming>,
@@ -87,6 +88,7 @@ where
         .route("/version", routing::get(version::get))
         .route("/status", routing::get(status::get))
         .route("/tuners", routing::get(tuners::list))
+        .route("/tuners/:index", routing::get(tuners::get))
         .route("/channels", routing::get(channels::list))
         .route(
             "/channels/:channel_type/:channel/stream",
@@ -195,6 +197,7 @@ where
         version::get,
         status::get,
         tuners::list,
+        tuners::get,
         channels::list,
         channels::stream::get,
         channels::stream::head,
