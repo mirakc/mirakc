@@ -10,7 +10,7 @@ publish = false
 actix = "0.13.0"
 actix-files = "0.6.2"
 actix-web = "4.3.0"
-anyhow = "1.0.68"
+anyhow = "1.0.69"
 atty = "0.2.14"
 chrono = { version = "0.4.23", features = ["serde"] }
 cron = "0.12.0"
