@@ -7,6 +7,17 @@
 [![alpine-size](https://img.shields.io/docker/image-size/mirakc/mirakc/alpine?label=alpine)](https://hub.docker.com/r/mirakc/mirakc/tags?page=1&name=alpine)
 [![debian-size](https://img.shields.io/docker/image-size/mirakc/mirakc/debian?label=debian)](https://hub.docker.com/r/mirakc/mirakc/tags?page=1&name=debian)
 
+## Features
+
+* Mirakurun-compatible REST API
+  * Enough to work with applications such as [EPGStation]
+* Standalone recording
+  * No need to install additional applications anymore
+* On-air time tracking
+  * No need to worry about recording failures anymore
+* Timeshift recording
+  * No need to add recording schedules anymore
+
 ## Quick Start
 
 If you have already built a TV recording system with [Mirakurun] and
@@ -130,30 +141,30 @@ at the same time even on ROCK64 (DRAM: 1GB).
 ### After running for 1 day
 
 The following table is a snippet of the result of `docker stats` at idle after
-running for 1 day on ROCK64 (DRAM: 4GB):
+running for 1 day on Raspberry Pi 4B (DRAM: 4GB):
 
 ```
-NAME           MEM USAGE / LIMIT    MEM %  NET I/O         BLOCK I/O
-mirakc-alpine  4.723MiB / 3.882GiB  0.12%  198MB / 508kB   803kB / 8.19kB
-mirakc-debian  6.031MiB / 3.882GiB  0.15%  182MB / 454kB   1.43MB / 8.19kB
-mirakurun      115.1MiB / 3.882GiB  2.89%  92.3GB / 219MB  0B / 996MB
+NAME           MEM USAGE / LIMIT    MEM %  NET I/O          BLOCK I/O
+mirakc-alpine  19.5MiB / 3.704GiB   0.51%  7.45GB / 38.3MB  246kB / 15.6MB
+mirakc-debian  26.47MiB / 3.704GiB  0.70%  7.49GB / 34.6MB  221kB / 15.6MB
+mirakurun      123.6MiB / 3.704GiB  3.26%  61.3GB / 290MB   83.5MB / 1.36GB
 ```
 
 The environment variable `MALLOC_ARENA_MAX=2` is specified in containers.
 
-The `mirakurun` container installed a few packages at the start time.  That increased the amount
-of I/O data but it seems to be less than several GB.
+The `mirakurun` container installed a few packages at the start time.  That
+increased the amount of I/O data but it seems to be less than several GB.
 
 ### 8 TS streams at the same time
 
-mirakc is lower CPU usage and 1/40 smaller memory consumption than Mirakurun:
+mirakc is lower CPU usage and 75% smaller memory consumption than Mirakurun:
 
-|          | mirakc/1.0.0 (Alpine) | mirakc/1.0.0 (Debian) | Mirakurun/3.6.0  |
-|----------|-----------------------|-----------------------|------------------|
-| CPU      | +46..47%              | +46..53%              | +52..59%         |
-| Memory   | +12..14MB             | +20..21MB             | +865MB..3345MB   |
-| Load1    | +1.71..2.55           | +1.67..2.75           | +1.52..2.90      |
-| TX       | +131..137Mbps         | +118..134Mbps         | +74..119Mbps     |
+|        | mirakc/2.0.0 (Alpine) | mirakc/2.0.0 (Debian) | Mirakurun/3.9.0-rc.2 |
+|--------|-----------------------|-----------------------|----------------------|
+| CPU    | +26..28%              | +26..28%              | +32..36%             |
+| Memory | +26..27MB             | +26..27MB             | +112MB..121MB        |
+| Load1  | +0.59..1.81           | +0.64..1.57           | +0.91..1.79          |
+| TX     | +155..155Mbps         | +155..155Mbps         | +154..155Mbps        |
 
 where `+` means that the value is an amount of increase from its stationary value.
 
@@ -171,8 +182,8 @@ See [mirakc/performance-measurements] about how to collect the performance metri
 ## TODO
 
 * Use multiple tuners in the EPG task in order to reduce the time
-  * Currently, it takes about 16 minutes for collecting EIT sections of 8 GR
-    channels and 10 BS channels
+  * Currently, it takes about 40 minutes for collecting EIT sections of 12 GR
+    services and 12 BS services
 
 ## Acknowledgments
 
