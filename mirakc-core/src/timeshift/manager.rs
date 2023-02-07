@@ -75,7 +75,15 @@ where
             async move {
                 let schedule = cron::Schedule::from_str("50 * * * * * *").unwrap();
                 for next in schedule.upcoming(Jst) {
-                    let interval = (next - Jst::now()).to_std().unwrap();
+                    let interval = match (next - Jst::now()).to_std() {
+                        Ok(v) => v,
+                        Err(_) => {
+                            // This situation happens if `cron::ScheduleIterator::next()`
+                            // was called just before the next scheduled time.
+                            // Use the next one.
+                            continue;
+                        }
+                    };
                     tokio::time::sleep(interval).await;
                     if let Err(_) = addr.call(HealthCheck).await {
                         // The manager has been gone.
