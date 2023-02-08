@@ -87,13 +87,16 @@ impl<T, E> LocalTracker<T, E> {
     where
         C: Spawn + EmitterFactory<UpdateOnairPrograms>,
     {
+        // Get the current time before getting `datetime`
+        // so that `datetime - now` always returns a non-negative duration.
+        let now = Jst::now();
         let datetime = cron::Schedule::from_str("1 * * * * * *")
             .unwrap()
             .upcoming(Jst)
             .take(1)
             .nth(0)
             .unwrap();
-        let interval = (datetime - Jst::now()).to_std().unwrap();
+        let interval = (datetime - now).to_std().unwrap();
         let emitter = ctx.emitter();
         ctx.spawn_task(async move {
             tokio::time::sleep(interval).await;

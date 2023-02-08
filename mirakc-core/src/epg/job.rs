@@ -84,13 +84,16 @@ where
     }
 
     fn schedule_scan_services(&self, ctx: &mut Context<Self>) {
+        // Get the current time before getting `datetime`
+        // so that `datetime - now` always returns a non-negative duration.
+        let now = Jst::now();
         let datetime = self.calc_next_scheduled_datetime(&self.config.jobs.scan_services.schedule);
         tracing::info!(
             job = "scan-services",
             datetime = datetime.to_rfc3339(),
             "Scheduled"
         );
-        let interval = (datetime - Jst::now()).to_std().unwrap();
+        let interval = (datetime - now).to_std().unwrap();
         let addr = ctx.address().clone();
         ctx.spawn_task(async move {
             tokio::time::sleep(interval).await;
