@@ -10,6 +10,7 @@ use crate::recording::RecordingSchedule;
         (status = 200, description = "OK", body = [WebRecordingRecorder]),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getRecorders",
 )]
 pub(in crate::web::api) async fn list<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
@@ -39,6 +40,7 @@ where
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getRecorder",
 )]
 pub(in crate::web::api) async fn get<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
@@ -68,6 +70,7 @@ where
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "startRecording",
 )]
 pub(in crate::web::api) async fn create<E, R>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
@@ -110,6 +113,7 @@ where
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "stopRecording",
 )]
 pub(in crate::web::api) async fn delete<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,

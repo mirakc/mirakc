@@ -10,6 +10,7 @@ use crate::onair;
         (status = 200, description = "OK", body = [WebOnairProgram]),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getOnairPrograms",
 )]
 pub(super) async fn list<O>(
     State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
@@ -42,6 +43,7 @@ where
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getOnairProgram",
 )]
 pub(super) async fn get<O>(
     State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,

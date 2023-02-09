@@ -17,6 +17,7 @@ use crate::web::api::stream::streaming;
         (status = 200, description = "OK", body = [WebTimeshiftRecorder]),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getTimeshiftRecorders",
 )]
 pub(in crate::web::api) async fn list<S>(
     State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
@@ -48,6 +49,7 @@ where
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getTimeshiftRecorder",
 )]
 pub(in crate::web::api) async fn get<S>(
     State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
@@ -81,6 +83,7 @@ where
         (status = 503, description = "Tuner Resource Unavailable"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getTimeshiftRecorderStream",
 )]
 pub(in crate::web::api) async fn stream<S>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,

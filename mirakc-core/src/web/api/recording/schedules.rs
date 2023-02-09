@@ -12,6 +12,7 @@ use crate::recording::RecordingSchedule;
         (status = 200, description = "OK", body = [WebRecordingSchedule]),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getRecordingSchedules",
 )]
 pub(in crate::web::api) async fn list<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
@@ -42,6 +43,7 @@ where
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getRecordingSchedule",
 )]
 pub(in crate::web::api) async fn get<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
@@ -67,6 +69,7 @@ where
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "createRecordingSchedule",
 )]
 pub(in crate::web::api) async fn create<E, R>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
@@ -103,6 +106,7 @@ where
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "deleteRecordingSchedule",
 )]
 pub(in crate::web::api) async fn delete<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
@@ -140,6 +144,7 @@ where
         (status = 200, description = "OK"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "deleteRecordingSchedules",
 )]
 pub(in crate::web::api) async fn clear<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,

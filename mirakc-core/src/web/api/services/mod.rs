@@ -122,6 +122,7 @@ where
         (status = 404, description = "Not Found"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "getProgramsOfService",
 )]
 pub(super) async fn programs<E>(
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
