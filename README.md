@@ -20,7 +20,7 @@
 
 ## Quick Start
 
-If you have already built a TV recording system with [Mirakurun] and
+If you already have a TV recording system built with [Mirakurun] and
 [EPGStation], you can simply replace Mirakurun with mirakc.
 
 It's recommended to use a Docker image which can be downloaded from [Docker Hub].
@@ -97,7 +97,7 @@ docker compose up
 ```
 
 You can also launch a mirakc container by using other tools like `podman` and
-`podman-compose` which supports Docker-compatible images and
+`podman-compose` which support Docker-compatible images and
 `docker-compose.yml`:
 
 ```shell
@@ -140,7 +140,7 @@ at the same time even on ROCK64 (DRAM: 1GB).
 
 ### After running for 1 day
 
-The following table is a snippet of the result of `docker stats` at idle after
+The following table is a snippet from the result of `docker stats` at idle after
 running for 1 day on Raspberry Pi 4B (DRAM: 4GB):
 
 ```
@@ -175,13 +175,13 @@ See [mirakc/performance-measurements] about how to collect the performance metri
 * `CS` and `SKY` channel types are not tested at all
   * In addition, no pay-TV channels are tested because I have no subscription
     for pay-TV
-* mirakc doesn't work with [BonDriver_Mirakurun] at this moment
+* mirakc doesn't work with [BonDriver_Mirakurun]
   * Use [BonDriver_mirakc] instead
   * See the issue #4 for details
 
 ## TODO
 
-* Use multiple tuners in the EPG task in order to reduce the time
+* Use multiple tuners in the EPG task in order to reduce the execution time
   * Currently, it takes about 40 minutes for collecting EIT sections of 12 GR
     services and 12 BS services
 
