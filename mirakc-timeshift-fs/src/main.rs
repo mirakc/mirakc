@@ -30,14 +30,14 @@ struct Opt {
     /// Owner's numeric UID.
     ///
     /// UID of the user running the process is used by default.
-    #[arg(short, long)]
-    uid: Option<u32>,
+    #[arg(short, long, env = "MIRAKC_TIMESHIFT_UID", default_value_t = unsafe { libc::getuid() })]
+    uid: u32,
 
     /// Owner's numeric GID.
     ///
     /// GID of the user running the process is used by default.
-    #[arg(short, long)]
-    gid: Option<u32>,
+    #[arg(short, long, env = "MIRAKC_TIMESHIFT_GID", default_value_t = unsafe { libc::getgid() })]
+    gid: u32,
 
     /// Logging format.
     #[arg(long, value_enum, env = "MIRAKC_LOG_FORMAT", default_value = "text")]
@@ -72,8 +72,8 @@ fn main() -> Result<(), Error> {
     let config = mirakc_core::config::load(&opt.config);
 
     let fs_config = TimeshiftFilesystemConfig {
-        uid: opt.uid.unwrap_or(unsafe { libc::getuid() }),
-        gid: opt.gid.unwrap_or(unsafe { libc::getgid() }),
+        uid: opt.uid,
+        gid: opt.gid,
     };
     let fs = TimeshiftFilesystem::new(config, fs_config);
 
