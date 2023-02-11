@@ -211,6 +211,12 @@ where
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
+
+        if !self.config.recording.is_enabled() {
+            tracing::info!("Recording is disabled");
+            return;
+        }
+
         self.epg
             .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
@@ -223,6 +229,7 @@ where
             .call(onair::RegisterEmitter(ctx.emitter()))
             .await
             .expect("Failed to register emitter for OnairProgramUpdated");
+
         self.load_schedules();
         self.rebuild_queue();
         self.set_timer(ctx);

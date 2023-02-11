@@ -73,6 +73,17 @@ where
 {
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
+
+        if !self.config.has_onair_program_trackers() {
+            tracing::info!("No on-air program tracker is defined");
+            return;
+        }
+
+        self.epg
+            .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
+            .await
+            .expect("Failed to register emitter for epg::ServicesUpdated");
+
         for (name, config) in self.config.onair_program_trackers.iter() {
             let changed = ctx.emitter();
             let tracker = match config {
@@ -86,10 +97,6 @@ where
             };
             self.trackers.insert(name.to_string(), tracker);
         }
-        self.epg
-            .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
-            .await
-            .expect("Failed to register emitter for epg::ServicesUpdated");
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {

@@ -817,7 +817,7 @@ where
                 };
                 ctx.spawn_task(task);
                 let id = self.programs_updated.register(emitter);
-                tracing::debug!(msg.name = "RegisterEmitter::ProgramsUpdated");
+                tracing::debug!(msg.name = "RegisterEmitter::ProgramsUpdated", id);
                 id
             }
         }

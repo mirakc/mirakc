@@ -12,6 +12,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::events::*;
 
 pub(super) async fn events<T, E, R, S, O>(
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
@@ -53,50 +54,70 @@ where
     let _epg_programs_updated_unregister_trigger =
         epg.trigger(crate::epg::UnregisterEmitter::ProgramsUpdated(id));
 
-    let id = recording_manager
-        .call(crate::recording::RegisterEmitter::RecordingStarted(
-            feeder.clone().into(),
-        ))
-        .await?;
-    let _recording_started_unregister_trigger =
-        recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingStarted(id));
+    let _recording_started_unregister_trigger = if config.recording.is_enabled() {
+        let id = recording_manager
+            .call(crate::recording::RegisterEmitter::RecordingStarted(
+                feeder.clone().into(),
+            ))
+            .await?;
+        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingStarted(id)))
+    } else {
+        None
+    };
 
-    let id = recording_manager
-        .call(crate::recording::RegisterEmitter::RecordingStopped(
-            feeder.clone().into(),
-        ))
-        .await?;
-    let _recording_stopped_unregister_trigger =
-        recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingStopped(id));
+    let _recording_stopped_unregister_trigger = if config.recording.is_enabled() {
+        let id = recording_manager
+            .call(crate::recording::RegisterEmitter::RecordingStopped(
+                feeder.clone().into(),
+            ))
+            .await?;
+        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingStopped(id)))
+    } else {
+        None
+    };
 
-    let id = recording_manager
-        .call(crate::recording::RegisterEmitter::RecordingFailed(
-            feeder.clone().into(),
-        ))
-        .await?;
-    let _recording_failed_unregister_trigger =
-        recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingFailed(id));
+    let _recording_failed_unregister_trigger = if config.recording.is_enabled() {
+        let id = recording_manager
+            .call(crate::recording::RegisterEmitter::RecordingFailed(
+                feeder.clone().into(),
+            ))
+            .await?;
+        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingFailed(id)))
+    } else {
+        None
+    };
 
-    let id = recording_manager
-        .call(crate::recording::RegisterEmitter::RecordingRescheduled(
-            feeder.clone().into(),
-        ))
-        .await?;
-    let _recording_rescheduled_unregister_trigger = recording_manager.trigger(
-        crate::recording::UnregisterEmitter::RecordingRescheduled(id),
-    );
+    let _recording_rescheduled_unregister_trigger =
+        if config.recording.is_enabled() {
+            let id = recording_manager
+                .call(crate::recording::RegisterEmitter::RecordingRescheduled(
+                    feeder.clone().into(),
+                ))
+                .await?;
+            Some(recording_manager.trigger(
+                crate::recording::UnregisterEmitter::RecordingRescheduled(id),
+            ))
+        } else {
+            None
+        };
 
-    let id = timeshift_manager
-        .call(crate::timeshift::RegisterEmitter(feeder.clone().into()))
-        .await?;
-    let _timeshift_event_unregister_trigger =
-        timeshift_manager.trigger(crate::timeshift::UnregisterEmitter(id));
+    let _timeshift_event_unregister_trigger = if config.timeshift.is_enabled() {
+        let id = timeshift_manager
+            .call(crate::timeshift::RegisterEmitter(feeder.clone().into()))
+            .await?;
+        Some(timeshift_manager.trigger(crate::timeshift::UnregisterEmitter(id)))
+    } else {
+        None
+    };
 
-    let id = onair_manager
-        .call(crate::onair::RegisterEmitter(feeder.clone().into()))
-        .await?;
-    let _onair_program_changed_unregister_trigger =
-        onair_manager.trigger(crate::onair::UnregisterEmitter(id));
+    let _onair_program_changed_unregister_trigger = if config.has_onair_program_trackers() {
+        let id = onair_manager
+            .call(crate::onair::RegisterEmitter(feeder.clone().into()))
+            .await?;
+        Some(onair_manager.trigger(crate::onair::UnregisterEmitter(id)))
+    } else {
+        None
+    };
 
     // The Sse instance will be dropped in IntoResponse::into_response().
     // So, we have to create a wrapper for the event stream in order to
@@ -306,12 +327,12 @@ struct EventStreamWrapper<S> {
     inner: S,
     _tuner_event_unregister_trigger: Trigger<crate::tuner::UnregisterEmitter>,
     _epg_programs_updated_unregister_trigger: Trigger<crate::epg::UnregisterEmitter>,
-    _recording_started_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,
-    _recording_stopped_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,
-    _recording_failed_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,
-    _recording_rescheduled_unregister_trigger: Trigger<crate::recording::UnregisterEmitter>,
-    _timeshift_event_unregister_trigger: Trigger<crate::timeshift::UnregisterEmitter>,
-    _onair_program_changed_unregister_trigger: Trigger<crate::onair::UnregisterEmitter>,
+    _recording_started_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _recording_stopped_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _recording_failed_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _recording_rescheduled_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _timeshift_event_unregister_trigger: Option<Trigger<crate::timeshift::UnregisterEmitter>>,
+    _onair_program_changed_unregister_trigger: Option<Trigger<crate::onair::UnregisterEmitter>>,
 }
 
 impl<S> Stream for EventStreamWrapper<S>

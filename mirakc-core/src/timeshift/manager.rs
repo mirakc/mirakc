@@ -48,6 +48,11 @@ where
     async fn started(&mut self, ctx: &mut Context<Self>) {
         tracing::debug!("Started");
 
+        if !self.config.timeshift.is_enabled() {
+            tracing::info!("Timeshift recording is disabled");
+            return;
+        }
+
         self.epg
             .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await

@@ -92,6 +92,10 @@ impl Config {
         self
     }
 
+    pub fn has_onair_program_trackers(&self) -> bool {
+        !self.onair_program_trackers.is_empty()
+    }
+
     fn validate(&self) {
         self.epg.validate();
         self.server.validate();
@@ -1121,6 +1125,22 @@ mod tests {
         "#,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_has_onair_program_trackers() {
+        assert!(!Config::default().has_onair_program_trackers());
+
+        let config = serde_yaml::from_str::<Config>(
+            r#"
+            onair-program-trackers:
+              test:
+                remote:
+                  url: http://test
+        "#,
+        )
+        .unwrap();
+        assert!(config.has_onair_program_trackers());
     }
 
     #[test]
