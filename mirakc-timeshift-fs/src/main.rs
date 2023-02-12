@@ -47,11 +47,11 @@ struct Opt {
     ///
     /// The following mount options will be added internally:
     /// fsname=mirakc-timeshift,ro,noatime
-    #[arg(short, long)]
+    #[arg(short, long, env = "MIRAKC_TIMESHIFT_MOUNT_OPTIONS")]
     options: Vec<String>,
 
     /// Path to the mount point.
-    #[arg()]
+    #[arg(env = "MIRAKC_TIMESHIFT_MOUNT_POINT", default_value = "/mnt")]
     mount_point: PathBuf,
 }
 
