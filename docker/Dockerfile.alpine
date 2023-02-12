@@ -43,6 +43,7 @@ COPY --from=mirakc-build /usr/local/bin/run-mirakc-timeshift-fs /usr/local/bin/
 COPY --from=mirakc-build /build/resources/strings.yml /etc/mirakc/strings.yml
 ARG PROFILE=release
 RUN apk add --no-cache fuse3 tzdata
+RUN echo 'user_allow_other' >/etc/fuse.conf
 RUN if [ "PROFILE" = perf ]; then apk add --no-cache valgrind; fi
 # dirty hack for linux/arm/v6
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v6" ]; then ln -s /lib/ld-musl-armhf.so.1 /lib/ld-musl-arm.so.1; fi

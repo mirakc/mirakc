@@ -53,6 +53,7 @@ RUN set -eux \
  && export DEBIAN_FRONTEND=noninteractive \
  && apt-get update \
  && apt-get install -y --no-install-recommends fuse3 \
+ && echo 'user_allow_other' >/etc/fuse.conf \
  && if [ "$PROFILE" = perf ]; then apt-get install -y --no-install-recommends heaptrack valgrind; fi \
  # cleanup
  && apt-get clean \
