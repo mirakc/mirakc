@@ -30,7 +30,10 @@ pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
 
     config = config.normalize();
 
-    config.validate();
+    match std::env::var_os("MIRAKC_CONFIG_SKIP_VALIDATION") {
+        Some(v) if v == "1" => tracing::warn!("Skip validation"),
+        _ => config.validate(),
+    }
 
     config.last_modified = std::fs::metadata(config_path)
         .map(|metadata| metadata.modified().ok())
