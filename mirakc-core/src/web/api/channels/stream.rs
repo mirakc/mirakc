@@ -97,6 +97,7 @@ where
         (status = 503, description = "Tuner Resource Unavailable"),
         (status = 505, description = "Internal Server Error"),
     ),
+    operation_id = "checkChannelStream",
 )]
 pub(in crate::web::api) async fn head<E>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,

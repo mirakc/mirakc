@@ -16,6 +16,7 @@ use utoipa::OpenApi;
 use crate::epg;
 use crate::filter::FilterPipelineBuilder;
 use crate::models::*;
+use crate::recording::RecordingFailedReason;
 use crate::recording::RecordingOptions;
 use crate::recording::RecordingScheduleState;
 use crate::tuner;
@@ -250,6 +251,7 @@ where
             MirakurunProgram,
             MirakurunService,
             MirakurunTuner,
+            RecordingFailedReason,
             RecordingOptions,
             RecordingScheduleState,
         ),
