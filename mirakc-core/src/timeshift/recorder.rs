@@ -882,7 +882,7 @@ impl<T> TimeshiftRecorder<T> {
         if let Some((_, record)) = self.records.first_mut() {
             if record.start.timestamp < start.timestamp {
                 record.start = start;
-                tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.start, "Record cropped");
+                tracing::debug!(recorder.name = self.name, %record.id, %record.program.id, %record.start, "Record cropped");
             }
         }
     }
@@ -902,7 +902,7 @@ impl<T> TimeshiftRecorder<T> {
                 if end {
                     tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record ended");
                 } else {
-                    tracing::info!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record updated");
+                    tracing::debug!(recorder.name = self.name, %record.id, %record.program.id, %record.end, "Record updated");
                 }
             }
             None => {

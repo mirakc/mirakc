@@ -425,14 +425,14 @@ impl<T, E> OnairProgramManager<T, E> {
         let program_id = program.id;
         let service_id = program_id.into();
         self.cache.entry(service_id).or_default().current = Some(program);
-        tracing::info!(service.id = %service_id, current.program.id = %program_id);
+        tracing::debug!(service.id = %service_id, current.program.id = %program_id);
     }
 
     async fn update_next_program(&mut self, program: Arc<EpgProgram>) {
         let program_id = program.id;
         let service_id = program_id.into();
         self.cache.entry(service_id).or_default().next = Some(program);
-        tracing::info!(service.id = %service_id, next.program.id = %program_id);
+        tracing::debug!(service.id = %service_id, next.program.id = %program_id);
     }
 }
 
