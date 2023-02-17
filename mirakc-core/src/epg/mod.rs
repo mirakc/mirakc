@@ -173,7 +173,7 @@ impl<T> Epg<T> {
         let service = self.services.get(&service_id).expect("Service must exist");
 
         if num_programs > 0 {
-            tracing::info!(%service.id, service.name, programs.len = num_programs, "Collected programs");
+            tracing::info!(%service.id, programs.len = num_programs, "Collected programs");
         }
 
         let msg = ProgramsUpdated { service_id };
@@ -202,11 +202,7 @@ impl<T> Epg<T> {
                     let not_changed = channels.iter().any(|ch| ch == &service.channel);
                     if !not_changed {
                         // if changed
-                        tracing::debug!(
-                            %service.id,
-                            service.name,
-                            "Drop the service due to changes of the channel config"
-                        );
+                        tracing::debug!(%service.id, "Drop the service due to changes of the channel config");
                     }
                     not_changed
                 });
