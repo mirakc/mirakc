@@ -20,7 +20,7 @@ jobs:
       - name: Install macfuse (macos)
         if: matrix.runner == 'macos-latest'
         run: |
-          brew install macfuse
+          brew install macfuse pkg-config
       - name: Cache for Cargo
         uses: actions/cache@v3
         with:
