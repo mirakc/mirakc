@@ -1,3 +1,8 @@
+name: coverage
+
+on:
+  workflow_call:
+
 jobs:
   coverage:
     runs-on: ubuntu-latest
@@ -12,7 +17,8 @@ jobs:
         run: |
           # Compiling actlet-derive fails due to the following error:
           #
-          #   error: the linked panic runtime `panic_unwind` is not compiled with this crate's panic strategy `abort`
+          #   error: the linked panic runtime `panic_unwind` is not compiled
+          #     with this crate's panic strategy `abort`
           #
           # So, we excludes it from the coverage.
           cargo test --all-features --no-fail-fast --lib --workspace --exclude=actlet-derive
@@ -21,8 +27,16 @@ jobs:
           RUSTC_BOOTSTRAP: 1
           # See https://github.com/mozilla/grcov#example-how-to-generate-gcda-files-for-a-rust-project
           CARGO_INCREMENTAL: 0
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-          RUSTDOCFLAGS: '-Cpanic=abort'
+          RUSTFLAGS: >-
+            -Zprofile
+            -Ccodegen-units=1
+            -Cinline-threshold=0
+            -Clink-dead-code
+            -Coverflow-checks=off
+            -Cpanic=abort
+            -Zpanic_abort_tests
+          RUSTDOCFLAGS: >-
+            -Cpanic=abort
       - name: Install cargo-binstall
         run: |
           BINSTALL_URL=https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz

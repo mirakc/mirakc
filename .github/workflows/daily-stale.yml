@@ -1,4 +1,4 @@
-name: Daily (Stale)
+name: daily-stale
 
 on:
   schedule:

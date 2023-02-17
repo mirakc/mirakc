@@ -1,3 +1,15 @@
+name: docker
+
+on:
+  workflow_call:
+    inputs:
+      ref-name:
+        required: true
+        type: string
+      ref-type:
+        required: true
+        type: string
+
 env:
   MAIN_DISTRO: debian
 
@@ -27,20 +39,19 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          ref: ${{ env.MIRAKC_GA_REF_NAME }}
-          token: ${{ env.MIRAKC_GA_TOKEN }}
+          ref: ${{ inputs.ref-name }}
       - name: Docker tags
         id: docker-tags
         run: |
           IMAGE="{0}"  # placeholder
-          VERSION="$MIRAKC_GA_REF_NAME"
+          VERSION="${{ inputs.ref-name }}"
           MAIN_TAG="$IMAGE:$VERSION-${{ matrix.distro }}"
           TAGS="$MAIN_TAG"
           if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]
           then
             TAGS="$TAGS,$IMAGE:$VERSION"
           fi
-          if [ "$MIRAKC_GA_REF_TYPE" = tag ]
+          if [ "${{ inputs.ref-type }}" = tag ]
           then
             # Always update latest image tags when a new git tag is created.
             TAGS="$TAGS,$IMAGE:${{ matrix.distro }}"

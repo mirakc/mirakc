@@ -1,3 +1,17 @@
+name: update
+
+on:
+  workflow_call:
+    inputs:
+      ref-name:
+        required: true
+        type: string
+    outputs:
+      num-commits:
+        description: >-
+          The number of commits made in this workflow.
+        value: ${{ jobs.update.outputs.num-commits }}
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -6,8 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          ref: ${{ env.MIRAKC_GA_REF_NAME }}
-          token: ${{ env.MIRAKC_GA_TOKEN }}
+          ref: ${{ inputs.ref-name }}
+          # Use PAT in order to invoke other workflows.
+          token: ${{ secrets.BOT_GITHUB_TOKEN }}
       - name: git config
         run: |
           # https://github.com/actions/checkout#push-a-commit-using-the-built-in-token
@@ -28,12 +43,12 @@ jobs:
         run: |
           ./scripts/update-devcontainer-dockerfile
       - name: Update mirakc-arib
-        if: env.MIRAKC_GA_REF_NAME == 'main'
+        if: inputs.ref-name == 'main'
         run: |
           ./scripts/update-mirakc-arib
       - name: Push if changed
         run: |
-          if git diff --quiet origin/$MIRAKC_GA_REF_NAME..HEAD
+          if git diff --quiet origin/${{ inputs.ref-name }}..HEAD
           then
             echo "No commit to push"
           else
@@ -42,6 +57,6 @@ jobs:
       - name: Count commits made within 24 hours
         id: count
         run: |
-          NUM_COMMITS=$(git rev-list --count --since '24 hours' $MIRAKC_GA_REF_NAME)
+          NUM_COMMITS=$(git rev-list --count --since '24 hours' ${{ inputs.ref-name }})
           echo "NUM_COMMITS=$NUM_COMMITS"
           echo "num-commits=$NUM_COMMITS" >>$GITHUB_OUTPUT

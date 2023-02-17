@@ -1,3 +1,8 @@
+name: cross-build
+
+on:
+  workflow_call:
+
 jobs:
   cross-build:
     strategy:

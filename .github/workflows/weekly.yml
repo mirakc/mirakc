@@ -1,4 +1,4 @@
-name: Weekly
+name: weekly
 
 on:
   schedule:

@@ -1,10 +1,10 @@
 # See https://github.com/dependabot/dependabot-core/issues/2268#issuecomment-831376155
-name: Auto Merge
+name: auto-merge
 
 on:
   workflow_run:
     workflows:
-      - Pull Request
+      - pull-request
     types:
       - completed
 
