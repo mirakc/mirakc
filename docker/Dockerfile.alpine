@@ -10,7 +10,7 @@
 #   TARGETARCH
 #   TARGETVARIANT
 
-FROM mirakc/tools:alpine AS mirakc-tools
+FROM mirakc/tools:alpine-2.0 AS mirakc-tools
 
 FROM mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 COPY . ./

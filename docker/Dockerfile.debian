@@ -10,7 +10,7 @@
 #   TARGETARCH
 #   TARGETVARIANT
 
-FROM mirakc/tools:debian AS mirakc-tools
+FROM mirakc/tools:debian-2.0 AS mirakc-tools
 
 FROM mirakc/buildenv:debian-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 COPY . ./
