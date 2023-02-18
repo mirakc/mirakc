@@ -3,7 +3,8 @@
 PROGNAME="$(basename $0)"
 BASEDIR="$(cd $(dirname $0); pwd)"
 PROJDIR="$(cd $BASEDIR/..; pwd)"
-CURRENT=$(git describe --abbrev=0)
+CURRENT=$(cargo metadata --no-deps --format-version=1 | \
+            jq -r '.packages[] | select(.name == "mirakc") | .version')
 
 COMMIT=YES
 PREID=
