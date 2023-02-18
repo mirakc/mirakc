@@ -77,13 +77,21 @@ fi
 
 VERSION=$(npx semver $CURRENT $OPTIONS)
 
-log "Pulling changes from origin..."
-git pull
+if [ "$COMMIT" = YES ]
+then
+  log "Pulling changes from origin..."
+  git pull
+fi
 
-log "Bumping the version to $VERSION..."
 for MANIFEST in $(find $PROJDIR -name Cargo.toml)
 do
-  sed -i'.sed.backup' -e "s/^version = .*/version = \"$VERSION\"/" $MANIFEST
+  if grep -e '^version = "0.0.0"$' $MANIFEST >/dev/null 2>&1
+  then
+    log "Skip $MANIFEST"
+  else
+    log "Bumping the version in $MANIFEST to $VERSION..."
+    sed -i'.sed.backup' -e "s/^version = .*/version = \"$VERSION\"/" $MANIFEST
+  fi
 done
 
 # We assume that build never fails.
@@ -91,9 +99,9 @@ done
 # Update only packages defined in the workspace.
 cargo update -w
 
-git add .
 if [ "$COMMIT" = YES ]
 then
+  git add .
   git commit -m "misc: bump version to $VERSION"
 fi
 
@@ -110,6 +118,6 @@ Done.
 
 Run the following commands after confirmation:
 
-  git push -u origin main
+  git push -u origin $(git rev-parse --abbrev-ref HEAD)
   git push origin $VERSION
 EOF
