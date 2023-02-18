@@ -1,6 +1,5 @@
 #!/bin/sh -eu
 
-MOUNT_OPTIONS=${MIRAKC_TIMESHIFT_FS_MOUNT_OPTIONS:-}
 MOUNT_POINT="$1"
 
 unmount() {
@@ -9,4 +8,4 @@ unmount() {
 }
 
 trap 'unmount' EXIT
-RUST_LOG=trace cargo run --bin=mirakc-timeshift-fs -- $MOUNT_OPTIONS $MOUNT_POINT
+cargo run --bin=mirakc-timeshift-fs -- $MOUNT_POINT
