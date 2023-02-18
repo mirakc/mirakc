@@ -46,7 +46,7 @@ struct Opt {
     /// Additional mount options.
     ///
     /// The following mount options will be added internally:
-    /// fsname=mirakc-timeshift,ro,noatime
+    /// subtype=mirakc-timeshift-fs,ro,noatime
     #[arg(short, long, env = "MIRAKC_TIMESHIFT_FS_MOUNT_OPTIONS")]
     options: Vec<String>,
 
@@ -78,7 +78,7 @@ fn main() -> Result<(), Error> {
     let fs = TimeshiftFilesystem::new(config, fs_config);
 
     let mut options = parse_options_from_args(&opt.options);
-    options.push(fuser::MountOption::FSName("mirakc-timeshift".to_string()));
+    options.push(fuser::MountOption::Subtype("mirakc-timeshift-fs".to_string()));
     options.push(fuser::MountOption::RO);
     options.push(fuser::MountOption::NoAtime);
 
