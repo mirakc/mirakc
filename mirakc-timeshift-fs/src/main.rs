@@ -30,13 +30,13 @@ struct Opt {
     /// Owner's numeric UID.
     ///
     /// UID of the user running the process is used by default.
-    #[arg(short, long, env = "MIRAKC_TIMESHIFT_UID", default_value_t = unsafe { libc::getuid() })]
+    #[arg(short, long, env = "MIRAKC_TIMESHIFT_FS_UID", default_value_t = unsafe { libc::getuid() })]
     uid: u32,
 
     /// Owner's numeric GID.
     ///
     /// GID of the user running the process is used by default.
-    #[arg(short, long, env = "MIRAKC_TIMESHIFT_GID", default_value_t = unsafe { libc::getgid() })]
+    #[arg(short, long, env = "MIRAKC_TIMESHIFT_FS_GID", default_value_t = unsafe { libc::getgid() })]
     gid: u32,
 
     /// Logging format.
@@ -47,11 +47,11 @@ struct Opt {
     ///
     /// The following mount options will be added internally:
     /// fsname=mirakc-timeshift,ro,noatime
-    #[arg(short, long, env = "MIRAKC_TIMESHIFT_MOUNT_OPTIONS")]
+    #[arg(short, long, env = "MIRAKC_TIMESHIFT_FS_MOUNT_OPTIONS")]
     options: Vec<String>,
 
     /// Path to the mount point.
-    #[arg(env = "MIRAKC_TIMESHIFT_MOUNT_POINT", default_value = "/mnt")]
+    #[arg(env = "MIRAKC_TIMESHIFT_FS_MOUNT_POINT", default_value = "/mnt")]
     mount_point: PathBuf,
 }
 
