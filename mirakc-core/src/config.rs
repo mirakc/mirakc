@@ -313,15 +313,33 @@ pub struct MountConfig {
 impl MountConfig {
     fn validate(&self, mount_point: &str) {
         assert!(
+            mount_point != "/",
+            r#"config.server.mounts[/]: cannot mount onto "/""#,
+        );
+        assert!(
+            mount_point != "/api",
+            r#"config.server.mounts[/api]: cannot mount onto "/api""#,
+        );
+        assert!(
+            mount_point != "/events",
+            r#"config.server.mounts[/events]: cannot mount onto "/events""#,
+        );
+        assert!(
             mount_point.starts_with("/"),
             "config.server.mounts[{}]: \
-                 a mount point must starts with '/'",
+             a mount point must starts with '/'",
+            mount_point
+        );
+        assert!(
+            !mount_point.ends_with("/"),
+            "config.server.mounts[{}]: \
+             a mount point must not ends with '/'",
             mount_point
         );
         assert!(
             self.path.exists(),
             "config.server.mounts[{}]: \
-                 `path` must be a path to an existing entry",
+             `path` must be a path to an existing entry",
             mount_point
         );
         if let Some(index) = self.index.as_ref() {
@@ -1528,18 +1546,72 @@ mod tests {
             listing: false,
         };
         config.validate("/test");
-        config.validate("/");
     }
 
     #[test]
     #[should_panic]
-    fn test_mount_config_validate_empty_mount_point() {
+    fn test_mount_config_validate_mount_point_empty() {
         let config = MountConfig {
             path: env!("CARGO_MANIFEST_DIR").into(),
             index: None,
             listing: false,
         };
         config.validate("");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_mount_config_validate_mount_point_root() {
+        let config = MountConfig {
+            path: env!("CARGO_MANIFEST_DIR").into(),
+            index: None,
+            listing: false,
+        };
+        config.validate("/");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_mount_config_validate_mount_point_api() {
+        let config = MountConfig {
+            path: env!("CARGO_MANIFEST_DIR").into(),
+            index: None,
+            listing: false,
+        };
+        config.validate("/api");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_mount_config_validate_mount_point_events() {
+        let config = MountConfig {
+            path: env!("CARGO_MANIFEST_DIR").into(),
+            index: None,
+            listing: false,
+        };
+        config.validate("/events");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_mount_config_validate_mount_point_starts_with_slash() {
+        let config = MountConfig {
+            path: env!("CARGO_MANIFEST_DIR").into(),
+            index: None,
+            listing: false,
+        };
+        config.validate("foobar");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_mount_config_validate_mount_point_ends_with_slash() {
+        let config = MountConfig {
+            path: env!("CARGO_MANIFEST_DIR").into(),
+            index: None,
+            listing: false,
+        };
+        config.validate("/foobar/");
     }
 
     #[test]

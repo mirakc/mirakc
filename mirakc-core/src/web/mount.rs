@@ -36,6 +36,10 @@ where
     let template = load_template(config);
     let mut router = router;
     for (mount_point, mount) in config.server.mounts.iter() {
+        // We assume that the following conditions are met.
+        // And we simply use `format!()` for formatting a URL.
+        debug_assert!(mount_point.starts_with('/'));
+        debug_assert!(!mount_point.ends_with('/'));
         router = mount_entry(template.clone(), router, mount_point, mount);
     }
     router
