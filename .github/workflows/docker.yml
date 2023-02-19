@@ -59,12 +59,22 @@ jobs:
               TAGS="$TAGS,$IMAGE:latest"
             fi
           fi
+          if [ "$VERSION" = main ]
+          then
+            TOOLS_TAG=${{ matrix.distro }}
+          else
+            MAJOR=$(echo "$VERSION" | cut -d '.' -f 1)
+            MINOR=$(echo "$VERSION" | cut -d '.' -f 2)
+            TOOLS_TAG="${{ matrix.distro }}-${MAJOR}.${MINOR}"
+          fi
           echo "Version: $VERSION"
           echo "Main tag: $MAIN_TAG"
           echo "Tags: $TAGS"
+          echo "Tools tag: $TOOLS_TAG"
           echo "version=$VERSION" >>$GITHUB_OUTPUT
           echo "main-tag=$MAIN_TAG" >>$GITHUB_OUTPUT
           echo "tags=$TAGS" >>$GITHUB_OUTPUT
+          echo "tools-tag=$TOOLS_TAG" >>$GITHUB_OUTPUT
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v2
       - name: Setup Docker Buildx
@@ -92,6 +102,8 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.${{ matrix.distro }}
+          build-args: |
+            TOOLS_TAG=${{ steps.docker-tags.outputs.tools-tag }}
           target: mirakc
           platforms: ${{ matrix.platforms }}
           tags: ${{ format(steps.docker-tags.outputs.tags, 'mirakc/mirakc') }}
@@ -105,6 +117,8 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.${{ matrix.distro }}
+          build-args: |
+            TOOLS_TAG=${{ steps.docker-tags.outputs.tools-tag }}
           target: mirakc-timeshift-fs
           platforms: ${{ matrix.platforms }}
           tags: ${{ format(steps.docker-tags.outputs.tags, 'mirakc/timeshift-fs') }}

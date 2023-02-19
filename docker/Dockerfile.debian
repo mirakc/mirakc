@@ -10,7 +10,9 @@
 #   TARGETARCH
 #   TARGETVARIANT
 
-FROM mirakc/tools:debian AS mirakc-tools
+ARG TOOLS_TAG=debian
+
+FROM mirakc/tools:$TOOLS_TAG AS mirakc-tools
 
 FROM mirakc/buildenv:debian-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 COPY . ./
