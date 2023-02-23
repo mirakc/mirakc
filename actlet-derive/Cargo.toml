@@ -12,7 +12,7 @@ proc-macro = true
 [dependencies]
 proc-macro2 = "1.0.51"
 quote = "1.0.23"
-syn = "1.0.107"
+syn = "1.0.108"
 
 [dev-dependencies]
 actlet = { path = "../actlet" }
