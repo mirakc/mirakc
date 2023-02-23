@@ -7,12 +7,13 @@ CURRENT=$(cargo metadata --no-deps --format-version=1 | \
             jq -r '.packages[] | select(.name == "mirakc") | .version')
 
 COMMIT=YES
+TAG=YES
 PREID=
 
 help() {
     cat <<EOF >&2
 USAGE:
-  $PROGNAME [--no-commit] [--preid <preid>] (major|minor|patch)
+  $PROGNAME [--no-commit] [--no-tag] [--preid <preid>] (major|minor|patch)
   $PROGNAME -h | --help
 
 OPTIONS:
@@ -52,6 +53,10 @@ do
       ;;
     '--no-commit')
       COMMIT=NO
+      shift
+      ;;
+    '--no-tag')
+      TAG=NO
       shift
       ;;
     '--preid')
@@ -108,7 +113,7 @@ fi
 
 # TODO: Genereate CHANGELOG.md
 
-if [ "$COMMIT" = YES ]
+if [ "$TAG" = YES ]
 then
   log "Making an annotated tag for $VERSION..."
   git tag -a "$VERSION" -m "release: $VERSION"
