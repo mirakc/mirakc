@@ -106,7 +106,7 @@ where
     let service = ServeDir::new(&mount.path)
         .append_index_html_on_directories(false)
         .fallback(ListingService::new(template, mount_point, mount));
-    Router::new().fallback_service(routing::get_service(service).handle_error(convert_error))
+    Router::new().fallback_service(routing::get_service(service))
 }
 
 fn mount_file<T, E, R, S, O>(mount: &MountConfig) -> Router<Arc<AppState<T, E, R, S, O>>>
@@ -118,7 +118,7 @@ where
     O: Send + Sync + 'static,
 {
     let service = ServeFile::new_with_mime(&mount.path, &mime::TEXT_HTML_UTF_8);
-    Router::new().fallback_service(routing::get_service(service).handle_error(convert_error))
+    Router::new().fallback_service(routing::get_service(service))
 }
 
 #[derive(Clone)]
@@ -140,7 +140,7 @@ impl ListingService {
 
 impl Service<Request<Body>> for ListingService {
     type Response = Response;
-    type Error = std::io::Error;
+    type Error = std::convert::Infallible;
     // `BoxFuture` is a type alias for `Pin<Box<dyn Future + Send + 'a>>`
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -246,10 +246,6 @@ fn iter_entries<P: AsRef<Path>>(path: P) -> impl Iterator<Item = walkdir::DirEnt
         .into_iter()
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.depth() != 0) // remove the root
-}
-
-async fn convert_error(err: std::io::Error) -> Error {
-    err.into()
 }
 
 // <coverage:exclude>
