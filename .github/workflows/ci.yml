@@ -16,9 +16,3 @@ jobs:
   cross-build:
     uses: mirakc/mirakc/.github/workflows/cross-build.yml@main
     secrets: inherit
-  coverage:
-    needs:
-      - build
-      - cross-build
-    uses: mirakc/mirakc/.github/workflows/coverage.yml@main
-    secrets: inherit

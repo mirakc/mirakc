@@ -1,12 +1,18 @@
 name: coverage
 
 on:
-  workflow_call:
+  workflow_run:
+    workflows:
+      - ci
+      - pull-request
+    types:
+      - completed
 
 jobs:
   coverage:
     runs-on: ubuntu-latest
-    continue-on-error: true
+    if: |
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
@@ -55,7 +61,7 @@ jobs:
           --excl-br-start '<coverage:exclude>'
           --excl-br-stop '</coverage:exclude>'
           -t lcov -o lcov.info
-      - name: Update to codecov.io
+      - name: Upload to codecov.io
         uses: codecov/codecov-action@v3
         with:
           files: lcov.info
