@@ -1,25 +1,14 @@
 name: coverage
 
 on:
-  workflow_run:
-    workflows:
-      - ci
-      - pull-request
-    types:
-      - completed
+  workflow_call:
 
 jobs:
   coverage:
     runs-on: ubuntu-latest
-    if: |
-      github.event.workflow_run.conclusion == 'success'
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v3
-        with:
-          # We have to specify head_sha explicitly.
-          # Because GITHUB_SHA points to the last commit on the default branch.
-          # See https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflow_run
-          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Clean
         run: |
