@@ -108,7 +108,7 @@ cargo update -w
 if [ "$COMMIT" = YES ]
 then
   git add .
-  git commit -m "misc: bump version to $VERSION"
+  git commit -m "release: bump version to $VERSION"
 fi
 
 # TODO: Genereate CHANGELOG.md
