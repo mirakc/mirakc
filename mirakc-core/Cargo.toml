@@ -35,7 +35,7 @@ reqwest-eventsource = "0.4.0"
 serde = { version = "1.0.152", features = ["derive", "rc"] }
 serde_json = { version = "1.0.93", features = ["preserve_order"] }
 serde_yaml = "0.9.17"
-serde_qs = "0.11.0"
+serde_qs = "0.12.0"
 shell-words = "1.1.0"
 smallstr = { version = "0.3.0", features = ["serde"] }
 thiserror = "1.0.38"
