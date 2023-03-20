@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 actlet = { path = "../actlet" }
 anyhow = "1.0.69"
-async-trait = "0.1.66"
+async-trait = "0.1.67"
 atty = "0.2.14"
 axum = { version = "0.6.11", features = ["http2", "headers"] }
 bytes = "1.4.0"
