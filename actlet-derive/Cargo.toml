@@ -10,7 +10,7 @@ publish = false
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0.52"
+proc-macro2 = "1.0.53"
 quote = "1.0.26"
 syn = "1.0.109"
 
