@@ -10,7 +10,7 @@ use crate::recording::RecordingSchedule;
     path = "/recording/schedules",
     responses(
         (status = 200, description = "OK", body = [WebRecordingSchedule]),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getRecordingSchedules",
 )]
@@ -41,7 +41,7 @@ where
     responses(
         (status = 200, description = "OK", body = WebRecordingSchedule),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getRecordingSchedule",
 )]
@@ -67,7 +67,7 @@ where
         (status = 201, description = "Created", body = WebRecordingSchedule),
         (status = 401, description = "Bad Request"),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "createRecordingSchedule",
 )]
@@ -104,7 +104,7 @@ where
         (status = 200, description = "OK"),
         (status = 401, description = "Bad Request"),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "deleteRecordingSchedule",
 )]
@@ -142,7 +142,7 @@ where
     ),
     responses(
         (status = 200, description = "OK"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "deleteRecordingSchedules",
 )]

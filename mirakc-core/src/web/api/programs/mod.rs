@@ -16,7 +16,7 @@ use crate::onair;
     path = "/programs",
     responses(
         (status = 200, description = "OK", body = [MirakurunProgram]),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     // Specifying a correct operation ID is needed for working with
     // mirakurun.Client properly.
@@ -64,7 +64,7 @@ where
     responses(
         (status = 200, description = "OK", body = [MirakurunProgram]),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     // Specifying a correct operation ID is needed for working with
     // mirakurun.Client properly.

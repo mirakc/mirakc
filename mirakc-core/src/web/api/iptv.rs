@@ -13,12 +13,13 @@ use crate::string_table::StringTable;
 use crate::web::api::stream::determine_stream_content_type;
 use crate::web::escape::escape;
 
-/// Get a M3U8 playlist containing all available services.
+/// Get an M3U8 playlist containing all available services.
 #[utoipa::path(
     get,
     path = "/iptv/playlist",
     responses(
         (status = 200, description = "OK", content_type = "application/x-mpegURL", body = String),
+        (status = 500, description = "Internal Server Error"),
     ),
 )]
 pub(super) async fn playlist<E>(
@@ -125,6 +126,7 @@ where
     path = "/iptv/epg",
     responses(
         (status = 200, description = "OK", content_type = "application/xml", body = String),
+        (status = 500, description = "Internal Server Error"),
     ),
 )]
 pub(super) async fn epg<E>(
@@ -149,6 +151,7 @@ where
     path = "/iptv/xmltv",
     responses(
         (status = 200, description = "OK", content_type = "application/xml", body = String),
+        (status = 500, description = "Internal Server Error"),
     ),
 )]
 pub(super) async fn xmltv<E>(

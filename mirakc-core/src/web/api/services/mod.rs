@@ -8,7 +8,7 @@ use super::*;
     path = "/services",
     responses(
         (status = 200, description = "OK", body = [MirakurunService]),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     // Specifying a correct operation ID is needed for working with
     // mirakurun.Client properly.
@@ -45,7 +45,7 @@ where
     responses(
         (status = 200, description = "OK", body = MirakurunService),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     // Specifying a correct operation ID is needed for working with
     // mirakurun.Client properly.
@@ -78,8 +78,8 @@ where
     responses(
         (status = 200, description = "OK", content_type = "image/png"),
         (status = 404, description = "Not Found"),
+        (status = 500, description = "Internal Server Error"),
         (status = 503, description = "Logo Data Unavailable"),
-        (status = 505, description = "Internal Server Error"),
     ),
     // Specifying a correct operation ID is needed for working with
     // mirakurun.Client properly.
@@ -120,7 +120,7 @@ where
     responses(
         (status = 200, description = "OK", body = [MirakurunProgram]),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getProgramsOfService",
 )]

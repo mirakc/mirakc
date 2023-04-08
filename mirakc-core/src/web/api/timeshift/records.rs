@@ -15,7 +15,7 @@ use crate::web::api::stream::streaming;
     responses(
         (status = 200, description = "OK", body = [WebTimeshiftRecord]),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getTimeshiftRecords",
 )]
@@ -51,7 +51,7 @@ where
     responses(
         (status = 200, description = "OK", body = WebTimeshiftRecord),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getTimeshiftRecord",
 )]
@@ -85,8 +85,8 @@ where
     responses(
         (status = 200, description = "OK"),
         (status = 404, description = "Not Found"),
+        (status = 500, description = "Internal Server Error"),
         (status = 503, description = "Tuner Resource Unavailable"),
-        (status = 505, description = "Internal Server Error"),
     ),
     operation_id = "getTimeshiftRecordStream",
 )]

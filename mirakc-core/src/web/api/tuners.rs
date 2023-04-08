@@ -6,7 +6,7 @@ use super::*;
     path = "/tuners",
     responses(
         (status = 200, description = "OK", body = [MirakurunTuner]),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     // Specifying a correct operation ID is needed for working with
     // mirakurun.Client properly.
@@ -35,7 +35,7 @@ where
     responses(
         (status = 200, description = "OK", body = MirakurunTuner),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     // Specifying a correct operation ID is needed for working with
     // mirakurun.Client properly.

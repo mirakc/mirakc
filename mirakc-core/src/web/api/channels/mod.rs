@@ -9,7 +9,7 @@ use super::*;
     path = "/channels",
     responses(
         (status = 200, description = "OK", body = [MirakurunChannel]),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     // Specifying a correct operation ID is needed for working with
     // mirakurun.Client properly.

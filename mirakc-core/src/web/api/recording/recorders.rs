@@ -8,7 +8,7 @@ use crate::recording::RecordingSchedule;
     path = "/recording/recorders",
     responses(
         (status = 200, description = "OK", body = [WebRecordingRecorder]),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getRecorders",
 )]
@@ -38,7 +38,7 @@ where
     responses(
         (status = 200, description = "OK", body = WebRecordingRecorder),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getRecorder",
 )]
@@ -68,7 +68,7 @@ where
         (status = 201, description = "Created"),
         (status = 401, description = "Bad Request"),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "startRecording",
 )]
@@ -111,7 +111,7 @@ where
         (status = 201, description = "Created"),
         (status = 401, description = "Bad Request"),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "stopRecording",
 )]

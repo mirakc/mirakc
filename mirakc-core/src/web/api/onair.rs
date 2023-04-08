@@ -8,7 +8,7 @@ use crate::onair;
     path = "/onair",
     responses(
         (status = 200, description = "OK", body = [WebOnairProgram]),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getOnairPrograms",
 )]
@@ -41,7 +41,7 @@ where
     responses(
         (status = 200, description = "OK", body = [WebOnairProgram]),
         (status = 404, description = "Not Found"),
-        (status = 505, description = "Internal Server Error"),
+        (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getOnairProgram",
 )]

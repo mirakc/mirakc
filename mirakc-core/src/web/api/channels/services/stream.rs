@@ -21,8 +21,8 @@ use crate::web::api::stream::do_head_stream;
          ),
         ),
         (status = 404, description = "Not Found"),
+        (status = 500, description = "Internal Server Error"),
         (status = 503, description = "Tuner Resource Unavailable"),
-        (status = 505, description = "Internal Server Error"),
     ),
     // Specifying a correct operation ID is needed for working with
     // mirakurun.Client properly.
@@ -77,8 +77,8 @@ where
          ),
         ),
         (status = 404, description = "Not Found"),
+        (status = 500, description = "Internal Server Error"),
         (status = 503, description = "Tuner Resource Unavailable"),
-        (status = 505, description = "Internal Server Error"),
     ),
 )]
 pub(in crate::web::api) async fn head<E>(
