@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-clap = { version = "4.2.1", features = ["derive", "env"] }
+clap = { version = "4.2.2", features = ["derive", "env"] }
 fuser = { version = "0.12.0", default-features = false, features = ["abi-7-31"] }
 indexmap = { version = "1.9.3", features = ["serde-1"] }
 libc = "0.2.141"
