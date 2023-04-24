@@ -1,3 +1,0 @@
-[profile.default]
-status-level = "fail"
-fail-fast = false
