@@ -974,7 +974,7 @@ pub struct LocalOnairProgramTrackerConfig {
 
 impl LocalOnairProgramTrackerConfig {
     pub fn default_command() -> String {
-        "mirakc-arib collect-eitpf --sids={{{sid}}}".to_string()
+        "timeout 5s mirakc-arib collect-eitpf --sids={{{sid}}}".to_string()
     }
 
     fn validate(&self, name: &str) {

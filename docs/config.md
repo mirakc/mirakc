@@ -813,7 +813,7 @@ The following properties can be specified:
   * A list of service IDs that the local tracker handles
 * excluded-services (default: an empty list)
   * A list of service IDs that then local tracker doesn't handles
-* command (default: `mirakc-arib collect-eitpf --sids={{{sid}}}`)
+* command (default: `timeout 5s mirakc-arib collect-eitpf --sids={{{sid}}}`)
   * A Mustache template string of a command which collects EIT[p/f] sections in
     NDJSON from a TS stream
   * See the description of `mirakc-arib collect-eitpf -h` for details of the
