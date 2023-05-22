@@ -273,7 +273,7 @@ impl EpgGenre {
 
 // user
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum TunerUserInfo {
     Job { name: String },
     OnairProgramTracker(String),
@@ -322,7 +322,7 @@ impl fmt::Display for TunerUserInfo {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct TunerUserPriority(i32);
 
 impl TunerUserPriority {
@@ -347,7 +347,7 @@ impl fmt::Display for TunerUserPriority {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct TunerUser {
     pub info: TunerUserInfo,
     pub priority: TunerUserPriority,

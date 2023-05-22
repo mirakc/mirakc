@@ -264,6 +264,8 @@ impl TunerManager {
         }
     }
 
+    // Template variables regarding TunerUser are not specified
+    // because a tuner filter is shared between users.
     fn make_filter_command(
         tuner: &Tuner,
         channel: &EpgChannel,
@@ -823,6 +825,29 @@ mod tests {
     use crate::command_util::Error as CommandUtilError;
     use assert_matches::assert_matches;
 
+    #[test]
+    fn test_make_filter_command() {
+        let config = create_config("true".to_string());
+        let tuner = Tuner::new(0, &config, None);
+        let channel = channel_gr!("name", "channel");
+
+        assert_matches!(TunerManager::make_filter_command(&tuner, &channel, "{{tuner_index}}"), Ok(cmd) => {
+            assert_eq!(cmd, "0");
+        });
+        assert_matches!(TunerManager::make_filter_command(&tuner, &channel, "{{tuner_name}}"), Ok(cmd) => {
+            assert_eq!(cmd, "tuner");
+        });
+        assert_matches!(TunerManager::make_filter_command(&tuner, &channel, "{{channel_name}}"), Ok(cmd) => {
+            assert_eq!(cmd, "name");
+        });
+        assert_matches!(TunerManager::make_filter_command(&tuner, &channel, "{{channel_type}}"), Ok(cmd) => {
+            assert_eq!(cmd, "GR");
+        });
+        assert_matches!(TunerManager::make_filter_command(&tuner, &channel, "{{channel}}"), Ok(cmd) => {
+            assert_eq!(cmd, "channel");
+        });
+    }
+
     #[tokio::test]
     async fn test_start_streaming() {
         let system = System::new();
@@ -1099,7 +1124,7 @@ mod tests {
 
     fn create_config(command: String) -> TunerConfig {
         TunerConfig {
-            name: String::new(),
+            name: "tuner".to_string(),
             channel_types: vec![ChannelType::GR],
             command,
             time_limit: 10 * 1000,
@@ -1110,23 +1135,11 @@ mod tests {
     }
 
     fn create_channel(channel: &str) -> EpgChannel {
-        EpgChannel {
-            name: "".to_string(),
-            channel_type: ChannelType::GR,
-            channel: channel.to_string(),
-            extra_args: "".to_string(),
-            services: vec![],
-            excluded_services: vec![],
-        }
+        channel_gr!("", channel)
     }
 
     fn create_user(priority: TunerUserPriority) -> TunerUser {
-        TunerUser {
-            info: TunerUserInfo::Job {
-                name: "test".to_string(),
-            },
-            priority,
-        }
+        tuner_user!(priority, job; "test")
     }
 }
 

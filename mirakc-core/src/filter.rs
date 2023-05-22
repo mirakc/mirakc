@@ -133,3 +133,51 @@ impl FilterPipelineBuilder {
             .to_string())
     }
 }
+
+// <coverage:exclude>
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_matches::assert_matches;
+
+    #[test]
+    fn test_make_filter() {
+        let channel = channel_gr!("test", "channel");
+        let user = tuner_user!(0, web; "user-id");
+
+        let data = mustache::MapBuilder::new()
+            .insert_str("channel_name", &channel.name)
+            .insert("channel_type", &channel.channel_type)
+            .unwrap()
+            .insert_str("channel", &channel.channel)
+            .insert("user", &user)
+            .unwrap()
+            .build();
+
+        let builder = FilterPipelineBuilder::new(data);
+
+        assert_matches!(builder.make_filter("{{channel_name}}"), Ok(cmd) => {
+            assert_eq!(cmd, "test");
+        });
+        assert_matches!(builder.make_filter("{{channel_type}}"), Ok(cmd) => {
+            assert_eq!(cmd, "GR");
+        });
+        assert_matches!(builder.make_filter("{{channel}}"), Ok(cmd) => {
+            assert_eq!(cmd, "channel");
+        });
+        assert_matches!(builder.make_filter("{{#user}}{{priority}}{{/user}}"), Ok(cmd) => {
+            assert_eq!(cmd, "0");
+        });
+        // rust-mustache seems to support directly accessing properties.
+        assert_matches!(builder.make_filter("{{user.priority}}"), Ok(cmd) => {
+            assert_eq!(cmd, "0");
+        });
+        assert_matches!(builder.make_filter("{{user.info.Web.id}}"), Ok(cmd) => {
+            assert_eq!(cmd, "user-id");
+        });
+        assert_matches!(builder.make_filter("{{^user.info.Job}}not job{{/user.info.Job}}"), Ok(cmd) => {
+            assert_eq!(cmd, "not job");
+        });
+    }
+}
+// </coverage:exclude>

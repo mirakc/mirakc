@@ -493,6 +493,11 @@ with the following template data:
   * The `type` property of a channel defined in the `channels`
 * channel
   * The `channel` property of a channel defined in the `channels`
+* user
+  * Contains information about a user of the stream
+  * Available only for filters except for the tuner-filter
+  * See `test_make_filter()` in [//mirakc-core/src/filter.rs](../mirakc-core/src/filter.rs)
+    about how to use it
 * sid
   * The 16-bit integer identifier of a service (SID)
   * Available only for the service streaming, the program streaming and the record streaming

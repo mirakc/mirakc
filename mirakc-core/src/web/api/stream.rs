@@ -52,6 +52,7 @@ where
         .insert_str("channel_name", &channel.name)
         .insert("channel_type", &channel.channel_type)?
         .insert_str("channel", &channel.channel)
+        .insert("user", &user)?
         .insert("sid", &sid.value())?
         .build();
 

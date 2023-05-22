@@ -23,6 +23,68 @@ macro_rules! tuner {
         }
     };
 }
+
+macro_rules! tuner_user {
+    ($prio:expr, job; $name:expr) => {
+        crate::models::TunerUser {
+            info: tuner_user_info!(job; $name),
+            priority: $prio.into(),
+        }
+    };
+    ($prio:expr, onair; $name:expr) => {
+        crate::models::TunerUser {
+            info: tuner_user_info!(onair; $name),
+            priority: $prio.into(),
+        }
+    };
+    ($prio:expr, recorder; $name:expr) => {
+        crate::models::TunerUser {
+            info: tuner_user_info!(recorder; $name),
+            priority: $prio.into(),
+        }
+    };
+    ($prio:expr, web; $id:expr) => {
+        crate::models::TunerUser {
+            info: tuner_user_info!(web; $id),
+            priority: $prio.into(),
+        }
+    };
+    ($prio:expr, web; $id:expr, $agent:expr) => {
+        crate::models::TunerUser {
+            info: tuner_user_info!(web; $id, $agent),
+            priority: $prio,
+        }
+    };
+}
+
+macro_rules! tuner_user_info {
+    (job; $name:expr) => {
+        crate::models::TunerUserInfo::Job {
+            name: $name.to_string(),
+        }
+    };
+    (onair; $name:expr) => {
+        crate::models::TunerUserInfo::OnairProgramTracker($name.to_string())
+    };
+    (recorder; $name:expr) => {
+        crate::models::TunerUserInfo::Recorder {
+            name: $name.to_string(),
+        }
+    };
+    (web; $id:expr) => {
+        crate::models::TunerUserInfo::Web {
+            id: $id.to_string(),
+            agent: None,
+        }
+    };
+    (web; $id:expr, $agent:expr) => {
+        crate::models::TunerUserInfo::Web {
+            id: $id.to_string(),
+            agent: Some($agent.to_string()),
+        }
+    };
+}
+
 macro_rules! channel {
     ($name:expr, $channel_type:expr, $channel:expr) => {
         crate::epg::EpgChannel {

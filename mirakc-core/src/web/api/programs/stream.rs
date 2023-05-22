@@ -94,6 +94,7 @@ where
         .insert_str("channel_name", &service.channel.name)
         .insert("channel_type", &service.channel.channel_type)?
         .insert_str("channel", &service.channel.channel)
+        .insert("user", &user)?
         .insert("sid", &program.id.sid().value())?
         .insert("eid", &program.id.eid().value())?
         .insert("clock_pid", &clock.pid)?
