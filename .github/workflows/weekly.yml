@@ -12,8 +12,6 @@ jobs:
         with:
           # Always checkout the release branch.
           ref: release
-          # Use PAT in order to invoke other workflows.
-          token: ${{ secrets.BOT_GITHUB_TOKEN }}
           # Fetch all history for all tags and branches so that `git describe`
           # works properly.
           fetch-depth: 0
