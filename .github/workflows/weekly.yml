@@ -20,9 +20,9 @@ jobs:
         run: |
           # https://github.com/orgs/community/discussions/26560#discussioncomment-3252339
           BOT_NAME='github-actions[bot]'
-          GOT_ID=$(curl https://api.github.com/users/$(echo -n github-actions[bot] | jq -sRr '@uri') -sG | jq -r '.id')
+          BOT_ID="$(curl https://api.github.com/users/$(echo -n github-actions[bot] | jq -sRr '@uri') -sG | jq -r '.id')"
           git config user.name "$BOT_NAME"
-          git config user.email $BOT_ID+$BOT_NAME@users.noreply.github.com"
+          git config user.email "$BOT_ID+$BOT_NAME@users.noreply.github.com"
       - run: |
           TAG="$(git describe --tags --abbrev=0)"
           if git diff --quiet "$TAG"
