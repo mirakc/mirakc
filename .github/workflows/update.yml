@@ -46,6 +46,8 @@ jobs:
         if: inputs.ref-name == 'main'
         run: |
           ./scripts/update-mirakc-arib
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Push if changed
         run: |
           if git diff --quiet origin/${{ inputs.ref-name }}..HEAD

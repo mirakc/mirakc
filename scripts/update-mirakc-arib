@@ -11,8 +11,7 @@ fi
 
 CURRENT=$(grep 'MIRAKC_ARIB_VERSION=' $TARGET_FILE | cut -d '=' -f 2 | tr -d '"')
 
-URL='https://api.github.com/repos/mirakc/mirakc-arib/tags'
-VERSION="$(curl -fsSL $URL | jq -r '.[0].name')"
+VERSION="$(gh api repos/mirakc/mirakc-arib/tags --jq '.[0].name')"
 
 TEMP_FILE=$(mktemp)
 trap "rm -f $TEMP_FILE" EXIT INT TERM
