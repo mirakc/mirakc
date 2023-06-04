@@ -96,6 +96,7 @@ if git diff --quiet -- $TARGET_FILE
 then
   echo "Not changed"
 else
+  echo "Updated"
   git add $TARGET_FILE
   git commit -m "build: update $TARGET_FILE"
 fi

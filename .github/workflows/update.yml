@@ -9,7 +9,7 @@ on:
     outputs:
       num-commits:
         description: >-
-          The number of commits made in this workflow.
+          The number of commits made within 24 hours.
         value: ${{ jobs.update.outputs.num-commits }}
 
 jobs:
@@ -45,7 +45,12 @@ jobs:
       - name: Update mirakc-arib
         if: inputs.ref-name == 'main'
         run: |
+          LAST_COMMIT=$(git rev-parse HEAD)
           ./scripts/update-mirakc-arib
+          if [ "$(git rev-parse HEAD)" != "$LAST_COMMIT" ]
+          then
+            ./scripts/update-tools-images --push
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Push if changed
