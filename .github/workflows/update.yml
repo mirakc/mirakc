@@ -18,16 +18,15 @@ jobs:
     outputs:
       num-commits: ${{ steps.count.outputs.num-commits }}
     steps:
+      - uses: raven-actions/bot-details@v1
+        id: bot-details
       - uses: actions/checkout@v3
         with:
           ref: ${{ inputs.ref-name }}
       - name: git config
         run: |
-          # https://github.com/orgs/community/discussions/26560#discussioncomment-3252339
-          BOT_NAME='github-actions[bot]'
-          BOT_ID="$(curl https://api.github.com/users/$(echo -n github-actions[bot] | jq -sRr '@uri') -sG | jq -r '.id')"
-          git config user.name "$BOT_NAME"
-          git config user.email "$BOT_ID+$BOT_NAME@users.noreply.github.com"
+          git config user.name "${{ steps.bot-details.outputs.name }}"
+          git config user.email "${{ steps.bot-details.outputs.email }}"
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v2
       - name: Setup Docker Buildx
