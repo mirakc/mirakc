@@ -190,172 +190,123 @@ impl<T> Epg<T> {
             .map(EpgChannel::from)
             .collect();
 
-        match self.config.epg.cache_dir {
-            Some(ref cache_dir) => {
-                let json_path = cache_dir.join("services.json");
-                tracing::debug!(path = %json_path.display(), "Loading schedules...");
-                let reader = BufReader::new(File::open(&json_path)?);
-                let services: Vec<(ServiceId, EpgService)> = serde_json::from_reader(reader)?;
-                // Drop a service if the channel of the service has been
-                // changed.
-                let iter = services.into_iter().filter(|(_, service)| {
-                    let not_changed = channels.iter().any(|ch| ch == &service.channel);
-                    if !not_changed {
-                        // if changed
-                        tracing::debug!(%service.id, "Drop the service due to changes of the channel config");
-                    }
-                    not_changed
-                });
-                self.services = Arc::new(IndexMap::from_iter(iter));
-                tracing::info!(services.len = self.services.len(), "Loaded services");
-            }
-            None => {
-                if !crate::timeshift::is_rebuild_mode() {
-                    tracing::warn!("No epg.cache-dir specified, skip to load services.json");
+        if let Some(ref cache_dir) = self.config.epg.cache_dir {
+            let json_path = cache_dir.join("services.json");
+            tracing::debug!(path = %json_path.display(), "Loading schedules...");
+            let reader = BufReader::new(File::open(&json_path)?);
+            let services: Vec<(ServiceId, EpgService)> = serde_json::from_reader(reader)?;
+            // Drop a service if the channel of the service has been changed.
+            let iter = services.into_iter().filter(|(_, service)| {
+                let not_changed = channels.iter().any(|ch| ch == &service.channel);
+                if !not_changed {
+                    // if changed
+                    tracing::debug!(
+                        %service.id,
+                        "Drop the service due to changes of the channel config"
+                    );
                 }
-            }
+                not_changed
+            });
+            self.services = Arc::new(IndexMap::from_iter(iter));
+            tracing::info!(services.len = self.services.len(), "Loaded services");
         }
         Ok(())
     }
 
     fn load_clocks(&mut self) -> Result<(), Error> {
-        match self.config.epg.cache_dir {
-            Some(ref cache_dir) => {
-                let json_path = cache_dir.join("clocks.json");
-                tracing::debug!(path = %json_path.display(), "Loading clocks...");
-                let reader = BufReader::new(File::open(&json_path)?);
-                let clocks: Vec<(ServiceId, Clock)> = serde_json::from_reader(reader)?;
-                // Drop a clock if the service ID of the clock is not
-                // contained in `self::services`.
-                let iter = clocks.into_iter().filter(|(service_id, _)| {
-                    let contained = self.services.contains_key(service_id);
-                    if !contained {
-                        tracing::debug!(
-                            service.id = %service_id,
-                            "Drop clock for missing service"
-                        );
-                    }
-                    contained
-                });
-                self.clocks = Arc::new(HashMap::from_iter(iter));
-                tracing::info!(clocks.len = self.clocks.len(), "Loaded clocks");
-            }
-            None => {
-                if !crate::timeshift::is_rebuild_mode() {
-                    tracing::warn!("No epg.cache-dir specified, skip to load clocks.json");
+        if let Some(ref cache_dir) = self.config.epg.cache_dir {
+            let json_path = cache_dir.join("clocks.json");
+            tracing::debug!(path = %json_path.display(), "Loading clocks...");
+            let reader = BufReader::new(File::open(&json_path)?);
+            let clocks: Vec<(ServiceId, Clock)> = serde_json::from_reader(reader)?;
+            // Drop a clock if the service ID of the clock is not contained in `self::services`.
+            let iter = clocks.into_iter().filter(|(service_id, _)| {
+                let contained = self.services.contains_key(service_id);
+                if !contained {
+                    tracing::debug!(
+                        service.id = %service_id,
+                        "Drop clock for missing service"
+                    );
                 }
-            }
+                contained
+            });
+            self.clocks = Arc::new(HashMap::from_iter(iter));
+            tracing::info!(clocks.len = self.clocks.len(), "Loaded clocks");
         }
         Ok(())
     }
 
     fn load_schedules(&mut self) -> Result<(), Error> {
         let today = Jst::today();
-        match self.config.epg.cache_dir {
-            Some(ref cache_dir) => {
-                let json_path = cache_dir.join("schedules.json");
-                tracing::debug!(path = %json_path.display(), "Loading schedules...");
-                let reader = BufReader::new(File::open(&json_path)?);
-                let schedules: Vec<(ServiceId, Box<EpgSchedule>)> =
-                    serde_json::from_reader(reader)?;
-                // Drop a clock if the service ID of the clock is not
-                // contained in `self::services`.
-                let iter = schedules
-                    .into_iter()
-                    .filter(|(service_id, _)| {
-                        let contained = self.services.contains_key(service_id);
-                        if !contained {
-                            tracing::debug!(
-                                service.id = %service_id,
-                                "Drop schedule for missing service"
-                            );
-                        }
-                        contained
-                    })
-                    .map(|(service_id, mut sched)| {
-                        sched.update_start_index(today);
-                        (service_id, sched)
-                    });
-                self.schedules = HashMap::from_iter(iter);
-                tracing::info!(schedules.len = self.schedules.len(), "Loaded schedules");
-            }
-            None => {
-                if !crate::timeshift::is_rebuild_mode() {
-                    tracing::warn!("No epg.cache-dir specified, skip to load schedules.json");
-                }
-            }
+        if let Some(ref cache_dir) = self.config.epg.cache_dir {
+            let json_path = cache_dir.join("schedules.json");
+            tracing::debug!(path = %json_path.display(), "Loading schedules...");
+            let reader = BufReader::new(File::open(&json_path)?);
+            let schedules: Vec<(ServiceId, Box<EpgSchedule>)> = serde_json::from_reader(reader)?;
+            // Drop a clock if the service ID of the clock is not contained in `self::services`.
+            let iter = schedules
+                .into_iter()
+                .filter(|(service_id, _)| {
+                    let contained = self.services.contains_key(service_id);
+                    if !contained {
+                        tracing::debug!(
+                            service.id = %service_id,
+                            "Drop schedule for missing service"
+                        );
+                    }
+                    contained
+                })
+                .map(|(service_id, mut sched)| {
+                    sched.update_start_index(today);
+                    (service_id, sched)
+                });
+            self.schedules = HashMap::from_iter(iter);
+            tracing::info!(schedules.len = self.schedules.len(), "Loaded schedules");
         }
         Ok(())
     }
 
     fn save_services(&self) {
-        match self.config.epg.cache_dir {
-            Some(ref cache_dir) => {
-                // Serialize as a list of tuples in order to avoid failures in
-                // serialization to JSON.
-                //
-                // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
-                // but we simply create `Vec<(&K, &V)>` in order to reduce
-                // maintenance cost.
-                let services = self.services.iter().collect_vec();
-                if file_util::save_json(&services, cache_dir.join("services.json")) {
-                    tracing::info!(services.len = self.services.len(), "Saved services");
-                } else {
-                    tracing::error!("Failed to save services");
-                }
-            }
-            None => {
-                if !crate::timeshift::is_rebuild_mode() {
-                    tracing::warn!("No epg.cache-dir specified, skip to save services");
-                }
+        if let Some(ref cache_dir) = self.config.epg.cache_dir {
+            // Serialize as a list of tuples in order to avoid failures in serialization to JSON.
+            //
+            // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
+            // but we simply create `Vec<(&K, &V)>` in order to reduce maintenance cost.
+            let services = self.services.iter().collect_vec();
+            if file_util::save_json(&services, cache_dir.join("services.json")) {
+                tracing::info!(services.len = self.services.len(), "Saved services");
+            } else {
+                tracing::error!("Failed to save services");
             }
         }
     }
 
     fn save_clocks(&self) {
-        match self.config.epg.cache_dir {
-            Some(ref cache_dir) => {
-                // Serialize as a list of tuples in order to avoid failures in
-                // serialization to JSON.
-                //
-                // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
-                // but we simply create `Vec<(&K, &V)>` in order to reduce
-                // maintenance cost.
-                let clocks = self.clocks.iter().collect_vec();
-                if file_util::save_json(&clocks, cache_dir.join("clocks.json")) {
-                    tracing::info!(clocks.len = self.clocks.len(), "Saved clocks");
-                } else {
-                    tracing::error!("Failed to save clocks");
-                }
-            }
-            None => {
-                if !crate::timeshift::is_rebuild_mode() {
-                    tracing::warn!("No epg.cache-dir specified, skip to save clocks");
-                }
+        if let Some(ref cache_dir) = self.config.epg.cache_dir {
+            // Serialize as a list of tuples in order to avoid failures in serialization to JSON.
+            //
+            // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
+            // but we simply create `Vec<(&K, &V)>` in order to reduce maintenance cost.
+            let clocks = self.clocks.iter().collect_vec();
+            if file_util::save_json(&clocks, cache_dir.join("clocks.json")) {
+                tracing::info!(clocks.len = self.clocks.len(), "Saved clocks");
+            } else {
+                tracing::error!("Failed to save clocks");
             }
         }
     }
 
     fn save_schedules(&self) {
-        match self.config.epg.cache_dir {
-            Some(ref cache_dir) => {
-                // Serialize as a list of tuples in order to avoid failures in
-                // serialization to JSON.
-                //
-                // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
-                // but we simply create `Vec<(&K, &V)>` in order to reduce
-                // maintenance cost.
-                let schedules = self.schedules.iter().collect_vec();
-                if file_util::save_json(&schedules, cache_dir.join("schedules.json")) {
-                    tracing::info!(schedules.len = self.schedules.len(), "Saved schedules");
-                } else {
-                    tracing::error!("Failed to save schedules");
-                }
-            }
-            None => {
-                if !crate::timeshift::is_rebuild_mode() {
-                    tracing::warn!("No epg.cache-dir specified, skip to save schedules");
-                }
+        if let Some(ref cache_dir) = self.config.epg.cache_dir {
+            // Serialize as a list of tuples in order to avoid failures in serialization to JSON.
+            //
+            // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
+            // but we simply create `Vec<(&K, &V)>` in order to reduce maintenance cost.
+            let schedules = self.schedules.iter().collect_vec();
+            if file_util::save_json(&schedules, cache_dir.join("schedules.json")) {
+                tracing::info!(schedules.len = self.schedules.len(), "Saved schedules");
+            } else {
+                tracing::error!("Failed to save schedules");
             }
         }
     }

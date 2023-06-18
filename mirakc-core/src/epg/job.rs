@@ -212,9 +212,7 @@ where
         // It's guaranteed that no response is sent before initial jobs are invoked.
         tracing::debug!("Started");
         if self.config.jobs.scan_services.disabled {
-            if !crate::timeshift::is_rebuild_mode() {
-                tracing::warn!(job = "scan-services", "Disabled");
-            }
+            // Nothing to do.
         } else if is_fresh(&self.config, "services.json") {
             tracing::debug!(job = "scan-services", "Skip initial scan");
             self.schedule_scan_services(ctx);
@@ -222,9 +220,7 @@ where
             self.scan_services(ctx).await;
         }
         if self.config.jobs.sync_clocks.disabled {
-            if !crate::timeshift::is_rebuild_mode() {
-                tracing::warn!(job = "sync-clocks", "Disabled");
-            }
+            // Nothing to do.
         } else if is_fresh(&self.config, "clocks.json") {
             tracing::debug!(job = "sync-clocks", "Skip initial scan");
             self.schedule_sync_clocks(ctx);
@@ -232,9 +228,7 @@ where
             self.sync_clocks(ctx).await;
         }
         if self.config.jobs.update_schedules.disabled {
-            if !crate::timeshift::is_rebuild_mode() {
-                tracing::warn!(job = "update-schedules", "Disabled");
-            }
+            // Nothing to do.
         } else if is_fresh(&self.config, "schedules.json") {
             tracing::debug!(job = "update-schedules", "Skip initial scan");
             self.schedule_update_schedules(ctx);

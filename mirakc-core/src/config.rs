@@ -167,6 +167,10 @@ impl EpgConfig {
                 cache_dir.is_dir(),
                 "config.epg: `cache_dir` must be a path to an existing directory"
             );
+        } else {
+            if !crate::timeshift::is_rebuild_mode() {
+                tracing::warn!(config = "epg.cache-dir", "Not specified");
+            }
         }
     }
 }
@@ -674,9 +678,9 @@ impl JobsConfig {
     }
 
     fn validate(&self) {
-        self.scan_services.validate("scan_services");
-        self.sync_clocks.validate("sync_clocks");
-        self.update_schedules.validate("update_schedules");
+        self.scan_services.validate("scan-services");
+        self.sync_clocks.validate("sync-clocks");
+        self.update_schedules.validate("update-schedules");
     }
 }
 
@@ -704,7 +708,11 @@ pub struct JobConfig {
 
 impl JobConfig {
     fn validate(&self, name: &str) {
-        if !self.disabled {
+        if self.disabled {
+            if !crate::timeshift::is_rebuild_mode() {
+                tracing::warn!(config = format!("jobs.{}", name), "Disabled");
+            }
+        } else {
             assert!(
                 !self.command.is_empty(),
                 "config.jobs.{}: `command` must be a non-empty string",
