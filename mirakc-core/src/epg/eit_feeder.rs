@@ -93,7 +93,7 @@ where
 // feed eit sections
 
 #[derive(Message)]
-#[reply("Result<(), Error>")]
+#[reply(Result<(), Error>)]
 pub struct FeedEitSections;
 
 #[async_trait]

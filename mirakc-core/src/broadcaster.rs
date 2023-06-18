@@ -240,7 +240,7 @@ where
 // subscribe
 
 #[derive(Message)]
-#[reply("BroadcasterStream")]
+#[reply(BroadcasterStream)]
 pub struct Subscribe {
     pub id: SubscriberId,
     pub max_stuck_time: Duration,
@@ -280,7 +280,7 @@ impl Handler<Unsubscribe> for Broadcaster {
 // broadcast
 
 #[derive(Message)]
-#[reply("()")]
+#[reply()]
 pub struct Broadcast(pub Bytes);
 
 #[async_trait]
@@ -298,7 +298,7 @@ impl Handler<Broadcast> for Broadcaster {
 // min capacity
 
 #[derive(Message)]
-#[reply("usize")]
+#[reply(usize)]
 pub struct MinCapacity;
 
 #[async_trait]

@@ -159,7 +159,7 @@ where
 // query on-air programs
 
 #[derive(Message)]
-#[reply("HashMap<ServiceId, OnairProgram>")]
+#[reply(HashMap<ServiceId, OnairProgram>)]
 pub struct QueryOnairPrograms;
 
 #[async_trait]
@@ -187,7 +187,7 @@ where
 // query on-air program
 
 #[derive(Message)]
-#[reply("Result<OnairProgram, Error>")]
+#[reply(Result<OnairProgram, Error>)]
 pub struct QueryOnairProgram {
     pub service_id: ServiceId,
 }
@@ -220,7 +220,7 @@ where
 // register emitter
 
 #[derive(Message)]
-#[reply("usize")]
+#[reply(usize)]
 pub struct RegisterEmitter(pub Emitter<OnairProgramChanged>);
 
 #[async_trait]
@@ -306,7 +306,7 @@ where
 // spawn temporal local tracker
 
 #[derive(Message)]
-#[reply("()")]
+#[reply()]
 pub struct SpawnTemporalTracker {
     pub service: EpgService,
     pub stream_id: TunerSubscriptionId,

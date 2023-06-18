@@ -22,7 +22,7 @@ impl Handler<Ping> for MyActor {
 }
 
 #[derive(Message)]
-#[reply("usize")]
+#[reply(usize)]
 struct Ping(usize);
 
 #[tokio::main]

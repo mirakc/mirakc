@@ -365,7 +365,7 @@ where
 // query channels
 
 #[derive(Message)]
-#[reply("Vec<MirakurunChannel>")]
+#[reply(Vec<MirakurunChannel>)]
 pub struct QueryChannels;
 
 #[async_trait]
@@ -406,7 +406,7 @@ where
 // query channel
 
 #[derive(Message)]
-#[reply("Result<EpgChannel, Error>")]
+#[reply(Result<EpgChannel, Error>)]
 pub struct QueryChannel {
     pub channel_type: ChannelType,
     pub channel: String,
@@ -442,7 +442,7 @@ where
 // query services
 
 #[derive(Message)]
-#[reply("Arc<IndexMap<ServiceId, EpgService>>")]
+#[reply(Arc<IndexMap<ServiceId, EpgService>>)]
 pub struct QueryServices;
 
 #[async_trait]
@@ -465,7 +465,7 @@ where
 // query service
 
 #[derive(Message)]
-#[reply("Result<EpgService, Error>")]
+#[reply(Result<EpgService, Error>)]
 pub struct QueryService {
     pub service_id: ServiceId,
 }
@@ -493,7 +493,7 @@ where
 // query clock
 
 #[derive(Message)]
-#[reply("Result<Clock, Error>")]
+#[reply(Result<Clock, Error>)]
 pub struct QueryClock {
     pub service_id: ServiceId,
 }
@@ -521,7 +521,7 @@ where
 // query programs
 
 #[derive(Message)]
-#[reply("Arc<IndexMap<Eid, EpgProgram>>")]
+#[reply(Arc<IndexMap<Eid, EpgProgram>>)]
 pub struct QueryPrograms {
     pub service_id: ServiceId,
 }
@@ -549,7 +549,7 @@ where
 // query program
 
 #[derive(Message)]
-#[reply("Result<EpgProgram, Error>")]
+#[reply(Result<EpgProgram, Error>)]
 pub struct QueryProgram {
     pub program_id: ProgramId,
 }
@@ -709,7 +709,7 @@ where
 // register emitter
 
 #[derive(Message)]
-#[reply("usize")]
+#[reply(usize)]
 pub enum RegisterEmitter {
     ServicesUpdated(Emitter<ServicesUpdated>),
     ClocksUpdated(Emitter<ClocksUpdated>),

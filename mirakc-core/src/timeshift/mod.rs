@@ -33,14 +33,14 @@ pub(crate) fn is_rebuild_mode() -> bool {
 // messages
 
 #[derive(Message)]
-#[reply("usize")]
+#[reply(usize)]
 pub struct RegisterEmitter(pub Emitter<TimeshiftEvent>);
 
 #[derive(Message)]
 pub struct UnregisterEmitter(pub usize);
 
 #[derive(Message)]
-#[reply("Result<Vec<TimeshiftRecorderModel>, Error>")]
+#[reply(Result<Vec<TimeshiftRecorderModel>, Error>)]
 pub struct QueryTimeshiftRecorders;
 
 pub enum TimeshiftRecorderQuery {
@@ -49,33 +49,33 @@ pub enum TimeshiftRecorderQuery {
 }
 
 #[derive(Message)]
-#[reply("Result<TimeshiftRecorderModel, Error>")]
+#[reply(Result<TimeshiftRecorderModel, Error>)]
 pub struct QueryTimeshiftRecorder {
     pub recorder: TimeshiftRecorderQuery,
 }
 
 #[derive(Message)]
-#[reply("Result<Vec<TimeshiftRecordModel>, Error>")]
+#[reply(Result<Vec<TimeshiftRecordModel>, Error>)]
 pub struct QueryTimeshiftRecords {
     pub recorder: TimeshiftRecorderQuery,
 }
 
 #[derive(Message)]
-#[reply("Result<TimeshiftRecordModel, Error>")]
+#[reply(Result<TimeshiftRecordModel, Error>)]
 pub struct QueryTimeshiftRecord {
     pub recorder: TimeshiftRecorderQuery,
     pub record_id: TimeshiftRecordId,
 }
 
 #[derive(Message)]
-#[reply("Result<TimeshiftLiveStreamSource, Error>")]
+#[reply(Result<TimeshiftLiveStreamSource, Error>)]
 pub struct CreateTimeshiftLiveStreamSource {
     pub recorder: TimeshiftRecorderQuery,
     pub record_id: Option<TimeshiftRecordId>,
 }
 
 #[derive(Message)]
-#[reply("Result<TimeshiftRecordStreamSource, Error>")]
+#[reply(Result<TimeshiftRecordStreamSource, Error>)]
 pub struct CreateTimeshiftRecordStreamSource {
     pub recorder: TimeshiftRecorderQuery,
     pub record_id: TimeshiftRecordId,
@@ -113,7 +113,7 @@ pub enum TimeshiftEvent {
 // private messages
 
 #[derive(Message)]
-#[reply("()")]
+#[reply()]
 struct HealthCheck;
 
 #[derive(Message)]

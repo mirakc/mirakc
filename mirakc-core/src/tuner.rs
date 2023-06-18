@@ -302,7 +302,7 @@ impl Actor for TunerManager {
 // register emitter
 
 #[derive(Message)]
-#[reply("usize")]
+#[reply(usize)]
 pub struct RegisterEmitter(pub Emitter<Event>);
 
 #[async_trait]
@@ -353,7 +353,7 @@ impl Handler<UnregisterEmitter> for TunerManager {
 // query tuners
 
 #[derive(Message)]
-#[reply("Vec<MirakurunTuner>")]
+#[reply(Vec<MirakurunTuner>)]
 pub struct QueryTuners;
 
 #[async_trait]
@@ -374,7 +374,7 @@ impl Handler<QueryTuners> for TunerManager {
 // query tuner
 
 #[derive(Message)]
-#[reply("Result<MirakurunTuner, Error>")]
+#[reply(Result<MirakurunTuner, Error>)]
 pub struct QueryTuner(pub usize);
 
 #[async_trait]
@@ -395,7 +395,7 @@ impl Handler<QueryTuner> for TunerManager {
 // start streaming
 
 #[derive(Message)]
-#[reply("Result<TunerStream, Error>")]
+#[reply(Result<TunerStream, Error>)]
 pub struct StartStreaming {
     pub channel: EpgChannel,
     pub user: TunerUser,

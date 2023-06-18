@@ -243,7 +243,7 @@ where
 // query recording schedules
 
 #[derive(Message)]
-#[reply("Vec<RecordingSchedule>")]
+#[reply(Vec<RecordingSchedule>)]
 pub struct QueryRecordingSchedules;
 
 #[async_trait]
@@ -295,7 +295,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 // query recording schedule
 
 #[derive(Message)]
-#[reply("Result<RecordingSchedule, Error>")]
+#[reply(Result<RecordingSchedule, Error>)]
 pub struct QueryRecordingSchedule {
     pub program_id: ProgramId,
 }
@@ -336,7 +336,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 // add recording schedule
 
 #[derive(Message)]
-#[reply("Result<RecordingSchedule, Error>")]
+#[reply(Result<RecordingSchedule, Error>)]
 pub struct AddRecordingSchedule {
     pub schedule: RecordingSchedule,
 }
@@ -442,7 +442,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 // remove recording schedule
 
 #[derive(Message)]
-#[reply("Result<RecordingSchedule, Error>")]
+#[reply(Result<RecordingSchedule, Error>)]
 pub struct RemoveRecordingSchedule {
     pub program_id: ProgramId,
 }
@@ -525,7 +525,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 // remove recording schedules
 
 #[derive(Message)]
-#[reply("()")]
+#[reply()]
 pub struct RemoveRecordingSchedules {
     pub target: RemovalTarget,
 }
@@ -617,7 +617,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 // query recording recorders
 
 #[derive(Message)]
-#[reply("Vec<RecorderModel>")]
+#[reply(Vec<RecorderModel>)]
 pub struct QueryRecordingRecorders;
 
 #[async_trait]
@@ -650,7 +650,7 @@ where
 // query recording recorder
 
 #[derive(Message)]
-#[reply("Result<RecorderModel, Error>")]
+#[reply(Result<RecorderModel, Error>)]
 pub struct QueryRecordingRecorder {
     pub program_id: ProgramId,
 }
@@ -685,7 +685,7 @@ where
 // start recording
 
 #[derive(Message)]
-#[reply("Result<(), Error>")]
+#[reply(Result<(), Error>)]
 pub struct StartRecording {
     pub schedule: RecordingSchedule,
 }
@@ -729,7 +729,7 @@ where
 // stop recording
 
 #[derive(Message)]
-#[reply("Result<(), Error>")]
+#[reply(Result<(), Error>)]
 pub struct StopRecording {
     pub program_id: ProgramId,
 }
@@ -1062,7 +1062,7 @@ where
 // register emitter
 
 #[derive(Message)]
-#[reply("usize")]
+#[reply(usize)]
 pub enum RegisterEmitter {
     RecordingStarted(Emitter<RecordingStarted>),
     RecordingStopped(Emitter<RecordingStopped>),
