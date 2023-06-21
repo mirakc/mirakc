@@ -1,9 +1,12 @@
-#!/bin/sh -eu
+#!/bin/sh
+
+set -eu
 
 PROGNAME=$(basename $0)
 BASEDIR=$(cd $(dirname $0); pwd)
 PROJDIR=$(cd $BASEDIR/..; pwd)
 
+REGS='docker.io ghcr.io'
 IMAGE=mirakc/tools
 DISTROS='alpine debian'
 
@@ -36,10 +39,11 @@ ARGUMENTS:
     Optional version number.
 
 DESCRIPTION:
-  This script build $IMAGE images and optionally push them to Docker Hub.
+  This script build $IMAGE images and optionally push them to Docker Hub and
+  GHCR.
 
-  You have to login to Docker Hub by running \`docker login\` when you want to
-  push images to Docker Hub.
+  You have to login to the registries by \`docker login\` before running this
+  script with \`--push\`.
 EOF
   exit 0
 }
@@ -107,9 +111,15 @@ do
   then
     IMG="$IMG-$VERSION"
   fi
-  log "Updating $IMG..."
-  docker buildx build -t $IMG -f $PROJDIR/docker/Dockerfile.tools \
-    --platform="$PLATFORMS" --build-arg="DISTRO=$DISTRO" \
-    --build-arg="BASE_IMAGE=$BASE_IMAGE" \
-    $PUSH_OPT $PROJDIR
+  for REG in $REGS
+  do
+    log "Updating $REG/$IMG..."
+    docker buildx build \
+      -t $REG/$IMG \
+      -f $PROJDIR/docker/Dockerfile.tools \
+      --platform="$PLATFORMS" \
+      --build-arg="DISTRO=$DISTRO" \
+      --build-arg="BASE_IMAGE=$BASE_IMAGE" \
+      $PUSH_OPT $PROJDIR
+  done
 done
