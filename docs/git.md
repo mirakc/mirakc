@@ -1,15 +1,12 @@
 # Git Repository Management
 
-## Release branches
+## The `release` branch
 
-Branches whose names start with `release-` are release branches.  For example,
-`release-2.2` is the release branch for the version `2.2`.
+The `release` branch is a special branch.  It's replaced with a branch for the
+latest release every major or minor release.
 
-The `release` branch is a special one.  Actually it's not a real branch,  it's
-just a symbolic reference to the `HEAD` of the latest branch.
-
-The following steps are updating the `release` branch with a newly created
-release branch:
+The following steps are replacing the `release` branch with a newly created
+release branch
 
 ```shell
 CURRENT=$(cargo metadata --no-deps --format-version=1 | \
@@ -19,9 +16,8 @@ MAJOR=$(echo $VERSION | cut -d '.' -f 1)
 MINOR=$(echo $VERSION | cut -d '.' -f 2)
 BRANCH=release-$MAJOR.$MINOR
 
-# Create a new release branch and update the `release` branch.
+# Create a new release branch.
 git checkout -b $BRANCH
-git symbolic-ref refs/heads/release refs/heads/$BRANCH
 
 # Update the version numbers (cargo-edit is needed).
 cargo set-version $VERSION \
@@ -32,7 +28,6 @@ git commit -m "release: bump version to $VERSION"
 git tag -a $VERSION -m "release: $VERSION"
 
 git push -u origin $BRANCH
-git push -u -f origin release
 git push --tags
 ```
 
