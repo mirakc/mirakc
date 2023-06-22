@@ -115,7 +115,6 @@ jobs:
           platforms: ${{ matrix.platforms }}
           tags: >-
             ${{ format(steps.docker-tags.outputs.tags, 'docker.io/mirakc/mirakc') }},
-            ${{ format(steps.docker-tags.outputs.tags, 'ghcr.io/mirakc/mirakc') }},
           cache-from: |
             type=local,src=/tmp/.docker-cache
           cache-to: |
@@ -132,7 +131,6 @@ jobs:
           platforms: ${{ matrix.platforms }}
           tags: >-
             ${{ format(steps.docker-tags.outputs.tags, 'docker.io/mirakc/timeshift-fs') }},
-            ${{ format(steps.docker-tags.outputs.tags, 'ghcr.io/mirakc/timeshift-fs') }},
           cache-from: |
             type=local,src=/tmp/.docker-cache-new
           cache-to: |
@@ -147,7 +145,7 @@ jobs:
           IMG="${{ format(steps.docker-tags.outputs.main-tag, 'mirakc/mirakc') }}"
           for PLATFORM in $(echo ${{ matrix.platforms }} | tr ',' ' ')
           do
-            for REG in docker.io ghcr.io
+            for REG in docker.io
             do
               echo "Testing $REG/$IMG for $PLATFORM..."
               docker run --rm --platform=$PLATFORM $REG/$IMG --version
@@ -167,7 +165,7 @@ jobs:
           IMG="${{ format(steps.docker-tags.outputs.main-tag, 'mirakc/timeshift-fs') }}"
           for PLATFORM in $(echo ${{ matrix.platforms }} | tr ',' ' ')
           do
-            for REG in docker.io ghcr.io
+            for REG in docker.io
             do
               echo "Testing $REG/$IMG for $PLATFORM..."
               docker run --rm --platform=$PLATFORM --entrypoint=mirakc-timeshift-fs $REG/$IMG --version
