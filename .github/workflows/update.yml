@@ -18,6 +18,8 @@ jobs:
     outputs:
       num-commits: ${{ steps.count.outputs.num-commits }}
     steps:
+      # Use the default GitHub bot account because we don't need to invoke any
+      # other workflows triggered by a push event.
       - uses: raven-actions/bot-details@v1
         id: bot-details
       - uses: actions/checkout@v3
