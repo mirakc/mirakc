@@ -14,7 +14,7 @@ ARG TOOLS_TAG=alpine
 
 FROM mirakc/tools:$TOOLS_TAG AS mirakc-tools
 
-FROM mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
+FROM --platform=linux/amd64 mirakc/buildenv:alpine-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 COPY . ./
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM

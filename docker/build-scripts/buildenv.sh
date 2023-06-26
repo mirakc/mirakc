@@ -20,7 +20,7 @@ if [ "$DISTRO" = alpine ]; then
   curl -fsSL $ARCHIVE | tar -xz -C /tmp
   rm -f $(find /tmp/${GCC_HOST_TRIPLE}-cross -name "ld-musl-*.so.1")
   rm /tmp/${GCC_HOST_TRIPLE}-cross/usr
-  rsync --ignore-errors -rLaq /tmp/${GCC_HOST_TRIPLE}-cross/* / || true
+  rsync --ignore-errors -rLaq /tmp/${GCC_HOST_TRIPLE}-cross/ /usr/
   rm -rf /tmp/${GCC_HOST_TRIPLE}-cross
 fi
 

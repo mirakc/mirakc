@@ -9,6 +9,8 @@ services:
       context: ../
       dockerfile: ./docker/Dockerfile.debian
       target: mirakc
+      args:
+        DEBIAN_CODENAME: bookworm
     container_name: mirakc-sample
     hostname: mirakc-sample
     init: true

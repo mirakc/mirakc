@@ -13,21 +13,21 @@
 ARG DISTRO
 ARG BASE_IMAGE=scratch
 
-FROM mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS recdvb-build
+FROM --platform=linux/amd64 mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS recdvb-build
 COPY ./docker/build-scripts/recdvb.sh /build-scripts/
 ARG DISTRO
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 RUN sh /build-scripts/recdvb.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 
-FROM mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS recpt1-build
+FROM --platform=linux/amd64 mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS recpt1-build
 COPY ./docker/build-scripts/recpt1.sh /build-scripts/
 ARG DISTRO
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 RUN sh /build-scripts/recpt1.sh $DISTRO $BUILDPLATFORM $TARGETPLATFORM
 
-FROM mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-arib-build
+FROM --platform=linux/amd64 mirakc/buildenv:$DISTRO-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-arib-build
 COPY ./docker/build-scripts/mirakc-arib.sh /build-scripts/
 ARG DISTRO
 ARG BUILDPLATFORM

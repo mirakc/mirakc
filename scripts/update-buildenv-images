@@ -17,19 +17,23 @@ else
   DOCKER='sudo docker'
 fi
 
-PUSH_OPT=
+NO_CACHE=
+PUSH_OPT='--load'
 
 help() {
   cat <<EOF >&2
 Update $IMAGE images.
 
 USAGE:
-  $PROGNAME
+  $PROGNAME [--push] <debian-codename>
   $PROGNAME -h | --help
 
 OPTIONS:
   -h, --help
     Show help.
+
+  --no-cache
+    Don't use the Docker buildx cache.
 
   --push
     Push images.
@@ -95,6 +99,10 @@ do
     '-h' | '--help')
       help
       ;;
+    '--no-cache')
+      NO_CACHE='--no-cache'
+      shift
+      ;;
     '--push')
       PUSH_OPT='--push'
       shift
@@ -104,6 +112,8 @@ do
       ;;
   esac
 done
+
+DEBIAN_CODENAME=$1
 
 for DISTRO in $DISTROS
 do
@@ -115,12 +125,13 @@ do
       for REG in $REGS
       do
         log "Updating $REG/$IMG..."
-        docker buildx build \
+        $DOCKER buildx build \
           -t $REG/$IMG \
           -f $PROJDIR/docker/Dockerfile.buildenv \
+          --build-arg="DEBIAN_CODENAME=$DEBIAN_CODENAME" \
           --build-arg="DISTRO=$DISTRO" \
           --build-arg="TARGETPLATFORM=$PLATFORM" \
-          $PUSH_OPT $PROJDIR
+          $NO_CACHE $PUSH_OPT $PROJDIR
       done
     fi
   done

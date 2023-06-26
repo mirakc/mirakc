@@ -12,6 +12,7 @@ on:
 
 env:
   MAIN_DISTRO: debian
+  DEBIAN_CODENAME: bookworm
 
 jobs:
   docker:
@@ -110,6 +111,7 @@ jobs:
           context: .
           file: docker/Dockerfile.${{ matrix.distro }}
           build-args: |
+            DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
             TOOLS_TAG=${{ steps.docker-tags.outputs.tools-tag }}
           target: mirakc
           platforms: ${{ matrix.platforms }}
@@ -126,6 +128,7 @@ jobs:
           context: .
           file: docker/Dockerfile.${{ matrix.distro }}
           build-args: |
+            DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
             TOOLS_TAG=${{ steps.docker-tags.outputs.tools-tag }}
           target: mirakc-timeshift-fs
           platforms: ${{ matrix.platforms }}

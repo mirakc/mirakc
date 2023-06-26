@@ -1,4 +1,5 @@
-FROM rust:slim
+ARG DEBIAN_CODENAME
+FROM rust:slim-$DEBIAN_CODENAME
 COPY ./docker/build-scripts/vars.* /build-scripts/
 COPY ./docker/build-scripts/buildenv.sh /build-scripts/
 ARG DISTRO

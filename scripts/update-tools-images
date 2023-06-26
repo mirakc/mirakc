@@ -16,6 +16,7 @@ else
   DOCKER='sudo docker'
 fi
 
+NO_CACHE=
 PUSH_OPT=
 VERSION=
 
@@ -24,12 +25,15 @@ help() {
 Update $IMAGE images.
 
 USAGE:
-  $PROGNAME [<version>]
+  $PROGNAME [options] [<version>]
   $PROGNAME -h | --help
 
 OPTIONS:
   -h, --help
     Show help.
+
+  --no-cache
+    Don't use the Docker buildx cache.
 
   --push
     Push images.
@@ -40,6 +44,9 @@ ARGUMENTS:
 
 DESCRIPTION:
   This script build $IMAGE images and optionally push them to Docker registries.
+
+  The base image of each $IMAGE:debian will be determined automatically from the
+  debian version of the mirakc/buildenv image specified in Dockerfile.tools.
 
   You have to login to the registries by \`docker login\` before running this
   script with \`--push\`.
@@ -67,6 +74,11 @@ platforms() {
   esac
 }
 
+debian_codename() {
+  $DOCKER run --rm mirakc/buildenv:debian-linux-amd64 cat /etc/os-release | \
+    grep VERSION_CODENAME | cut -d '=' -f 2
+}
+
 # Use a base image other than `scratch` in order to make it possible to run
 # commands with `docker run mirakc/tools:<tag> <command>`.
 base_image() {
@@ -75,7 +87,7 @@ base_image() {
       echo 'busybox'
       ;;
     debian)
-      echo 'debian:buster-slim'
+      echo "debian:$(debian_codename)-slim"
       ;;
   esac
 }
@@ -85,6 +97,10 @@ do
   case "$1" in
     '-h' | '--help')
       help
+      ;;
+    '--no-cache')
+      NO_CACHE='--no-cache'
+      shift
       ;;
     '--push')
       PUSH_OPT='--push'
@@ -113,12 +129,12 @@ do
   for REG in $REGS
   do
     log "Updating $REG/$IMG..."
-    docker buildx build \
+    $DOCKER buildx build \
       -t $REG/$IMG \
       -f $PROJDIR/docker/Dockerfile.tools \
       --platform="$PLATFORMS" \
       --build-arg="DISTRO=$DISTRO" \
       --build-arg="BASE_IMAGE=$BASE_IMAGE" \
-      $PUSH_OPT $PROJDIR
+      $NO_CACHE $PUSH_OPT $PROJDIR
   done
 done

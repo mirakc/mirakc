@@ -13,7 +13,8 @@ docker buildx bake --load
 Using `Dockerfile.*`:
 
 ```shell
-docker buildx build -t mirakc-sample -f Dockerfile.debian --target mirakc ..
+docker buildx build -t mirakc-sample -f Dockerfile.debian --target mirakc \
+  --build-arg DEBIAN_CODENAME=bookworm ..
 ```
 
 Use `--platform` option if you want to build a multi-arch image or cross-build
@@ -21,6 +22,7 @@ a image for a target:
 
 ```shell
 docker buildx build -t mirakc-sample -f Dockerfile.debian --target mirakc \
+  --build-arg DEBIAN_CODENAME=bookworm \
   --platform=linux/amd64,linux/arm/v7,linux/arm64/v8 ..
 ```
 

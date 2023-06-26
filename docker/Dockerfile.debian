@@ -11,17 +11,18 @@
 #   TARGETVARIANT
 
 ARG TOOLS_TAG=debian
+ARG DEBIAN_CODENAME
 
 FROM mirakc/tools:$TOOLS_TAG AS mirakc-tools
 
-FROM mirakc/buildenv:debian-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
+FROM --platform=linux/amd64 mirakc/buildenv:debian-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 COPY . ./
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 ARG PROFILE=release
 RUN sh ./docker/build-scripts/mirakc.sh debian $BUILDPLATFORM $TARGETPLATFORM $PROFILE
 
-FROM debian:stable-slim AS mirakc
+FROM debian:$DEBIAN_CODENAME-slim AS mirakc
 LABEL maintainer="Contributors of mirakc"
 COPY --from=mirakc-tools /usr/local/bin /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/mirakc /usr/local/bin/
@@ -43,7 +44,7 @@ EXPOSE 40772
 ENTRYPOINT ["/usr/local/bin/mirakc"]
 CMD []
 
-FROM debian:stable-slim AS mirakc-timeshift-fs
+FROM debian:$DEBIAN_CODENAME-slim AS mirakc-timeshift-fs
 LABEL maintainer="Contributors of mirakc"
 COPY --from=mirakc-build /usr/local/bin/mirakc-timeshift-fs /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/run-mirakc-timeshift-fs /usr/local/bin/
