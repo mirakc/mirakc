@@ -9,6 +9,14 @@ on:
       ref-type:
         required: true
         type: string
+  workflow_dispatch:
+    inputs:
+      ref-name:
+        required: true
+        type: string
+      ref-type:
+        required: true
+        type: string
 
 env:
   MAIN_DISTRO: debian

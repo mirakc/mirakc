@@ -3,6 +3,7 @@ name: weekly
 on:
   schedule:
     - cron: '19 19 * * 5'  # every Friday
+  workflow_dispatch:
 
 jobs:
   release:
@@ -21,6 +22,7 @@ jobs:
           bot-slug-name: mirakc-ci
       - uses: actions/checkout@v3
         with:
+          token: ${{ steps.generate-token.outputs.token }}
           # Always checkout the release branch.
           ref: release
           # Fetch all history for all tags and branches so that `git describe`
