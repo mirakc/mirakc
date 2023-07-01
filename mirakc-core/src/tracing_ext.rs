@@ -1,5 +1,6 @@
 use std::fmt;
 
+use is_terminal::IsTerminal;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
@@ -16,7 +17,7 @@ fn init_json_tracing() {
         .json()
         .with_timer(HrTime)
         .with_env_filter(EnvFilter::from_default_env())
-        .with_ansi(atty::is(atty::Stream::Stdout))
+        .with_ansi(std::io::stdout().is_terminal())
         .init();
 }
 
@@ -24,7 +25,7 @@ fn init_text_tracing() {
     tracing_subscriber::fmt()
         .with_timer(Rfc3339Micros)
         .with_env_filter(EnvFilter::from_default_env())
-        .with_ansi(atty::is(atty::Stream::Stdout))
+        .with_ansi(std::io::stdout().is_terminal())
         .init();
 }
 
