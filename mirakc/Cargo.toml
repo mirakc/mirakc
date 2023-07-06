@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 actlet = { path = "../actlet" }
-clap = { version = "4.3.10", features = ["derive", "env"] }
+clap = { version = "4.3.11", features = ["derive", "env"] }
 chrono = { version = "0.4.26", default-features = false, features = ["clock", "serde"] }
 humantime = "2.1.0"
 mirakc-core = { path = "../mirakc-core" }
