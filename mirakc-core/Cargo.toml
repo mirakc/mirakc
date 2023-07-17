@@ -33,7 +33,7 @@ path-dedot = "3.1.0"
 reqwest = { version = "0.11.18", default-features = false, features = ["json"] }
 reqwest-eventsource = "0.4.0"
 serde = { version = "1.0.171", features = ["derive", "rc"] }
-serde_json = { version = "1.0.102", features = ["preserve_order"] }
+serde_json = { version = "1.0.103", features = ["preserve_order"] }
 serde_yaml = "0.9.22"
 serde_qs = "0.12.0"
 shell-words = "1.1.0"
