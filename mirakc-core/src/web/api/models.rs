@@ -425,7 +425,7 @@ where
 
         let priority = parts
             .headers
-            .get_all(super::X_MIRAKURUN_TUNER_USER_ID)
+            .get_all(super::X_MIRAKURUN_PRIORITY)
             .iter()
             .filter_map(|value| value.to_str().ok())
             .filter_map(|value| value.parse::<i32>().ok())
