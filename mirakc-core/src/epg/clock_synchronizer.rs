@@ -149,7 +149,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_clocks_in_channel() {
-        let stub = TunerManagerStub;
+        let stub = TunerManagerStub::default();
 
         let expected = vec![SyncClock {
             nid: 1.into(),

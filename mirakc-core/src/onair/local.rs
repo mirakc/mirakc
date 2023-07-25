@@ -379,7 +379,7 @@ mod tests {
         let mut tracker = LocalTracker::new(
             "".to_string(),
             config,
-            TunerManagerStub,
+            TunerManagerStub::default(),
             EpgStub,
             Emitter::new(changed_mock),
             None,

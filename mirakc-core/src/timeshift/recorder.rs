@@ -1026,7 +1026,7 @@ mod tests {
                 0,
                 "test".to_string(),
                 $config,
-                TunerManagerStub,
+                TunerManagerStub::default(),
                 EventEmitterStub,
             )
         };

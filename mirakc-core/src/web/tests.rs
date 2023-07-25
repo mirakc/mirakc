@@ -1,6 +1,7 @@
 // <coverage:exclude>
 use super::*;
 
+use std::collections::HashMap;
 use std::future::Future;
 
 use assert_matches::assert_matches;
@@ -11,6 +12,7 @@ use axum_test_helper::TestClient;
 use axum_test_helper::TestResponse;
 
 use crate::epg::stub::EpgStub;
+use crate::models::TunerUserPriority;
 use crate::onair::stub::OnairProgramManagerStub;
 use crate::recording::stub::RecordingManagerStub;
 use crate::recording::RecordingOptions;
@@ -666,6 +668,57 @@ async fn test_get_events() {
 }
 
 #[tokio::test]
+async fn test_x_mirakurun_priority() {
+    // Default priority.
+    let prio = TunerUserPriority::from(0);
+    let test_config = Arc::new(maplit::hashmap! {
+        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
+    });
+    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Positive priority.
+    let headers = vec![(X_MIRAKURUN_PRIORITY, "1")];
+    let prio = TunerUserPriority::from(1);
+    let test_config = Arc::new(maplit::hashmap! {
+        "request_headers" => serde_json::to_string(&headers).unwrap(),
+        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
+    });
+    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // When multiple priorities are specified, the highest one is used.
+    let headers = vec![(X_MIRAKURUN_PRIORITY, "1"), (X_MIRAKURUN_PRIORITY, "2")];
+    let prio = TunerUserPriority::from(2);
+    let test_config = Arc::new(maplit::hashmap! {
+        "request_headers" => serde_json::to_string(&headers).unwrap(),
+        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
+    });
+    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // The maximum priority is 128.
+    let headers = vec![(X_MIRAKURUN_PRIORITY, "256")];
+    let prio = TunerUserPriority::from(128);
+    let test_config = Arc::new(maplit::hashmap! {
+        "request_headers" => serde_json::to_string(&headers).unwrap(),
+        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
+    });
+    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Every negative priority is treated as priority(0).
+    let headers = vec![(X_MIRAKURUN_PRIORITY, "-2")];
+    let prio = TunerUserPriority::from(0);
+    let test_config = Arc::new(maplit::hashmap! {
+        "request_headers" => serde_json::to_string(&headers).unwrap(),
+        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
+    });
+    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn test_access_control_localhost() {
     let addr = "127.0.0.1:10000".parse().unwrap();
     let res = get_with_peer_addr("/api/version", Some(addr)).await;
@@ -917,7 +970,7 @@ async fn get_with_peer_addr(url: &str, addr: Option<SocketAddr>) -> TestResponse
         .with_state(Arc::new(AppState {
             config,
             string_table: string_table_for_test(),
-            tuner_manager: TunerManagerStub,
+            tuner_manager: TunerManagerStub::default(),
             epg: EpgStub,
             recording_manager: RecordingManagerStub,
             timeshift_manager: TimeshiftManagerStub,
@@ -927,12 +980,27 @@ async fn get_with_peer_addr(url: &str, addr: Option<SocketAddr>) -> TestResponse
 }
 
 async fn get(url: &str) -> TestResponse {
-    let app = create_app();
+    let app = create_app(Default::default());
     TestClient::new(app).get(url).send().await
 }
 
+async fn get_with_test_config(
+    url: &str,
+    test_config: Arc<HashMap<&'static str, String>>,
+) -> TestResponse {
+    let app = create_app(test_config.clone());
+    let mut builder = TestClient::new(app).get(url);
+    if let Some(json) = test_config.get("request_headers") {
+        let headers: Vec<(String, String)> = serde_json::from_str(json).unwrap();
+        for (name, value) in headers.iter() {
+            builder = builder.header(name, value);
+        }
+    }
+    builder.send().await
+}
+
 async fn head(url: &str) -> TestResponse {
-    let app = create_app();
+    let app = create_app(Default::default());
     TestClient::new(app).head(url).send().await
 }
 
@@ -940,21 +1008,21 @@ async fn post<T>(url: &str, data: T) -> TestResponse
 where
     T: serde::Serialize,
 {
-    let app = create_app();
+    let app = create_app(Default::default());
     TestClient::new(app).post(url).json(&data).send().await
 }
 
 async fn delete(url: &str) -> TestResponse {
-    let app = create_app();
+    let app = create_app(Default::default());
     TestClient::new(app).delete(url).send().await
 }
 
-fn create_app() -> Router {
+fn create_app(test_config: Arc<HashMap<&'static str, String>>) -> Router {
     let config = config_for_test();
     build_app(&config).with_state(Arc::new(AppState {
         config,
         string_table: string_table_for_test(),
-        tuner_manager: TunerManagerStub,
+        tuner_manager: TunerManagerStub::new(test_config.clone()),
         epg: EpgStub,
         recording_manager: RecordingManagerStub,
         timeshift_manager: TimeshiftManagerStub,

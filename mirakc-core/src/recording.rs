@@ -1847,7 +1847,12 @@ mod test_macros {
 
     macro_rules! manager {
         ($config:expr) => {
-            RecordingManager::new($config, TunerManagerStub, EpgStub, OnairProgramManagerStub)
+            RecordingManager::new(
+                $config,
+                TunerManagerStub::default(),
+                EpgStub,
+                OnairProgramManagerStub,
+            )
         };
         ($config:expr, $tuner:expr, $epg:expr, $onair:expr) => {
             RecordingManager::new($config, $tuner, $epg, $onair)
@@ -2451,7 +2456,12 @@ mod tests {
             });
         }
 
-        let mut manager = manager!(config, TunerManagerStub, epg, OnairProgramManagerStub);
+        let mut manager = manager!(
+            config,
+            TunerManagerStub::default(),
+            epg,
+            OnairProgramManagerStub
+        );
         let mut failed_mock = MockRecordingFailedValidator::new();
         failed_mock.expect_emit().times(1).returning(|msg| {
             assert_eq!(msg.program_id, (0, 1, 2).into());
@@ -2512,7 +2522,12 @@ mod tests {
             });
         }
 
-        let mut manager = manager!(config, TunerManagerStub, epg, OnairProgramManagerStub);
+        let mut manager = manager!(
+            config,
+            TunerManagerStub::default(),
+            epg,
+            OnairProgramManagerStub
+        );
 
         let mut mock = MockRecordingRescheduledValidator::new();
         mock.expect_emit().times(1).returning(|msg| {

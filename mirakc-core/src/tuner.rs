@@ -1148,8 +1148,20 @@ pub(crate) mod stub {
     use super::*;
     use bytes::Bytes;
 
-    #[derive(Clone)]
-    pub(crate) struct TunerManagerStub;
+    #[derive(Clone, Default)]
+    pub(crate) struct TunerManagerStub {
+        expected_priority: Option<TunerUserPriority>,
+    }
+
+    impl TunerManagerStub {
+        pub fn new(test_config: Arc<HashMap<&'static str, String>>) -> Self {
+            TunerManagerStub {
+                expected_priority: test_config
+                    .get("tuner_user_priority")
+                    .map(|json| serde_json::from_str(json).unwrap()),
+            }
+        }
+    }
 
     #[async_trait]
     impl Call<RegisterEmitter> for TunerManagerStub {
@@ -1186,6 +1198,9 @@ pub(crate) mod stub {
             &self,
             msg: StartStreaming,
         ) -> actlet::Result<<StartStreaming as Message>::Reply> {
+            if let Some(expected_priority) = self.expected_priority {
+                assert_eq!(msg.user.priority, expected_priority);
+            }
             if msg.channel.channel == "ch" {
                 let (tx, stream) = BroadcasterStream::new_for_test();
                 let _ = tx.try_send(Bytes::from("hi"));

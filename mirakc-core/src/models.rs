@@ -322,7 +322,7 @@ impl fmt::Display for TunerUserInfo {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct TunerUserPriority(i32);
 
 impl TunerUserPriority {

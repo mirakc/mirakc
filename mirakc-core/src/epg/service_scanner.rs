@@ -169,7 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_scan_services_in_channel() {
-        let stub = TunerManagerStub;
+        let stub = TunerManagerStub::default();
 
         let expected = vec![TsService {
             nid: 1.into(),

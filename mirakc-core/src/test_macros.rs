@@ -52,7 +52,7 @@ macro_rules! tuner_user {
     ($prio:expr, web; $id:expr, $agent:expr) => {
         crate::models::TunerUser {
             info: tuner_user_info!(web; $id, $agent),
-            priority: $prio,
+            priority: $prio.into(),
         }
     };
 }
