@@ -164,6 +164,7 @@ async fn serve_uds(path: &std::path::Path, app: Router) -> hyper::Result<()> {
 // headers
 
 const X_MIRAKURUN_TUNER_USER_ID: &'static str = "x-mirakurun-tuner-user-id";
+const X_MIRAKURUN_PRIORITY: &'static str = "x-mirakurun-priority";
 
 // endpoints
 
