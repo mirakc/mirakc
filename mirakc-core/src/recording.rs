@@ -1291,7 +1291,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                         schedule.program.id = %program_id,
                         "Recording stopped before the TV program starts",
                     );
-                    if let Some(mut schedule) = maybe_schedule {
+                    if let Some(schedule) = maybe_schedule {
                         tracing::warn!(
                             %schedule.program.id,
                             "Need rescheduling",
@@ -1311,7 +1311,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                         "The recording pipeline terminated abnormally",
                     );
                     let reason = RecordingFailedReason::PipelineError { exit_code };
-                    if let Some(mut schedule) = maybe_schedule {
+                    if let Some(schedule) = maybe_schedule {
                         schedule.state = RecordingScheduleState::Failed;
                         schedule.failed_reason = Some(reason.clone());
                         changed = true;
@@ -1322,7 +1322,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                         schedule.program.id = %program_id,
                         "The recording finished successfully",
                     );
-                    if let Some(mut schedule) = maybe_schedule {
+                    if let Some(schedule) = maybe_schedule {
                         schedule.state = RecordingScheduleState::Finished;
                         changed = true;
                     }
@@ -1611,7 +1611,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
         let mut rescheduled = false;
 
-        if let Some(mut schedule) = self.schedules.get_mut(&program.id) {
+        if let Some(schedule) = self.schedules.get_mut(&program.id) {
             match schedule.state {
                 Scheduled | Rescheduling => {
                     rescheduled = schedule.program.start_at != program.start_at;

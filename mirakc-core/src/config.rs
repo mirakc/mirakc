@@ -399,7 +399,7 @@ impl ChannelConfig {
             }
         }
         // Normalize
-        for mut channel in normalized.iter_mut() {
+        for channel in normalized.iter_mut() {
             channel.services = channel.services.iter().sorted().unique().cloned().collect();
             channel.excluded_services = channel
                 .excluded_services
