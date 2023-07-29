@@ -203,13 +203,14 @@ impl TunerManager {
         }
 
         // No available tuner at this point.
-        // Grab a tuner used by lower priority users.
+        // Grab one of lowest priority tuner.
         let found = self
             .tuners
             .iter_mut()
             .filter(|tuner| tuner.dedicated_for.is_none())
             .filter(|tuner| tuner.is_supported_type(&channel))
-            .find(|tuner| tuner.can_grab(user.priority));
+            .filter(|tuner| tuner.can_grab(user.priority))
+            .min_by(|a, b| a.priority().cmp(&b.priority()));
         if let Some(tuner) = found {
             tracing::debug!(tuner.index, %channel, %user.info, %user.priority, "Grab tuner");
             let filters =
@@ -539,6 +540,10 @@ impl Tuner {
         priority.is_grab() || self.activity.can_grab(priority)
     }
 
+    fn priority(&self) -> Option<TunerPriority> {
+        self.activity.priority()
+    }
+
     async fn activate<C>(
         &mut self,
         channel: &EpgChannel,
@@ -604,6 +609,23 @@ impl Tuner {
             .insert_str("duration", "-")
             .build();
         Ok(template.render_data_to_string(&data)?)
+    }
+}
+
+#[derive(Debug, Eq, Ord, PartialEq)]
+struct TunerPriority {
+    highest_user_priority: TunerUserPriority,
+    num_users: usize,
+}
+
+impl PartialOrd for TunerPriority {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.highest_user_priority != other.highest_user_priority {
+            return self
+                .highest_user_priority
+                .partial_cmp(&other.highest_user_priority);
+        }
+        self.num_users.partial_cmp(&other.num_users)
     }
 }
 
@@ -695,6 +717,13 @@ impl TunerActivity {
         match self {
             Self::Inactive => true,
             Self::Active(session) => session.can_grab(priority),
+        }
+    }
+
+    fn priority(&self) -> Option<TunerPriority> {
+        match self {
+            Self::Inactive => None,
+            Self::Active(session) => session.priority(),
         }
     }
 
@@ -798,6 +827,17 @@ impl TunerSession {
 
     fn has_no_subscriber(&self) -> bool {
         self.subscribers.is_empty()
+    }
+
+    fn priority(&self) -> Option<TunerPriority> {
+        self.subscribers
+            .values()
+            .map(|user| user.priority)
+            .max()
+            .map(|prio| TunerPriority {
+                highest_user_priority: prio,
+                num_users: self.subscribers.len(),
+            })
     }
 
     fn get_mirakurun_models(&self) -> (Option<String>, Option<u32>, Vec<MirakurunTunerUser>) {
@@ -943,6 +983,208 @@ mod tests {
             assert_matches!(result, Ok(Ok(stream)) => {
                 assert_eq!(stream.id().session_id.tuner_index, 2);
                 assert_ne!(stream.id().session_id, stream1.id().session_id);
+            });
+        }
+        system.stop();
+    }
+
+    #[tokio::test]
+    async fn test_start_streaming_grab_lowest_priority_tuner() {
+        let config: Arc<Config> = Arc::new(
+            serde_yaml::from_str(
+                r#"
+                tuners:
+                  - name: gr1
+                    types: [GR]
+                    command: >-
+                      sleep 1
+                  - name: gr2
+                    types: [GR]
+                    command: >-
+                      sleep 1
+                "#,
+            )
+            .unwrap(),
+        );
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("1"),
+                    user: create_user(1.into()),
+                    stream_id: None,
+                })
+                .await;
+            let _stream0 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+                stream
+            });
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            let _stream1 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 1);
+                stream
+            });
+
+            // Grab the lowest priority tuner.
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("2"),
+                    user: create_user(2.into()),
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 1);
+            });
+        }
+        system.stop();
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            let _stream0 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+                stream
+            });
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("1"),
+                    user: create_user(1.into()),
+                    stream_id: None,
+                })
+                .await;
+            let _stream1 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 1);
+                stream
+            });
+
+            // Grab the lowest priority tuner.
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("2"),
+                    user: create_user(2.into()),
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+            });
+        }
+        system.stop();
+
+        // same priority
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            let _stream0 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+                stream
+            });
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("1"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            let _stream1 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 1);
+                stream
+            });
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            let _stream2 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+                stream
+            });
+
+            // Grab a tuner with fewest users.
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("2"),
+                    user: create_user(2.into()),
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 1);
+            });
+        }
+        system.stop();
+
+        // same priority and same number of users
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            let _stream0 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+                stream
+            });
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("1"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            let _stream1 = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 1);
+                stream
+            });
+
+            // Grab a tuner with the lowest index.
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("2"),
+                    user: create_user(2.into()),
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
             });
         }
         system.stop();
@@ -1096,6 +1338,40 @@ mod tests {
             assert!(tuner.can_grab(TunerUserPriority::GRAB));
 
             tokio::task::yield_now().await;
+        }
+        system.stop();
+    }
+
+    #[tokio::test]
+    async fn test_tuner_priority() {
+        let system = System::new();
+        {
+            let config = create_config("true".to_string());
+            let mut tuner = Tuner::new(0, &config, None);
+            assert_matches!(tuner.priority(), None);
+
+            tuner
+                .activate(&create_channel("1"), vec![], &system)
+                .await
+                .unwrap();
+
+            tuner.subscribe(&create_user(0.into()));
+            assert_matches!(tuner.priority(), Some(prio) => {
+                assert_eq!(prio.highest_user_priority, 0.into());
+                assert_eq!(prio.num_users, 1);
+            });
+
+            tuner.subscribe(&create_user(10.into()));
+            assert_matches!(tuner.priority(), Some(prio) => {
+                assert_eq!(prio.highest_user_priority, 10.into());
+                assert_eq!(prio.num_users, 2);
+            });
+
+            tuner.subscribe(&create_user(5.into()));
+            assert_matches!(tuner.priority(), Some(prio) => {
+                assert_eq!(prio.highest_user_priority, 10.into());
+                assert_eq!(prio.num_users, 3);
+            });
         }
         system.stop();
     }
