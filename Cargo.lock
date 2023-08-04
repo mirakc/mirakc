@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "mirakc"
-version = "2.4.0-dev.0"
+version = "2.4.0"
 dependencies = [
  "actlet",
  "chrono",
@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "mirakc-core"
-version = "2.4.0-dev.0"
+version = "2.4.0"
 dependencies = [
  "actlet",
  "anyhow",
@@ -1209,7 +1209,7 @@ dependencies = [
 
 [[package]]
 name = "mirakc-timeshift-fs"
-version = "2.4.0-dev.0"
+version = "2.4.0"
 dependencies = [
  "assert_matches",
  "clap",
