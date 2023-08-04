@@ -6,6 +6,12 @@ PROJDIR="$(cd $BASEDIR/..; pwd)"
 CURRENT=$(cargo metadata --no-deps --format-version=1 | \
             jq -r '.packages[] | select(.name == "mirakc") | .version')
 
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+  DOCKER='docker'
+else
+  DOCKER='sudo docker'
+fi
+
 COMMIT=YES
 TAG=YES
 PREID=
@@ -81,7 +87,7 @@ else
   OPTIONS="-i $1"
 fi
 
-VERSION=$(npx semver $CURRENT $OPTIONS)
+VERSION=$($DOCKER run -q --rm node npx -y --no-update-notifier semver $CURRENT $OPTIONS)
 
 if [ "$COMMIT" = YES ]
 then
