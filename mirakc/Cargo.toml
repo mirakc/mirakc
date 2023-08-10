@@ -15,5 +15,5 @@ humantime = "2.1.0"
 mirakc-core = { path = "../mirakc-core" }
 serde_json = { version = "1.0.104", features = ["preserve_order"] }
 tempfile = "3.7.1"
-tokio = { version = "1.29.1", features = ["full"] }
+tokio = { version = "1.30.0", features = ["full"] }
 tracing = "0.1.38"
