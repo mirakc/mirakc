@@ -46,7 +46,7 @@ tower = { version = "0.4.13", default-features = false, features = ["util", "mak
 tower-http = { version = "0.4.3", features = ["fs", "trace"] }
 tracing = "0.1.38"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter", "json"] }
-url = { version = "2.4.0", features = ["serde"] }
+url = { version = "2.4.1", features = ["serde"] }
 utoipa = { version = "3.5.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "3.1.5", features = ["axum"] }
 walkdir = "2.3.3"
