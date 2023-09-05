@@ -22,7 +22,7 @@ jobs:
       # other workflows triggered by a push event.
       - uses: raven-actions/bot-details@v1
         id: bot-details
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref-name }}
       - name: git config

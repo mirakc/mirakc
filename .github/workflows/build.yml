@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.runner == 'macos-latest' }}  # macOS is unsupported officially
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install macfuse (macos)
         if: matrix.runner == 'macos-latest'
         run: |
