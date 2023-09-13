@@ -32,7 +32,7 @@ jobs:
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v2
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
         with:
           buildkitd-flags: --debug
       - name: Login to Docker Hub
