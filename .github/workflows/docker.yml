@@ -87,7 +87,7 @@ jobs:
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v2
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
         with:
           buildkitd-flags: --debug
           # See https://github.com/docker/build-push-action/issues/654#issuecomment-1285190151
