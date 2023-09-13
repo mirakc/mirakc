@@ -85,7 +85,7 @@ jobs:
           echo "tags=$TAGS" >>$GITHUB_OUTPUT
           echo "tools-tag=$TOOLS_TAG" >>$GITHUB_OUTPUT
       - name: Setup QEMU user-mode emulation
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:

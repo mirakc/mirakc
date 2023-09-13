@@ -30,7 +30,7 @@ jobs:
           git config user.name "${{ steps.bot-details.outputs.name }}"
           git config user.email "${{ steps.bot-details.outputs.email }}"
       - name: Setup QEMU user-mode emulation
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
