@@ -89,6 +89,11 @@ impl<T> Epg<T> {
                     // services if properties of the channel hasn't changed.
                     for service in self.services.values() {
                         if service.channel == channel {
+                            tracing::warn!(
+                                channel.name,
+                                %service.id,
+                                "Reuse result of previous scan-services"
+                            );
                             services.insert(service.id, service.clone());
                         }
                     }
