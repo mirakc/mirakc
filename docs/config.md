@@ -37,13 +37,13 @@ suitable for your environment.
 | [pre-filters]                            | `{}`                              |
 | [post-filters]                           | `{}`                              |
 | [jobs.scan-services.command]             | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
-| [jobs.scan-services.schedule]            | `'0 1 6,18 * * * *'` (execute at 06:01 and 18:01 every day) |
+| [jobs.scan-services.schedule]            | `'0 1 8,20 * * * *'` (execute at 08:01 and 20:01 every day) |
 | [jobs.scan-services.disabled]            | `false`                           |
 | [jobs.sync-clocks.command]               | `mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
-| [jobs.sync-clocks.schedule]              | `'0 11 6,18 * * * *'` (execute at 06:11 and 18:11 every day) |
+| [jobs.sync-clocks.schedule]              | `'0 11 8,20 * * * *'` (execute at 08:11 and 20:11 every day) |
 | [jobs.sync-clocks.disabled]              | `false`                           |
 | [jobs.update-schedules.command]          | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
-| [jobs.update-schedules.schedule]         | `'0 21 6,18 * * * *'` (execute at 06:21 and 18:21 every day) |
+| [jobs.update-schedules.schedule]         | `'0 21 8,20 * * * *'` (execute at 08:21 and 20:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
 | [recording.basedir]                      | `None`                            |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |

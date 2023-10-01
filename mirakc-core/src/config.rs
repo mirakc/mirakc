@@ -622,7 +622,7 @@ impl JobsConfig {
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}"
                 .to_string(),
-            schedule: "0 1 6,18 * * * *".to_string(),
+            schedule: "0 1 8,20 * * * *".to_string(),
             disabled: false,
         }
     }
@@ -633,7 +633,7 @@ impl JobsConfig {
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}"
                 .to_string(),
-            schedule: "0 11 6,18 * * * *".to_string(),
+            schedule: "0 11 8,20 * * * *".to_string(),
             disabled: false,
         }
     }
@@ -644,7 +644,7 @@ impl JobsConfig {
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}"
                 .to_string(),
-            schedule: "0 21 6,18 * * * *".to_string(),
+            schedule: "0 21 8,20 * * * *".to_string(),
             disabled: false,
         }
     }
