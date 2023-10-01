@@ -1,6 +1,7 @@
 use chrono::DateTime;
 use chrono::Duration;
 use chrono::NaiveDateTime;
+use chrono::TimeZone;
 use chrono_jst::Jst;
 use serde::Deserialize;
 use serde::Serialize;
@@ -75,7 +76,7 @@ pub struct EitEvent {
 impl EitEvent {
     pub fn start_time(&self) -> Option<DateTime<Jst>> {
         self.start_time
-            .map(|v| DateTime::from_utc(NaiveDateTime::from_timestamp_millis(v).unwrap(), Jst))
+            .map(|v| Jst.from_utc_datetime(&NaiveDateTime::from_timestamp_millis(v).unwrap()))
     }
 
     pub fn duration(&self) -> Option<Duration> {
