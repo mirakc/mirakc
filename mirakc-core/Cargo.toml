@@ -21,7 +21,7 @@ http-body = "0.4.5"
 humantime = "2.1.0"
 humantime-serde = "1.1.1"
 hyper = { version = "0.14.27", features = ["full"] }
-indexmap = { version = "1.9.3", features = ["serde-1"] }
+indexmap = { version = "2.0.2", features = ["serde"] }
 is-terminal = "0.4.9"
 itertools = "0.11.0"
 libc = "0.2.149"
@@ -44,11 +44,11 @@ tokio-stream = { version = "0.1.14", features = ["io-util"] }
 tokio-util = { version = "0.7.9", features = ["codec", "io"] }
 tower = { version = "0.4.13", default-features = false, features = ["util", "make"] }
 tower-http = { version = "0.4.4", features = ["fs", "trace"] }
-tracing = "0.1.38"
+tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter", "json"] }
 url = { version = "2.4.1", features = ["serde"] }
-utoipa = { version = "3.5.0", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "3.1.5", features = ["axum"] }
+utoipa = { version = "4.0.0", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "4.0.0", features = ["axum"] }
 walkdir = "2.4.0"
 
 [dev-dependencies]
