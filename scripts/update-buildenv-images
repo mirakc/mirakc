@@ -9,7 +9,7 @@ PROJDIR=$(cd $BASEDIR/..; pwd)
 REGS='docker.io'  #REGS='docker.io ghcr.io'
 IMAGE=mirakc/buildenv
 DISTROS='alpine debian'
-PLATFORMS='linux/386 linux/amd64 linux/arm/v6 linux/arm/v7 linux/arm64/v8'
+PLATFORMS='linux/386 linux/amd64 linux/arm/v5 linux/arm/v6 linux/arm/v7 linux/arm64/v8'
 
 if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
   DOCKER='docker'
@@ -59,7 +59,12 @@ error() {
 is_supported() {
   case $1 in
     alpine)
-      true
+      if [ "$2" = linux/arm/v5 ]
+      then
+        false
+      else
+        true
+      fi
       ;;
     debian)
       if [ "$2" = linux/arm/v6 ]
@@ -79,6 +84,9 @@ tag_name() {
       ;;
     linux/amd64)
       echo "$1-linux-amd64"
+      ;;
+    linux/arm/v5)
+      echo "$1-linux-armv5"
       ;;
     linux/arm/v6)
       echo "$1-linux-armv6"
