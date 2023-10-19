@@ -20,6 +20,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+      # We cannot use Swatinem/rust-cache in this workflow.
+      # A toolchain must be installed before Swatinem/rust-cache,
+      # but it will be installed in the Build step.
       - name: Cache for Cargo
         uses: actions/cache@v3
         with:

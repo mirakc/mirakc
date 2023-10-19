@@ -21,19 +21,10 @@ jobs:
         if: matrix.runner == 'macos-latest'
         run: |
           brew install macfuse pkg-config
-      - name: Cache for Cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.rust }}-
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@v2
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - name: Build

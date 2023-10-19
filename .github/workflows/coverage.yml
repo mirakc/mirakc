@@ -10,13 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - name: Install grcov
         uses: taiki-e/install-action@grcov
-      - name: Clean
-        run: |
-          cargo clean
       - name: Run coverage tests
         run: |
           # Compiling actlet-derive fails due to the following error:

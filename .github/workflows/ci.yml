@@ -17,8 +17,5 @@ jobs:
     uses: ./.github/workflows/cross-build.yml
     secrets: inherit
   coverage:
-    needs:
-      - build
-      - cross-build
     uses: ./.github/workflows/coverage.yml
     secrets: inherit
