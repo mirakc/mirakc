@@ -30,13 +30,8 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-
-      - name: Install cargo-binstall
-        run: |
-          BINSTALL_URL=https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz
-          curl -fsSL $BINSTALL_URL | tar -xz -C ~/.cargo/bin --no-same-owner
       - name: Install cross
-        run: |
-          cargo binstall --no-confirm cross
+        uses: taiki-e/install-action@cross
       - name: Build
         run: |
           cross build -v --release --target=${{ matrix.target }}

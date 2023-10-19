@@ -34,9 +34,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: Build
         run: |
           cargo build -v --release
       - name: Run tests
         run: |
-          cargo test -v --release
+          cargo nextest run --release --all-features

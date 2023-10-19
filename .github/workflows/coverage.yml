@@ -10,6 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: Install grcov
+        uses: taiki-e/install-action@grcov
       - name: Clean
         run: |
           cargo clean
@@ -21,7 +25,7 @@ jobs:
           #     with this crate's panic strategy `abort`
           #
           # So, we excludes it from the coverage.
-          cargo test --all-features --no-fail-fast --lib --workspace --exclude=actlet-derive
+          cargo nextest run --all-features --no-fail-fast --lib --workspace --exclude=actlet-derive
         env:
           # See https://github.com/mozilla/grcov#usage
           RUSTC_BOOTSTRAP: 1
@@ -37,13 +41,6 @@ jobs:
             -Zpanic_abort_tests
           RUSTDOCFLAGS: >-
             -Cpanic=abort
-      - name: Install cargo-binstall
-        run: |
-          BINSTALL_URL=https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz
-          curl -fsSL $BINSTALL_URL | tar -xz -C ~/.cargo/bin --no-same-owner
-      - name: Install grcov
-        run: |
-          cargo binstall --no-confirm grcov
       - name: Generate coverage data
         run: >-
           grcov target/debug --branch --llvm --ignore-not-existing -s .
