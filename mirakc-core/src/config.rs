@@ -120,8 +120,13 @@ impl Config {
         self.tuners.iter().enumerate().for_each(|(i, config)| {
             config.validate(i);
             if let Some(ref name) = config.dedicated_for {
+                // TODO: Use an enum type instead of String.
                 assert!(
-                    self.onair_program_trackers.contains_key(name),
+                    if name.starts_with("timeshift#") {
+                        self.timeshift.recorders.contains_key(&name[10..])
+                    } else {
+                        self.onair_program_trackers.contains_key(name)
+                    },
                     "config.tuners: `dedicated-for` must hold an existing name"
                 );
             }
@@ -447,6 +452,7 @@ pub struct TunerConfig {
     pub disabled: bool,
     #[serde(default)]
     pub decoded: bool,
+    // TODO: Use an enum type instead of String.
     #[serde(default)]
     pub dedicated_for: Option<String>,
 }
@@ -1223,8 +1229,67 @@ mod tests {
                 types: [GR]
                 dedicated-for: test
                 command: test
+            resource:
+              strings-yaml: /bin/sh
         "#,
         )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    fn test_config_validate_tuner_dedicated_for_onair_tracker() {
+        let config = serde_yaml::from_str::<Config>(
+            r#"
+            tuners:
+              - name: test
+                types: [GR]
+                dedicated-for: tracker
+                command: test
+            onair-program-trackers:
+              tracker:
+                local:
+                  channel-types: [GR]
+            resource:
+              strings-yaml: /bin/sh
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn test_config_validate_tuner_dedicated_for_timeshift() {
+        // NOTE: The chunk size for this test should be the default chunk size,
+        //       but it's too large to allocate in /tmp...
+        let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
+        let num_chunks = 3;
+        let ts_file = NamedTempFile::new().unwrap();
+        let ts_file_size = (chunk_size * num_chunks) as libc::off64_t;
+        unsafe {
+            let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
+        }
+        let config = serde_yaml::from_str::<Config>(&format!(
+            r#"
+            tuners:
+              - name: test
+                types: [GR]
+                dedicated-for: timeshift#recorder
+                command: test
+            timeshift:
+              recorders:
+                recorder:
+                  service-id: 3273701032
+                  ts-file: {}
+                  data-file: /tmp/data.json
+                  chunk-size: {chunk_size}
+                  num-chunks: {num_chunks}
+            resource:
+              strings-yaml: /bin/sh
+        "#,
+            ts_file.path().to_str().unwrap()
+        ))
         .unwrap();
         config.validate();
     }

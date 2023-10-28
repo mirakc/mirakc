@@ -422,6 +422,7 @@ Definitions of tuners.  At least, one tuner must be defined.
 * dedicated-for (optional)
   * Specify the name of a user who uses the tuner exclusively
   * See [this section](#local-tracker) for details
+  * Use the `timeshift#` prefix if you want to reserve a tuner for a particular timeshift recorder (available since `2.6.0`)
 
 Command template variables:
 

@@ -115,11 +115,19 @@ impl TunerManager {
             .enumerate()
             .map(|(i, config)| match config.dedicated_for {
                 Some(ref name) => {
-                    let dedicated_for = self
-                        .config
-                        .onair_program_trackers
-                        .get(name)
-                        .map(|_| TunerUserInfo::OnairProgramTracker(name.to_string()));
+                    // TODO: Use an enum type instead of String.
+                    let dedicated_for = if name.starts_with("timeshift#") {
+                        self.config.timeshift.recorders.get(&name[10..]).map(|_| {
+                            TunerUserInfo::Recorder {
+                                name: name.to_owned(),
+                            }
+                        })
+                    } else {
+                        self.config
+                            .onair_program_trackers
+                            .get(name)
+                            .map(|_| TunerUserInfo::OnairProgramTracker(name.to_owned()))
+                    };
                     (i, config, dedicated_for)
                 }
                 None => (i, config, None),
