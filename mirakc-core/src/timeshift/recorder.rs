@@ -254,6 +254,7 @@ impl<T> TimeshiftRecorder<T> {
             start_time: self.start_time(),
             end_time: self.end_time(),
             duration: self.duration(),
+            num_records: self.records.len(),
             pipeline,
             recording: self.recording,
             current_record_id: self.current_record_id.clone(),

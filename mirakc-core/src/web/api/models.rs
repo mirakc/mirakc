@@ -190,6 +190,12 @@ pub(in crate::web) struct WebTimeshiftRecorder {
     #[serde(with = "duration_milliseconds")]
     #[schema(value_type = i64)]
     pub duration: Duration,
+    /// The number of records available for playback.
+    ///
+    /// The number will change over the recording.  For example,
+    /// [/timeshift/{recorder}/records](#/timeshift::records/getTimeshiftRecords) may
+    /// return different number of records from this value.
+    pub num_records: usize,
     /// A list of process models constituting the timeshift pipeline currently
     /// running.
     pub pipeline: Vec<WebProcessModel>,
@@ -211,6 +217,7 @@ impl From<TimeshiftRecorderModel> for WebTimeshiftRecorder {
             start_time: model.start_time,
             end_time: model.end_time,
             duration: model.duration,
+            num_records: model.num_records,
             pipeline: model
                 .pipeline
                 .into_iter()

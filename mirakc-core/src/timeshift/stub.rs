@@ -42,6 +42,7 @@ impl Call<QueryTimeshiftRecorder> for TimeshiftManagerStub {
                     start_time: None,
                     end_time: None,
                     duration: Duration::zero(),
+                    num_records: 0,
                     pipeline: vec![],
                     recording: true,
                     current_record_id: None,

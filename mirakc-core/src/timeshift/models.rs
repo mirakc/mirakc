@@ -31,6 +31,7 @@ pub struct TimeshiftRecorderModel {
     pub start_time: Option<DateTime<Jst>>,
     pub end_time: Option<DateTime<Jst>>,
     pub duration: Duration,
+    pub num_records: usize,
     pub pipeline: Vec<CommandPipelineProcessModel>,
     pub recording: bool,
     pub current_record_id: Option<TimeshiftRecordId>,
