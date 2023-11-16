@@ -20,7 +20,7 @@ glob = "0.3.1"
 http-body = "0.4.5"
 humantime = "2.1.0"
 humantime-serde = "1.1.1"
-hyper = { version = "0.14.27", features = ["full"] }
+hyper = { version = "1.0.0", features = ["full"] }
 indexmap = { version = "2.1.0", features = ["serde"] }
 is-terminal = "0.4.9"
 itertools = "0.12.0"
