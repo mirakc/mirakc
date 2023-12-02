@@ -533,9 +533,10 @@ mod logging {
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use test_log::test;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_command_builder() {
         let result = CommandBuilder::new("true")
             .and_then(|mut builder| builder.stdin(Stdio::null()).stdout(Stdio::piped()).spawn());
@@ -556,7 +557,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_pipeline_io() {
         use futures::task::noop_waker;
 
@@ -593,7 +594,7 @@ mod tests {
         assert_eq!(0, result.unwrap());
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_pipeline_mulpile_commands() {
         let mut pipeline = spawn_pipeline(
             vec!["cat".to_string(), "cat".to_string(), "cat".to_string()],
@@ -620,7 +621,7 @@ mod tests {
         assert_eq!(b"hello\0", &buf);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_pipeline_write_1mb() {
         let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
         let (mut input, mut output) = pipeline.take_endpoints();
@@ -647,7 +648,7 @@ mod tests {
         let _ = handle.await.unwrap();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_pipeline_input_dropped() {
         let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
         let (mut input, mut output) = pipeline.take_endpoints();
@@ -664,7 +665,7 @@ mod tests {
         assert_eq!(b"hello", &buf);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_pipeline_output_dropped() {
         let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
         let (mut input, output) = pipeline.take_endpoints();
@@ -675,7 +676,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_pipeline_broken() {
         use tokio::sync::oneshot;
 

@@ -335,6 +335,7 @@ mod tests {
     use maplit::hashset;
     use std::io::Write;
     use tempfile::NamedTempFile;
+    use test_log::test;
 
     macro_rules! service {
         ($id:expr, $channel_type:expr) => {
@@ -356,7 +357,7 @@ mod tests {
         };
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_update_onair_program() {
         let script_file = make_script();
         let command = format!("sh {}", script_file.path().display());

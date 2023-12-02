@@ -139,6 +139,7 @@ impl FilterPipelineBuilder {
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use test_log::test;
 
     #[test]
     fn test_make_filter() {

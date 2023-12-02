@@ -233,9 +233,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
     use tokio_stream::wrappers::ReceiverStream;
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_pipe() {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 

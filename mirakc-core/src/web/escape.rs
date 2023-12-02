@@ -42,6 +42,7 @@ impl<'a> std::fmt::Display for Escape<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
 
     #[test]
     fn test() {

@@ -872,6 +872,7 @@ mod tests {
     use super::*;
     use crate::command_util::Error as CommandUtilError;
     use assert_matches::assert_matches;
+    use test_log::test;
 
     #[test]
     fn test_make_filter_command() {
@@ -896,7 +897,7 @@ mod tests {
         });
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_start_streaming() {
         let system = System::new();
 
@@ -996,7 +997,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_start_streaming_grab_lowest_priority_tuner() {
         let config: Arc<Config> = Arc::new(
             serde_yaml::from_str(
@@ -1198,7 +1199,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_tuner_is_subscribed() {
         let system = System::new();
         {
@@ -1229,7 +1230,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_tuner_is_active() {
         let system = System::new();
         {
@@ -1245,7 +1246,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_tuner_activate() {
         let system = System::new();
         {
@@ -1280,7 +1281,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_tuner_stop_streaming() {
         let system = System::new();
         {
@@ -1312,7 +1313,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_tuner_can_grab() {
         let system = System::new();
         {
@@ -1350,7 +1351,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_tuner_priority() {
         let system = System::new();
         {
@@ -1384,7 +1385,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_tuner_reactivate() {
         let system = System::new();
         {

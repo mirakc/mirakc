@@ -4,13 +4,15 @@ use std::fmt;
 use std::io;
 use std::pin::Pin;
 
-use axum::body::StreamBody;
 use axum::http::header::ACCEPT_RANGES;
 use axum::http::header::CONTENT_RANGE;
 use axum::http::header::TRANSFER_ENCODING;
 use bytes::Bytes;
-use futures::stream::Stream;
-use futures::stream::StreamExt;
+use futures::Stream;
+use futures::StreamExt;
+use futures::TryStreamExt;
+use http_body::Frame;
+use http_body_util::StreamBody;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
@@ -189,7 +191,7 @@ where
                 super::X_MIRAKURUN_TUNER_USER_ID,
                 header_value!(&user.get_mirakurun_model().id),
             );
-            let body = StreamBody::new(peekable);
+            let body = StreamBody::new(peekable.map_ok(Frame::data).map_err(Error::from));
             if let Some(range) = range {
                 headers.insert(ACCEPT_RANGES, header_value!("bytes"));
                 headers.insert(CONTENT_RANGE, header_value!(range.make_content_range()));
@@ -201,7 +203,7 @@ where
                 }
             } else {
                 headers.insert(ACCEPT_RANGES, header_value!("none"));
-                Ok((headers, body).into_response())
+                Ok((headers, axum::body::Body::new(body)).into_response())
             }
         }
     }
@@ -228,7 +230,8 @@ pub(in crate::web::api) fn do_head_stream(
     //
     // Create an empty stream in order to prevent a "content-length: 0" header
     // from being added.
-    let body = StreamBody::new(futures::stream::empty::<Result<Bytes, Error>>());
+    let body = axum::body::Body::empty().into_data_stream();
+    let body = axum::body::Body::from_stream(body);
 
     Ok((headers, body).into_response())
 }
@@ -253,8 +256,9 @@ pub(in crate::web::api) fn determine_stream_content_type<'a>(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use test_log::test;
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_do_streaming() {
         let user = user_for_test(0.into());
 

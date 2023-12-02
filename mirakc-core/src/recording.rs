@@ -1880,6 +1880,7 @@ mod tests {
     use indexmap::indexmap;
     use maplit::hashset;
     use tempfile::TempDir;
+    use test_log::test;
 
     #[test]
     fn test_save_and_load() {
@@ -2192,7 +2193,7 @@ mod tests {
         assert!(manager.schedules.is_empty());
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_maintain_schedules() {
         let now = Jst::now();
         let config = config_for_test("/tmp");
@@ -2263,7 +2264,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_handle_recording_stopped() {
         let now = Jst::now();
 
@@ -2303,7 +2304,7 @@ mod tests {
         });
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_handle_recording_stopped_retry() {
         let now = Jst::now();
 
@@ -2349,7 +2350,7 @@ mod tests {
         });
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_handle_recording_stopped_pipeline_error() {
         let now = Jst::now();
 
@@ -2395,7 +2396,7 @@ mod tests {
         });
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_update_schedules_by_epg_services() {
         let now = Jst::now();
 
@@ -2439,7 +2440,7 @@ mod tests {
         assert!(!changed);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_update_schedules_by_epg_programs() {
         let now = Jst::now();
 
@@ -2505,7 +2506,7 @@ mod tests {
         assert!(!changed);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_update_schedules_by_epg_programs_rescheduled() {
         let now = Jst::now();
 
@@ -2553,7 +2554,7 @@ mod tests {
         });
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_check_retry() {
         // exit(0)
         let mut pipeline: CommandPipeline<u8> = pipeline!["true"];
@@ -2576,7 +2577,7 @@ mod tests {
         assert!(check_retry(&results));
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_recorder_get_first_error() {
         // exit(0)
         let mut pipeline: CommandPipeline<u8> = pipeline!["true"];

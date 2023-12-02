@@ -1,6 +1,6 @@
 pub(in crate::web::api) mod stream;
 
-use axum::headers::UserAgent;
+use axum_extra::headers::UserAgent;
 
 use super::*;
 use crate::onair;

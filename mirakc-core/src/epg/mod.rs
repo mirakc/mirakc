@@ -1202,8 +1202,9 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use chrono::Datelike;
+    use test_log::test;
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_update_services() {
         let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub);
 
@@ -1303,7 +1304,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_update_services_purge_garbage_schedules() {
         let mut epg = Epg::new(Arc::new(Default::default()), TunerManagerStub);
         let id = ServiceId::from((1, 2));

@@ -1,7 +1,6 @@
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
-use std::net::SocketAddr;
 use std::task::Context;
 use std::task::Poll;
 
@@ -14,6 +13,7 @@ use futures::future::BoxFuture;
 use tower::Layer;
 use tower::Service;
 
+use super::peer_info::PeerInfo;
 use crate::error::Error;
 
 #[derive(Clone)]
@@ -45,18 +45,23 @@ where
     }
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
-        let info = req.extensions().get::<ConnectInfo<SocketAddr>>();
+        let info = req.extensions().get::<ConnectInfo<PeerInfo>>();
 
         let allowed = match info {
-            Some(ConnectInfo(addr)) => {
+            Some(ConnectInfo(PeerInfo::Tcp { addr })) => {
                 let allowed = is_private_ip_addr(addr.ip());
-                tracing::debug!(?addr, allowed);
+                tracing::debug!(tcp.addr = ?addr, allowed);
                 allowed
             }
-            None => {
-                // UNIX domain socket
-                tracing::debug!(addr = "uds", allowed = true);
+            Some(ConnectInfo(PeerInfo::Unix { addr, cred })) => {
+                tracing::debug!(unix.addr = ?addr, unix.cred = ?cred, allowed = true);
                 true
+            }
+            #[cfg(test)]
+            Some(ConnectInfo(PeerInfo::Test)) => true,
+            _ => {
+                tracing::warn!("No peer addr available, disconnect");
+                false
             }
         };
 
@@ -94,6 +99,7 @@ fn is_private_ipv6_addr(ip: Ipv6Addr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
 
     #[test]
     fn test_is_private_ip_addr() {

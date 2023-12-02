@@ -146,8 +146,9 @@ mod tests {
     use super::*;
     use crate::tuner::stub::TunerManagerStub;
     use assert_matches::assert_matches;
+    use test_log::test;
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_sync_clocks_in_channel() {
         let stub = TunerManagerStub::default();
 

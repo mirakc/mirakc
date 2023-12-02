@@ -104,6 +104,7 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use tempfile::TempDir;
+    use test_log::test;
 
     #[test]
     fn test_save_data() {

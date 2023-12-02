@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use actlet::prelude::*;
@@ -11,18 +10,15 @@ use axum::http::HeaderMap;
 use axum::http::HeaderValue;
 use axum::routing;
 use axum::Router;
-use axum::Server;
-use futures::future::join_all;
-use futures::future::FutureExt;
 use tower_http::trace::TraceLayer;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::config::Config;
 use crate::error::Error;
 use crate::string_table::StringTable;
-use crate::web::access_control::AccessControlLayer;
-use crate::web::default_headers::DefaultHeadersLayer;
-use crate::web::uds::UdsListener;
+
+use access_control::AccessControlLayer;
+use default_headers::DefaultHeadersLayer;
 
 // macros
 
@@ -42,9 +38,10 @@ mod default_headers;
 mod error;
 mod escape;
 mod mount;
+mod peer_info;
 mod qs;
+mod server;
 mod sse;
-mod uds;
 
 #[cfg(test)]
 mod tests;
@@ -122,43 +119,7 @@ where
             onair_manager,
         }));
 
-    let http_servers = config
-        .server
-        .http_addrs()
-        .map(|addr| serve_http(addr, app.clone()).boxed());
-    let uds_servers = config
-        .server
-        .uds_paths()
-        .map(|path| serve_uds(path, app.clone()).boxed());
-
-    let servers = http_servers.chain(uds_servers);
-    join_all(servers).await;
-
-    Ok(())
-}
-
-// http
-
-async fn serve_http(addr: SocketAddr, app: Router) -> hyper::Result<()> {
-    Server::bind(&addr)
-        .http1_keepalive(false)
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-        .await
-}
-
-// uds
-
-async fn serve_uds(path: &std::path::Path, app: Router) -> hyper::Result<()> {
-    // Cleanup the previous socket if it exists.
-    let _ = tokio::fs::remove_file(&path).await;
-    tokio::fs::create_dir_all(path.parent().unwrap())
-        .await
-        .unwrap();
-
-    Server::builder(UdsListener::new(path))
-        .http1_keepalive(false)
-        .serve(app.into_make_service())
-        .await
+    server::serve(config, app).await
 }
 
 // headers

@@ -5,11 +5,19 @@ use std::collections::HashMap;
 use std::future::Future;
 
 use assert_matches::assert_matches;
+use axum::body::Body;
 use axum::http::header::ACCEPT_RANGES;
+use axum::http::header::CONTENT_TYPE;
+use axum::http::header::HOST;
 use axum::http::header::LOCATION;
+use axum::http::Request;
 use axum::http::StatusCode;
-use axum_test_helper::TestClient;
-use axum_test_helper::TestResponse;
+use axum::response::Response;
+use http_body_util::BodyExt; // for `collect`
+use mime::APPLICATION_JSON;
+use serde_json::json;
+use test_log::test;
+use tower::ServiceExt;
 
 use crate::epg::stub::EpgStub;
 use crate::models::TunerUserPriority;
@@ -19,39 +27,43 @@ use crate::recording::RecordingOptions;
 use crate::timeshift::stub::TimeshiftManagerStub;
 use crate::tuner::stub::TunerManagerStub;
 use api::models::*;
+use peer_info::PeerInfo;
 use qs::*;
 
-#[tokio::test]
+// See the following example for how to write tests:
+// https://github.com/tokio-rs/axum/blob/main/examples/testing/src/main.rs
+
+#[test(tokio::test)]
 async fn test_get_unknown() {
     let res = get("/api/unknown").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_version() {
     let res = get("/api/version").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_status() {
     let res = get("/api/status").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_channels() {
     let res = get("/api/channels").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_services() {
     let res = get("/api/services").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_service() {
     let res = get("/api/services/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -60,7 +72,7 @@ async fn test_get_service() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_service_logo() {
     let res = get("/api/services/1/logo").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -72,7 +84,7 @@ async fn test_get_service_logo() {
     assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_head_service_logo() {
     let res = head("/api/services/1/logo").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -84,7 +96,7 @@ async fn test_head_service_logo() {
     assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_service_programs() {
     let res = get("/api/services/1/programs").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -93,13 +105,13 @@ async fn test_get_service_programs() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_programs() {
     let res = get("/api/programs").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_program() {
     let res = get("/api/programs/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -108,13 +120,13 @@ async fn test_get_program() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_tuners() {
     let res = get("/api/tuners").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_tuner() {
     let res = get("/api/tuners/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -123,7 +135,7 @@ async fn test_get_tuner() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_channel_stream() {
     let res = get("/api/channels/GR/ch/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -172,7 +184,7 @@ async fn test_get_channel_stream() {
     });
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_channel_service_stream() {
     let res = get("/api/channels/GR/ch/services/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -230,7 +242,7 @@ async fn test_get_channel_service_stream() {
     });
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_service_stream() {
     let res = get("/api/services/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -275,7 +287,7 @@ async fn test_get_service_stream() {
     });
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_head_service_stream() {
     let res = head("/api/services/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -306,7 +318,7 @@ async fn test_head_service_stream() {
     });
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_program_stream() {
     let res = get("/api/programs/100001/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -351,13 +363,13 @@ async fn test_get_program_stream() {
     });
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_recording_schedules() {
     let res = get("/api/recording/schedules").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_create_recording_schedule() {
     // Error::ProgramNotFound
     let input = WebRecordingScheduleInput {
@@ -444,7 +456,7 @@ async fn test_create_recording_schedule() {
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_recording_schedule() {
     let res = get("/api/recording/schedules/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -453,7 +465,7 @@ async fn test_get_recording_schedule() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_delete_recording_schedule() {
     let res = delete("/api/recording/schedules/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -462,7 +474,7 @@ async fn test_delete_recording_schedule() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_delete_recording_schedules() {
     let res = delete("/api/recording/schedules").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -471,13 +483,13 @@ async fn test_delete_recording_schedules() {
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_recording_recorders() {
     let res = get("/api/recording/recorders").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_create_recording_recorder() {
     let input = WebRecordingScheduleInput {
         program_id: (0, 0, 1).into(),
@@ -506,7 +518,7 @@ async fn test_create_recording_recorder() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_recording_recorder() {
     let res = get("/api/recording/recorders/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -515,7 +527,7 @@ async fn test_get_recording_recorder() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_delete_recording_recorder() {
     let res = delete("/api/recording/recorders/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -524,13 +536,13 @@ async fn test_delete_recording_recorder() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_timeshift_recorders() {
     let res = get("/api/timeshift").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_timeshift_recorder() {
     let res = get("/api/timeshift/test").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -539,13 +551,13 @@ async fn test_get_timeshift_recorder() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_timeshift_records() {
     let res = get("/api/timeshift/test/records").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_timeshift_record() {
     let res = get("/api/timeshift/test/records/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -554,7 +566,7 @@ async fn test_get_timeshift_record() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_timeshift_stream() {
     let res = get("/api/timeshift/test/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -567,7 +579,7 @@ async fn test_get_timeshift_stream() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_timeshift_record_stream() {
     let res = get("/api/timeshift/test/records/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -600,12 +612,12 @@ async fn test_get_timeshift_record_stream() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_iptv_playlist() {
     test_get_iptv_playlist_("/api/iptv/playlist").await;
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_iptv_channel_m3u8() {
     test_get_iptv_playlist_("/api/iptv/channel.m3u8").await;
 }
@@ -616,7 +628,7 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
     assert_matches!(res.headers().get("content-type"), Some(v) => {
         assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
     });
-    let playlist = res.text().await;
+    let playlist = into_text(res).await;
     assert!(playlist.contains("#KODIPROP:mimetype=video/mp2t\n"));
 
     let res = get(&format!("{}?post-filters[]=mp4", endpoint)).await;
@@ -624,29 +636,29 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
     assert_matches!(res.headers().get("content-type"), Some(v) => {
         assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
     });
-    let playlist = res.text().await;
+    let playlist = into_text(res).await;
     assert!(playlist.contains("#KODIPROP:mimetype=video/mp4\n"));
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_iptv_epg() {
     let res = get("/api/iptv/epg").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_iptv_xmltv() {
     let res = get("/api/iptv/xmltv").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_list_onair() {
     let res = get("/api/onair").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_onair() {
     let res = get("/api/onair/1").await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -655,19 +667,19 @@ async fn test_get_onair() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_docs() {
     let res = get("/api/docs").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_get_events() {
     let res = get("/events").await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_x_mirakurun_priority() {
     // Default priority.
     let prio = TunerUserPriority::from(0);
@@ -718,27 +730,36 @@ async fn test_x_mirakurun_priority() {
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_access_control_localhost() {
-    let addr = "127.0.0.1:10000".parse().unwrap();
-    let res = get_with_peer_addr("/api/version", Some(addr)).await;
+    let peer_info = PeerInfo::Tcp {
+        addr: "127.0.0.1:10000".parse().unwrap(),
+    };
+    let res = get_with_peer_info("/api/version", Some(peer_info)).await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
-async fn test_access_control_uds() {
-    let res = get_with_peer_addr("/api/version", None).await;
-    assert_eq!(res.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn test_access_control_denied() {
-    let addr = "8.8.8.8:10000".parse().unwrap();
-    let res = get_with_peer_addr("/api/version", Some(addr)).await;
+#[test(tokio::test)]
+async fn test_access_control_public_addr() {
+    let peer_info = PeerInfo::Tcp {
+        addr: "8.8.8.8:10000".parse().unwrap(),
+    };
+    let res = get_with_peer_info("/api/version", Some(peer_info)).await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
+async fn test_access_control_uds() {
+    // TODO: no way to create tokio::net::unix::SocketAddr.
+}
+
+#[test(tokio::test)]
+async fn test_access_control_no_peer_info() {
+    let res = get_with_peer_info("/api/version", None).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[test(tokio::test)]
 async fn test_mount() {
     let res = get("/").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
@@ -771,16 +792,17 @@ async fn test_mount() {
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_filter_setting() {
     async fn do_test<H, F>(query: &str, handler: H) -> StatusCode
     where
         H: FnOnce(Qs<FilterSetting>) -> F + Clone + Send + 'static,
         F: Future<Output = ()> + Send,
     {
-        let url = format!("/?{}", query);
+        let endpoint = format!("/?{}", query);
         let app = Router::new().route("/", routing::get(handler));
-        TestClient::new(app).get(&url).send().await.status()
+        let req = Request::get(endpoint).body(Body::empty()).unwrap();
+        app.oneshot(req).await.unwrap().status()
     }
 
     assert_eq!(
@@ -963,10 +985,20 @@ async fn test_filter_setting() {
     );
 }
 
-async fn get_with_peer_addr(url: &str, addr: Option<SocketAddr>) -> TestResponse {
+async fn get(endpoint: &str) -> Response {
+    let app = create_app(Default::default());
+    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
+    let req = Request::get(endpoint)
+        .header(HOST, "mirakc.test")
+        .body(Body::empty())
+        .unwrap();
+    app.oneshot(req).await.unwrap()
+}
+
+async fn get_with_peer_info(endpoint: &str, peer_info: Option<PeerInfo>) -> Response {
     let config = config_for_test();
     let app = build_app(&config)
-        .layer(helper::ReplaceConnectInfoLayer::new(addr))
+        .layer(helper::ReplaceConnectInfoLayer::new(peer_info))
         .with_state(Arc::new(AppState {
             config,
             string_table: string_table_for_test(),
@@ -976,58 +1008,78 @@ async fn get_with_peer_addr(url: &str, addr: Option<SocketAddr>) -> TestResponse
             timeshift_manager: TimeshiftManagerStub,
             onair_manager: OnairProgramManagerStub,
         }));
-    TestClient::new(app).get(url).send().await
-}
-
-async fn get(url: &str) -> TestResponse {
-    let app = create_app(Default::default());
-    TestClient::new(app).get(url).send().await
+    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
+    let req = Request::get(endpoint)
+        .header(HOST, "mirakc.test")
+        .body(Body::empty())
+        .unwrap();
+    app.oneshot(req).await.unwrap()
 }
 
 async fn get_with_test_config(
-    url: &str,
+    endpoint: &str,
     test_config: Arc<HashMap<&'static str, String>>,
-) -> TestResponse {
+) -> Response {
     let app = create_app(test_config.clone());
-    let mut builder = TestClient::new(app).get(url);
+    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
+    let mut builder = Request::get(endpoint).header(HOST, "mirakc.test");
     if let Some(json) = test_config.get("request_headers") {
         let headers: Vec<(String, String)> = serde_json::from_str(json).unwrap();
         for (name, value) in headers.iter() {
             builder = builder.header(name, value);
         }
     }
-    builder.send().await
+    let req = builder.body(Body::empty()).unwrap();
+    app.oneshot(req).await.unwrap()
 }
 
-async fn head(url: &str) -> TestResponse {
+async fn head(endpoint: &str) -> Response {
     let app = create_app(Default::default());
-    TestClient::new(app).head(url).send().await
+    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
+    let req = Request::head(endpoint)
+        .header(HOST, "mirakc.test")
+        .body(Body::empty())
+        .unwrap();
+    app.oneshot(req).await.unwrap()
 }
 
-async fn post<T>(url: &str, data: T) -> TestResponse
+async fn post<T>(endpoint: &str, data: T) -> Response
 where
     T: serde::Serialize,
 {
     let app = create_app(Default::default());
-    TestClient::new(app).post(url).json(&data).send().await
+    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
+    let req = Request::post(endpoint)
+        .header(HOST, "mirakc.test")
+        .header(CONTENT_TYPE, APPLICATION_JSON.as_ref())
+        .body(Body::from(serde_json::to_vec(&json!(data)).unwrap()))
+        .unwrap();
+    app.oneshot(req).await.unwrap()
 }
 
-async fn delete(url: &str) -> TestResponse {
+async fn delete(endpoint: &str) -> Response {
     let app = create_app(Default::default());
-    TestClient::new(app).delete(url).send().await
+    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
+    let req = Request::delete(endpoint)
+        .header(HOST, "mirakc.test")
+        .body(Body::empty())
+        .unwrap();
+    app.oneshot(req).await.unwrap()
 }
 
 fn create_app(test_config: Arc<HashMap<&'static str, String>>) -> Router {
     let config = config_for_test();
-    build_app(&config).with_state(Arc::new(AppState {
-        config,
-        string_table: string_table_for_test(),
-        tuner_manager: TunerManagerStub::new(test_config.clone()),
-        epg: EpgStub,
-        recording_manager: RecordingManagerStub,
-        timeshift_manager: TimeshiftManagerStub,
-        onair_manager: OnairProgramManagerStub,
-    }))
+    build_app(&config)
+        .layer(helper::ReplaceConnectInfoLayer::new(Some(PeerInfo::Test)))
+        .with_state(Arc::new(AppState {
+            config,
+            string_table: string_table_for_test(),
+            tuner_manager: TunerManagerStub::new(test_config.clone()),
+            epg: EpgStub,
+            recording_manager: RecordingManagerStub,
+            timeshift_manager: TimeshiftManagerStub,
+            onair_manager: OnairProgramManagerStub,
+        }))
 }
 
 fn config_for_test() -> Arc<Config> {
@@ -1094,8 +1146,12 @@ fn string_table_for_test() -> Arc<StringTable> {
     )
 }
 
+async fn into_text(res: Response) -> String {
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
 mod helper {
-    use std::net::SocketAddr;
     use std::task::Context;
     use std::task::Poll;
 
@@ -1107,12 +1163,14 @@ mod helper {
     use tower::Layer;
     use tower::Service;
 
+    use super::PeerInfo;
+
     #[derive(Clone)]
-    pub(super) struct ReplaceConnectInfoLayer(Option<SocketAddr>);
+    pub(super) struct ReplaceConnectInfoLayer(Option<PeerInfo>);
 
     impl ReplaceConnectInfoLayer {
-        pub(super) fn new(addr: Option<SocketAddr>) -> Self {
-            ReplaceConnectInfoLayer(addr)
+        pub(super) fn new(peer_info: Option<PeerInfo>) -> Self {
+            ReplaceConnectInfoLayer(peer_info)
         }
     }
 
@@ -1122,7 +1180,7 @@ mod helper {
         fn layer(&self, inner: S) -> Self::Service {
             ReplaceConnectInfoService {
                 inner,
-                addr: self.0.clone(),
+                peer_info: self.0.clone(),
             }
         }
     }
@@ -1130,7 +1188,7 @@ mod helper {
     #[derive(Clone)]
     pub(super) struct ReplaceConnectInfoService<S> {
         inner: S,
-        addr: Option<SocketAddr>,
+        peer_info: Option<PeerInfo>,
     }
 
     impl<S> Service<Request<Body>> for ReplaceConnectInfoService<S>
@@ -1148,12 +1206,12 @@ mod helper {
         }
 
         fn call(&mut self, mut req: Request<Body>) -> Self::Future {
-            match self.addr {
-                Some(addr) => {
-                    req.extensions_mut().insert(ConnectInfo(addr.clone()));
+            match self.peer_info {
+                Some(ref peer_info) => {
+                    req.extensions_mut().insert(ConnectInfo(peer_info.clone()));
                 }
                 None => {
-                    req.extensions_mut().remove::<ConnectInfo<SocketAddr>>();
+                    req.extensions_mut().remove::<ConnectInfo<PeerInfo>>();
                 }
             }
             let fut = self.inner.call(req);

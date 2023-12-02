@@ -998,6 +998,7 @@ mod tests {
     use crate::tuner::stub::TunerManagerStub;
     use assert_matches::assert_matches;
     use tempfile::TempDir;
+    use test_log::test;
     use tokio::sync::Notify;
 
     macro_rules! point {
@@ -1041,7 +1042,7 @@ mod tests {
             )
         };
     }
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_timeshift_record_purge_expired_records() {
         let temp_dir = TempDir::new().unwrap();
         let config = create_config(temp_dir.path());
@@ -1086,7 +1087,7 @@ mod tests {
         assert_eq!(recorder.records[0].program.id, (0, 1, 3).into());
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_timeshift_recorder_broken_pipeline() {
         let system = System::new();
 
@@ -1141,7 +1142,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_timeshift_recorder_stop() {
         let system = System::new();
 

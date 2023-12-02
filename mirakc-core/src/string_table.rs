@@ -31,6 +31,7 @@ pub struct EpgGenreStringTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
 
     #[test]
     fn test_epg_genre_string_table() {

@@ -94,7 +94,7 @@ pub(in crate::web::api) async fn stream<S>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
     Path(path): Path<TimeshiftRecordPath>,
-    ranges: Option<TypedHeader<axum::headers::Range>>,
+    ranges: Option<TypedHeader<axum_extra::headers::Range>>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error>
@@ -116,7 +116,7 @@ where
 
     let start_pos = if let Some(TypedHeader(ranges)) = ranges {
         ranges
-            .iter()
+            .satisfiable_ranges(record.size)
             .next()
             .map(|(start, _)| match start {
                 Bound::Included(n) => Some(n),

@@ -7,7 +7,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::Json;
-use axum::TypedHeader;
+use axum_extra::TypedHeader;
 use chrono::Duration;
 use itertools::Itertools;
 use utoipa::openapi::Server;
@@ -331,6 +331,7 @@ impl utoipa::Modify for MirakurunCompatAddon {
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use test_log::test;
 
     #[test]
     fn test_openapi_docs() {

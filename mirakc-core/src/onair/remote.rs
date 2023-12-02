@@ -261,6 +261,7 @@ impl WebOnairProgram {
 mod tests {
     use super::*;
     use maplit::hashset;
+    use test_log::test;
 
     macro_rules! config {
         ($url:expr) => {

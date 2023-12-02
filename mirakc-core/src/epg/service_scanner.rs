@@ -166,8 +166,9 @@ impl From<(&ChannelConfig, &TsService)> for EpgService {
 mod tests {
     use super::*;
     use crate::tuner::stub::TunerManagerStub;
+    use test_log::test;
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_scan_services_in_channel() {
         let stub = TunerManagerStub::default();
 

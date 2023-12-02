@@ -255,6 +255,7 @@ mod tests {
     use assert_matches::assert_matches;
     use std::fmt::Write as _;
     use std::io::Write as _;
+    use test_log::test;
 
     #[test]
     fn test_load_template() {
@@ -289,7 +290,7 @@ mod tests {
         });
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_render_folder_view() {
         let template = mustache::compile_str(
             "{{#entries}}\

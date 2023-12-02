@@ -1,12 +1,12 @@
 use std::io;
 use std::pin::Pin;
+use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
 
-use axum::body::HttpBody;
-use axum::http::HeaderMap;
 use bytes::Bytes;
 use futures::stream::Stream;
+use http_body::Frame;
 use http_body::SizeHint;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
@@ -29,22 +29,16 @@ impl StaticFileBody {
     }
 }
 
-impl HttpBody for StaticFileBody {
+impl http_body::Body for StaticFileBody {
     type Data = Bytes;
     type Error = io::Error;
 
-    fn poll_data(
+    fn poll_frame(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-        Pin::new(&mut self.stream).poll_next(cx)
-    }
-
-    fn poll_trailers(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
-        Poll::Ready(Ok(None))
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let data = ready!(Pin::new(&mut self.stream).poll_next(cx));
+        Poll::Ready(data.map(|data| data.map(|data| Frame::data(data))))
     }
 
     fn size_hint(&self) -> SizeHint {

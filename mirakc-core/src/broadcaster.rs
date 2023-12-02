@@ -524,9 +524,10 @@ mod tests {
 
     use super::*;
     use assert_matches::assert_matches;
+    use test_log::test;
     use tokio_stream::StreamExt;
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_min_capacity() {
         let mut broadcaster = Broadcaster::new(Default::default(), 0);
         assert_eq!(broadcaster.min_capacity(), Broadcaster::MAX_CHUNKS);
@@ -566,7 +567,7 @@ mod tests {
         assert!(broadcaster.subscribers[0].stuck_start_time.is_none());
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_broadcast() {
         let system = System::new();
         {
@@ -619,7 +620,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_unsubscribe() {
         let system = System::new();
         {
@@ -684,7 +685,7 @@ mod tests {
         system.stop();
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_chunk_source_read_chunk() {
         let mut mock = MockBroadcaster::new();
         mock.expect_emit().returning(|_| ());
@@ -709,7 +710,7 @@ mod tests {
         });
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_chunk_source_eof() {
         let time_limit = Duration::from_secs(1);
 
@@ -724,7 +725,7 @@ mod tests {
         assert!(start.elapsed() < time_limit);
     }
 
-    #[tokio::test]
+    #[test(tokio::test)]
     async fn test_chunk_source_timeout() {
         let time_limit = Duration::from_millis(10);
 

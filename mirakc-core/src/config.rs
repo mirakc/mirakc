@@ -1140,6 +1140,7 @@ mod tests {
     use maplit::hashmap;
     use maplit::hashset;
     use tempfile::NamedTempFile;
+    use test_log::test;
 
     #[test]
     fn test_config() {
