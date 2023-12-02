@@ -29,7 +29,8 @@
   },
 
   "extensions": [
-    "rust-lang.rust",
+    "rust-lang.rust-analyzer",
+    "swellaby.vscode-rust-test-adapter",
     "bungcip.better-toml",
     "vadimcn.vscode-lldb",
     "mutantdino.resourcemonitor"
