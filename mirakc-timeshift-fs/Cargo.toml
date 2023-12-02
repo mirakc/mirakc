@@ -19,6 +19,9 @@ tracing = "0.1.40"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
+env_logger = "0.10.1"
+test-log = { version = "0.2.13", features = ["trace"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 # We don't specify versions because Dependabot cannot update crates in this section.
 [target.'cfg(target_os = "macos")'.dependencies]

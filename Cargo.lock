@@ -1240,13 +1240,16 @@ version = "2.6.0-dev.0"
 dependencies = [
  "assert_matches",
  "clap",
+ "env_logger",
  "fuser",
  "indexmap",
  "libc",
  "mirakc-core",
  "sanitize-filename",
  "serde_json",
+ "test-log",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

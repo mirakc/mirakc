@@ -74,6 +74,7 @@ pub(crate) fn parse_options_from_args(args: &[String]) -> Vec<MountOption> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use test_log::test;
 
     #[test]
     fn option_round_trip() {

@@ -764,6 +764,7 @@ fn system_time_from_unix_time(unix_time: i64) -> std::time::SystemTime {
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use test_log::test;
 
     #[test]
     fn test_record_buffer_fill() {
