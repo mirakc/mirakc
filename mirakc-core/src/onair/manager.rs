@@ -6,6 +6,7 @@ use maplit::hashset;
 
 use crate::config::Config;
 use crate::config::LocalOnairProgramTrackerConfig;
+use crate::config::LocalOnairProgramTrackerUses;
 use crate::config::OnairProgramTrackerConfig;
 use crate::config::RemoteOnairProgramTrackerConfig;
 use crate::epg;
@@ -351,6 +352,9 @@ where
             services: hashset![service_id.into()],
             excluded_services: hashset![],
             command: LocalOnairProgramTrackerConfig::default_command(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: Some(msg.stream_id),
         });
         let changed = ctx.emitter();

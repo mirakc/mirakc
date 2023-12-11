@@ -117,20 +117,10 @@ impl Config {
         //            .unique()
         //            .count(),
         //            "config.channels: `name` must be a unique");
-        self.tuners.iter().enumerate().for_each(|(i, config)| {
-            config.validate(i);
-            if let Some(ref name) = config.dedicated_for {
-                // TODO: Use an enum type instead of String.
-                assert!(
-                    if name.starts_with("timeshift#") {
-                        self.timeshift.recorders.contains_key(&name[10..])
-                    } else {
-                        self.onair_program_trackers.contains_key(name)
-                    },
-                    "config.tuners: `dedicated-for` must hold an existing name"
-                );
-            }
-        });
+        self.tuners
+            .iter()
+            .enumerate()
+            .for_each(|(i, config)| config.validate(i));
         assert_eq!(
             self.tuners.len(),
             self.tuners
@@ -154,6 +144,67 @@ impl Config {
             .iter()
             .for_each(|(name, config)| config.validate(name));
         self.resource.validate();
+
+        let mut dedicated: HashMap<String, TunerUserInfo> = HashMap::new();
+        for (name, config) in self
+            .onair_program_trackers
+            .iter()
+            .filter_map(|(name, config)| match config {
+                OnairProgramTrackerConfig::Local(ref config) => Some((name, config)),
+                _ => None,
+            })
+        {
+            if let Some(ref user) = dedicated.get(&config.uses.tuner) {
+                panic!("tuner[{}] is dedicated for {user}", config.uses.tuner);
+            }
+            if self
+                .tuners
+                .iter()
+                .filter(|tuner| !tuner.disabled)
+                .all(|tuner| tuner.name != config.uses.tuner)
+            {
+                panic!(
+                    "onair-program-tracker[{name}] uses non-existent tuner[{}]",
+                    config.uses.tuner
+                );
+            }
+            dedicated.insert(
+                config.uses.tuner.clone(),
+                TunerUserInfo::OnairProgramTracker(name.clone()),
+            );
+        }
+        for (name, config) in self.timeshift.recorders.iter() {
+            if let Some(ref user) = dedicated.get(&config.uses.tuner) {
+                panic!("tuner[{}] is dedicated for {user}", config.uses.tuner);
+            }
+            if !self.channels.iter().any(|channel| {
+                channel.channel_type == config.uses.channel_type
+                    && channel.channel == config.uses.channel
+            }) {
+                panic!(
+                    "timeshift-recorder[{name}] uses undefined channel {}/{}",
+                    config.uses.channel_type, config.uses.channel
+                );
+            }
+            if let Some(tuner) = self
+                .tuners
+                .iter()
+                .filter(|tuner| !tuner.disabled)
+                .find(|tuner| tuner.name == config.uses.tuner)
+            {
+                assert!(
+                    tuner.channel_types.contains(&config.uses.channel_type),
+                    "timeshift-recorder[{name}] uses tuner[{}] which is not for {}",
+                    config.uses.tuner,
+                    config.uses.channel_type,
+                );
+            } else {
+                panic!(
+                    "timeshift-recorder[{name}] uses non-existent tuner[{}]",
+                    config.uses.tuner
+                );
+            }
+        }
     }
 }
 
@@ -452,9 +503,6 @@ pub struct TunerConfig {
     pub disabled: bool,
     #[serde(default)]
     pub decoded: bool,
-    // TODO: Use an enum type instead of String.
-    #[serde(default)]
-    pub dedicated_for: Option<String>,
 }
 
 impl TunerConfig {
@@ -493,7 +541,6 @@ impl Default for TunerConfig {
             time_limit: Self::default_time_limit(),
             disabled: false,
             decoded: false,
-            dedicated_for: None,
         }
     }
 }
@@ -821,6 +868,7 @@ pub struct TimeshiftRecorderConfig {
     pub num_reserves: usize,
     #[serde(default = "TimeshiftRecorderConfig::default_priority")]
     pub priority: i32,
+    pub uses: TimeshiftRecorderUses,
 }
 
 impl TimeshiftRecorderConfig {
@@ -839,44 +887,41 @@ impl TimeshiftRecorderConfig {
     fn validate(&self, name: &str) {
         assert!(
             self.ts_file.is_absolute(),
-            "config.timeshift.recorders.{}: `ts-file` must be an absolute path",
-            name
+            "config.timeshift.recorders[{name}]: \
+             `ts-file` must be an absolute path"
         );
         assert!(
             self.ts_file.to_str().is_some(),
-            "config.timeshift.recorders.{}: `ts-file` path must consist \
-             only of UTF-8 compatible characters",
-            name
+            "config.timeshift.recorders[{name}]: \
+             `ts-file` path must consist only of UTF-8 compatible characters"
         );
         if let Some(parent) = self.ts_file.parent() {
             assert!(
                 parent.is_dir(),
-                "config.timeshift.recorders.{}: \
-                     The parent directory of `ts-file` must exists",
-                name
+                "config.timeshift.recorders[{name}]: \
+                 The parent directory of `ts-file` must exists"
             );
         } else {
             unreachable!(
-                "config.timeshift.recorders.{}: `ts-file` must be a path to a file",
-                name
+                "config.timeshift.recorders[{name}]: \
+                 `ts-file` must be a path to a file"
             );
         }
         assert!(
             self.data_file.is_absolute(),
-            "config.timeshift.recorders.{}: `data-file` must be an absolute path",
-            name
+            "config.timeshift.recorders[{name}]: \
+             `data-file` must be an absolute path"
         );
         if let Some(parent) = self.data_file.parent() {
             assert!(
                 parent.is_dir(),
-                "config.timeshift.recorders.{}: \
-                     The parent directory of `data-file` must exists",
-                name
+                "config.timeshift.recorders[{name}]: \
+                 The parent directory of `data-file` must exists"
             );
         } else {
             unreachable!(
-                "config.timeshift.recorders.{}: `data-file` must be a path to a file",
-                name
+                "config.timeshift.recorders[{name}]: \
+                 `data-file` must be a path to a file"
             );
         }
         // TODO
@@ -891,49 +936,51 @@ impl TimeshiftRecorderConfig {
         // our data formats.
         assert!(
             self.data_file.extension().is_some() && self.data_file.extension().unwrap() == "json",
-            "config.timeshift.recorders.{}: `data-file` must be a JSON file",
-            name
+            "config.timeshift.recorders[{name}]: \
+             `data-file` must be a JSON file"
         );
         assert!(
             self.chunk_size > 0,
-            "config.timeshift.recorders.{}: `chunk-size` must be larger than 0",
-            name
+            "config.timeshift.recorders[{name}]: \
+             `chunk-size` must be larger than 0"
         );
         assert!(
             self.chunk_size % (Self::BUFSIZE) == 0,
-            "config.timeshift.recorders.{}: `chunk-size` must be a multiple of {}",
-            name,
+            "config.timeshift.recorders[{name}]: \
+             `chunk-size` must be a multiple of {}",
             Self::BUFSIZE,
         );
         assert!(
             self.num_chunks > 2,
-            "config.timeshift.recorders.{}: `num-chunks` must be larger than 2",
-            name
+            "config.timeshift.recorders[{name}]: \
+             `num-chunks` must be larger than 2"
         );
         assert!(
             self.num_reserves > 0,
-            "config.timeshift.recorders.{}: `num-reserves` must be larger than 0",
-            name
+            "config.timeshift.recorders[{name}]: \
+             `num-reserves` must be larger than 0"
         );
         assert!(
             self.num_chunks - self.num_reserves > 1,
-            "config.timeshift.recorders.{}: Maximum number of available chunks \
-             (`num-chunks` - `num-reserves`) must be larger than 1",
-            name
+            "config.timeshift.recorders[{name}]: \
+             Maximum number of available chunks \
+             (`num-chunks` - `num-reserves`) must be larger than 1"
         );
+
+        self.uses.validate(name);
 
         let ts_file_size = match self.ts_file.metadata() {
             Ok(metadata) => metadata.len(),
             Err(err) => unreachable!(
-                "config.timeshift.recorders.{}: Failed to get the size of `ts-file`: {}",
-                name, err
+                "config.timeshift.recorders[{name}]: \
+                 Failed to get the size of `ts-file`: {err}"
             ),
         };
         assert_eq!(
             self.max_file_size(),
             ts_file_size,
-            "config.timeshift.recorders.{}: `ts-file` must be allocated with {} in advance",
-            name,
+            "config.timeshift.recorders[{name}]: \
+             `ts-file` must be allocated with {} in advance",
             self.max_file_size()
         );
     }
@@ -948,6 +995,30 @@ impl TimeshiftRecorderConfig {
 
     fn default_priority() -> i32 {
         TunerUserPriority::MAX
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub struct TimeshiftRecorderUses {
+    pub tuner: String, // config.tuners[].name
+    pub channel_type: ChannelType,
+    pub channel: String,
+}
+
+impl TimeshiftRecorderUses {
+    fn validate(&self, name: &str) {
+        assert!(
+            !self.tuner.is_empty(),
+            "config.timeshift.recorders[{name}].uses.tuner: \
+             must be a non-empty string"
+        );
+        assert!(
+            !self.channel.is_empty(),
+            "config.timeshift.recorders[{name}].uses.channel: \
+             must be a non-empty string"
+        );
     }
 }
 
@@ -981,6 +1052,7 @@ pub struct LocalOnairProgramTrackerConfig {
     pub excluded_services: HashSet<ServiceId>,
     #[serde(default = "LocalOnairProgramTrackerConfig::default_command")]
     pub command: String,
+    pub uses: LocalOnairProgramTrackerUses,
     // Internal properties
     #[serde(default, skip)]
     pub stream_id: Option<TunerSubscriptionId>,
@@ -1001,6 +1073,25 @@ impl LocalOnairProgramTrackerConfig {
             !self.command.is_empty(),
             "config.onair-program-trackers[{name}]: \
              `command` must be a non-empty string"
+        );
+        self.uses.validate(name);
+    }
+}
+
+#[derive(Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Debug))]
+pub struct LocalOnairProgramTrackerUses {
+    pub tuner: String, // config.tuners[].name
+}
+
+impl LocalOnairProgramTrackerUses {
+    fn validate(&self, name: &str) {
+        assert!(
+            !self.tuner.is_empty(),
+            "config.onair-program-trackers[{name}].uses.tuner: \
+             must be a non-empty string"
         );
     }
 }
@@ -1222,14 +1313,47 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_config_validate_tuner_dedicated_for() {
+    fn test_config_validate_tuner_not_used() {
         let config = serde_yaml::from_str::<Config>(
             r#"
             tuners:
               - name: test
                 types: [GR]
-                dedicated-for: test
                 command: test
+            onair-program-trackers:
+              tracker:
+                local:
+                  channel-types: [GR]
+                  uses:
+                    tuner: tuner
+            resource:
+              strings-yaml: /bin/sh
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_config_validate_tuner_usage_conflict() {
+        let config = serde_yaml::from_str::<Config>(
+            r#"
+            tuners:
+              - name: test
+                types: [GR,BS]
+                command: test
+            onair-program-trackers:
+              tracker:
+                local1:
+                  channel-types: [GR]
+                  uses:
+                    tuner: test
+              tracker:
+                local2:
+                  channel-types: [BS]
+                  uses:
+                    tuner: test
             resource:
               strings-yaml: /bin/sh
         "#,
@@ -1245,12 +1369,13 @@ mod tests {
             tuners:
               - name: test
                 types: [GR]
-                dedicated-for: tracker
                 command: test
             onair-program-trackers:
               tracker:
                 local:
                   channel-types: [GR]
+                  uses:
+                    tuner: test
             resource:
               strings-yaml: /bin/sh
         "#,
@@ -1273,10 +1398,13 @@ mod tests {
         }
         let config = serde_yaml::from_str::<Config>(&format!(
             r#"
+            channels:
+              - name: test
+                type: GR
+                channel: '26'
             tuners:
               - name: test
                 types: [GR]
-                dedicated-for: timeshift#recorder
                 command: test
             timeshift:
               recorders:
@@ -1286,6 +1414,98 @@ mod tests {
                   data-file: /tmp/data.json
                   chunk-size: {chunk_size}
                   num-chunks: {num_chunks}
+                  uses:
+                    tuner: test
+                    channel-type: GR
+                    channel: '26'
+            resource:
+              strings-yaml: /bin/sh
+        "#,
+            ts_file.path().to_str().unwrap()
+        ))
+        .unwrap();
+        config.validate();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    #[should_panic]
+    fn test_config_validate_tuner_dedicated_for_timeshift_undefined_channel() {
+        // NOTE: The chunk size for this test should be the default chunk size,
+        //       but it's too large to allocate in /tmp...
+        let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
+        let num_chunks = 3;
+        let ts_file = NamedTempFile::new().unwrap();
+        let ts_file_size = (chunk_size * num_chunks) as libc::off64_t;
+        unsafe {
+            let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
+        }
+        let config = serde_yaml::from_str::<Config>(&format!(
+            r#"
+            channels:
+              - name: test
+                type: GR
+                channel: '27'
+            tuners:
+              - name: test
+                types: [GR]
+                command: test
+            timeshift:
+              recorders:
+                recorder:
+                  service-id: 3273701032
+                  ts-file: {}
+                  data-file: /tmp/data.json
+                  chunk-size: {chunk_size}
+                  num-chunks: {num_chunks}
+                  uses:
+                    tuner: test
+                    channel-type: GR
+                    channel: '26'
+            resource:
+              strings-yaml: /bin/sh
+        "#,
+            ts_file.path().to_str().unwrap()
+        ))
+        .unwrap();
+        config.validate();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    #[should_panic]
+    fn test_config_validate_tuner_dedicated_for_timeshift_unsupported_channel_type() {
+        // NOTE: The chunk size for this test should be the default chunk size,
+        //       but it's too large to allocate in /tmp...
+        let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
+        let num_chunks = 3;
+        let ts_file = NamedTempFile::new().unwrap();
+        let ts_file_size = (chunk_size * num_chunks) as libc::off64_t;
+        unsafe {
+            let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
+        }
+        let config = serde_yaml::from_str::<Config>(&format!(
+            r#"
+            channels:
+              - name: test
+                type: GR
+                channel: '26'
+            tuners:
+              - name: test
+                types: [BS]
+                command: test
+            timeshift:
+              recorders:
+                recorder:
+                  service-id: 3273701032
+                  ts-file: {}
+                  data-file: /tmp/data.json
+                  chunk-size: {chunk_size}
+                  num-chunks: {num_chunks}
+                  uses:
+                    tuner: test
+                    channel-type: GR
+                    channel: '26'
             resource:
               strings-yaml: /bin/sh
         "#,
@@ -2019,7 +2239,6 @@ mod tests {
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: false,
                 decoded: false,
-                dedicated_for: None,
             }
         );
 
@@ -2045,7 +2264,6 @@ mod tests {
                 time_limit: 1,
                 disabled: false,
                 decoded: false,
-                dedicated_for: None,
             }
         );
 
@@ -2071,7 +2289,6 @@ mod tests {
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: true,
                 decoded: false,
-                dedicated_for: None,
             }
         );
 
@@ -2097,7 +2314,6 @@ mod tests {
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: false,
                 decoded: true,
-                dedicated_for: None,
             }
         );
 
@@ -2107,7 +2323,6 @@ mod tests {
                 name: x
                 types: [GR, BS, CS, SKY]
                 command: open tuner
-                dedicated-for: user
             "#
             )
             .unwrap(),
@@ -2123,7 +2338,6 @@ mod tests {
                 time_limit: TunerConfig::default_time_limit(),
                 disabled: false,
                 decoded: false,
-                dedicated_for: Some("user".to_string()),
             }
         );
 
@@ -2154,7 +2368,6 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: false,
             decoded: false,
-            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -2169,7 +2382,6 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: false,
             decoded: false,
-            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -2184,7 +2396,6 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: false,
             decoded: false,
-            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -2199,7 +2410,6 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: false,
             decoded: false,
-            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -2213,7 +2423,6 @@ mod tests {
             time_limit: TunerConfig::default_time_limit(),
             disabled: true,
             decoded: false,
-            dedicated_for: None,
         };
         config.validate(0);
     }
@@ -2711,6 +2920,10 @@ mod tests {
                     ts-file: /path/to/timeshift.m2ts
                     data-file: /path/to/timeshift.json
                     num-chunks: 100
+                    uses:
+                      tuner: tuner
+                      channel-type: GR
+                      channel: ch
             "#
             )
             .unwrap(),
@@ -2725,6 +2938,11 @@ mod tests {
                         num_chunks: 100,
                         num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
                         priority: TimeshiftRecorderConfig::default_priority(),
+                        uses: TimeshiftRecorderUses {
+                            tuner: "tuner".to_string(),
+                            channel_type: ChannelType::GR,
+                            channel: "ch".to_string(),
+                        },
                     },
                 },
             },
@@ -2751,6 +2969,10 @@ mod tests {
                     ts-file: /path/to/timeshift.m2ts
                     data-file: /path/to/timeshift.json
                     num-chunks: 100
+                    uses:
+                      tuner: tuner
+                      channel-type: GR
+                      channel: ch
             "#
         )
         .unwrap()
@@ -2765,6 +2987,10 @@ mod tests {
                     ts-file: /path/to/timeshift.m2ts
                     data-file: /path/to/timeshift.json
                     num-chunks: 100
+                    uses:
+                      tuner: tuner
+                      channel-type: GR
+                      channel: ch
             "#
         )
         .unwrap()
@@ -2800,6 +3026,10 @@ mod tests {
             ts-file: /path/to/timeshift.m2ts
             data-file: /path/to/timeshift.data
             num-chunks: 100
+            uses:
+              tuner: tuner
+              channel-type: GR
+              channel: ch
             unknown: property
         "#
         )
@@ -2812,6 +3042,10 @@ mod tests {
                 ts-file: /path/to/timeshift.m2ts
                 data-file: /path/to/timeshift.data
                 num-chunks: 100
+                uses:
+                  tuner: tuner
+                  channel-type: GR
+                  channel: ch
             "#
             )
             .unwrap(),
@@ -2823,6 +3057,11 @@ mod tests {
                 num_chunks: 100,
                 num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
                 priority: TimeshiftRecorderConfig::default_priority(),
+                uses: TimeshiftRecorderUses {
+                    tuner: "tuner".to_string(),
+                    channel_type: ChannelType::GR,
+                    channel: "ch".to_string(),
+                },
             }
         );
 
@@ -2836,6 +3075,10 @@ mod tests {
                 num-chunks: 100
                 num-reserves: 2
                 priority: 2
+                uses:
+                  tuner: tuner
+                  channel-type: GR
+                  channel: ch
             "#
             )
             .unwrap(),
@@ -2847,6 +3090,11 @@ mod tests {
                 num_chunks: 100,
                 num_reserves: 2,
                 priority: 2.into(),
+                uses: TimeshiftRecorderUses {
+                    tuner: "tuner".to_string(),
+                    channel_type: ChannelType::GR,
+                    channel: "ch".to_string(),
+                },
             }
         );
     }
@@ -2871,6 +3119,11 @@ mod tests {
             num_chunks,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -2886,6 +3139,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -2901,6 +3159,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -2916,6 +3179,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -2931,6 +3199,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -2946,6 +3219,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -2961,6 +3239,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -2976,6 +3259,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -2991,6 +3279,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -3006,6 +3299,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -3028,6 +3326,11 @@ mod tests {
             num_chunks,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -3052,6 +3355,11 @@ mod tests {
             num_chunks,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -3067,6 +3375,11 @@ mod tests {
             num_chunks: 1,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -3082,6 +3395,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: 0,
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -3097,6 +3415,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: 9,
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -3112,6 +3435,31 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
+        };
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_timeshift_recorder_config_validate_uses() {
+        let config = TimeshiftRecorderConfig {
+            service_id: 1.into(),
+            ts_file: "/ts.m2ts".into(),
+            data_file: "/data.json".into(),
+            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
+            num_chunks: 10,
+            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
+            priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -3128,6 +3476,11 @@ mod tests {
             num_chunks: 10,
             num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
             priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
         };
         config.validate("test");
     }
@@ -3138,6 +3491,8 @@ mod tests {
             serde_yaml::from_str::<LocalOnairProgramTrackerConfig>(
                 r#"
                 channel-types: [GR]
+                uses:
+                  tuner: tuner
             "#
             )
             .unwrap(),
@@ -3146,6 +3501,9 @@ mod tests {
                 services: Default::default(),
                 excluded_services: Default::default(),
                 command: LocalOnairProgramTrackerConfig::default_command(),
+                uses: LocalOnairProgramTrackerUses {
+                    tuner: "tuner".to_string(),
+                },
                 stream_id: None,
             }
         );
@@ -3157,6 +3515,8 @@ mod tests {
                 services: [1]
                 excluded-services: [2]
                 command: "true"
+                uses:
+                  tuner: tuner
             "#
             )
             .unwrap(),
@@ -3165,6 +3525,9 @@ mod tests {
                 services: hashset![1.into()],
                 excluded_services: hashset![2.into()],
                 command: "true".to_string(),
+                uses: LocalOnairProgramTrackerUses {
+                    tuner: "tuner".to_string(),
+                },
                 stream_id: None,
             }
         );
@@ -3177,6 +3540,9 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: LocalOnairProgramTrackerConfig::default_command(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "tuner".to_string(),
+            },
             stream_id: None,
         };
         config.validate("test");
@@ -3186,6 +3552,9 @@ mod tests {
             services: hashset![1.into()],
             excluded_services: hashset![2.into()],
             command: "true".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "tuner".to_string(),
+            },
             stream_id: None,
         };
         config.validate("test");
@@ -3199,6 +3568,9 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: LocalOnairProgramTrackerConfig::default_command(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "tuner".to_string(),
+            },
             stream_id: None,
         };
         config.validate("test");
@@ -3212,6 +3584,25 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: "".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "tuner".to_string(),
+            },
+            stream_id: None,
+        };
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_local_onair_program_tracker_config_validate_uses() {
+        let config = LocalOnairProgramTrackerConfig {
+            channel_types: hashset![ChannelType::GR],
+            services: hashset![],
+            excluded_services: hashset![],
+            command: LocalOnairProgramTrackerConfig::default_command(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         };
         config.validate("test");

@@ -326,6 +326,7 @@ struct Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::LocalOnairProgramTrackerUses;
     use crate::epg::stub::EpgStub;
     use crate::epg::EitEvent;
     use crate::epg::EpgChannel;
@@ -366,6 +367,9 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command,
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         });
         let mut changed_mock = MockChangedEmitter::new();
@@ -405,6 +409,9 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: "".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         };
         assert!(config.matches(&gr12));
@@ -417,6 +424,9 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![],
             command: "".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         };
         assert!(config.matches(&gr12));
@@ -429,6 +439,9 @@ mod tests {
             services: hashset![(1, 2).into()],
             excluded_services: hashset![],
             command: "".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         };
         assert!(config.matches(&gr12));
@@ -441,6 +454,9 @@ mod tests {
             services: hashset![(1, 2).into()],
             excluded_services: hashset![],
             command: "".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         };
         assert!(config.matches(&gr12));
@@ -453,6 +469,9 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![(1, 2).into()],
             command: "".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         };
         assert!(!config.matches(&gr12));
@@ -465,6 +484,9 @@ mod tests {
             services: hashset![],
             excluded_services: hashset![(1, 2).into()],
             command: "".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         };
         assert!(!config.matches(&gr12));
@@ -477,6 +499,9 @@ mod tests {
             services: hashset![(1, 2).into()],
             excluded_services: hashset![(1, 2).into()],
             command: "".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         };
         assert!(!config.matches(&gr12));
@@ -489,6 +514,9 @@ mod tests {
             services: hashset![(1, 2).into()],
             excluded_services: hashset![(1, 2).into()],
             command: "".to_string(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "".to_string(),
+            },
             stream_id: None,
         };
         assert!(!config.matches(&gr12));

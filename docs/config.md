@@ -29,7 +29,6 @@ suitable for your environment.
 | [tuners\[\].time-limit]                  | `30000` (30s)                     |
 | [tuners\[\].disabled]                    | `false`                           |
 | [tuners\[\].decoded]                     | `false`                           |
-| [tuners\[\].dedicated-for]               | `None`                            |
 | [filters.tuner-filter.command]           | `''`                              |
 | [filters.service-filter.command]         | `mirakc-arib filter-service --sid={{{sid}}}` |
 | [filters.decode-filter.command]          | `''`                              |
@@ -54,6 +53,9 @@ suitable for your environment.
 | [timeshift.recorders\[\].num-chunks]     |                                   |
 | [timeshift.recorders\[\].num-reserves]   | `1`                               |
 | [timeshift.recorders\[\].priority]       | `128`                             |
+| [timeshift.recorders\[\].uses.tuner]     |                                   |
+| [timeshift.recorders\[\].uses.channel-type]|                                 |
+| [timeshift.recorders\[\].uses.channel]   |                                   |
 | [onair-program-trackers]                 | `{}`                              |
 | [resource.strings-yaml]                  | `/etc/mirakc/strings.yml`         |
 | [resource.logos]                         | `[]`                              |
@@ -79,7 +81,6 @@ suitable for your environment.
 [tuners\[\].time-limit]: #tuners
 [tuners\[\].disabled]: #tuners
 [tuners\[\].decoded]: #tuners
-[tuners\[\].dedicated-for]: #tuners
 [filters.tuner-filter.command]: #filterstuner-filter
 [filters.service-filter.command]: #filtersservice-filter
 [filters.decode-filter.command]: #filtersdecode-filter
@@ -104,6 +105,9 @@ suitable for your environment.
 [timeshift.recorders\[\].num-chunks]: #timeshiftrecorders
 [timeshift.recorders\[\].num-reserves]: #timeshiftrecorders
 [timeshift.recorders\[\].priority]: #timeshiftrecorders
+[timeshift.recorders\[\].uses.tuner]: #timeshiftrecorders
+[timeshift.recorders\[\].uses.channel-type]: #timeshiftrecorders
+[timeshift.recorders\[\].uses.channel]: #timeshiftrecorders
 [onair-program-trackers]: #onair-program-trackers
 [resource.strings-yaml]: #resourcestrings-yaml
 [resource.logos]: #resourcelogos
@@ -419,10 +423,6 @@ Definitions of tuners.  At least, one tuner must be defined.
   * Disable the tuner
 * decoded (optional)
   * PES packets are decoded by the tuner command
-* dedicated-for (optional)
-  * Specify the name of a user who uses the tuner exclusively
-  * See [this section](#local-tracker) for details
-  * Use the `timeshift#` prefix if you want to reserve a tuner for a particular timeshift recorder (available since `2.6.0`)
 
 Command template variables:
 
@@ -728,10 +728,14 @@ The timeshift recording has the following limitations:
 timeshift:
   recorders:
     bs1:
-      service-id: 400101  # BS1
+      service-id: 400101  # NHK BS
       ts-file: /path/to/bs1.timeshift.m2ts
       data-file: /path/to/bs1.timeshift.data
       num-chunks: 4000  # about 616GB
+      uses:
+        tuner: tuner-for-bs1-timeshift-recording
+        channel-type: BS
+        channel: BS15_0
 ```
 
 ### timeshift.recorders
@@ -759,6 +763,9 @@ Definitions of timeshift recorders.
 * priority
   * The priority of streaming
   * Should be larger than 0
+* uses.tuner, uses.channel-type, uses.channel
+  * A tuner name to use
+  * The specified tuner will be dedicated for streaming for the specified channel
 
 The following values are stored in the `data-file`:
 
@@ -791,15 +798,11 @@ At this point, the following trackers are available:
 A local tracker tracks on-air TV programs by collecting EIT [p/f] sections of a
 service every minute using a local tuner.
 
-It's **strongly** recommended to assign a dedicated tuner for a local tracker
-in order to make sure it always works.
-
 ```yaml
 tuners:
   # The `gr-tracker` tuner is used only by the `gr` local tracker.
   - name: gr-tracker
     types: [GR]
-    dedicated-for: gr
     command: >-
       recpt1 --device /dev/px4video2 {{{channel}}} {{{duration}}} -
 
@@ -809,6 +812,8 @@ onair-program-trackers:
   gr:
     local:
       channel-types: [GR]
+      uses:
+        tuner: gr-tracker
 ```
 
 The following properties can be specified:
@@ -824,6 +829,9 @@ The following properties can be specified:
     NDJSON from a TS stream
   * See the description of `mirakc-arib collect-eitpf -h` for details of the
     JSON format
+* uses.tuner (required)
+  * A tuner name to use
+  * The specified tuner will be dedicated for the local tracker and never shared with others
 
 Template variables for `command`:
 

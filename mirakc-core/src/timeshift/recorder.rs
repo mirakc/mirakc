@@ -1192,6 +1192,10 @@ mod tests {
                       ts-file: {}
                       data-file: {}
                       num-chunks: 100
+                      uses:
+                        tuner: tuner
+                        channel-type: GR
+                        channel: ch
                 "#,
                 ts_file.display(),
                 data_file.display()

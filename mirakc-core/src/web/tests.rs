@@ -1124,6 +1124,10 @@ fn config_for_test() -> Arc<Config> {
               ts-file: /dev/null
               data-file: /dev/null
               num-chunks: 100
+              uses:
+                tuner: tuner
+                channel-type: GR
+                channel: ch
         # logo for SID#1
         resource:
           logos:
