@@ -189,6 +189,9 @@ jobs:
         run: |
           rm -rf /tmp/.docker-cache
           mv /tmp/.docker-cache-new /tmp/.docker-cache
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
       # Use the `mirakc-ci` bot account in order to trigger the docker workflow
       # on mirakc/docker-timeshift-x.
       - uses: tibdex/github-app-token@v2
