@@ -190,6 +190,7 @@ jobs:
           rm -rf /tmp/.docker-cache
           mv /tmp/.docker-cache-new /tmp/.docker-cache
   trigger:
+    needs: docker
     runs-on: ubuntu-latest
     steps:
       # Use the `mirakc-ci` bot account in order to trigger the docker workflow
@@ -201,6 +202,6 @@ jobs:
           private_key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
       - name: Trigger the docker workflow on mirakc/docker-timeshift-x
         run: |
-          echo '${{ steps.generate-token.outputs.token }}' | gh auth login --with-token
+          echo '${{ steps.generate-token.outputs.token }}' | gh auth login --hostname=github.com --with-token
           echo '{"version": "${{ inputs.ref-name }}"}' | gh workflow run docker.yml -R mirakc/docker-timeshift-x --json
           gh auth logout
