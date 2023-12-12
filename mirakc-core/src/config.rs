@@ -83,7 +83,7 @@ pub struct Config {
     pub timeshift: TimeshiftConfig,
     #[serde(default)]
     #[serde(with = "serde_yaml::with::singleton_map_recursive")]
-    pub onair_program_trackers: HashMap<String, OnairProgramTrackerConfig>,
+    pub onair_program_trackers: IndexMap<String, OnairProgramTrackerConfig>,
     #[serde(default)]
     pub resource: ResourceConfig,
 }
@@ -155,7 +155,7 @@ impl Config {
             })
         {
             if let Some(ref user) = dedicated.get(&config.uses.tuner) {
-                panic!("tuner[{}] is dedicated for {user}", config.uses.tuner);
+                panic!("config.tuners[{}]: dedicated for {user}", config.uses.tuner);
             }
             if self
                 .tuners
@@ -164,7 +164,7 @@ impl Config {
                 .all(|tuner| tuner.name != config.uses.tuner)
             {
                 panic!(
-                    "onair-program-tracker[{name}] uses non-existent tuner[{}]",
+                    "config.onair-program-trackers[{name}]: uses undefined tuner[{}]",
                     config.uses.tuner
                 );
             }
@@ -175,14 +175,14 @@ impl Config {
         }
         for (name, config) in self.timeshift.recorders.iter() {
             if let Some(ref user) = dedicated.get(&config.uses.tuner) {
-                panic!("tuner[{}] is dedicated for {user}", config.uses.tuner);
+                panic!("config.tuners[{}]: dedicated for {user}", config.uses.tuner);
             }
             if !self.channels.iter().any(|channel| {
                 channel.channel_type == config.uses.channel_type
                     && channel.channel == config.uses.channel
             }) {
                 panic!(
-                    "timeshift-recorder[{name}] uses undefined channel {}/{}",
+                    "config.timeshift.recorders[{name}]: uses undefined channel {}/{}",
                     config.uses.channel_type, config.uses.channel
                 );
             }
@@ -194,7 +194,7 @@ impl Config {
             {
                 assert!(
                     tuner.channel_types.contains(&config.uses.channel_type),
-                    "timeshift-recorder[{name}] uses tuner[{}] which is not for {}",
+                    "config.timeshift.recorders[{name}]: uses tuner[{}] which is not for {}",
                     config.uses.tuner,
                     config.uses.channel_type,
                 );
@@ -293,19 +293,22 @@ impl ServerConfig {
 
         assert!(
             self.stream_time_limit >= SERVER_STREAM_TIME_LIMIT_MIN,
-            "config.server: `stream_time_limit` must be larger than or equal to {}",
+            "config.server.stream-time-limit: must be larger than or equal to {}",
             SERVER_STREAM_TIME_LIMIT_MIN
         );
 
         if let Some(max_start_delay) = self.program_stream_max_start_delay {
             assert!(
                 max_start_delay < Duration::from_secs(24 * 3600),
-                "config.server: `program-stream-max-start-delay` \
+                "config.server.program-stream-max-start-delay: \
                  must not be less than 24h"
             );
         }
 
-        self.addrs.iter().for_each(|addr| addr.validate());
+        self.addrs
+            .iter()
+            .enumerate()
+            .for_each(|(i, addr)| addr.validate(i));
         self.mounts
             .iter()
             .for_each(|(mp, config)| config.validate(mp));
@@ -313,7 +316,7 @@ impl ServerConfig {
         if let Some(ref path) = self.folder_view_template_path {
             assert!(
                 path.is_file(),
-                "config.server: `folder_view_template_path` must be a path to an existing file"
+                "config.server.folder-view-template-path: must be a path to an existing file"
             );
         }
     }
@@ -341,12 +344,11 @@ pub enum ServerAddr {
 }
 
 impl ServerAddr {
-    fn validate(&self) {
+    fn validate(&self, i: usize) {
         match self {
             Self::Http(addr) => assert!(
                 addr.to_socket_addrs().is_ok(),
-                "config.server.addrs.{}: invalid socket address",
-                addr
+                "config.server.addrs[{i}]: invalid socket address: {addr}"
             ),
             Self::Unix(_) => (),
         }
@@ -393,16 +395,16 @@ impl MountConfig {
         );
         assert!(
             self.path.exists(),
-            "config.server.mounts[{}]: \
-             `path` must be a path to an existing entry",
+            "config.server.mounts[{}].path: \
+             must be a path to an existing entry",
             mount_point
         );
         if let Some(index) = self.index.as_ref() {
             let path = self.path.join(index);
             assert!(
                 path.is_file(),
-                "config.server.mounts[{}]: \
-                 `index` must be an existing file if it exists",
+                "config.server.mounts[{}].index: \
+                 must be an existing file if it exists",
                 mount_point
             );
         }
@@ -472,12 +474,12 @@ impl ChannelConfig {
         debug_assert!(!self.disabled);
         assert!(
             !self.name.is_empty(),
-            "config.channels[{}]: `name` must be a non-empty string",
+            "config.channels[{}].name: must be a non-empty string",
             index
         );
         assert!(
             !self.channel.is_empty(),
-            "config.channels[{}]: `channel` must be a non-empty string",
+            "config.channels[{}].channel: must be a non-empty string",
             index
         );
     }
@@ -516,17 +518,17 @@ impl TunerConfig {
         }
         assert!(
             !self.name.is_empty(),
-            "config.tuners[{}]: `name` must be a non-empty string",
+            "config.tuners[{}].name: must be a non-empty string",
             index
         );
         assert!(
             !self.channel_types.is_empty(),
-            "config.tuners[{}]: `types` must be a non-empty list",
+            "config.tuners[{}].types: must be a non-empty list",
             index
         );
         assert!(
             !self.command.is_empty(),
-            "config.tuners[{}]: `command` must be a non-empty string",
+            "config.tuners[{}].command: must be a non-empty string",
             index
         );
     }
@@ -622,7 +624,7 @@ impl FilterConfig {
     fn validate(&self, group: &str, name: &str) {
         assert!(
             !self.command.is_empty(),
-            "config.{}.{}: `command` must be a non-empty string",
+            "config.{}[{}].command: must be a non-empty string",
             group,
             name
         );
@@ -643,13 +645,13 @@ impl PostFilterConfig {
     fn validate(&self, name: &str) {
         assert!(
             !self.command.is_empty(),
-            "config.post-filters.{}: `command` must be a non-empty string",
+            "config.post-filters[{}].command: must be a non-empty string",
             name
         );
         if let Some(content_type) = self.content_type.as_ref() {
             assert!(
                 !content_type.is_empty(),
-                "config.post-filters.{}: `content-type` must be a non-empty string",
+                "config.post-filters[{}].content-type: must be a non-empty string",
                 name
             );
         }
@@ -768,12 +770,12 @@ impl JobConfig {
         } else {
             assert!(
                 !self.command.is_empty(),
-                "config.jobs.{}: `command` must be a non-empty string",
+                "config.jobs[{}].command: must be a non-empty string",
                 name
             );
             assert!(
                 cron::Schedule::from_str(&self.schedule).is_ok(),
-                "config.jobs.{}: `schedule` is not valid",
+                "config.jobs[{}].schedule: not valid",
                 name
             );
         }
@@ -796,11 +798,11 @@ impl RecordingConfig {
         if let Some(ref basedir) = self.basedir {
             assert!(
                 basedir.is_absolute(),
-                "config.recording: `basedir` must be an absolute path"
+                "config.recording.basedir: must be an absolute path"
             );
             assert!(
                 basedir.is_dir(),
-                "config.recording: `basedir` must be a path to an existing directory"
+                "config.recording.basedir: must be a path to an existing directory"
             );
         }
     }
@@ -837,7 +839,7 @@ impl TimeshiftConfig {
     fn validate(&self) {
         assert!(
             !self.command.is_empty(),
-            "config.timeshift: `command` must be a non-empty string"
+            "config.timeshift.command: must be a non-empty string"
         );
         self.recorders
             .iter()
@@ -895,35 +897,26 @@ impl TimeshiftRecorderConfig {
             "config.timeshift.recorders[{name}]: \
              `ts-file` path must consist only of UTF-8 compatible characters"
         );
-        if let Some(parent) = self.ts_file.parent() {
-            assert!(
-                parent.is_dir(),
-                "config.timeshift.recorders[{name}]: \
-                 The parent directory of `ts-file` must exists"
-            );
-        } else {
-            unreachable!(
-                "config.timeshift.recorders[{name}]: \
-                 `ts-file` must be a path to a file"
-            );
-        }
+        assert!(
+            self.ts_file.is_file(),
+            "config.timeshift.recorders[{name}]: \
+             `ts-file` must be a path to a regular file"
+        );
         assert!(
             self.data_file.is_absolute(),
             "config.timeshift.recorders[{name}]: \
              `data-file` must be an absolute path"
         );
-        if let Some(parent) = self.data_file.parent() {
-            assert!(
-                parent.is_dir(),
-                "config.timeshift.recorders[{name}]: \
-                 The parent directory of `data-file` must exists"
-            );
-        } else {
-            unreachable!(
-                "config.timeshift.recorders[{name}]: \
-                 `data-file` must be a path to a file"
-            );
-        }
+        assert!(
+            self.data_file.to_str().is_some(),
+            "config.timeshift.recorders[{name}]: \
+             `data-file` path must consist only of UTF-8 compatible characters"
+        );
+        assert!(
+            self.data_file.is_file(),
+            "config.timeshift.recorders[{name}]: \
+             `data-file` must be a path to a regular file"
+        );
         // TODO
         // ----
         // We should save data in a binary format in a performance point of view.  However, the
@@ -1066,13 +1059,13 @@ impl LocalOnairProgramTrackerConfig {
     fn validate(&self, name: &str) {
         assert!(
             !self.channel_types.is_empty(),
-            "config.onair-program-trackers[{name}]: \
-             `channel-types` must be a non-empty list"
+            "config.onair-program-trackers[{name}].channel-types: \
+             must be a non-empty list"
         );
         assert!(
             !self.command.is_empty(),
-            "config.onair-program-trackers[{name}]: \
-             `command` must be a non-empty string"
+            "config.onair-program-trackers[{name}]command: \
+             must be a non-empty string"
         );
         self.uses.validate(name);
     }
@@ -1187,13 +1180,12 @@ impl ResourceConfig {
     fn validate(&self) {
         assert!(
             Path::new(&self.strings_yaml).is_file(),
-            "config.resources: `strings-yaml` must be a path to an existing YAML file"
+            "config.resources.strings-yaml: must be a path to an existing YAML file"
         );
         for (service_id, image) in self.logos.iter() {
             assert!(
                 Path::new(image).is_file(),
-                "config.resources: `logos[{}]` must be a path to an existing \
-                     file",
+                "config.resources.logos[{}]: must be a path to an existing file",
                 service_id
             );
         }
@@ -1292,7 +1284,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.tuners: `name` must be a unique")]
     fn test_config_validate_tuner_names() {
         let config = serde_yaml::from_str::<Config>(
             r#"
@@ -1312,8 +1304,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_config_validate_tuner_not_used() {
+    #[should_panic(
+        expected = "config.onair-program-trackers[tracker]: uses undefined tuner[tuner]"
+    )]
+    fn test_config_validate_tracker_uses_undefined_tuner() {
         let config = serde_yaml::from_str::<Config>(
             r#"
             tuners:
@@ -1335,7 +1329,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.tuners[test]: dedicated for OnairProgramTracker(tracker1)")]
     fn test_config_validate_tuner_usage_conflict() {
         let config = serde_yaml::from_str::<Config>(
             r#"
@@ -1344,13 +1338,13 @@ mod tests {
                 types: [GR,BS]
                 command: test
             onair-program-trackers:
-              tracker:
-                local1:
+              tracker1:
+                local:
                   channel-types: [GR]
                   uses:
                     tuner: test
-              tracker:
-                local2:
+              tracker2:
+                local:
                   channel-types: [BS]
                   uses:
                     tuner: test
@@ -1387,8 +1381,6 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn test_config_validate_tuner_dedicated_for_timeshift() {
-        // NOTE: The chunk size for this test should be the default chunk size,
-        //       but it's too large to allocate in /tmp...
         let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
         let num_chunks = 3;
         let ts_file = NamedTempFile::new().unwrap();
@@ -1396,6 +1388,7 @@ mod tests {
         unsafe {
             let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
         }
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let config = serde_yaml::from_str::<Config>(&format!(
             r#"
             channels:
@@ -1411,7 +1404,7 @@ mod tests {
                 recorder:
                   service-id: 3273701032
                   ts-file: {}
-                  data-file: /tmp/data.json
+                  data-file: {}
                   chunk-size: {chunk_size}
                   num-chunks: {num_chunks}
                   uses:
@@ -1421,7 +1414,8 @@ mod tests {
             resource:
               strings-yaml: /bin/sh
         "#,
-            ts_file.path().to_str().unwrap()
+            ts_file.path().to_str().unwrap(),
+            data_file.path().to_str().unwrap(),
         ))
         .unwrap();
         config.validate();
@@ -1429,10 +1423,8 @@ mod tests {
 
     #[cfg(not(target_os = "macos"))]
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.timeshift.recorders[recorder]: uses undefined channel GR/26")]
     fn test_config_validate_tuner_dedicated_for_timeshift_undefined_channel() {
-        // NOTE: The chunk size for this test should be the default chunk size,
-        //       but it's too large to allocate in /tmp...
         let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
         let num_chunks = 3;
         let ts_file = NamedTempFile::new().unwrap();
@@ -1440,6 +1432,7 @@ mod tests {
         unsafe {
             let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
         }
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let config = serde_yaml::from_str::<Config>(&format!(
             r#"
             channels:
@@ -1455,7 +1448,7 @@ mod tests {
                 recorder:
                   service-id: 3273701032
                   ts-file: {}
-                  data-file: /tmp/data.json
+                  data-file: {}
                   chunk-size: {chunk_size}
                   num-chunks: {num_chunks}
                   uses:
@@ -1465,7 +1458,8 @@ mod tests {
             resource:
               strings-yaml: /bin/sh
         "#,
-            ts_file.path().to_str().unwrap()
+            ts_file.path().to_str().unwrap(),
+            data_file.path().to_str().unwrap()
         ))
         .unwrap();
         config.validate();
@@ -1473,10 +1467,10 @@ mod tests {
 
     #[cfg(not(target_os = "macos"))]
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.timeshift.recorders[recorder]: uses tuner[test] which is not for GR"
+    )]
     fn test_config_validate_tuner_dedicated_for_timeshift_unsupported_channel_type() {
-        // NOTE: The chunk size for this test should be the default chunk size,
-        //       but it's too large to allocate in /tmp...
         let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
         let num_chunks = 3;
         let ts_file = NamedTempFile::new().unwrap();
@@ -1484,6 +1478,7 @@ mod tests {
         unsafe {
             let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
         }
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let config = serde_yaml::from_str::<Config>(&format!(
             r#"
             channels:
@@ -1499,7 +1494,7 @@ mod tests {
                 recorder:
                   service-id: 3273701032
                   ts-file: {}
-                  data-file: /tmp/data.json
+                  data-file: {}
                   chunk-size: {chunk_size}
                   num-chunks: {num_chunks}
                   uses:
@@ -1509,7 +1504,8 @@ mod tests {
             resource:
               strings-yaml: /bin/sh
         "#,
-            ts_file.path().to_str().unwrap()
+            ts_file.path().to_str().unwrap(),
+            data_file.path().to_str().unwrap(),
         ))
         .unwrap();
         config.validate();
@@ -1550,7 +1546,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.epg: `cache_dir` must be a path to an existing directory")]
     fn test_epg_config_validate_cache_dir() {
         let mut config = EpgConfig::default();
         config.cache_dir = Some("/path/to/dir".into());
@@ -1564,6 +1560,8 @@ mod tests {
             Default::default()
         );
 
+        let mut config = ServerConfig::default();
+        config.addrs = vec![ServerAddr::Http("0.0.0.0:40772".to_string())];
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(
                 r#"
@@ -1572,17 +1570,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            ServerConfig {
-                addrs: vec![ServerAddr::Http("0.0.0.0:40772".to_string()),],
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                program_stream_max_start_delay: None,
-                mounts: Default::default(),
-                folder_view_template_path: None,
-            }
+            config
         );
 
+        let mut config = ServerConfig::default();
+        config.addrs = vec![ServerAddr::Unix("/path/to/sock".into())];
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(
                 r#"
@@ -1591,17 +1583,14 @@ mod tests {
             "#
             )
             .unwrap(),
-            ServerConfig {
-                addrs: vec![ServerAddr::Unix("/path/to/sock".into()),],
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                program_stream_max_start_delay: None,
-                mounts: Default::default(),
-                folder_view_template_path: None,
-            }
+            config
         );
 
+        let mut config = ServerConfig::default();
+        config.addrs = vec![
+            ServerAddr::Http("0.0.0.0:40772".to_string()),
+            ServerAddr::Unix("/path/to/sock".into()),
+        ];
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(
                 r#"
@@ -1611,20 +1600,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            ServerConfig {
-                addrs: vec![
-                    ServerAddr::Http("0.0.0.0:40772".to_string()),
-                    ServerAddr::Unix("/path/to/sock".into()),
-                ],
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                program_stream_max_start_delay: None,
-                mounts: Default::default(),
-                folder_view_template_path: None,
-            }
+            config
         );
 
+        let mut config = ServerConfig::default();
+        config.stream_max_chunks = 1000;
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(
                 r#"
@@ -1632,17 +1612,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            ServerConfig {
-                addrs: ServerConfig::default_addrs(),
-                stream_max_chunks: 1000,
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                program_stream_max_start_delay: None,
-                mounts: Default::default(),
-                folder_view_template_path: None,
-            }
+            config
         );
 
+        let mut config = ServerConfig::default();
+        config.stream_chunk_size = 10000;
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(
                 r#"
@@ -1650,17 +1624,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            ServerConfig {
-                addrs: ServerConfig::default_addrs(),
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: 10000,
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                program_stream_max_start_delay: None,
-                mounts: Default::default(),
-                folder_view_template_path: None,
-            }
+            config
         );
 
+        let mut config = ServerConfig::default();
+        config.stream_time_limit = 10000;
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(
                 r#"
@@ -1668,17 +1636,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            ServerConfig {
-                addrs: ServerConfig::default_addrs(),
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: 10000,
-                program_stream_max_start_delay: None,
-                mounts: Default::default(),
-                folder_view_template_path: None,
-            }
+            config
         );
 
+        let mut config = ServerConfig::default();
+        config.program_stream_max_start_delay = Some(Duration::from_secs(3600));
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(
                 r#"
@@ -1686,17 +1648,27 @@ mod tests {
             "#
             )
             .unwrap(),
-            ServerConfig {
-                addrs: ServerConfig::default_addrs(),
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                program_stream_max_start_delay: Some(Duration::from_secs(3600)),
-                mounts: Default::default(),
-                folder_view_template_path: None,
-            }
+            config
         );
 
+        let mut config = ServerConfig::default();
+        config.mounts = indexmap! {
+            "/ui".to_string() => MountConfig {
+                path: "/path/to/ui".into(),
+                index: None,
+                listing: false,
+            },
+            "/public".to_string() => MountConfig {
+                path: "/path/to/public".into(),
+                index: None,
+                listing: true,
+            },
+            "/".to_string() => MountConfig {
+                path: "/path/to/folder".into(),
+                index: Some("index.html".into()),
+                listing: false,
+            },
+        };
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(
                 r#"
@@ -1712,33 +1684,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            ServerConfig {
-                addrs: ServerConfig::default_addrs(),
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                program_stream_max_start_delay: None,
-                mounts: indexmap! {
-                    "/ui".to_string() => MountConfig {
-                        path: "/path/to/ui".into(),
-                        index: None,
-                        listing: false,
-                    },
-                    "/public".to_string() => MountConfig {
-                        path: "/path/to/public".into(),
-                        index: None,
-                        listing: true,
-                    },
-                    "/".to_string() => MountConfig {
-                        path: "/path/to/folder".into(),
-                        index: Some("index.html".into()),
-                        listing: false,
-                    },
-                },
-                folder_view_template_path: None,
-            }
+            config
         );
 
+        let mut config = ServerConfig::default();
+        config.folder_view_template_path = Some("/path/to/listing.html.mustache".into());
         assert_eq!(
             serde_yaml::from_str::<ServerConfig>(
                 r#"
@@ -1746,15 +1696,7 @@ mod tests {
             "#
             )
             .unwrap(),
-            ServerConfig {
-                addrs: ServerConfig::default_addrs(),
-                stream_max_chunks: ServerConfig::default_stream_max_chunks(),
-                stream_chunk_size: ServerConfig::default_stream_chunk_size(),
-                stream_time_limit: ServerConfig::default_stream_time_limit(),
-                program_stream_max_start_delay: None,
-                mounts: Default::default(),
-                folder_view_template_path: Some("/path/to/listing.html.mustache".into()),
-            }
+            config
         );
 
         let result = serde_yaml::from_str::<ServerConfig>(
@@ -1773,7 +1715,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.server.stream-time-limit: must be larger than or equal to 15000"
+    )]
     fn test_server_config_validate_stream_time_limit() {
         let mut config = ServerConfig::default();
         config.stream_time_limit = 1;
@@ -1800,7 +1744,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.server.program-stream-max-start-delay: must not be less than 24h"
+    )]
     fn test_server_config_validate_max_start_delay_less_than_24h() {
         let config = serde_yaml::from_str::<ServerConfig>(
             r#"
@@ -1812,7 +1758,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.server.addrs[0]: invalid socket address: invalid")]
     fn test_server_config_validate_addrs() {
         let mut config = ServerConfig::default();
         config.addrs = vec![ServerAddr::Http("invalid".to_string())];
@@ -1820,7 +1766,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.server.folder-view-template-path: must be a path to an existing file"
+    )]
     fn test_server_config_validate_folder_view_template_path() {
         let mut config = ServerConfig::default();
         config.folder_view_template_path = Some("not_found".into());
@@ -1837,69 +1785,84 @@ mod tests {
         config.validate("/test");
     }
 
-    macro_rules! impl_test_mount_config_validate_panic {
-        ($label:ident, $mount_point:literal) => {
-            impl_test_mount_config_validate_panic! {
-                $label,
-                $mount_point,
-                env!("CARGO_MANIFEST_DIR"),
-                None
-            }
+    fn mount_config_validate_mount_point(mount_point: &str) {
+        let config = MountConfig {
+            path: env!("CARGO_MANIFEST_DIR").into(),
+            index: None,
+            listing: false,
         };
-        (path: $path:literal) => {
-            impl_test_mount_config_validate_panic! {
-                path,
-                "/test",
-                $path,
-                None
-            }
-        };
-        (index: $index:expr) => {
-            impl_test_mount_config_validate_panic! {
-                index,
-                "/test",
-                env!("CARGO_MANIFEST_DIR"),
-                Some($index.into())
-            }
-        };
-        ($label:ident, $mount_point:literal, $path:expr, $index:expr) => {
-            paste::paste! {
-                #[test]
-                #[should_panic]
-                fn [<test_mount_config_validate_panic_ $label>]() {
-                    let config = MountConfig {
-                        path: $path.into(),
-                        index: $index,
-                        listing: false,
-                    };
-                    config.validate($mount_point);
-                }
-            }
-        };
+        config.validate(mount_point.into())
     }
 
-    impl_test_mount_config_validate_panic! {mount_point_empty, ""}
-    impl_test_mount_config_validate_panic! {mount_point_root, "/"}
-    impl_test_mount_config_validate_panic! {mount_point_api, "/api"}
-    impl_test_mount_config_validate_panic! {mount_point_events, "/events"}
-    impl_test_mount_config_validate_panic! {mount_point_starts_with_slash, "foobar"}
-    impl_test_mount_config_validate_panic! {mount_point_ends_with_slash, "/foobar/"}
-    impl_test_mount_config_validate_panic! {path: "/path/not_found"}
-    impl_test_mount_config_validate_panic! {index: "not_found"}
+    #[test]
+    #[should_panic(expected = "config.server.mounts[]: a mount point must starts with '/'")]
+    fn test_mount_config_validate_panic_mount_point_empty() {
+        mount_config_validate_mount_point("")
+    }
+
+    #[test]
+    #[should_panic(expected = r#"config.server.mounts[/]: cannot mount onto "/""#)]
+    fn test_mount_config_validate_panic_mount_point_root() {
+        mount_config_validate_mount_point("/")
+    }
+
+    #[test]
+    #[should_panic(expected = r#"config.server.mounts[/api]: cannot mount onto "/api""#)]
+    fn test_mount_config_validate_panic_mount_point_api() {
+        mount_config_validate_mount_point("/api")
+    }
+
+    #[test]
+    #[should_panic(expected = r#"config.server.mounts[/events]: cannot mount onto "/events""#)]
+    fn test_mount_config_validate_panic_mount_point_events() {
+        mount_config_validate_mount_point("/events")
+    }
+
+    #[test]
+    #[should_panic(expected = "config.server.mounts[foobar]: a mount point must starts with '/'")]
+    fn test_mount_config_validate_panic_mount_point_starts_with_slash() {
+        mount_config_validate_mount_point("foobar")
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "config.server.mounts[/foobar/]: a mount point must not ends with '/'"
+    )]
+    fn test_mount_config_validate_panic_mount_point_ends_with_slash() {
+        mount_config_validate_mount_point("/foobar/")
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "config.server.mounts[/test].path: must be a path to an existing entry"
+    )]
+    fn test_mount_config_validate_panic_path() {
+        let config = MountConfig {
+            path: "/path/not_found".into(),
+            index: None,
+            listing: false,
+        };
+        config.validate("/test".into())
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "config.server.mounts[/test].index: must be an existing file if it exists"
+    )]
+    fn test_mount_config_validate_panic_index() {
+        let config = MountConfig {
+            path: env!("CARGO_MANIFEST_DIR").into(),
+            index: Some("not_found".into()),
+            listing: false,
+        };
+        config.validate("/test".into())
+    }
 
     #[test]
     fn test_channel_config() {
         assert!(serde_yaml::from_str::<ChannelConfig>("{}").is_err());
 
-        assert_eq!(
-            serde_yaml::from_str::<ChannelConfig>(
-                r#"
-                name: x
-                type: GR
-                channel: y
-            "#
-            )
-            .unwrap(),
+        fn channel_config() -> ChannelConfig {
             ChannelConfig {
                 name: "x".to_string(),
                 channel_type: ChannelType::GR,
@@ -1909,8 +1872,23 @@ mod tests {
                 excluded_services: vec![],
                 disabled: false,
             }
+        }
+
+        let config = channel_config();
+        assert_eq!(
+            serde_yaml::from_str::<ChannelConfig>(
+                r#"
+                name: x
+                type: GR
+                channel: y
+            "#
+            )
+            .unwrap(),
+            config
         );
 
+        let mut config = channel_config();
+        config.extra_args = "--extra args".to_string();
         assert_eq!(
             serde_yaml::from_str::<ChannelConfig>(
                 r#"
@@ -1921,17 +1899,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            ChannelConfig {
-                name: "x".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "y".to_string(),
-                extra_args: "--extra args".to_string(),
-                services: vec![],
-                excluded_services: vec![],
-                disabled: false,
-            }
+            config
         );
 
+        let mut config = channel_config();
+        config.disabled = true;
         assert_eq!(
             serde_yaml::from_str::<ChannelConfig>(
                 r#"
@@ -1942,17 +1914,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            ChannelConfig {
-                name: "x".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "y".to_string(),
-                extra_args: "".to_string(),
-                services: vec![],
-                excluded_services: vec![],
-                disabled: true,
-            }
+            config
         );
 
+        let mut config = channel_config();
+        config.excluded_services = vec![100.into()];
         assert_eq!(
             serde_yaml::from_str::<ChannelConfig>(
                 r#"
@@ -1963,15 +1929,7 @@ mod tests {
             "#
             )
             .unwrap(),
-            ChannelConfig {
-                name: "x".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "y".to_string(),
-                extra_args: "".to_string(),
-                services: vec![],
-                excluded_services: vec![100.into()],
-                disabled: false,
-            }
+            config
         );
 
         assert!(serde_yaml::from_str::<ChannelConfig>(
@@ -1994,6 +1952,21 @@ mod tests {
 
     #[test]
     fn test_channel_config_normalize() {
+        fn channel_config() -> ChannelConfig {
+            ChannelConfig {
+                name: "ch".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "1".to_string(),
+                extra_args: "".to_string(),
+                services: vec![],
+                excluded_services: vec![],
+                disabled: false,
+            }
+        }
+
+        let config1 = channel_config();
+        let mut config2 = channel_config();
+        config2.channel = "2".to_string();
         assert_eq!(
             ChannelConfig::normalize(
                 serde_yaml::from_str::<Vec<ChannelConfig>>(
@@ -2008,28 +1981,12 @@ mod tests {
                 )
                 .unwrap()
             ),
-            vec![
-                ChannelConfig {
-                    name: "ch".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "1".to_string(),
-                    extra_args: "".to_string(),
-                    services: vec![],
-                    excluded_services: vec![],
-                    disabled: false,
-                },
-                ChannelConfig {
-                    name: "ch".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "2".to_string(),
-                    extra_args: "".to_string(),
-                    services: vec![],
-                    excluded_services: vec![],
-                    disabled: false,
-                },
-            ],
+            vec![config1, config2]
         );
 
+        let mut config = channel_config();
+        config.services = vec![1.into(), 2.into()];
+        config.excluded_services = vec![3.into(), 4.into()];
         assert_eq!(
             ChannelConfig::normalize(
                 serde_yaml::from_str::<Vec<ChannelConfig>>(
@@ -2048,17 +2005,12 @@ mod tests {
                 )
                 .unwrap()
             ),
-            vec![ChannelConfig {
-                name: "ch".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "1".to_string(),
-                extra_args: "".to_string(),
-                services: vec![1.into(), 2.into()],
-                excluded_services: vec![3.into(), 4.into()],
-                disabled: false,
-            },],
+            vec![config]
         );
 
+        let mut config = channel_config();
+        config.services = vec![1.into(), 2.into()];
+        config.excluded_services = vec![3.into(), 4.into()];
         assert_eq!(
             ChannelConfig::normalize(
                 serde_yaml::from_str::<Vec<ChannelConfig>>(
@@ -2077,17 +2029,12 @@ mod tests {
                 )
                 .unwrap()
             ),
-            vec![ChannelConfig {
-                name: "ch".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "1".to_string(),
-                extra_args: "".to_string(),
-                services: vec![1.into(), 2.into()],
-                excluded_services: vec![3.into(), 4.into()],
-                disabled: false,
-            },],
+            vec![config]
         );
 
+        let mut config = channel_config();
+        config.services = vec![1.into(), 2.into()];
+        config.excluded_services = vec![3.into(), 4.into()];
         assert_eq!(
             ChannelConfig::normalize(
                 serde_yaml::from_str::<Vec<ChannelConfig>>(
@@ -2106,17 +2053,10 @@ mod tests {
                 )
                 .unwrap()
             ),
-            vec![ChannelConfig {
-                name: "ch".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "1".to_string(),
-                extra_args: "".to_string(),
-                services: vec![1.into(), 2.into()],
-                excluded_services: vec![3.into(), 4.into()],
-                disabled: false,
-            },],
+            vec![config]
         );
 
+        let config = channel_config();
         assert_eq!(
             ChannelConfig::normalize(
                 serde_yaml::from_str::<Vec<ChannelConfig>>(
@@ -2132,17 +2072,10 @@ mod tests {
                 )
                 .unwrap()
             ),
-            vec![ChannelConfig {
-                name: "ch".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "1".to_string(),
-                extra_args: "".to_string(),
-                services: vec![],
-                excluded_services: vec![],
-                disabled: false,
-            },],
+            vec![config]
         );
 
+        let config = channel_config();
         assert_eq!(
             ChannelConfig::normalize(
                 serde_yaml::from_str::<Vec<ChannelConfig>>(
@@ -2158,59 +2091,41 @@ mod tests {
                 )
                 .unwrap()
             ),
-            vec![ChannelConfig {
-                name: "ch".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "1".to_string(),
-                extra_args: "".to_string(),
-                services: vec![],
-                excluded_services: vec![],
-                disabled: false,
-            },],
+            vec![config]
         );
+    }
+
+    fn channel_config() -> ChannelConfig {
+        ChannelConfig {
+            name: "test".to_string(),
+            channel_type: ChannelType::GR,
+            channel: "test".to_string(),
+            extra_args: "".to_string(),
+            services: vec![],
+            excluded_services: vec![],
+            disabled: false,
+        }
     }
 
     #[test]
     fn test_channel_config_validate() {
-        let config = ChannelConfig {
-            name: "test".to_string(),
-            channel_type: ChannelType::GR,
-            channel: "test".to_string(),
-            extra_args: "".to_string(),
-            services: vec![],
-            excluded_services: vec![],
-            disabled: false,
-        };
+        let config = channel_config();
         config.validate(0);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.channels[0].name: must be a non-empty string")]
     fn test_channel_config_validate_empty_name() {
-        let config = ChannelConfig {
-            name: "".to_string(),
-            channel_type: ChannelType::GR,
-            channel: "test".to_string(),
-            extra_args: "".to_string(),
-            services: vec![],
-            excluded_services: vec![],
-            disabled: false,
-        };
+        let mut config = channel_config();
+        config.name = "".to_string();
         config.validate(0);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.channels[0].channel: must be a non-empty string")]
     fn test_channel_config_validate_empty_channel() {
-        let config = ChannelConfig {
-            name: "test".to_string(),
-            channel_type: ChannelType::GR,
-            channel: "".to_string(),
-            extra_args: "".to_string(),
-            services: vec![],
-            excluded_services: vec![],
-            disabled: false,
-        };
+        let mut config = channel_config();
+        config.channel = "".to_string();
         config.validate(0);
     }
 
@@ -2218,105 +2133,85 @@ mod tests {
     fn test_tuner_config() {
         assert!(serde_yaml::from_str::<TunerConfig>("{}").is_err());
 
+        let mut config = TunerConfig::default();
+        config.name = "x".to_string();
+        config.channel_types = vec![ChannelType::GR];
+        config.command = "open tuner".to_string();
         assert_eq!(
             serde_yaml::from_str::<TunerConfig>(
                 r#"
                 name: x
-                types: [GR, BS, CS, SKY]
+                types: [GR]
                 command: open tuner
             "#
             )
             .unwrap(),
-            TunerConfig {
-                name: "x".to_string(),
-                channel_types: vec![
-                    ChannelType::GR,
-                    ChannelType::BS,
-                    ChannelType::CS,
-                    ChannelType::SKY
-                ],
-                command: "open tuner".to_string(),
-                time_limit: TunerConfig::default_time_limit(),
-                disabled: false,
-                decoded: false,
-            }
+            config
         );
 
+        let mut config = TunerConfig::default();
+        config.name = "x".to_string();
+        config.channel_types = vec![ChannelType::GR];
+        config.command = "open tuner".to_string();
+        config.time_limit = 1;
         assert_eq!(
             serde_yaml::from_str::<TunerConfig>(
                 r#"
                 name: x
-                types: [GR, BS, CS, SKY]
+                types: [GR]
                 command: open tuner
                 time-limit: 1
             "#
             )
             .unwrap(),
-            TunerConfig {
-                name: "x".to_string(),
-                channel_types: vec![
-                    ChannelType::GR,
-                    ChannelType::BS,
-                    ChannelType::CS,
-                    ChannelType::SKY
-                ],
-                command: "open tuner".to_string(),
-                time_limit: 1,
-                disabled: false,
-                decoded: false,
-            }
+            config
         );
 
+        let mut config = TunerConfig::default();
+        config.name = "x".to_string();
+        config.channel_types = vec![ChannelType::GR];
+        config.command = "open tuner".to_string();
+        config.disabled = true;
         assert_eq!(
             serde_yaml::from_str::<TunerConfig>(
                 r#"
                 name: x
-                types: [GR, BS, CS, SKY]
+                types: [GR]
                 command: open tuner
                 disabled: true
             "#
             )
             .unwrap(),
-            TunerConfig {
-                name: "x".to_string(),
-                channel_types: vec![
-                    ChannelType::GR,
-                    ChannelType::BS,
-                    ChannelType::CS,
-                    ChannelType::SKY
-                ],
-                command: "open tuner".to_string(),
-                time_limit: TunerConfig::default_time_limit(),
-                disabled: true,
-                decoded: false,
-            }
+            config
         );
 
+        let mut config = TunerConfig::default();
+        config.name = "x".to_string();
+        config.channel_types = vec![ChannelType::GR];
+        config.command = "open tuner".to_string();
+        config.decoded = true;
         assert_eq!(
             serde_yaml::from_str::<TunerConfig>(
                 r#"
                 name: x
-                types: [GR, BS, CS, SKY]
+                types: [GR]
                 command: open tuner
                 decoded: true
             "#
             )
             .unwrap(),
-            TunerConfig {
-                name: "x".to_string(),
-                channel_types: vec![
-                    ChannelType::GR,
-                    ChannelType::BS,
-                    ChannelType::CS,
-                    ChannelType::SKY
-                ],
-                command: "open tuner".to_string(),
-                time_limit: TunerConfig::default_time_limit(),
-                disabled: false,
-                decoded: true,
-            }
+            config
         );
 
+        let mut config = TunerConfig::default();
+        config.name = "x".to_string();
+        config.channel_types = vec![
+            ChannelType::GR,
+            ChannelType::BS,
+            ChannelType::CS,
+            ChannelType::SKY,
+        ];
+        config.command = "open tuner".to_string();
         assert_eq!(
             serde_yaml::from_str::<TunerConfig>(
                 r#"
@@ -2326,19 +2221,7 @@ mod tests {
             "#
             )
             .unwrap(),
-            TunerConfig {
-                name: "x".to_string(),
-                channel_types: vec![
-                    ChannelType::GR,
-                    ChannelType::BS,
-                    ChannelType::CS,
-                    ChannelType::SKY
-                ],
-                command: "open tuner".to_string(),
-                time_limit: TunerConfig::default_time_limit(),
-                disabled: false,
-                decoded: false,
-            }
+            config
         );
 
         assert!(serde_yaml::from_str::<TunerConfig>(
@@ -2359,71 +2242,54 @@ mod tests {
         assert!(result.is_err());
     }
 
+    fn tuner_config() -> TunerConfig {
+        TunerConfig {
+            name: "test".to_string(),
+            channel_types: vec![ChannelType::GR],
+            command: "test".to_string(),
+            time_limit: TunerConfig::default_time_limit(),
+            disabled: false,
+            decoded: false,
+        }
+    }
+
     #[test]
     fn test_tuner_config_validate() {
-        let config = TunerConfig {
-            name: "test".to_string(),
-            channel_types: vec![ChannelType::GR],
-            command: "test".to_string(),
-            time_limit: TunerConfig::default_time_limit(),
-            disabled: false,
-            decoded: false,
-        };
+        let config = tuner_config();
         config.validate(0);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.tuners[0].name: must be a non-empty string")]
     fn test_tuner_config_validate_empty_name() {
-        let config = TunerConfig {
-            name: "".to_string(),
-            channel_types: vec![ChannelType::GR],
-            command: "test".to_string(),
-            time_limit: TunerConfig::default_time_limit(),
-            disabled: false,
-            decoded: false,
-        };
+        let mut config = tuner_config();
+        config.name = "".to_string();
         config.validate(0);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.tuners[0].types: must be a non-empty list")]
     fn test_tuner_config_validate_empty_types() {
-        let config = TunerConfig {
-            name: "test".to_string(),
-            channel_types: vec![],
-            command: "test".to_string(),
-            time_limit: TunerConfig::default_time_limit(),
-            disabled: false,
-            decoded: false,
-        };
+        let mut config = tuner_config();
+        config.channel_types = vec![];
         config.validate(0);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.tuners[0].command: must be a non-empty string")]
     fn test_tuner_config_validate_empty_command() {
-        let config = TunerConfig {
-            name: "test".to_string(),
-            channel_types: vec![ChannelType::GR],
-            command: "".to_string(),
-            time_limit: TunerConfig::default_time_limit(),
-            disabled: false,
-            decoded: false,
-        };
+        let mut config = tuner_config();
+        config.command = "".to_string();
         config.validate(0);
     }
 
     #[test]
     fn test_tuner_config_validate_disabled() {
-        let config = TunerConfig {
-            name: "".to_string(),
-            channel_types: vec![],
-            command: "".to_string(),
-            time_limit: TunerConfig::default_time_limit(),
-            disabled: true,
-            decoded: false,
-        };
+        let mut config = tuner_config();
+        config.name = "".to_string();
+        config.channel_types = vec![];
+        config.command = "".to_string();
+        config.disabled = true;
         config.validate(0);
     }
 
@@ -2434,6 +2300,8 @@ mod tests {
             Default::default()
         );
 
+        let mut config = FiltersConfig::default();
+        config.tuner_filter.command = "filter".to_string();
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>(
                 r#"
@@ -2442,16 +2310,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            FiltersConfig {
-                tuner_filter: FilterConfig {
-                    command: "filter".to_string()
-                },
-                service_filter: FiltersConfig::default_service_filter(),
-                decode_filter: Default::default(),
-                program_filter: FiltersConfig::default_program_filter(),
-            }
+            config
         );
 
+        let mut config = FiltersConfig::default();
+        config.service_filter.command = "filter".to_string();
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>(
                 r#"
@@ -2460,16 +2323,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            FiltersConfig {
-                tuner_filter: Default::default(),
-                service_filter: FilterConfig {
-                    command: "filter".to_string()
-                },
-                decode_filter: Default::default(),
-                program_filter: FiltersConfig::default_program_filter(),
-            }
+            config
         );
 
+        let mut config = FiltersConfig::default();
+        config.decode_filter.command = "filter".to_string();
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>(
                 r#"
@@ -2478,16 +2336,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            FiltersConfig {
-                tuner_filter: Default::default(),
-                service_filter: FiltersConfig::default_service_filter(),
-                decode_filter: FilterConfig {
-                    command: "filter".to_string()
-                },
-                program_filter: FiltersConfig::default_program_filter(),
-            }
+            config
         );
 
+        let mut config = FiltersConfig::default();
+        config.program_filter.command = "filter".to_string();
         assert_eq!(
             serde_yaml::from_str::<FiltersConfig>(
                 r#"
@@ -2496,14 +2349,7 @@ mod tests {
             "#
             )
             .unwrap(),
-            FiltersConfig {
-                tuner_filter: Default::default(),
-                service_filter: FiltersConfig::default_service_filter(),
-                decode_filter: Default::default(),
-                program_filter: FilterConfig {
-                    command: "filter".to_string()
-                },
-            }
+            config
         );
 
         let result = serde_yaml::from_str::<FiltersConfig>(
@@ -2522,6 +2368,8 @@ mod tests {
             Default::default()
         );
 
+        let mut config = FilterConfig::default();
+        config.command = "filter".to_string();
         assert_eq!(
             serde_yaml::from_str::<FilterConfig>(
                 r#"
@@ -2529,9 +2377,7 @@ mod tests {
             "#
             )
             .unwrap(),
-            FilterConfig {
-                command: "filter".to_string(),
-            }
+            config
         );
 
         let result = serde_yaml::from_str::<FilterConfig>(
@@ -2545,19 +2391,15 @@ mod tests {
 
     #[test]
     fn test_filter_config_validate() {
-        let config = FilterConfig {
-            command: "test".to_string(),
-        };
+        let mut config = FilterConfig::default();
+        config.command = "test".to_string();
         config.validate("filters", "test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.filters[test].command: must be a non-empty string")]
     fn test_filter_config_validate_empty_command() {
-        let config = FilterConfig {
-            command: "".to_string(),
-        };
-        config.validate("filters", "test");
+        FilterConfig::default().validate("filters", "test");
     }
 
     #[test]
@@ -2567,6 +2409,8 @@ mod tests {
             Default::default()
         );
 
+        let mut config = PostFilterConfig::default();
+        config.command = "filter".to_string();
         assert_eq!(
             serde_yaml::from_str::<PostFilterConfig>(
                 r#"
@@ -2574,12 +2418,12 @@ mod tests {
             "#
             )
             .unwrap(),
-            PostFilterConfig {
-                command: "filter".to_string(),
-                content_type: None,
-            }
+            config
         );
 
+        let mut config = PostFilterConfig::default();
+        config.command = "filter".to_string();
+        config.content_type = Some("video/mp4".to_string());
         assert_eq!(
             serde_yaml::from_str::<PostFilterConfig>(
                 r#"
@@ -2588,10 +2432,7 @@ mod tests {
             "#
             )
             .unwrap(),
-            PostFilterConfig {
-                command: "filter".to_string(),
-                content_type: Some("video/mp4".to_string()),
-            }
+            config
         );
 
         let result = serde_yaml::from_str::<PostFilterConfig>(
@@ -2605,30 +2446,25 @@ mod tests {
 
     #[test]
     fn test_post_filter_config_validate() {
-        let config = PostFilterConfig {
-            command: "test".to_string(),
-            content_type: None,
-        };
+        let mut config = PostFilterConfig::default();
+        config.command = "test".to_string();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.post-filters[test].command: must be a non-empty string")]
     fn test_post_filter_config_validate_empty_command() {
-        let config = PostFilterConfig {
-            command: "".to_string(),
-            content_type: None,
-        };
+        let mut config = PostFilterConfig::default();
+        config.command = "".to_string();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.post-filters[test].content-type: must be a non-empty string")]
     fn test_post_filter_config_validate_empty_content_type() {
-        let config = PostFilterConfig {
-            command: "test".to_string(),
-            content_type: Some("".to_string()),
-        };
+        let mut config = PostFilterConfig::default();
+        config.command = "test".to_string();
+        config.content_type = Some("".to_string());
         config.validate("test");
     }
 
@@ -2639,6 +2475,9 @@ mod tests {
             Default::default()
         );
 
+        let mut config = JobsConfig::default();
+        config.scan_services.command = "job".to_string();
+        config.scan_services.schedule = "*".to_string();
         assert_eq!(
             serde_yaml::from_str::<JobsConfig>(
                 r#"
@@ -2648,17 +2487,12 @@ mod tests {
             "#
             )
             .unwrap(),
-            JobsConfig {
-                scan_services: JobConfig {
-                    command: "job".to_string(),
-                    schedule: "*".to_string(),
-                    disabled: false,
-                },
-                sync_clocks: JobsConfig::default_sync_clocks(),
-                update_schedules: JobsConfig::default_update_schedules(),
-            }
+            config
         );
 
+        let mut config = JobsConfig::default();
+        config.sync_clocks.command = "job".to_string();
+        config.sync_clocks.schedule = "*".to_string();
         assert_eq!(
             serde_yaml::from_str::<JobsConfig>(
                 r#"
@@ -2668,17 +2502,12 @@ mod tests {
             "#
             )
             .unwrap(),
-            JobsConfig {
-                scan_services: JobsConfig::default_scan_services(),
-                sync_clocks: JobConfig {
-                    command: "job".to_string(),
-                    schedule: "*".to_string(),
-                    disabled: false,
-                },
-                update_schedules: JobsConfig::default_update_schedules(),
-            }
+            config
         );
 
+        let mut config = JobsConfig::default();
+        config.update_schedules.command = "job".to_string();
+        config.update_schedules.schedule = "*".to_string();
         assert_eq!(
             serde_yaml::from_str::<JobsConfig>(
                 r#"
@@ -2688,15 +2517,7 @@ mod tests {
             "#
             )
             .unwrap(),
-            JobsConfig {
-                scan_services: JobsConfig::default_scan_services(),
-                sync_clocks: JobsConfig::default_sync_clocks(),
-                update_schedules: JobConfig {
-                    command: "job".to_string(),
-                    schedule: "*".to_string(),
-                    disabled: false,
-                },
-            }
+            config
         );
 
         let result = serde_yaml::from_str::<JobsConfig>(
@@ -2732,15 +2553,21 @@ mod tests {
 
     #[test]
     fn test_job_config() {
-        assert_eq!(
-            serde_yaml::from_str::<JobConfig>("{}").unwrap(),
+        fn job_config() -> JobConfig {
             JobConfig {
                 command: "".to_string(),
                 schedule: "".to_string(),
                 disabled: false,
             }
+        }
+
+        assert_eq!(
+            serde_yaml::from_str::<JobConfig>("{}").unwrap(),
+            job_config()
         );
 
+        let mut config = job_config();
+        config.command = "test".to_string();
         assert_eq!(
             serde_yaml::from_str::<JobConfig>(
                 r#"
@@ -2748,13 +2575,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            JobConfig {
-                command: "test".to_string(),
-                schedule: "".to_string(),
-                disabled: false,
-            }
+            config
         );
 
+        let mut config = job_config();
+        config.schedule = "*".to_string();
         assert_eq!(
             serde_yaml::from_str::<JobConfig>(
                 r#"
@@ -2762,13 +2587,11 @@ mod tests {
             "#
             )
             .unwrap(),
-            JobConfig {
-                command: "".to_string(),
-                schedule: "*".to_string(),
-                disabled: false,
-            }
+            config
         );
 
+        let mut config = job_config();
+        config.disabled = true;
         assert_eq!(
             serde_yaml::from_str::<JobConfig>(
                 r#"
@@ -2776,11 +2599,7 @@ mod tests {
             "#
             )
             .unwrap(),
-            JobConfig {
-                command: "".to_string(),
-                schedule: "".to_string(),
-                disabled: true,
-            }
+            config
         );
 
         assert!(serde_yaml::from_str::<JobConfig>(
@@ -2792,45 +2611,42 @@ mod tests {
         .is_err());
     }
 
+    fn job_config() -> JobConfig {
+        JobConfig {
+            command: "test".to_string(),
+            schedule: "0 30 9,12,15 1,15 May-Aug Mon,Wed,Fri 2018/2".to_string(),
+            disabled: false,
+        }
+    }
+
     #[test]
     fn test_job_config_validate() {
-        let config = JobConfig {
-            command: "test".to_string(),
-            schedule: "0 30 9,12,15 1,15 May-Aug Mon,Wed,Fri 2018/2".to_string(),
-            disabled: false,
-        };
+        let config = job_config();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.jobs[test].command: must be a non-empty string")]
     fn test_job_config_validate_command() {
-        let config = JobConfig {
-            command: "".to_string(),
-            schedule: "0 30 9,12,15 1,15 May-Aug Mon,Wed,Fri 2018/2".to_string(),
-            disabled: false,
-        };
+        let mut config = job_config();
+        config.command = "".to_string();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.jobs[test].schedule: not valid")]
     fn test_job_config_validate_schedule() {
-        let config = JobConfig {
-            command: "test".to_string(),
-            schedule: "".to_string(),
-            disabled: false,
-        };
+        let mut config = job_config();
+        config.schedule = "".to_string();
         config.validate("test");
     }
 
     #[test]
     fn test_job_config_validate_disabled() {
-        let config = JobConfig {
-            command: "".to_string(),
-            schedule: "".to_string(),
-            disabled: true,
-        };
+        let mut config = job_config();
+        config.command = "".to_string();
+        config.schedule = "".to_string();
+        config.disabled = true;
         config.validate("test");
     }
 
@@ -2842,12 +2658,7 @@ mod tests {
         );
 
         assert_eq!(
-            serde_yaml::from_str::<RecordingConfig>(
-                r#"
-                basedir: /tmp
-            "#
-            )
-            .unwrap(),
+            serde_yaml::from_str::<RecordingConfig>("basedir: /tmp").unwrap(),
             RecordingConfig {
                 basedir: Some("/tmp".into()),
                 ..Default::default()
@@ -2858,48 +2669,31 @@ mod tests {
     #[test]
     fn test_recording_is_enabled() {
         assert!(!RecordingConfig::default().is_enabled());
-
-        assert!(serde_yaml::from_str::<RecordingConfig>(
-            r#"
-                basedir: /tmp
-            "#
-        )
-        .unwrap()
-        .is_enabled());
+        assert!(serde_yaml::from_str::<RecordingConfig>("basedir: /tmp")
+            .unwrap()
+            .is_enabled());
     }
 
     #[test]
     fn test_recording_config_validate_basedir() {
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            basedir: /tmp
-        "#,
-        )
-        .unwrap();
+        let mut config = RecordingConfig::default();
+        config.basedir = Some("/tmp".into());
         config.validate();
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.recording.basedir: must be an absolute path")]
     fn test_recording_config_validate_basedir_relative() {
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            basedir: relative/dir
-        "#,
-        )
-        .unwrap();
+        let mut config = RecordingConfig::default();
+        config.basedir = Some("relative/dir".into());
         config.validate();
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.recording.basedir: must be a path to an existing directory")]
     fn test_recording_config_validate_basedir_not_existing() {
-        let config = serde_yaml::from_str::<RecordingConfig>(
-            r#"
-            basedir: /no/such/dir
-        "#,
-        )
-        .unwrap();
+        let mut config = RecordingConfig::default();
+        config.basedir = Some("/no/such/dir".into());
         config.validate();
     }
 
@@ -2919,7 +2713,7 @@ mod tests {
                     service-id: 1
                     ts-file: /path/to/timeshift.m2ts
                     data-file: /path/to/timeshift.json
-                    num-chunks: 100
+                    num-chunks: 10
                     uses:
                       tuner: tuner
                       channel-type: GR
@@ -2930,20 +2724,7 @@ mod tests {
             TimeshiftConfig {
                 command: "command".to_string(),
                 recorders: indexmap! {
-                    "test".to_string() => TimeshiftRecorderConfig {
-                        service_id: 1.into(),
-                        ts_file: "/path/to/timeshift.m2ts".into(),
-                        data_file: "/path/to/timeshift.json".into(),
-                        chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-                        num_chunks: 100,
-                        num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-                        priority: TimeshiftRecorderConfig::default_priority(),
-                        uses: TimeshiftRecorderUses {
-                            tuner: "tuner".to_string(),
-                            channel_type: ChannelType::GR,
-                            channel: "ch".to_string(),
-                        },
-                    },
+                    "test".to_string() => timeshift_recorder_config(),
                 },
             },
         );
@@ -2999,21 +2780,33 @@ mod tests {
 
     #[test]
     fn test_timeshift_config_validate() {
-        let config = TimeshiftConfig {
-            command: "test".to_string(),
-            recorders: indexmap! {},
-        };
+        let config = TimeshiftConfig::default();
         config.validate();
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.timeshift.command: must be a non-empty string")]
     fn test_timeshift_config_validate_empty_command() {
-        let config = TimeshiftConfig {
-            command: "".to_string(),
-            recorders: indexmap! {},
-        };
+        let mut config = TimeshiftConfig::default();
+        config.command = "".to_string();
         config.validate();
+    }
+
+    fn timeshift_recorder_config() -> TimeshiftRecorderConfig {
+        TimeshiftRecorderConfig {
+            service_id: 1.into(),
+            ts_file: "/path/to/timeshift.m2ts".into(),
+            data_file: "/path/to/timeshift.json".into(),
+            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
+            num_chunks: 10,
+            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
+            priority: TimeshiftRecorderConfig::default_priority(),
+            uses: TimeshiftRecorderUses {
+                tuner: "tuner".to_string(),
+                channel_type: ChannelType::GR,
+                channel: "ch".to_string(),
+            },
+        }
     }
 
     #[test]
@@ -3024,8 +2817,8 @@ mod tests {
             r#"
             service-id: 1
             ts-file: /path/to/timeshift.m2ts
-            data-file: /path/to/timeshift.data
-            num-chunks: 100
+            data-file: /path/to/timeshift.json
+            num-chunks: 10
             uses:
               tuner: tuner
               channel-type: GR
@@ -3040,8 +2833,8 @@ mod tests {
                 r#"
                 service-id: 1
                 ts-file: /path/to/timeshift.m2ts
-                data-file: /path/to/timeshift.data
-                num-chunks: 100
+                data-file: /path/to/timeshift.json
+                num-chunks: 10
                 uses:
                   tuner: tuner
                   channel-type: GR
@@ -3049,51 +2842,38 @@ mod tests {
             "#
             )
             .unwrap(),
-            TimeshiftRecorderConfig {
-                service_id: 1.into(),
-                ts_file: "/path/to/timeshift.m2ts".into(),
-                data_file: "/path/to/timeshift.data".into(),
-                chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-                num_chunks: 100,
-                num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-                priority: TimeshiftRecorderConfig::default_priority(),
-                uses: TimeshiftRecorderUses {
-                    tuner: "tuner".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "ch".to_string(),
-                },
-            }
+            timeshift_recorder_config()
         );
 
         assert_eq!(
             serde_yaml::from_str::<TimeshiftRecorderConfig>(
                 r#"
-                service-id: 1
-                ts-file: /path/to/timeshift.m2ts
-                data-file: /path/to/timeshift.data
+                service-id: 2
+                ts-file: /1.m2ts
+                data-file: /1.json
                 chunk-size: 8192
                 num-chunks: 100
                 num-reserves: 2
                 priority: 2
                 uses:
-                  tuner: tuner
-                  channel-type: GR
-                  channel: ch
+                  tuner: x
+                  channel-type: CS
+                  channel: x
             "#
             )
             .unwrap(),
             TimeshiftRecorderConfig {
-                service_id: 1.into(),
-                ts_file: "/path/to/timeshift.m2ts".into(),
-                data_file: "/path/to/timeshift.data".into(),
+                service_id: 2.into(),
+                ts_file: "/1.m2ts".into(),
+                data_file: "/1.json".into(),
                 chunk_size: 8192,
                 num_chunks: 100,
                 num_reserves: 2,
                 priority: 2.into(),
                 uses: TimeshiftRecorderUses {
-                    tuner: "tuner".to_string(),
-                    channel_type: ChannelType::GR,
-                    channel: "ch".to_string(),
+                    tuner: "x".to_string(),
+                    channel_type: ChannelType::CS,
+                    channel: "x".to_string(),
                 },
             }
         );
@@ -3111,378 +2891,196 @@ mod tests {
         unsafe {
             let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
         }
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: ts_file.path().to_owned(),
-            data_file: "/data.json".into(),
-            chunk_size,
-            num_chunks,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
+        config.chunk_size = chunk_size;
+        config.num_chunks = num_chunks;
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: `ts-file` must be an absolute path"
+    )]
     fn test_timeshift_recorder_config_validate_empty_ts_file() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "".into(),
-            data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let mut config = timeshift_recorder_config();
+        config.ts_file = "".into();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
-    fn test_timeshift_recorder_config_validate_ts_file_parent_dir() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/path/to/ts.m2ts".into(),
-            data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
-        config.validate("test");
-    }
-
-    #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: `ts-file` must be a path to a regular file"
+    )]
     fn test_timeshift_recorder_config_validate_ts_file_is_file() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/".into(),
-            data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let mut config = timeshift_recorder_config();
+        config.ts_file = "/dev/null".into();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: `data-file` must be an absolute path"
+    )]
     fn test_timeshift_recorder_config_validate_empty_data_file() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let ts_file = NamedTempFile::new().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = "".into();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
-    fn test_timeshift_recorder_config_validate_empty_data_file_parent_dir() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/path/to/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: `data-file` must be a path to a regular file"
+    )]
+    fn test_timeshift_recorder_config_validate_data_file_is_file() {
+        let ts_file = NamedTempFile::new().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = "/dev/null".into();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
-    fn test_timeshift_recorder_config_validate_empty_data_file_is_file() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
-        config.validate("test");
-    }
-
-    #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.timeshift.recorders[test]: `data-file` must be a JSON file")]
     fn test_timeshift_recorder_config_validate_data_bincode() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/data.bincode".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let ts_file = NamedTempFile::new().unwrap();
+        let data_file = tempfile::Builder::new()
+            .suffix(".bincode")
+            .tempfile()
+            .unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: `chunk-size` must be larger than 0"
+    )]
     fn test_timeshift_recorder_config_validate_chunk_size_0() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/data.json".into(),
-            chunk_size: 0,
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let ts_file = NamedTempFile::new().unwrap();
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
+        config.chunk_size = 0;
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: `chunk-size` must be a multiple of 8192"
+    )]
     fn test_timeshift_recorder_config_validate_chunk_size_1() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/data.json".into(),
-            chunk_size: 1,
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
-        config.validate("test");
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn test_timeshift_recorder_config_validate_chunk_size_8192() {
-        let chunk_size = TimeshiftRecorderConfig::BUFSIZE;
-        let num_chunks = 3;
         let ts_file = NamedTempFile::new().unwrap();
-        let ts_file_size = (chunk_size * num_chunks) as libc::off64_t;
-        unsafe {
-            let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
-        }
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: ts_file.path().to_owned(),
-            data_file: "/data.json".into(),
-            chunk_size,
-            num_chunks,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
+        config.chunk_size = 1;
         config.validate("test");
     }
 
-    #[cfg(not(target_os = "macos"))]
     #[test]
-    fn test_timeshift_recorder_config_validate_chunk_size_1540096() {
-        // The chunk size might be too large to allocate in /tmp on some
-        // platform.  However, that's no problem at least on GitHub Actions.
-        let chunk_size = TimeshiftRecorderConfig::BUFSIZE * TimeshiftRecorderConfig::TS_PACKET_SIZE;
-        let num_chunks = 3;
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: `num-chunks` must be larger than 2"
+    )]
+    fn test_timeshift_recorder_config_validate_num_chunks_2() {
         let ts_file = NamedTempFile::new().unwrap();
-        let ts_file_size = (chunk_size * num_chunks) as libc::off64_t;
-        unsafe {
-            let _ = libc::fallocate64(ts_file.as_raw_fd(), 0, 0, ts_file_size);
-        }
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: ts_file.path().to_owned(),
-            data_file: "/data.json".into(),
-            chunk_size,
-            num_chunks,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
+        config.num_chunks = 2;
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
-    fn test_timeshift_recorder_config_validate_num_chunks_1() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 1,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
-        config.validate("test");
-    }
-
-    #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: `num-reserves` must be larger than 0"
+    )]
     fn test_timeshift_recorder_config_validate_num_reserves_0() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: 0,
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let ts_file = NamedTempFile::new().unwrap();
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
+        config.num_reserves = 0;
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: Maximum number of available chunks (`num-chunks` - `num-reserves`) must be larger than 1"
+    )]
     fn test_timeshift_recorder_config_validate_available_chunks_1() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: 9,
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let ts_file = NamedTempFile::new().unwrap();
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
+        config.num_chunks = 3;
+        config.num_reserves = 2;
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
-    fn test_timeshift_recorder_config_validate_ts_file_must_exist() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+    #[should_panic(
+        expected = "config.timeshift.recorders[test].uses.tuner: must be a non-empty string"
+    )]
+    fn test_timeshift_recorder_config_validate_uses_empty_tuner() {
+        let ts_file = NamedTempFile::new().unwrap();
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
+        config.uses.tuner = "".to_string();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
-    fn test_timeshift_recorder_config_validate_uses() {
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: "/ts.m2ts".into(),
-            data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+    #[should_panic(
+        expected = "config.timeshift.recorders[test].uses.channel: must be a non-empty string"
+    )]
+    fn test_timeshift_recorder_config_validate_uses_empty_channel() {
+        let ts_file = NamedTempFile::new().unwrap();
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
+        config.uses.channel = "".to_string();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.timeshift.recorders[test]: `ts-file` must be allocated with 1540096000 in advance"
+    )]
     fn test_timeshift_recorder_config_validate_ts_file_size() {
         let ts_file = NamedTempFile::new().unwrap();
-        let config = TimeshiftRecorderConfig {
-            service_id: 1.into(),
-            ts_file: ts_file.path().to_owned(),
-            data_file: "/data.json".into(),
-            chunk_size: TimeshiftRecorderConfig::default_chunk_size(),
-            num_chunks: 10,
-            num_reserves: TimeshiftRecorderConfig::default_num_reserves(),
-            priority: TimeshiftRecorderConfig::default_priority(),
-            uses: TimeshiftRecorderUses {
-                tuner: "tuner".to_string(),
-                channel_type: ChannelType::GR,
-                channel: "ch".to_string(),
-            },
-        };
+        let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        let mut config = timeshift_recorder_config();
+        config.ts_file = ts_file.path().to_owned();
+        config.data_file = data_file.path().to_owned();
         config.validate("test");
+    }
+
+    fn local_onair_program_tracker_config() -> LocalOnairProgramTrackerConfig {
+        LocalOnairProgramTrackerConfig {
+            channel_types: hashset![ChannelType::GR],
+            services: Default::default(),
+            excluded_services: Default::default(),
+            command: LocalOnairProgramTrackerConfig::default_command(),
+            uses: LocalOnairProgramTrackerUses {
+                tuner: "tuner".to_string(),
+            },
+            stream_id: None,
+        }
     }
 
     #[test]
@@ -3496,18 +3094,13 @@ mod tests {
             "#
             )
             .unwrap(),
-            LocalOnairProgramTrackerConfig {
-                channel_types: hashset![ChannelType::GR],
-                services: Default::default(),
-                excluded_services: Default::default(),
-                command: LocalOnairProgramTrackerConfig::default_command(),
-                uses: LocalOnairProgramTrackerUses {
-                    tuner: "tuner".to_string(),
-                },
-                stream_id: None,
-            }
+            local_onair_program_tracker_config()
         );
 
+        let mut config = local_onair_program_tracker_config();
+        config.services = hashset![1.into()];
+        config.excluded_services = hashset![2.into()];
+        config.command = "true".to_string();
         assert_eq!(
             serde_yaml::from_str::<LocalOnairProgramTrackerConfig>(
                 r#"
@@ -3520,91 +3113,49 @@ mod tests {
             "#
             )
             .unwrap(),
-            LocalOnairProgramTrackerConfig {
-                channel_types: hashset![ChannelType::GR],
-                services: hashset![1.into()],
-                excluded_services: hashset![2.into()],
-                command: "true".to_string(),
-                uses: LocalOnairProgramTrackerUses {
-                    tuner: "tuner".to_string(),
-                },
-                stream_id: None,
-            }
+            config
         );
     }
 
     #[test]
     fn test_local_onair_program_tracker_config_validate() {
-        let config = LocalOnairProgramTrackerConfig {
-            channel_types: hashset![ChannelType::GR],
-            services: hashset![],
-            excluded_services: hashset![],
-            command: LocalOnairProgramTrackerConfig::default_command(),
-            uses: LocalOnairProgramTrackerUses {
-                tuner: "tuner".to_string(),
-            },
-            stream_id: None,
-        };
+        let config = local_onair_program_tracker_config();
         config.validate("test");
 
-        let config = LocalOnairProgramTrackerConfig {
-            channel_types: hashset![ChannelType::GR],
-            services: hashset![1.into()],
-            excluded_services: hashset![2.into()],
-            command: "true".to_string(),
-            uses: LocalOnairProgramTrackerUses {
-                tuner: "tuner".to_string(),
-            },
-            stream_id: None,
-        };
+        let mut config = local_onair_program_tracker_config();
+        config.services = hashset![1.into()];
+        config.excluded_services = hashset![2.into()];
+        config.command = "true".to_string();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.onair-program-trackers[test].channel-types: must be a non-empty list"
+    )]
     fn test_local_onair_program_tracker_config_validate_channel_types() {
-        let config = LocalOnairProgramTrackerConfig {
-            channel_types: hashset![],
-            services: hashset![],
-            excluded_services: hashset![],
-            command: LocalOnairProgramTrackerConfig::default_command(),
-            uses: LocalOnairProgramTrackerUses {
-                tuner: "tuner".to_string(),
-            },
-            stream_id: None,
-        };
+        let mut config = local_onair_program_tracker_config();
+        config.channel_types = hashset![];
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.onair-program-trackers[test]command: must be a non-empty string"
+    )]
     fn test_local_onair_program_tracker_config_validate_command() {
-        let config = LocalOnairProgramTrackerConfig {
-            channel_types: hashset![ChannelType::GR],
-            services: hashset![],
-            excluded_services: hashset![],
-            command: "".to_string(),
-            uses: LocalOnairProgramTrackerUses {
-                tuner: "tuner".to_string(),
-            },
-            stream_id: None,
-        };
+        let mut config = local_onair_program_tracker_config();
+        config.command = "".to_string();
         config.validate("test");
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.onair-program-trackers[test].uses.tuner: must be a non-empty string"
+    )]
     fn test_local_onair_program_tracker_config_validate_uses() {
-        let config = LocalOnairProgramTrackerConfig {
-            channel_types: hashset![ChannelType::GR],
-            services: hashset![],
-            excluded_services: hashset![],
-            command: LocalOnairProgramTrackerConfig::default_command(),
-            uses: LocalOnairProgramTrackerUses {
-                tuner: "".to_string(),
-            },
-            stream_id: None,
-        };
+        let mut config = local_onair_program_tracker_config();
+        config.uses.tuner = "".to_string();
         config.validate("test");
     }
 
@@ -3657,7 +3208,7 @@ mod tests {
             .unwrap(),
             ResourceConfig {
                 strings_yaml: "/path/to/strings.yml".to_string(),
-                logos: Default::default(),
+                ..Default::default()
             }
         );
 
@@ -3671,10 +3222,10 @@ mod tests {
             )
             .unwrap(),
             ResourceConfig {
-                strings_yaml: ResourceConfig::default_strings_yaml(),
                 logos: hashmap! {
                     1.into() => "/path/to/logo.png".to_string(),
                 },
+                ..Default::default()
             }
         );
 
@@ -3695,7 +3246,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "config.resources.strings-yaml: must be a path to an existing YAML file"
+    )]
     fn test_resource_config_validate_non_existing_strings_yaml() {
         let mut config = ResourceConfig::default();
         config.strings_yaml = "/path/to/non-existing".to_string();
@@ -3704,23 +3257,21 @@ mod tests {
 
     #[test]
     fn test_resource_config_validate_existing_logos() {
-        let config = ResourceConfig {
-            strings_yaml: "/bin/sh".to_string(),
-            logos: hashmap! {
-                1.into() => "/bin/sh".to_string(),
-            },
+        let mut config = ResourceConfig::default();
+        config.strings_yaml = "/bin/sh".to_string();
+        config.logos = hashmap! {
+            1.into() => "/bin/sh".to_string(),
         };
         config.validate();
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config.resources.logos[1]: must be a path to an existing file")]
     fn test_epg_config_validate_non_existing_logos() {
-        let config = ResourceConfig {
-            strings_yaml: "/bin/sh".to_string(),
-            logos: hashmap! {
-                1.into() => "/path/to/non-existing".to_string(),
-            },
+        let mut config = ResourceConfig::default();
+        config.strings_yaml = "/bin/sh".to_string();
+        config.logos = hashmap! {
+            1.into() => "/path/to/non-existing".to_string(),
         };
         config.validate();
     }
