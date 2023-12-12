@@ -202,6 +202,5 @@ jobs:
           private_key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
       - name: Trigger the docker workflow on mirakc/docker-timeshift-x
         run: |
-          echo '${{ steps.generate-token.outputs.token }}' | gh auth login --hostname=github.com --with-token
+          echo '${{ steps.generate-token.outputs.token }}' | gh auth login --with-token
           echo '{"version": "${{ inputs.ref-name }}"}' | gh workflow run docker.yml -R mirakc/docker-timeshift-x --json
-          gh auth logout
