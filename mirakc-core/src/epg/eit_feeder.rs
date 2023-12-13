@@ -167,9 +167,7 @@ where
         tracing::debug!(channel.name, "Collecting EIT sections...");
 
         let user = TunerUser {
-            info: TunerUserInfo::Job {
-                name: Self::LABEL.to_string(),
-            },
+            info: TunerUserInfo::Job(Self::LABEL.to_string()),
             priority: (-1).into(),
         };
 

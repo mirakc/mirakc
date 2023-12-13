@@ -942,9 +942,7 @@ where
             .call(StartStreaming {
                 channel: service.channel.clone(),
                 user: TunerUser {
-                    info: TunerUserInfo::Recorder {
-                        name: format!("program#{}", program_id),
-                    },
+                    info: TunerUserInfo::Recorder(program_id),
                     priority: schedule.options.priority.into(),
                 },
                 stream_id: None,

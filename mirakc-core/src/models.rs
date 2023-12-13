@@ -275,9 +275,10 @@ impl EpgGenre {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum TunerUserInfo {
-    Job { name: String },
+    Job(String),
     OnairProgramTracker(String),
-    Recorder { name: String },
+    Recorder(ProgramId),
+    TimeshiftRecorder(String),
     Web { id: String, agent: Option<String> },
 }
 
@@ -299,9 +300,10 @@ impl TunerUserInfo {
 
     fn get_mirakurun_model(&self) -> (String, Option<String>) {
         match self {
-            Self::Job { name } => (format!("job:{}", name), None),
+            Self::Job(name) => (format!("job:{name}"), None),
             Self::OnairProgramTracker(name) => (format!("onair-program-tracker:{name}"), None),
-            Self::Recorder { name } => (format!("recorder:{}", name), None),
+            Self::Recorder(program_id) => (format!("recorder:program#{program_id}"), None),
+            Self::TimeshiftRecorder(name) => (format!("recorder:timeshift#{name}"), None),
             Self::Web { id, agent } => (id.clone(), agent.clone()),
         }
     }
@@ -310,14 +312,15 @@ impl TunerUserInfo {
 impl fmt::Display for TunerUserInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Job { name } => write!(f, "Job({})", name),
+            Self::Job(name) => write!(f, "Job({name})"),
             Self::OnairProgramTracker(name) => write!(f, "OnairProgramTracker({name})"),
-            Self::Recorder { name } => write!(f, "Recorder({})", name),
-            Self::Web { id, agent: None } => write!(f, r#"Web(id="{}")"#, id),
+            Self::Recorder(program_id) => write!(f, "Recorder(program#{program_id})"),
+            Self::TimeshiftRecorder(name) => write!(f, "Recorder(timeshift#{name})"),
+            Self::Web { id, agent: None } => write!(f, r#"Web(id="{id}")"#),
             Self::Web {
                 id,
                 agent: Some(agent),
-            } => write!(f, r#"Web(id="{}" agent="{}")"#, id, agent),
+            } => write!(f, r#"Web(id="{id}" agent="{agent}")"#),
         }
     }
 }

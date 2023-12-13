@@ -335,9 +335,7 @@ where
         let channel = &self.service.channel;
 
         let user = TunerUser {
-            info: TunerUserInfo::Recorder {
-                name: format!("timeshift#{}", self.name),
-            },
+            info: TunerUserInfo::TimeshiftRecorder(self.name.clone()),
             priority: config.priority.into(),
         };
 

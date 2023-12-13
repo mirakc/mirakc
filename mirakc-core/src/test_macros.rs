@@ -59,17 +59,16 @@ macro_rules! tuner_user {
 
 macro_rules! tuner_user_info {
     (job; $name:expr) => {
-        crate::models::TunerUserInfo::Job {
-            name: $name.to_string(),
-        }
+        crate::models::TunerUserInfo::Job($name.to_string())
     };
     (onair; $name:expr) => {
         crate::models::TunerUserInfo::OnairProgramTracker($name.to_string())
     };
-    (recorder; $name:expr) => {
-        crate::models::TunerUserInfo::Recorder {
-            name: $name.to_string(),
-        }
+    (recorder; $program_id:expr) => {
+        crate::models::TunerUserInfo::Recorder($program_id)
+    };
+    (timeshift; $name:expr) => {
+        crate::models::TunerUserInfo::TimeshiftRecorder($name.to_string())
     };
     (web; $id:expr) => {
         crate::models::TunerUserInfo::Web {

@@ -73,9 +73,7 @@ where
         tracing::debug!(channel.name, "Synchronizing clocks...");
 
         let user = TunerUser {
-            info: TunerUserInfo::Job {
-                name: Self::LABEL.to_string(),
-            },
+            info: TunerUserInfo::Job(Self::LABEL.to_string()),
             priority: (-1).into(),
         };
 

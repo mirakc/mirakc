@@ -115,6 +115,7 @@ impl TunerManager {
             .filter(|config| !config.disabled)
             .enumerate()
             .map(|(i, config)| {
+                let mut tuner = Tuner::new(i, config);
                 if let Some(name) = self
                     .config
                     .onair_program_trackers
@@ -132,27 +133,29 @@ impl TunerManager {
                     })
                 {
                     let user = TunerUserInfo::OnairProgramTracker(name.clone());
-                    return (i, config, DedicatedFor::User(user));
-                }
-                if let Some((channel_type, channel)) = self
+                    tuner.set_exclusive_user(user);
+                } else if let Some((name, timeshift)) = self
                     .config
                     .timeshift
                     .recorders
-                    .values()
-                    .find_map(|timeshift| {
+                    .iter()
+                    .find_map(|(name, timeshift)| {
                         if timeshift.uses.tuner == config.name {
-                            Some((timeshift.uses.channel_type, &timeshift.uses.channel))
+                            Some((name, timeshift))
                         } else {
                             None
                         }
                     })
                 {
-                    let dedicated_for = DedicatedFor::Channel(channel_type, channel.to_owned());
-                    return (i, config, dedicated_for);
+                    let user = TunerUserInfo::TimeshiftRecorder(name.to_string());
+                    tuner.set_channel_user(
+                        user,
+                        timeshift.uses.channel_type,
+                        timeshift.uses.channel.clone(),
+                    );
                 }
-                (i, config, DedicatedFor::None)
+                tuner
             })
-            .map(|(i, config, dedicated_for)| Tuner::new(i, config, dedicated_for))
             .collect();
         tracing::info!(tuners.len = tuners.len(), "Loaded tuners");
         self.tuners = tuners;
@@ -184,9 +187,9 @@ impl TunerManager {
         let found = self
             .tuners
             .iter_mut()
-            .find(|tuner| tuner.is_dedicated_for(&user));
+            .find(|tuner| tuner.is_reserved_for(&user));
         if let Some(tuner) = found {
-            tracing::debug!(tuner.index, %channel, %user.info, "Use dedicated tuner");
+            tracing::debug!(tuner.index, %channel, %user.info, "Use reserved tuner");
             if !tuner.is_active() {
                 let filters = Self::make_filter_commands(
                     &tuner,
@@ -511,18 +514,19 @@ struct Tuner {
     command: String,
     time_limit: u64,
     decoded: bool,
-    dedicated_for: DedicatedFor,
+    reserved_for: Option<TunerUserInfo>,
+    restriction: Restriction,
     activity: TunerActivity,
 }
 
-enum DedicatedFor {
+enum Restriction {
     None,
     Channel(ChannelType, String),
-    User(TunerUserInfo),
+    Exclusive,
 }
 
 impl Tuner {
-    fn new(index: usize, config: &TunerConfig, dedicated_for: DedicatedFor) -> Self {
+    fn new(index: usize, config: &TunerConfig) -> Self {
         Tuner {
             index,
             name: config.name.clone(),
@@ -530,9 +534,27 @@ impl Tuner {
             command: config.command.clone(),
             time_limit: config.time_limit,
             decoded: config.decoded,
-            dedicated_for,
+            reserved_for: None,
+            restriction: Restriction::None,
             activity: TunerActivity::Inactive,
         }
+    }
+
+    fn set_channel_user(
+        &mut self,
+        user: TunerUserInfo,
+        channel_type: ChannelType,
+        channel: String,
+    ) {
+        assert!(self.reserved_for.is_none());
+        self.reserved_for = Some(user);
+        self.restriction = Restriction::Channel(channel_type, channel);
+    }
+
+    fn set_exclusive_user(&mut self, user: TunerUserInfo) {
+        assert!(self.reserved_for.is_none());
+        self.reserved_for = Some(user);
+        self.restriction = Restriction::Exclusive;
     }
 
     fn is_subscribed(&self, id: &TunerSubscriptionId) -> bool {
@@ -552,34 +574,29 @@ impl Tuner {
     }
 
     fn is_available_for(&self, channel: &EpgChannel) -> bool {
-        match self.dedicated_for {
-            DedicatedFor::Channel(dedicated_type, ref dedicated_channel) => {
-                self.is_available()
-                    && channel.channel_type == dedicated_type
-                    && channel.channel == dedicated_channel.as_str()
-            }
-            DedicatedFor::User(_) => false,
+        match self.restriction {
+            Restriction::Exclusive => false,
             _ => self.is_available() && self.is_supported_type(channel),
         }
     }
 
     fn is_reuseable(&self, channel: &EpgChannel) -> bool {
-        match self.dedicated_for {
-            DedicatedFor::User(_) => false,
+        match self.restriction {
+            Restriction::Exclusive => false,
             _ => self.activity.is_reuseable(channel),
         }
     }
 
-    fn is_dedicated_for(&self, user: &TunerUser) -> bool {
-        match self.dedicated_for {
-            DedicatedFor::User(ref user_info) => user_info.eq(&user.info),
-            _ => false,
+    fn is_reserved_for(&self, user: &TunerUser) -> bool {
+        match self.reserved_for {
+            Some(ref user_info) => user_info.eq(&user.info),
+            None => false,
         }
     }
 
     fn can_grab(&self, priority: TunerUserPriority) -> bool {
-        match self.dedicated_for {
-            DedicatedFor::None => priority.is_grab() || self.activity.can_grab(priority),
+        match self.restriction {
+            Restriction::None => priority.is_grab() || self.activity.can_grab(priority),
             _ => false,
         }
     }
@@ -913,7 +930,7 @@ mod tests {
     #[test]
     fn test_make_filter_command() {
         let config = create_config("true".to_string());
-        let tuner = Tuner::new(0, &config, DedicatedFor::None);
+        let tuner = Tuner::new(0, &config);
         let channel = channel_gr!("name", "channel");
 
         assert_matches!(TunerManager::make_filter_command(&tuner, &channel, "{{tuner_index}}"), Ok(cmd) => {
@@ -1241,7 +1258,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config, DedicatedFor::None);
+            let mut tuner = Tuner::new(0, &config);
 
             let dummy_id = TunerSubscriptionId::new(TunerSessionId::new(0), 1);
 
@@ -1272,7 +1289,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config, DedicatedFor::None);
+            let mut tuner = Tuner::new(0, &config);
 
             assert!(!tuner.is_active());
 
@@ -1288,7 +1305,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config, DedicatedFor::None);
+            let mut tuner = Tuner::new(0, &config);
             let result = tuner.activate(&create_channel("1"), vec![], &system).await;
             assert!(result.is_ok());
             tokio::task::yield_now().await;
@@ -1296,7 +1313,7 @@ mod tests {
 
         {
             let config = create_config("cmd '".to_string());
-            let mut tuner = Tuner::new(0, &config, DedicatedFor::None);
+            let mut tuner = Tuner::new(0, &config);
             let result = tuner.activate(&create_channel("1"), vec![], &system).await;
             assert_matches!(
                 result,
@@ -1307,7 +1324,7 @@ mod tests {
 
         {
             let config = create_config("no-such-command".to_string());
-            let mut tuner = Tuner::new(0, &config, DedicatedFor::None);
+            let mut tuner = Tuner::new(0, &config);
             let result = tuner.activate(&create_channel("1"), vec![], &system).await;
             assert_matches!(
                 result,
@@ -1323,7 +1340,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(1, &config, DedicatedFor::None);
+            let mut tuner = Tuner::new(1, &config);
             let result = tuner.stop_streaming(Default::default()).await;
             assert_matches!(result, Err(Error::SessionNotFound));
 
@@ -1355,7 +1372,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config, DedicatedFor::None);
+            let mut tuner = Tuner::new(0, &config);
             assert!(tuner.can_grab(0.into()));
 
             tuner
@@ -1393,7 +1410,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config, DedicatedFor::None);
+            let mut tuner = Tuner::new(0, &config);
             assert_matches!(tuner.priority(), None);
 
             tuner
@@ -1427,7 +1444,7 @@ mod tests {
         let system = System::new();
         {
             let config = create_config("true".to_string());
-            let mut tuner = Tuner::new(0, &config, DedicatedFor::None);
+            let mut tuner = Tuner::new(0, &config);
             tuner
                 .activate(&create_channel("1"), vec![], &system)
                 .await
