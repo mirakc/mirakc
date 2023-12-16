@@ -190,7 +190,8 @@ jobs:
           rm -rf /tmp/.docker-cache
           mv /tmp/.docker-cache-new /tmp/.docker-cache
   trigger:
-    needs: docker
+    needs:
+      - docker
     runs-on: ubuntu-latest
     steps:
       # Use the `mirakc-ci` bot account in order to trigger the docker workflow
