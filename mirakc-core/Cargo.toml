@@ -37,7 +37,7 @@ reqwest = { version = "0.11.23", default-features = false, features = ["json"] }
 reqwest-eventsource = "0.5.0"
 serde = { version = "1.0.193", features = ["derive", "rc"] }
 serde_json = { version = "1.0.108", features = ["preserve_order"] }
-serde_yaml = "0.9.27"
+serde_yaml = "0.9.28"
 serde_qs = "0.12.0"
 shell-words = "1.1.0"
 smallstr = { version = "0.3.0", features = ["serde"] }
