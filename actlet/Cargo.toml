@@ -13,7 +13,7 @@ derive = ["actlet-derive"]
 [dependencies]
 actlet-derive = { path = "../actlet-derive", optional = true }
 async-trait = "0.1.76"
-thiserror = "1.0.53"
+thiserror = "1.0.55"
 tokio = { version = "1.35.1", features = ["full"] }
 tokio-util = "0.7.10"
 tracing = "0.1.40"
