@@ -517,7 +517,6 @@ impl Stream for BroadcasterStream {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use crate::command_util::CommandPipeline;
@@ -765,4 +764,3 @@ mod tests {
         }
     }
 }
-// </coverage:exclude>

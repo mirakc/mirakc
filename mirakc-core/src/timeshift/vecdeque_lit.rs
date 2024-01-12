@@ -1,7 +1,6 @@
 // Took-From: https://github.com/bluss/maplit/pull/31/files#diff-b1a35a68f14e696205874893c07fd24fdb88882b47c23cc0e0c80a30c7d53759
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// <coverage:exclude>
 macro_rules! vecdeque {
     (@single $($x:tt)*) => (());
     (@count $($rest:expr),*) => (<[()]>::len(&[$(vecdeque!(@single $rest)),*]));
@@ -28,4 +27,3 @@ macro_rules! vecdeque {
         }
     };
 }
-// </coverage:exclude>

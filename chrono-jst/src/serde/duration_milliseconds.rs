@@ -19,7 +19,6 @@ where
     d.deserialize_i64(DurationVisitor)
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use chrono::Duration;
@@ -62,4 +61,3 @@ mod tests {
         assert_eq!(JSON, serde_json::to_string(&Data::new(DURATION)).unwrap());
     }
 }
-// </coverage:exclude>

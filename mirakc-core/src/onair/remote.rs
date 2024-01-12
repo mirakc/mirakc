@@ -256,7 +256,6 @@ impl WebOnairProgram {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,4 +286,3 @@ mod tests {
         assert!(!config.matches((1, 2).into()));
     }
 }
-// </coverage:exclude>

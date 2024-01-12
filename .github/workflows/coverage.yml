@@ -11,46 +11,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
-      - name: Install grcov
-        uses: taiki-e/install-action@grcov
-      - name: Run coverage tests
-        run: |
-          # Compiling actlet-derive fails due to the following error:
-          #
-          #   error: the linked panic runtime `panic_unwind` is not compiled
-          #     with this crate's panic strategy `abort`
-          #
-          # So, we excludes it from the coverage.
-          cargo nextest run --all-features --no-fail-fast --lib --workspace --exclude=actlet-derive
-        env:
-          # See https://github.com/mozilla/grcov#usage
-          RUSTC_BOOTSTRAP: 1
-          # See https://github.com/mozilla/grcov#example-how-to-generate-gcda-files-for-a-rust-project
-          CARGO_INCREMENTAL: 0
-          RUSTFLAGS: >-
-            -Zprofile
-            -Ccodegen-units=1
-            -Cinline-threshold=0
-            -Clink-dead-code
-            -Coverflow-checks=off
-            -Cpanic=abort
-            -Zpanic_abort_tests
-          RUSTDOCFLAGS: >-
-            -Cpanic=abort
-      - name: Generate coverage data
+      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage
         run: >-
-          grcov target/debug --branch --llvm --ignore-not-existing -s .
-          --ignore '*/src/main.rs' --ignore 'mirakc-core/src/error.rs'
-          --ignore 'mirakc-core/src/tracing_ext.rs'
-          --excl-line '<coverage:exclude/>|unimplemented!|unreachable!'
-          --excl-start '<coverage:exclude>'
-          --excl-stop '</coverage:exclude>'
-          --excl-br-start '<coverage:exclude>'
-          --excl-br-stop '</coverage:exclude>'
-          -t lcov -o lcov.info
-      - name: Upload to codecov.io
+          cargo llvm-cov nextest --all-features --workspace
+          --codecov --output-path=codecov.json
+      - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v3
         with:
-          files: lcov.info
+          files: codecov.json

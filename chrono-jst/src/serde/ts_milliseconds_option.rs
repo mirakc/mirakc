@@ -19,7 +19,6 @@ where
     Ok(chrono::serde::ts_milliseconds_option::deserialize(d)?.map(|utc| utc.with_timezone(&Jst)))
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,4 +60,3 @@ mod tests {
         assert_eq!(JSON, serde_json::to_string(&Data::new(UNIX_TIME)).unwrap());
     }
 }
-// </coverage:exclude>

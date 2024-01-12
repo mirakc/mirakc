@@ -322,7 +322,6 @@ struct Entry {
     next: Option<EitSection>,
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,4 +608,3 @@ mod tests {
         }
     }
 }
-// </coverage:exclude>

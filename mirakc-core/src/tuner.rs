@@ -919,7 +919,6 @@ impl Drop for TunerSession {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1558,4 +1557,3 @@ pub(crate) mod stub {
 
     stub_impl_fire! {TunerManagerStub, StopStreaming}
 }
-// </coverage:exclude>

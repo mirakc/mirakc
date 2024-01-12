@@ -488,7 +488,6 @@ pub struct OnairProgram {
     pub next: Option<Arc<EpgProgram>>,
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {}
 
@@ -548,4 +547,3 @@ pub(crate) mod stub {
         }
     }
 }
-// </coverage:exclude>

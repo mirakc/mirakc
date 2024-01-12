@@ -1196,7 +1196,6 @@ impl EitSection {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1461,4 +1460,3 @@ mod tests {
     #[derive(Clone)]
     struct TunerManagerStub;
 }
-// </coverage:exclude>

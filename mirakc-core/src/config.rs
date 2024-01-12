@@ -1213,7 +1213,6 @@ impl Default for ResourceConfig {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use std::os::fd::AsRawFd;
@@ -3276,4 +3275,3 @@ mod tests {
         config.validate();
     }
 }
-// </coverage:exclude>

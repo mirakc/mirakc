@@ -138,7 +138,6 @@ pub struct SyncClock {
     pub clock: Clock,
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,4 +210,3 @@ mod tests {
         assert_matches!(&results[0], (_, None));
     }
 }
-// </coverage:exclude>

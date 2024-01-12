@@ -528,7 +528,6 @@ mod logging {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -742,4 +741,3 @@ mod tests {
         assert!(result.is_ok());
     }
 }
-// </coverage:exclude>

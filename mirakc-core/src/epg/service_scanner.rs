@@ -159,7 +159,6 @@ impl From<(&ChannelConfig, &TsService)> for EpgService {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,4 +219,3 @@ mod tests {
         assert!(results[0].1.is_none());
     }
 }
-// </coverage:exclude>

@@ -1807,7 +1807,6 @@ fn get_first_error(results: &[std::io::Result<ExitStatus>]) -> Option<i32> {
         .find(|&code| code != 0)
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 #[macro_use]
 mod test_macros {
@@ -2784,4 +2783,3 @@ pub(crate) mod stub {
         }
     }
 }
-// </coverage:exclude>

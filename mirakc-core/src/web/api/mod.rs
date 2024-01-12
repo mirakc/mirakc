@@ -326,7 +326,6 @@ impl utoipa::Modify for MirakurunCompatAddon {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,4 +406,3 @@ mod tests {
         assert_matches!(op.tags, Some(ref tags) => assert!(tags.iter().any(|s| s == "stream")));
     }
 }
-// </coverage:exclude>

@@ -251,7 +251,6 @@ pub(in crate::web::api) fn determine_stream_content_type<'a>(
     result
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,4 +294,3 @@ mod tests {
         }
     }
 }
-// </coverage:exclude>

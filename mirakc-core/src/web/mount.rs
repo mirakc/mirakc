@@ -248,7 +248,6 @@ fn iter_entries<P: AsRef<Path>>(path: P) -> impl Iterator<Item = walkdir::DirEnt
         .filter(|entry| entry.depth() != 0) // remove the root
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,4 +340,3 @@ mod tests {
         });
     }
 }
-// </coverage:exclude>

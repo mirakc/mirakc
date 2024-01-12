@@ -77,7 +77,6 @@ impl fmt::Debug for Jst {
     }
 }
 
-// <coverage:exclude>
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,4 +104,3 @@ mod tests {
         assert_eq!(jst.timestamp(), UNIX_TIME);
     }
 }
-// </coverage:exclude>

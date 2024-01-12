@@ -1,4 +1,3 @@
-// <coverage:exclude>
 use super::*;
 use indexmap::indexmap;
 
@@ -132,4 +131,3 @@ impl Call<RegisterEmitter> for EpgStub {
 }
 
 stub_impl_fire! {EpgStub, UnregisterEmitter}
-// </coverage:exclude>

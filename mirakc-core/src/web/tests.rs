@@ -1,4 +1,3 @@
-// <coverage:exclude>
 use super::*;
 
 use std::collections::HashMap;
@@ -1223,4 +1222,3 @@ mod helper {
         }
     }
 }
-// </coverage:exclude>

@@ -1,4 +1,3 @@
-// <coverage:exclude>
 use super::*;
 use chrono_jst::Jst;
 
@@ -113,4 +112,3 @@ impl Call<CreateTimeshiftRecordStreamSource> for TimeshiftManagerStub {
         }
     }
 }
-// </coverage:exclude>
