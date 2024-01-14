@@ -6,6 +6,7 @@ description = "A userspace filesystem to expose timeshift records as files"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
+build = "build.rs"
 
 [dependencies]
 clap = { version = "4.4.16", features = ["derive", "env"] }
@@ -22,6 +23,9 @@ assert_matches = "1.5.0"
 env_logger = "0.10.1"
 test-log = { version = "0.2.14", features = ["trace"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+
+[build-dependencies]
+vergen = { version = "8.0.0", features = ["git", "gitcl"] }
 
 # We don't specify versions because Dependabot cannot update crates in this section.
 [target.'cfg(target_os = "macos")'.dependencies]

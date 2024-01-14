@@ -7,8 +7,10 @@ use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
 
+const VERSION: &'static str = concat!(env!("CARGO_PKG_VERSION"), " ", env!("VERGEN_GIT_SHA"));
+
 #[derive(Parser)]
-#[command(author, version, about)]
+#[command(author, about, version = VERSION)]
 struct Opt {
     /// Path to a configuration file in a YAML format.
     ///
