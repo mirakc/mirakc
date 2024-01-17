@@ -1209,6 +1209,7 @@ impl Default for ResourceConfig {
 #[allow(clippy::needless_update)]
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_os = "macos"))]
     use std::os::fd::AsRawFd;
 
     use super::*;
