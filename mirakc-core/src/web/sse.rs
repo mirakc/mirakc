@@ -150,9 +150,9 @@ macro_rules! impl_emit {
             }
         }
 
-        impl Into<Emitter<$msg>> for EventFeeder {
-            fn into(self) -> Emitter<$msg> {
-                Emitter::new(self)
+        impl From<EventFeeder> for Emitter<$msg> {
+            fn from(val: EventFeeder) -> Self {
+                Emitter::new(val)
             }
         }
     };
@@ -162,10 +162,10 @@ macro_rules! impl_emit {
 
 impl_emit! {crate::tuner::Event}
 
-impl Into<Event> for crate::tuner::Event {
-    fn into(self) -> Event {
-        match self {
-            Self::StatusChanged(tuner_index) => Event::default()
+impl From<crate::tuner::Event> for Event {
+    fn from(val: crate::tuner::Event) -> Self {
+        match val {
+            crate::tuner::Event::StatusChanged(tuner_index) => Self::default()
                 .event("tuner.status-changed")
                 .json_data(TunerStatusChanged { tuner_index })
                 .unwrap(),
@@ -177,12 +177,12 @@ impl Into<Event> for crate::tuner::Event {
 
 impl_emit! {crate::epg::ProgramsUpdated}
 
-impl Into<Event> for crate::epg::ProgramsUpdated {
-    fn into(self) -> Event {
-        Event::default()
+impl From<crate::epg::ProgramsUpdated> for Event {
+    fn from(val: crate::epg::ProgramsUpdated) -> Self {
+        Self::default()
             .event("epg.programs-updated")
             .json_data(EpgProgramsUpdated {
-                service_id: self.service_id.into(),
+                service_id: val.service_id,
             })
             .unwrap()
     }
@@ -192,12 +192,12 @@ impl Into<Event> for crate::epg::ProgramsUpdated {
 
 impl_emit! {crate::recording::RecordingStarted}
 
-impl Into<Event> for crate::recording::RecordingStarted {
-    fn into(self) -> Event {
-        Event::default()
+impl From<crate::recording::RecordingStarted> for Event {
+    fn from(val: crate::recording::RecordingStarted) -> Self {
+        Self::default()
             .event("recording.started")
             .json_data(RecordingStarted {
-                program_id: self.program_id.into(),
+                program_id: val.program_id,
             })
             .unwrap()
     }
@@ -205,12 +205,12 @@ impl Into<Event> for crate::recording::RecordingStarted {
 
 impl_emit! {crate::recording::RecordingStopped}
 
-impl Into<Event> for crate::recording::RecordingStopped {
-    fn into(self) -> Event {
-        Event::default()
+impl From<crate::recording::RecordingStopped> for Event {
+    fn from(val: crate::recording::RecordingStopped) -> Self {
+        Self::default()
             .event("recording.stopped")
             .json_data(RecordingStopped {
-                program_id: self.program_id.into(),
+                program_id: val.program_id,
             })
             .unwrap()
     }
@@ -218,13 +218,13 @@ impl Into<Event> for crate::recording::RecordingStopped {
 
 impl_emit! {crate::recording::RecordingFailed}
 
-impl Into<Event> for crate::recording::RecordingFailed {
-    fn into(self) -> Event {
-        Event::default()
+impl From<crate::recording::RecordingFailed> for Event {
+    fn from(val: crate::recording::RecordingFailed) -> Self {
+        Self::default()
             .event("recording.failed")
             .json_data(RecordingFailed {
-                program_id: self.program_id.into(),
-                reason: self.reason,
+                program_id: val.program_id,
+                reason: val.reason,
             })
             .unwrap()
     }
@@ -232,12 +232,12 @@ impl Into<Event> for crate::recording::RecordingFailed {
 
 impl_emit! {crate::recording::RecordingRescheduled}
 
-impl Into<Event> for crate::recording::RecordingRescheduled {
-    fn into(self) -> Event {
-        Event::default()
+impl From<crate::recording::RecordingRescheduled> for Event {
+    fn from(val: crate::recording::RecordingRescheduled) -> Self {
+        Self::default()
             .event("recording.rescheduled")
             .json_data(RecordingRescheduled {
-                program_id: self.program_id.into(),
+                program_id: val.program_id,
             })
             .unwrap()
     }
@@ -247,15 +247,15 @@ impl Into<Event> for crate::recording::RecordingRescheduled {
 
 impl_emit! {crate::timeshift::TimeshiftEvent}
 
-impl Into<Event> for crate::timeshift::TimeshiftEvent {
-    fn into(self) -> Event {
-        match self {
-            Self::Timeline {
+impl From<crate::timeshift::TimeshiftEvent> for Event {
+    fn from(val: crate::timeshift::TimeshiftEvent) -> Self {
+        match val {
+            crate::timeshift::TimeshiftEvent::Timeline {
                 recorder,
                 start_time,
                 end_time,
                 duration,
-            } => Event::default()
+            } => Self::default()
                 .event("timeshift.timeline")
                 .json_data(TimeshiftTimeline {
                     recorder,
@@ -264,38 +264,38 @@ impl Into<Event> for crate::timeshift::TimeshiftEvent {
                     duration,
                 })
                 .unwrap(),
-            Self::Started { recorder } => Event::default()
+            crate::timeshift::TimeshiftEvent::Started { recorder } => Self::default()
                 .event("timeshift.started")
                 .json_data(TimeshiftStarted { recorder })
                 .unwrap(),
-            Self::Stopped { recorder } => Event::default()
+            crate::timeshift::TimeshiftEvent::Stopped { recorder } => Self::default()
                 .event("timeshift.stopped")
                 .json_data(TimeshiftStopped { recorder })
                 .unwrap(),
-            Self::RecordStarted {
+            crate::timeshift::TimeshiftEvent::RecordStarted {
                 recorder,
                 record_id,
-            } => Event::default()
+            } => Self::default()
                 .event("timeshift.record-started")
                 .json_data(TimeshiftRecordStarted {
                     recorder,
                     record_id,
                 })
                 .unwrap(),
-            Self::RecordUpdated {
+            crate::timeshift::TimeshiftEvent::RecordUpdated {
                 recorder,
                 record_id,
-            } => Event::default()
+            } => Self::default()
                 .event("timeshift.record-updated")
                 .json_data(TimeshiftRecordUpdated {
                     recorder,
                     record_id,
                 })
                 .unwrap(),
-            Self::RecordEnded {
+            crate::timeshift::TimeshiftEvent::RecordEnded {
                 recorder,
                 record_id,
-            } => Event::default()
+            } => Self::default()
                 .event("timeshift.record-ended")
                 .json_data(TimeshiftRecordEnded {
                     recorder,
@@ -310,12 +310,12 @@ impl Into<Event> for crate::timeshift::TimeshiftEvent {
 
 impl_emit! {crate::onair::OnairProgramChanged}
 
-impl Into<Event> for crate::onair::OnairProgramChanged {
-    fn into(self) -> Event {
+impl From<crate::onair::OnairProgramChanged> for Event {
+    fn from(val: crate::onair::OnairProgramChanged) -> Self {
         Event::default()
             .event("onair.program-changed")
             .json_data(OnairProgramChanged {
-                service_id: self.service_id.into(),
+                service_id: val.service_id,
             })
             .unwrap()
     }

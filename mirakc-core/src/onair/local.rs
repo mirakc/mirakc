@@ -197,9 +197,9 @@ where
         let stream = self
             .tuner_manager
             .call(StartStreaming {
-                channel: service.channel.clone().into(),
+                channel: service.channel.clone(),
                 user,
-                stream_id: self.config.stream_id.clone(),
+                stream_id: self.config.stream_id,
             })
             .await??;
 
@@ -259,13 +259,11 @@ where
                 current: entry
                     .current
                     .as_ref()
-                    .map(|section| section.extract_program())
-                    .flatten(),
+                    .and_then(|section| section.extract_program()),
                 next: entry
                     .next
                     .as_ref()
-                    .map(|section| section.extract_program())
-                    .flatten(),
+                    .and_then(|section| section.extract_program()),
             };
             self.changed_emitter.emit(msg).await;
         }
@@ -282,15 +280,11 @@ impl LocalOnairProgramTrackerConfig {
             return false;
         }
         let service_id = service.id;
-        if !self.services.is_empty() {
-            if !self.services.contains(&service_id) {
-                return false;
-            }
+        if !self.services.is_empty() && !self.services.contains(&service_id) {
+            return false;
         }
-        if !self.excluded_services.is_empty() {
-            if self.excluded_services.contains(&service_id) {
-                return false;
-            }
+        if !self.excluded_services.is_empty() && self.excluded_services.contains(&service_id) {
+            return false;
         }
         true
     }
@@ -298,14 +292,11 @@ impl LocalOnairProgramTrackerConfig {
 
 impl EitSection {
     fn is_updated(&self, section: &Option<Self>) -> bool {
-        match section {
-            Some(section) if self.version_number == section.version_number => false,
-            _ => true,
-        }
+        !matches!(section, Some(section) if self.version_number == section.version_number)
     }
 
     fn extract_program(&self) -> Option<Arc<EpgProgram>> {
-        self.events.get(0).map(|event| {
+        self.events.first().map(|event| {
             let id = ProgramId::new(self.original_network_id, self.service_id, event.event_id);
             let mut program = EpgProgram::new(id);
             program.update(event);

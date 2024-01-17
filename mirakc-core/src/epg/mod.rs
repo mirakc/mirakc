@@ -134,7 +134,7 @@ impl<T> Epg<T> {
                     for (service_id, service) in self.services.iter() {
                         if service.channel == channel {
                             if let Some(clock) = self.clocks.get(service_id) {
-                                clocks.insert(service_id.clone(), clock.clone());
+                                clocks.insert(*service_id, clock.clone());
                             }
                         }
                     }
@@ -278,7 +278,7 @@ impl<T> Epg<T> {
             // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
             // but we simply create `Vec<(&K, &V)>` in order to reduce maintenance cost.
             let services = self.services.iter().collect_vec();
-            if file_util::save_json(&services, cache_dir.join("services.json")) {
+            if file_util::save_json(services, cache_dir.join("services.json")) {
                 tracing::info!(services.len = self.services.len(), "Saved services");
             } else {
                 tracing::error!("Failed to save services");
@@ -293,7 +293,7 @@ impl<T> Epg<T> {
             // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
             // but we simply create `Vec<(&K, &V)>` in order to reduce maintenance cost.
             let clocks = self.clocks.iter().collect_vec();
-            if file_util::save_json(&clocks, cache_dir.join("clocks.json")) {
+            if file_util::save_json(clocks, cache_dir.join("clocks.json")) {
                 tracing::info!(clocks.len = self.clocks.len(), "Saved clocks");
             } else {
                 tracing::error!("Failed to save clocks");
@@ -308,7 +308,7 @@ impl<T> Epg<T> {
             // We can implement `Serialize` for `Wrapper(Iterator<Item = (&K, &V)>)`,
             // but we simply create `Vec<(&K, &V)>` in order to reduce maintenance cost.
             let schedules = self.schedules.iter().collect_vec();
-            if file_util::save_json(&schedules, cache_dir.join("schedules.json")) {
+            if file_util::save_json(schedules, cache_dir.join("schedules.json")) {
                 tracing::info!(schedules.len = self.schedules.len(), "Saved schedules");
             } else {
                 tracing::error!("Failed to save schedules");
@@ -960,8 +960,8 @@ impl EpgSegment {
         };
 
         let n = section.last_section_index() + 1;
-        for i in n..Self::NUM_SECTIONS {
-            sections[i] = None;
+        for section in sections.iter_mut().take(Self::NUM_SECTIONS).skip(n) {
+            *section = None;
         }
 
         let i = section.section_index();
@@ -973,10 +973,8 @@ impl EpgSegment {
             .extended_sections
             .iter()
             .chain(self.basic_sections.iter());
-        for section in sections {
-            if let Some(section) = section {
-                section.collect_programs(service_id, programs)
-            }
+        for section in sections.flatten() {
+            section.collect_programs(service_id, programs)
         }
     }
 }
@@ -1006,7 +1004,7 @@ impl EpgSection {
             // TODO: Undefined duration in EIT[schedule] might be allowed?
             .filter(|event| event.duration.is_some());
         for event in events {
-            let program_id = ProgramId::from((service_id, Eid::from(event.event_id)));
+            let program_id = ProgramId::from((service_id, event.event_id));
             programs
                 .entry(event.event_id)
                 .or_insert(EpgProgram::new(program_id))
@@ -1079,13 +1077,13 @@ impl EpgService {
     }
 }
 
-impl Into<MirakurunChannelService> for EpgService {
-    fn into(self) -> MirakurunChannelService {
-        MirakurunChannelService {
-            id: self.id,
-            service_id: self.sid(),
-            network_id: self.nid(),
-            name: self.name,
+impl From<EpgService> for MirakurunChannelService {
+    fn from(val: EpgService) -> Self {
+        Self {
+            id: val.id,
+            service_id: val.sid(),
+            network_id: val.nid(),
+            name: val.name,
         }
     }
 }

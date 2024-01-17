@@ -7,7 +7,7 @@ use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
 
-const VERSION: &'static str = concat!(env!("CARGO_PKG_VERSION"), " ", env!("VERGEN_GIT_SHA"));
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " ", env!("VERGEN_GIT_SHA"));
 
 #[derive(Parser)]
 #[command(author, about, version = VERSION)]

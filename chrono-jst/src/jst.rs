@@ -81,7 +81,7 @@ impl fmt::Debug for Jst {
 mod tests {
     use super::*;
 
-    const RFC2822_STR: &'static str = "Fri, 14 Jul 2017 11:40:00 +0900";
+    const RFC2822_STR: &str = "Fri, 14 Jul 2017 11:40:00 +0900";
     const UNIX_TIME: i64 = 1_500_000_000;
 
     #[test]

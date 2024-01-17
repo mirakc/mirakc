@@ -66,8 +66,7 @@ where
         };
 
         if allowed {
-            let fut = self.0.call(req);
-            Box::pin(async move { Ok(fut.await?) })
+            Box::pin(self.0.call(req))
         } else {
             Box::pin(async { Ok(Error::AccessDenied.into_response()) })
         }

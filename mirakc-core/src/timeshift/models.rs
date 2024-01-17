@@ -233,8 +233,8 @@ impl TimeshiftRecord {
         TimeshiftRecordModel {
             id: self.id,
             program: self.program.clone(),
-            start_time: self.start.timestamp.clone(),
-            end_time: self.end.timestamp.clone(),
+            start_time: self.start.timestamp,
+            end_time: self.end.timestamp,
             size: self.get_size(config.max_file_size()),
             recording: self.recording,
         }

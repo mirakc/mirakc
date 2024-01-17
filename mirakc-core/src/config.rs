@@ -223,10 +223,8 @@ impl EpgConfig {
                 cache_dir.is_dir(),
                 "config.epg: `cache_dir` must be a path to an existing directory"
             );
-        } else {
-            if !crate::timeshift::is_rebuild_mode() {
-                tracing::warn!(config = "epg.cache-dir", "Not specified");
-            }
+        } else if !crate::timeshift::is_rebuild_mode() {
+            tracing::warn!(config = "epg.cache-dir", "Not specified");
         }
     }
 }
@@ -374,7 +372,7 @@ pub struct MountConfig {
 
 impl MountConfig {
     fn validate(&self, mount_point: &str) {
-        const MOUNT_POINT_BLOCK_LIST: [&'static str; 3] = ["/", "/api", "/events"];
+        const MOUNT_POINT_BLOCK_LIST: [&str; 3] = ["/", "/api", "/events"];
         for blocked in MOUNT_POINT_BLOCK_LIST {
             assert!(
                 mount_point != blocked,
@@ -382,13 +380,13 @@ impl MountConfig {
             );
         }
         assert!(
-            mount_point.starts_with("/"),
+            mount_point.starts_with('/'),
             "config.server.mounts[{}]: \
              a mount point must starts with '/'",
             mount_point
         );
         assert!(
-            !mount_point.ends_with("/"),
+            !mount_point.ends_with('/'),
             "config.server.mounts[{}]: \
              a mount point must not ends with '/'",
             mount_point
@@ -782,7 +780,7 @@ impl JobConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct RecordingConfig {
@@ -805,12 +803,6 @@ impl RecordingConfig {
                 "config.recording.basedir: must be a path to an existing directory"
             );
         }
-    }
-}
-
-impl Default for RecordingConfig {
-    fn default() -> Self {
-        RecordingConfig { basedir: None }
     }
 }
 
@@ -1198,7 +1190,7 @@ impl ResourceConfig {
         let values: Vec<LogoConfig> = Vec::deserialize(deserializer)?;
         let mut logos = HashMap::new();
         for logo in values.into_iter() {
-            logos.insert(logo.service_id.into(), logo.image);
+            logos.insert(logo.service_id, logo.image);
         }
         Ok(logos)
     }
@@ -1213,8 +1205,11 @@ impl Default for ResourceConfig {
     }
 }
 
+#[allow(clippy::field_reassign_with_default)]
+#[allow(clippy::needless_update)]
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_os = "macos"))]
     use std::os::fd::AsRawFd;
 
     use super::*;
@@ -1790,7 +1785,7 @@ mod tests {
             index: None,
             listing: false,
         };
-        config.validate(mount_point.into())
+        config.validate(mount_point)
     }
 
     #[test]
@@ -1841,7 +1836,7 @@ mod tests {
             index: None,
             listing: false,
         };
-        config.validate("/test".into())
+        config.validate("/test")
     }
 
     #[test]
@@ -1854,7 +1849,7 @@ mod tests {
             index: Some("not_found".into()),
             listing: false,
         };
-        config.validate("/test".into())
+        config.validate("/test")
     }
 
     #[test]
@@ -2868,7 +2863,7 @@ mod tests {
                 chunk_size: 8192,
                 num_chunks: 100,
                 num_reserves: 2,
-                priority: 2.into(),
+                priority: 2,
                 uses: TimeshiftRecorderUses {
                     tuner: "x".to_string(),
                     channel_type: ChannelType::CS,

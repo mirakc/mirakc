@@ -573,7 +573,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
     fn clear_schedules(&mut self) {
         tracing::info!("Remove all schedules");
-        let schedules = std::mem::replace(&mut self.schedules, Default::default());
+        let schedules = std::mem::take(&mut self.schedules);
         for schedule in schedules.into_values() {
             if schedule.is_recording() {
                 let _ = self.stop_recorder(schedule.program.id);
@@ -1019,7 +1019,7 @@ where
                 let record = tokio::fs::File::create(&content_path).await?;
                 let mut writer = BufWriter::new(record);
                 // TODO: use Stdio
-                Ok::<_, std::io::Error>(tokio::io::copy(&mut output, &mut writer).await?)
+                tokio::io::copy(&mut output, &mut writer).await
             }
         };
         // Outer future emits messages to observers.
@@ -1695,26 +1695,17 @@ impl RecordingSchedule {
 
     fn can_be_updated_by_epg(&self) -> bool {
         use RecordingScheduleState::*;
-        match self.state {
-            Scheduled | Rescheduling => true,
-            _ => false,
-        }
+        matches!(self.state, Scheduled | Rescheduling)
     }
 
     fn is_ready_for_recording(&self) -> bool {
         use RecordingScheduleState::*;
-        match self.state {
-            Scheduled | Tracking => true,
-            _ => false,
-        }
+        matches!(self.state, Scheduled | Tracking)
     }
 
     fn is_recording(&self) -> bool {
         use RecordingScheduleState::*;
-        match self.state {
-            Recording => true,
-            _ => false,
-        }
+        matches!(self.state, Recording)
     }
 }
 
@@ -1786,13 +1777,7 @@ pub struct RecorderModel {
 
 fn check_retry(results: &[std::io::Result<ExitStatus>]) -> bool {
     results.iter().any(|result| match result {
-        Ok(status) => {
-            if let Some(EXIT_RETRY) = status.code() {
-                true
-            } else {
-                false
-            }
-        }
+        Ok(status) => matches!(status.code(), Some(EXIT_RETRY)),
         _ => false,
     })
 }
@@ -1979,6 +1964,7 @@ mod tests {
         assert_matches!(manager.queue.pop(), None);
     }
 
+    #[allow(clippy::get_first)]
     #[test]
     fn test_query_schedules() {
         let now = Jst::now();
@@ -2445,14 +2431,11 @@ mod tests {
         let config = config_for_test(temp_dir.path());
 
         let mut epg = MockEpg::new();
-        {
-            let now = now;
-            epg.expect_call().returning(move |_| {
-                Ok(Arc::new(indexmap! {
-                    1.into() => program!((0, 1, 1), now, "1h"),
-                }))
-            });
-        }
+        epg.expect_call().returning(move |_| {
+            Ok(Arc::new(indexmap! {
+                1.into() => program!((0, 1, 1), now, "1h"),
+            }))
+        });
 
         let mut manager = manager!(
             config,
@@ -2511,14 +2494,11 @@ mod tests {
         let config = config_for_test(temp_dir.path());
 
         let mut epg = MockEpg::new();
-        {
-            let now = now;
-            epg.expect_call().returning(move |_| {
-                Ok(Arc::new(indexmap! {
-                    1.into() => program!((0, 1, 1), now, "1h"),
-                }))
-            });
-        }
+        epg.expect_call().returning(move |_| {
+            Ok(Arc::new(indexmap! {
+                1.into() => program!((0, 1, 1), now, "1h"),
+            }))
+        });
 
         let mut manager = manager!(
             config,

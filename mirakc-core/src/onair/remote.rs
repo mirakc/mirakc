@@ -226,15 +226,11 @@ fn parse_message_data(data: &str) -> Result<ServiceId, serde_json::Error> {
 
 impl RemoteOnairProgramTrackerConfig {
     pub fn matches(&self, service_id: ServiceId) -> bool {
-        if !self.services.is_empty() {
-            if !self.services.contains(&service_id) {
-                return false;
-            }
+        if !self.services.is_empty() && !self.services.contains(&service_id) {
+            return false;
         }
-        if !self.excluded_services.is_empty() {
-            if self.excluded_services.contains(&service_id) {
-                return false;
-            }
+        if !self.excluded_services.is_empty() && self.excluded_services.contains(&service_id) {
+            return false;
         }
         true
     }

@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use super::*;
 
 use std::path::Path;
@@ -19,7 +21,7 @@ use tower_http::services::ServeFile;
 
 use crate::config::MountConfig;
 
-const DEFAULT_FOLDER_VIEW_HTML_TEMPLATE_STR: &'static str =
+const DEFAULT_FOLDER_VIEW_HTML_TEMPLATE_STR: &str =
     include_str!("default_folder_view.html.mustache");
 
 pub(super) fn mount_entries<T, E, R, S, O>(
@@ -331,7 +333,7 @@ mod tests {
                         .to_string()
                 })
                 .unwrap_or_default();
-            write!(&mut expected, "{name},{size},{url},{created},{modified}\n").unwrap();
+            writeln!(&mut expected, "{name},{size},{url},{created},{modified}").unwrap();
         }
 
         let result = render_folder_view(path, base_url, &template).await;

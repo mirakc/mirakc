@@ -226,7 +226,7 @@ impl<T> TimeshiftRecorder<T> {
         // start timeshift recording based on the *old* data file.  As a result, newer
         // records will be lost.  Additionally, TS packets for older records will be
         // lost if a wrap-around occurred in the TS file.
-        if !file_util::save_json(&data, &self.config().data_file) {
+        if !file_util::save_json(data, &self.config().data_file) {
             tracing::error!(
                 recorder.name = self.name,
                 "Sync between <ts-file> and <data-file> was lost"
@@ -257,20 +257,20 @@ impl<T> TimeshiftRecorder<T> {
             num_records: self.records.len(),
             pipeline,
             recording: self.recording,
-            current_record_id: self.current_record_id.clone(),
+            current_record_id: self.current_record_id,
         }
     }
 
     fn start_time(&self) -> Option<DateTime<Jst>> {
         self.records
             .first()
-            .map(|(_, record)| record.start.timestamp.clone())
+            .map(|(_, record)| record.start.timestamp)
     }
 
     fn end_time(&self) -> Option<DateTime<Jst>> {
         self.records
             .last()
-            .map(|(_, record)| record.start.timestamp.clone())
+            .map(|(_, record)| record.start.timestamp)
     }
 
     fn duration(&self) -> Duration {

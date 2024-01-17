@@ -90,7 +90,7 @@ where
                         }
                     };
                     tokio::time::sleep(interval).await;
-                    if let Err(_) = addr.call(HealthCheck).await {
+                    if addr.call(HealthCheck).await.is_err() {
                         // The manager has been gone.
                         return;
                     }
@@ -154,9 +154,9 @@ where
         for (recorder, holder) in self.recorders.iter() {
             let msg = TimeshiftEvent::Timeline {
                 recorder: recorder.clone(),
-                start_time: holder.start_time.clone(),
-                end_time: holder.end_time.clone(),
-                duration: holder.duration.clone(),
+                start_time: holder.start_time,
+                end_time: holder.end_time,
+                duration: holder.duration,
             };
             emitter.emit(msg).await;
             if holder.started {
@@ -280,7 +280,7 @@ where
     ) -> <HealthCheck as Message>::Reply {
         tracing::debug!(msg.name = "HealthCheck");
         for (index, (name, holder)) in self.recorders.iter_mut().enumerate() {
-            if let Err(_) = holder.addr.call(HealthCheck).await {
+            if holder.addr.call(HealthCheck).await.is_err() {
                 // The recorder has been gone.
                 assert!(!holder.addr.is_available());
 

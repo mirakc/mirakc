@@ -173,7 +173,7 @@ impl TunerManager {
     {
         if let Some(stream_id) = stream_id {
             let tuner = &mut self.tuners[stream_id.session_id.tuner_index];
-            if tuner.is_subscribed(&stream_id) {
+            if tuner.is_subscribed(stream_id) {
                 tracing::debug!(tuner.index, %channel, %user.info, stream.id = %stream_id, "Reuse specified tuner");
                 self.event_emitters
                     .emit(Event::StatusChanged(tuner.index))
@@ -187,15 +187,12 @@ impl TunerManager {
         let found = self
             .tuners
             .iter_mut()
-            .find(|tuner| tuner.is_reserved_for(&user));
+            .find(|tuner| tuner.is_reserved_for(user));
         if let Some(tuner) = found {
             tracing::debug!(tuner.index, %channel, %user.info, "Use reserved tuner");
             if !tuner.is_active() {
-                let filters = Self::make_filter_commands(
-                    &tuner,
-                    &channel,
-                    &self.config.filters.tuner_filter,
-                )?;
+                let filters =
+                    Self::make_filter_commands(tuner, channel, &self.config.filters.tuner_filter)?;
                 tuner.activate(channel, filters, ctx).await?;
             }
             self.event_emitters
@@ -207,7 +204,7 @@ impl TunerManager {
         let found = self
             .tuners
             .iter_mut()
-            .find(|tuner| tuner.is_reuseable(&channel));
+            .find(|tuner| tuner.is_reuseable(channel));
         if let Some(tuner) = found {
             tracing::debug!(tuner.index, %channel, %user.info, "Reuse active tuner");
             self.event_emitters
@@ -219,11 +216,11 @@ impl TunerManager {
         let found = self
             .tuners
             .iter_mut()
-            .find(|tuner| tuner.is_available_for(&channel));
+            .find(|tuner| tuner.is_available_for(channel));
         if let Some(tuner) = found {
             tracing::debug!(tuner.index, %channel, %user.info, "Use tuner");
             let filters =
-                Self::make_filter_commands(&tuner, &channel, &self.config.filters.tuner_filter)?;
+                Self::make_filter_commands(tuner, channel, &self.config.filters.tuner_filter)?;
             tuner.activate(channel, filters, ctx).await?;
             self.event_emitters
                 .emit(Event::StatusChanged(tuner.index))
@@ -236,13 +233,13 @@ impl TunerManager {
         let found = self
             .tuners
             .iter_mut()
-            .filter(|tuner| tuner.is_supported_type(&channel))
+            .filter(|tuner| tuner.is_supported_type(channel))
             .filter(|tuner| tuner.can_grab(user.priority))
             .min_by(|a, b| a.priority().cmp(&b.priority()));
         if let Some(tuner) = found {
             tracing::debug!(tuner.index, %channel, %user.info, %user.priority, "Grab tuner");
             let filters =
-                Self::make_filter_commands(&tuner, &channel, &self.config.filters.tuner_filter)?;
+                Self::make_filter_commands(tuner, channel, &self.config.filters.tuner_filter)?;
             tuner.deactivate();
             self.event_emitters
                 .emit(Event::StatusChanged(tuner.index))
@@ -614,11 +611,11 @@ impl Tuner {
     where
         C: Spawn,
     {
-        let command = match self.make_command(&channel) {
+        let command = match self.make_command(channel) {
             Ok(command) => command,
             Err(err) => {
                 tracing::error!(%err, tuner.index = self.index, %channel, "Failed to render the tuner command");
-                return Err(err.into());
+                return Err(err);
             }
         };
         self.activity
@@ -673,20 +670,24 @@ impl Tuner {
     }
 }
 
-#[derive(Debug, Eq, Ord, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 struct TunerPriority {
     highest_user_priority: TunerUserPriority,
     num_users: usize,
 }
 
+impl Ord for TunerPriority {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self.highest_user_priority != other.highest_user_priority {
+            return self.highest_user_priority.cmp(&other.highest_user_priority);
+        }
+        self.num_users.cmp(&other.num_users)
+    }
+}
+
 impl PartialOrd for TunerPriority {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.highest_user_priority != other.highest_user_priority {
-            return self
-                .highest_user_priority
-                .partial_cmp(&other.highest_user_priority);
-        }
-        self.num_users.partial_cmp(&other.num_users)
+        Some(self.cmp(other))
     }
 }
 
@@ -831,9 +832,7 @@ impl TunerSession {
             }
         };
         let (_, output) = pipeline.take_endpoints();
-        let broadcaster = ctx
-            .spawn_actor(Broadcaster::new(id.clone(), time_limit))
-            .await;
+        let broadcaster = ctx.spawn_actor(Broadcaster::new(id, time_limit)).await;
         broadcaster.emit(BindStream(output)).await;
         tracing::debug!(session.id = %id, %channel, "Activated");
 
@@ -1276,7 +1275,7 @@ mod tests {
             });
             assert!(tuner.is_subscribed(&subscription.id));
 
-            let result = tuner.stop_streaming(subscription.id.clone()).await;
+            let result = tuner.stop_streaming(subscription.id).await;
             assert!(result.is_ok());
             assert!(!tuner.is_subscribed(&subscription.id));
         }

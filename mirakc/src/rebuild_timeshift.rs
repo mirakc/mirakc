@@ -373,7 +373,7 @@ impl Scanner {
                 self.check_sync_bytes(opt, next_chunk);
                 segment.push(seg_start_chunk..next_chunk);
                 if !segment.is_empty() {
-                    segments.push(std::mem::replace(&mut segment, Default::default()));
+                    segments.push(std::mem::take(&mut segment));
                 }
                 seg_start_chunk = next_chunk;
             }
@@ -443,7 +443,7 @@ impl Scanner {
                     .output()
                     .unwrap();
                 let clocks: Vec<SyncClock> = serde_json::from_slice(&result.stdout).unwrap();
-                let timestamp = clocks.get(0).unwrap().clock.time;
+                let timestamp = clocks.first().unwrap().clock.time;
                 self.timestamp_cache.insert(chunk, timestamp);
                 timestamp
             }
@@ -486,7 +486,7 @@ impl Scanner {
                     break;
                 }
                 let parts: Vec<&str> = line.split('|').collect();
-                let date = parts.get(0).unwrap();
+                let date = parts.first().unwrap();
                 let label = parts.get(2).unwrap();
                 let date = date.trim();
                 if date.is_empty() {
@@ -522,19 +522,19 @@ impl Scanner {
         let offset = opt.chunk_size * chunk;
         ts_file.seek(SeekFrom::Start(offset)).unwrap();
         let mut buf = [0u8; 1];
-        ts_file.read(&mut buf).unwrap();
+        ts_file.read_exact(&mut buf).unwrap();
         if buf[0] != b'G' {
             tracing::warn!("chunk#{chunk} does not start with TS sync byte (1st packet)");
             return false;
         }
         ts_file.seek(SeekFrom::Start(offset + 188)).unwrap();
-        ts_file.read(&mut buf).unwrap();
+        ts_file.read_exact(&mut buf).unwrap();
         if buf[0] != b'G' {
             tracing::warn!("chunk#{chunk} does not start with TS sync byte (2nd packet)");
             return false;
         }
         ts_file.seek(SeekFrom::Start(offset + 188 * 2)).unwrap();
-        ts_file.read(&mut buf).unwrap();
+        ts_file.read_exact(&mut buf).unwrap();
         if buf[0] != b'G' {
             tracing::warn!("chunk#{chunk} does not start with TS sync byte (3rd packet)");
             return false;
@@ -571,9 +571,8 @@ struct Observer(Arc<tokio::sync::Notify>);
 impl Emit<timeshift::TimeshiftEvent> for Observer {
     async fn emit(&self, msg: timeshift::TimeshiftEvent) {
         use timeshift::TimeshiftEvent::*;
-        match msg {
-            Stopped { .. } => self.0.notify_one(),
-            _ => (),
+        if let Stopped { .. } = msg {
+            self.0.notify_one();
         }
     }
 }

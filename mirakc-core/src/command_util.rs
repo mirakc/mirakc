@@ -34,7 +34,7 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
                       must be a u64 value",
             )
         })
-        .map(|nanos| Duration::from_nanos(nanos))
+        .map(Duration::from_nanos)
         .unwrap_or(COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT);
     tracing::debug!(
         COMMAND_PIPELINE_TERMINATION_WAIT_NANOS = %humantime::format_duration(nanos),
@@ -163,12 +163,12 @@ where
     pub fn take_endpoints(&mut self) -> (CommandPipelineInput<T>, CommandPipelineOutput<T>) {
         let _enter = self.span.enter();
         let input = CommandPipelineInput::new(
-            self.stdin.take().unwrap().try_into().unwrap(),
+            self.stdin.take().unwrap(),
             self.id.clone(),
             self.sender.subscribe(),
         );
         let output = CommandPipelineOutput::new(
-            self.stdout.take().unwrap().try_into().unwrap(),
+            self.stdout.take().unwrap(),
             self.id.clone(),
             self.sender.subscribe(),
         );
@@ -180,7 +180,7 @@ where
         let mut result = Vec::with_capacity(self.commands.len());
         self.span
             .in_scope(|| tracing::debug!("Wait for termination..."));
-        let commands = std::mem::replace(&mut self.commands, vec![]);
+        let commands = std::mem::take(&mut self.commands);
         for mut data in commands.into_iter() {
             self.span
                 .in_scope(|| tracing::debug!("Wait for termination..."));
@@ -221,7 +221,7 @@ where
             // Already terminated.
             return;
         }
-        for mut data in std::mem::replace(&mut self.commands, vec![]).into_iter() {
+        for mut data in std::mem::take(&mut self.commands).into_iter() {
             match data.process.id() {
                 Some(_) => {
                     // Always send a SIGKILL to the process.
@@ -279,10 +279,10 @@ where
     }
 
     fn has_pipeline_broken(&mut self) -> bool {
-        match self.receiver.try_recv() {
-            Err(err) if err == broadcast::error::TryRecvError::Empty => false,
-            _ => true,
-        }
+        !matches!(
+            self.receiver.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        )
     }
 }
 
@@ -343,10 +343,10 @@ where
     }
 
     fn has_pipeline_broken(&mut self) -> bool {
-        match self.receiver.try_recv() {
-            Err(err) if err == broadcast::error::TryRecvError::Empty => false,
-            _ => true,
-        }
+        !matches!(
+            self.receiver.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        )
     }
 }
 
@@ -468,10 +468,7 @@ impl CommandLogging {
     };
 
     fn is_default(&self) -> bool {
-        match self {
-            Self::Default => true,
-            _ => false,
-        }
+        matches!(self, Self::Default)
     }
 
     fn is_enabled(&self) -> bool {
@@ -644,7 +641,7 @@ mod tests {
 
         drop(input);
 
-        let _ = handle.await.unwrap();
+        handle.await.unwrap();
     }
 
     #[test(tokio::test)]

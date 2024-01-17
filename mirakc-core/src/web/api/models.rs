@@ -152,7 +152,7 @@ pub(in crate::web) struct WebRecordingRecorder {
 impl From<recording::RecorderModel> for WebRecordingRecorder {
     fn from(value: recording::RecorderModel) -> Self {
         WebRecordingRecorder {
-            program_id: value.program_id.into(),
+            program_id: value.program_id,
             started_at: value.started_at,
             pipeline: value
                 .pipeline
@@ -278,7 +278,7 @@ impl From<TimeshiftRecordModel> for WebTimeshiftRecord {
         Self {
             id: model.id,
             program: model.program.into(),
-            start_time: model.start_time.clone(),
+            start_time: model.start_time,
             duration: model.end_time - model.start_time,
             size: model.size,
             recording: model.recording,
@@ -310,7 +310,7 @@ pub(crate) struct WebOnairProgram {
 impl From<(ServiceId, OnairProgram)> for WebOnairProgram {
     fn from((service_id, data): (ServiceId, OnairProgram)) -> Self {
         Self {
-            service_id: service_id.into(),
+            service_id,
             current: data.current.map(|p| p.as_ref().clone().into()),
             next: data.next.map(|p| p.as_ref().clone().into()),
         }

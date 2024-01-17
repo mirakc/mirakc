@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
@@ -9,10 +10,7 @@ use std::io::SeekFrom;
 use std::ops::Range;
 use std::sync::Arc;
 
-use fuser;
 use indexmap::IndexMap;
-use sanitize_filename;
-use serde_json;
 
 use mirakc_core::config::*;
 use mirakc_core::error::Error;
@@ -61,8 +59,8 @@ impl TimeshiftFilesystem {
             } else {
                 handle + 1
             };
-            if !self.open_contexts.contains_key(&handle) {
-                self.open_contexts.insert(handle, octx);
+            if let Entry::Vacant(entry) = self.open_contexts.entry(handle) {
+                entry.insert(octx);
                 return handle;
             }
         }
@@ -75,7 +73,7 @@ impl TimeshiftFilesystem {
                     .timeshift
                     .recorders
                     .keys()
-                    .position(|key| key == &name)
+                    .position(|key| key == name)
             })
             .map(Ino::create_recorder_ino)
     }
@@ -89,8 +87,7 @@ impl TimeshiftFilesystem {
                 let start_time = self
                     .caches
                     .get(&ino.recorder_index())
-                    .map(|cache| cache.records.first())
-                    .flatten()
+                    .and_then(|cache| cache.records.first())
                     .map(|(_, record)| record.start.timestamp.timestamp())
                     .map(system_time_from_unix_time)
                     .unwrap_or(std::time::UNIX_EPOCH);
@@ -98,8 +95,7 @@ impl TimeshiftFilesystem {
                 let end_time = self
                     .caches
                     .get(&ino.recorder_index())
-                    .map(|cache| cache.records.last())
-                    .flatten()
+                    .and_then(|cache| cache.records.last())
                     .map(|(_, record)| record.end.timestamp.timestamp())
                     .map(system_time_from_unix_time)
                     .unwrap_or(std::time::UNIX_EPOCH);
@@ -109,9 +105,9 @@ impl TimeshiftFilesystem {
                     size: 0,
                     blocks: 0,
                     atime: std::time::UNIX_EPOCH,
-                    mtime: end_time.clone(),
-                    ctime: end_time.clone(),
-                    crtime: start_time.clone(),
+                    mtime: end_time,
+                    ctime: end_time,
+                    crtime: start_time,
                     kind: fuser::FileType::Directory,
                     perm: 0o555,
                     nlink: 2,
@@ -197,7 +193,7 @@ impl TimeshiftFilesystem {
             .caches
             .get(&ino.recorder_index())
             .map(|cache| cache.records.clone())
-            .unwrap_or(Default::default());
+            .unwrap_or_default();
         let mut entries = vec![
             (ino.0, fuser::FileType::Directory, ".".to_string()),
             (1, fuser::FileType::Directory, "..".to_string()),
@@ -244,9 +240,9 @@ impl TimeshiftFilesystem {
                 size,
                 blocks: (size + BLOCK_SIZE - 1) / BLOCK_SIZE,
                 atime: std::time::UNIX_EPOCH,
-                mtime: end_time.clone(),
-                ctime: end_time.clone(),
-                crtime: start_time.clone(),
+                mtime: end_time,
+                ctime: end_time,
+                crtime: start_time,
                 kind: fuser::FileType::RegularFile,
                 perm: 0o444,
                 nlink: 1,
@@ -438,7 +434,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         match self.open_contexts.get(&fh) {
             Some(OpenContext::Dir(entries)) => {
                 debug_assert!(ino.is_root() || ino.is_recorder());
-                for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
+                for (i, entry) in entries.iter().enumerate().skip(offset as usize) {
                     // `i + 1` means the index of the next entry.
                     if reply.add(entry.0, (i + 1) as i64, entry.1, &entry.2) {
                         break;

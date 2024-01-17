@@ -33,8 +33,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-
-      - name: Install cross
-        uses: taiki-e/install-action@cross
+      - uses: taiki-e/install-action@cross
       - name: Build
         run: |
           cross build -v --release --target=${{ matrix.target }}

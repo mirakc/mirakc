@@ -26,7 +26,7 @@ static SLEEP_MS: Lazy<Duration> = Lazy::new(|| {
             s.parse::<u64>()
                 .expect("MIRAKC_BROADCASTER_SLEEP_MS must be a u64 value")
         })
-        .map(|ms| Duration::from_millis(ms))
+        .map(Duration::from_millis)
         .unwrap_or(SLEEP_MS_DEFAULT);
     tracing::debug!(SLEEP_MS = %humantime::format_duration(ms),
     );
@@ -87,7 +87,7 @@ impl Broadcaster {
         R: AsyncRead + Send + Unpin + 'static,
     {
         assert!(!self.stream_bound);
-        let id = self.id.clone();
+        let id = self.id;
         let time_limit = self.time_limit;
         let addr = ctx.address().clone();
         let task = async move {
@@ -511,9 +511,7 @@ impl Stream for BroadcasterStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context,
     ) -> std::task::Poll<Option<Self::Item>> {
-        Pin::new(&mut self.0)
-            .poll_next(cx)
-            .map(|item| item.map(|chunk| Ok(chunk)))
+        Pin::new(&mut self.0).poll_next(cx).map(|item| item.map(Ok))
     }
 }
 

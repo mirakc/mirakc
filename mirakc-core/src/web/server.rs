@@ -25,7 +25,7 @@ pub(super) async fn serve(config: Arc<Config>, app: Router) -> Result<(), Error>
     for path in config.server.uds_paths() {
         set.spawn(uds(path.to_owned(), app.clone()));
     }
-    while let Some(_) = set.join_next().await {}
+    while set.join_next().await.is_some() {}
     Ok(())
 }
 
