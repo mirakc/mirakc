@@ -15,7 +15,7 @@ use crate::filesystem::TimeshiftFilesystemConfig;
 use crate::mount_options::parse_options_from_args;
 use mirakc_core::error::Error;
 
-const VERSION: &'static str = concat!(env!("CARGO_PKG_VERSION"), " ", env!("VERGEN_GIT_SHA"));
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " ", env!("VERGEN_GIT_SHA"));
 
 #[derive(Parser)]
 #[command(author, about, version = VERSION)]
