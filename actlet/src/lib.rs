@@ -74,6 +74,12 @@ impl System {
     }
 }
 
+impl Default for System {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl Spawn for System {
     async fn spawn_actor<A>(&self, actor: A) -> Address<A>
@@ -343,7 +349,7 @@ where
 {
     async fn emit(&self, msg: M) {
         let dispatcher = Box::new(SignalDispatcher::new(msg));
-        if let Err(_) = self.sender.send(dispatcher).await {
+        if self.sender.send(dispatcher).await.is_err() {
             tracing::warn!(
                 actor = type_name::<A>(),
                 msg = type_name::<M>(),
@@ -388,7 +394,7 @@ where
                 let task = async move {
                     tokio::select! {
                         result = sender.send(dispatcher) => {
-                            if let Err(_) = result {
+                            if result.is_err() {
                                 tracing::warn!(
                                     actor = type_name::<A>(),
                                     msg = type_name::<M>(),
@@ -974,7 +980,7 @@ mod promoter {
 
         async fn stopped(&mut self, _ctx: &mut Context<Self>) {
             tracing::debug!("Waiting for actors to stop...");
-            let wait_tokens = std::mem::replace(&mut self.wait_tokens, vec![]);
+            let wait_tokens = std::mem::take(&mut self.wait_tokens);
             for wait_token in wait_tokens.into_iter() {
                 // TODO: introduce id for each actor.
                 wait_token.cancelled().await;
