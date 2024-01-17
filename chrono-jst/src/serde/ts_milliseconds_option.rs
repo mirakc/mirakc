@@ -44,7 +44,7 @@ mod tests {
         }
     }
 
-    const JSON: &'static str = r#"{"datetime_some":1500000000000,"datetime_none":null}"#;
+    const JSON: &str = r#"{"datetime_some":1500000000000,"datetime_none":null}"#;
     const UNIX_TIME: i64 = 1_500_000_000;
 
     #[test]

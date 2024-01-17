@@ -40,7 +40,7 @@ mod tests {
         }
     }
 
-    const JSON: &'static str = r#"{"duration":1234}"#;
+    const JSON: &str = r#"{"duration":1234}"#;
     const DURATION: i64 = 1234;
 
     #[test]
