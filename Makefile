@@ -5,6 +5,12 @@ DEBIAN ?= bookworm
 .PHONY: all
 all: build
 
+.PHONY: check
+check:
+	cargo fmt --all --check
+	cargo check --workspace --all-targets --all-features
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
+
 .PHONY: build
 build: format
 	cargo build --all-features

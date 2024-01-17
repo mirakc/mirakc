@@ -24,9 +24,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
+          components: 'clippy, rustfmt'
       - uses: Swatinem/rust-cache@v2
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@nextest
+      - name: Check
+        run: make check
       - name: Build
         run: |
           cargo build -v --release
