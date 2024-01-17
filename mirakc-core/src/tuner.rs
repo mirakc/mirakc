@@ -670,20 +670,24 @@ impl Tuner {
     }
 }
 
-#[derive(Debug, Eq, Ord, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 struct TunerPriority {
     highest_user_priority: TunerUserPriority,
     num_users: usize,
 }
 
+impl Ord for TunerPriority {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self.highest_user_priority != other.highest_user_priority {
+            return self.highest_user_priority.cmp(&other.highest_user_priority);
+        }
+        self.num_users.cmp(&other.num_users)
+    }
+}
+
 impl PartialOrd for TunerPriority {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.highest_user_priority != other.highest_user_priority {
-            return self
-                .highest_user_priority
-                .partial_cmp(&other.highest_user_priority);
-        }
-        self.num_users.partial_cmp(&other.num_users)
+        Some(self.cmp(other))
     }
 }
 
