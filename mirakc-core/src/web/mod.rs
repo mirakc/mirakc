@@ -124,11 +124,12 @@ where
 
 // headers
 
-const X_MIRAKURUN_TUNER_USER_ID: &'static str = "x-mirakurun-tuner-user-id";
-const X_MIRAKURUN_PRIORITY: &'static str = "x-mirakurun-priority";
+const X_MIRAKURUN_TUNER_USER_ID: &str = "x-mirakurun-tuner-user-id";
+const X_MIRAKURUN_PRIORITY: &str = "x-mirakurun-priority";
 
 // endpoints
 
+#[allow(clippy::type_complexity)]
 fn build_app<T, E, R, S, O>(config: &Config) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Clone + Send + Sync + 'static,

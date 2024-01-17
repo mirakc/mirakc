@@ -16,6 +16,7 @@ use crate::web::api::stream::streaming;
 /// the streaming stopped.
 ///
 /// The metadata will be returned from [/programs/{id}](#/programs/getProgram).
+#[allow(clippy::too_many_arguments)]
 #[utoipa::path(
     get,
     path = "/programs/{id}/stream",
@@ -136,11 +137,8 @@ where
 
     let result = streaming(&config, user, stream, filters, content_type, stop_triggers).await;
 
-    match result {
-        Err(Error::ProgramNotFound) => {
-            tracing::warn!(program.id = %program_id, "No stream for the program, maybe canceled")
-        }
-        _ => (),
+    if let Err(Error::ProgramNotFound) = result {
+        tracing::warn!(program.id = %program_id, "No stream for the program, maybe canceled");
     }
 
     result

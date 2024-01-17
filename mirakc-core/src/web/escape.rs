@@ -1,6 +1,6 @@
 // Took from https://github.com/rust-lang/rust/blob/master/src/librustdoc/html/escape.rs
 #[inline(always)]
-pub(super) fn escape<'a>(str: &'a str) -> Escape<'a> {
+pub(super) fn escape(str: &str) -> Escape<'_> {
     Escape(str)
 }
 

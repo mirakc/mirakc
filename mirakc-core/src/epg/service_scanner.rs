@@ -113,7 +113,7 @@ where
         // streaming in the next iteration.
         let _ = handle.await;
 
-        anyhow::ensure!(buf.len() > 0, "No service, maybe out of service");
+        anyhow::ensure!(!buf.is_empty(), "No service, maybe out of service");
 
         let services: Vec<TsService> = serde_json::from_slice(&buf)?;
         tracing::debug!(

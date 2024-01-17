@@ -38,7 +38,7 @@ impl http_body::Body for StaticFileBody {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         let data = ready!(Pin::new(&mut self.stream).poll_next(cx));
-        Poll::Ready(data.map(|data| data.map(|data| Frame::data(data))))
+        Poll::Ready(data.map(|data| data.map(Frame::data)))
     }
 
     fn size_hint(&self) -> SizeHint {

@@ -171,9 +171,9 @@ impl From<ProgramId> for ServiceId {
     }
 }
 
-impl Into<(Nid, Sid)> for ServiceId {
-    fn into(self) -> (Nid, Sid) {
-        (self.nid(), self.sid())
+impl From<ServiceId> for (Nid, Sid) {
+    fn from(val: ServiceId) -> Self {
+        (val.nid(), val.sid())
     }
 }
 
@@ -234,15 +234,15 @@ impl From<(Nid, Sid, Eid)> for ProgramId {
     }
 }
 
-impl Into<(ServiceId, Eid)> for ProgramId {
-    fn into(self) -> (ServiceId, Eid) {
-        (self.into(), self.eid())
+impl From<ProgramId> for (ServiceId, Eid) {
+    fn from(val: ProgramId) -> Self {
+        (val.into(), val.eid())
     }
 }
 
-impl Into<(Nid, Sid, Eid)> for ProgramId {
-    fn into(self) -> (Nid, Sid, Eid) {
-        (self.nid(), self.sid(), self.eid())
+impl From<ProgramId> for (Nid, Sid, Eid) {
+    fn from(val: ProgramId) -> Self {
+        (val.nid(), val.sid(), val.eid())
     }
 }
 
@@ -285,10 +285,7 @@ pub enum TunerUserInfo {
 impl TunerUserInfo {
     // Used for suppressing noisy logs.
     fn is_short_term_user(&self) -> bool {
-        match self {
-            Self::OnairProgramTracker(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::OnairProgramTracker(_))
     }
 
     fn max_stuck_time(&self) -> std::time::Duration {
@@ -605,7 +602,7 @@ pub struct MirakurunProgram {
 impl From<EpgProgram> for MirakurunProgram {
     fn from(program: EpgProgram) -> Self {
         Self {
-            id: program.id.into(),
+            id: program.id,
             event_id: program.id.eid(),
             service_id: program.id.sid(),
             network_id: program.id.nid(),
@@ -640,7 +637,7 @@ impl From<EpgProgram> for MirakurunProgram {
                     .map(|event| MirakurunProgramRelatedItem {
                         group_type: MirakurunProgramRelatedItem::get_type(event_group.group_type)
                             .to_string(),
-                        network_id: event.original_network_id.clone(),
+                        network_id: event.original_network_id,
                         service_id: event.service_id,
                         event_id: event.event_id,
                     })
@@ -813,7 +810,7 @@ impl From<u32> for MirakurunLangCode {
         // See LanguageCodeToText() in LibISDB.
         let c0 = ((value >> 16) & 0xFF) as u8;
         let c1 = ((value >> 8) & 0xFF) as u8;
-        let c2 = ((value >> 0) & 0xFF) as u8;
+        let c2 = (value & 0xFF) as u8;
         match SmallString::from_buf([c0, c1, c2]) {
             Ok(lang) => MirakurunLangCode(lang),
             Err(_) => {

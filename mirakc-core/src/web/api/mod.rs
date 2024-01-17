@@ -42,6 +42,7 @@ mod version;
 pub(super) mod models;
 use models::*;
 
+#[allow(clippy::type_complexity)]
 pub(super) fn build_api<T, E, R, S, O>(config: &Config) -> Router<Arc<AppState<T, E, R, S, O>>>
 where
     T: Clone + Send + Sync + 'static,

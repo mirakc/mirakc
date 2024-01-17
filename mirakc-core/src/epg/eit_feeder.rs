@@ -152,7 +152,7 @@ where
 
     pub async fn collect_schedules(self) -> Result<(), Error> {
         for channel in self.channels.iter() {
-            Self::collect_eits_in_channel(&channel, &self.command, &self.tuner_manager, &self.epg)
+            Self::collect_eits_in_channel(channel, &self.command, &self.tuner_manager, &self.epg)
                 .await?;
         }
         Ok(())

@@ -349,7 +349,7 @@ where
         // Multiple temporal trackers for the same service may be spawned.
         let config = Arc::new(LocalOnairProgramTrackerConfig {
             channel_types: hashset![msg.service.channel.channel_type],
-            services: hashset![service_id.into()],
+            services: hashset![service_id],
             excluded_services: hashset![],
             command: LocalOnairProgramTrackerConfig::default_command(),
             uses: LocalOnairProgramTrackerUses {

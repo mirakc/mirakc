@@ -44,7 +44,7 @@ where
                 return false;
             }
         };
-        match file.write_all(&data) {
+        match file.write_all(data) {
             Ok(_) => {
                 tracing::debug!(
                     nwritten = data.len(),
@@ -136,11 +136,11 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn test_save_data_file_create_fails() {
         let path = Path::new("/sys/cannot_write");
-        let new_path = append_extension(&path, "new");
+        let new_path = append_extension(path, "new");
         assert!(!path.exists());
         assert!(!new_path.exists());
 
-        let ok = save_data(b"foo", &path);
+        let ok = save_data(b"foo", path);
         assert!(!ok);
         assert!(!path.exists());
         assert!(!new_path.exists());

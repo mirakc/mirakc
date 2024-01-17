@@ -1217,8 +1217,7 @@ mod helper {
                     req.extensions_mut().remove::<ConnectInfo<PeerInfo>>();
                 }
             }
-            let fut = self.inner.call(req);
-            Box::pin(async move { Ok(fut.await?) })
+            Box::pin(self.inner.call(req))
         }
     }
 }

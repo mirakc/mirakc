@@ -110,7 +110,7 @@ where
 
     let msg = timeshift::QueryTimeshiftRecord {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
-        record_id: path.id.clone(),
+        record_id: path.id,
     };
     let record = timeshift_manager.call(msg).await??;
 
@@ -118,19 +118,18 @@ where
         ranges
             .satisfiable_ranges(record.size)
             .next()
-            .map(|(start, _)| match start {
+            .and_then(|(start, _)| match start {
                 Bound::Included(n) => Some(n),
                 Bound::Excluded(n) => Some(n + 1),
                 _ => None,
             })
-            .flatten()
     } else {
         None
     };
 
     let msg = timeshift::CreateTimeshiftRecordStreamSource {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
-        record_id: path.id.clone(),
+        record_id: path.id,
         start_pos,
     };
     let src = timeshift_manager.call(msg).await??;

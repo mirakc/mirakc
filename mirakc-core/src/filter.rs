@@ -26,7 +26,7 @@ impl FilterPipelineBuilder {
     pub fn add_pre_filters(
         &mut self,
         pre_filters: &HashMap<String, FilterConfig>,
-        names: &Vec<String>,
+        names: &[String],
     ) -> Result<usize, Error> {
         for name in names.iter() {
             if pre_filters.contains_key(name) {
@@ -53,7 +53,7 @@ impl FilterPipelineBuilder {
     pub fn add_post_filters(
         &mut self,
         post_filters: &HashMap<String, PostFilterConfig>,
-        names: &Vec<String>,
+        names: &[String],
     ) -> Result<usize, Error> {
         for name in names.iter() {
             if post_filters.contains_key(name) {

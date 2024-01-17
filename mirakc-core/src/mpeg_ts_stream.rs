@@ -247,7 +247,7 @@ mod tests {
         assert!(result.is_ok());
 
         drop(tx);
-        let _ = handle.await.unwrap();
+        handle.await.unwrap();
     }
 
     struct TestWriter {

@@ -189,8 +189,7 @@ where
     fn is_job_disabled_for_debug(job: &str) -> bool {
         env::var("MIRAKC_DEBUG_DISABLE_JOBS")
             .ok()
-            .map(|var| var.split_whitespace().position(|s| s == job))
-            .flatten()
+            .and_then(|var| var.split_whitespace().position(|s| s == job))
             .is_some()
     }
 }
@@ -391,8 +390,7 @@ where
 static EPG_FRESH_PERIOD: Lazy<Option<std::time::Duration>> = Lazy::new(|| {
     let period = std::env::var("MIRAKC_EPG_FRESH_PERIOD")
         .ok()
-        .map(|s| humantime::parse_duration(&s).ok())
-        .flatten();
+        .and_then(|s| humantime::parse_duration(&s).ok());
     tracing::debug!(EPG_FRESH_PERIOD = ?period);
     period
 });
@@ -408,8 +406,7 @@ fn is_fresh(config: &Config, filename: &str) -> bool {
         (Some(period), Ok(metadata)) => metadata
             .modified()
             .ok()
-            .map(|time| time.elapsed().ok())
-            .flatten()
+            .and_then(|time| time.elapsed().ok())
             .map(|elapsed| elapsed <= period)
             .unwrap_or(false),
         _ => false,

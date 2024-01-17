@@ -53,10 +53,10 @@ where
     // TODO: URL scheme
 
     let mut buf = String::with_capacity(INITIAL_BUFSIZE);
-    write!(buf, "#EXTM3U\n")?;
+    writeln!(buf, "#EXTM3U")?;
     for sv in services.values() {
         let id = sv.id;
-        let logo_url = format!("http://{}/api/services/{}/logo", host, id.value());
+        let logo_url = format!("http://{host}/api/services/{}/logo", id.value());
         // The following format is compatible with EPGStation.
         // See API docs for the `/api/channel.m3u8` endpoint.
         //
@@ -70,16 +70,16 @@ where
                 //
                 // Explicitly specifying the mime type of each channel avoids
                 // redundant requests.
-                match determine_stream_content_type(&config, &filter_setting) {
+                match determine_stream_content_type(config, &filter_setting) {
                     "video/MP2T" => {
                         // The mime type MUST be `video/mp2t`.
                         // See StreamUtils::GetStreamType() in
                         // src/iptvsimple/utilities/StreamUtils.cpp in
                         // kodi-pvr/pvr.iptvsimple.
-                        write!(buf, "#KODIPROP:mimetype=video/mp2t\n")?;
+                        writeln!(buf, "#KODIPROP:mimetype=video/mp2t")?;
                     }
                     mimetype => {
-                        write!(buf, "#KODIPROP:mimetype={}\n", mimetype)?;
+                        writeln!(buf, "#KODIPROP:mimetype={mimetype}")?;
                     }
                 }
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
@@ -182,7 +182,7 @@ where
     E: Call<epg::QueryServices>,
 {
     const INITIAL_BUFSIZE: usize = 8 * 1024 * 1024; // 8MB
-    const DATETIME_FORMAT: &'static str = "%Y%m%d%H%M%S %z";
+    const DATETIME_FORMAT: &str = "%Y%m%d%H%M%S %z";
 
     let end_after = Jst::midnight();
     let start_before = end_after + chrono::Duration::days(query.days as i64);
@@ -228,17 +228,17 @@ where
                 service_id.value()
             )?;
             if let Some(name) = pg.name.as_ref() {
-                write!(buf, r#"<title lang="ja">{}</title>"#, escape(&name))?;
+                write!(buf, r#"<title lang="ja">{}</title>"#, escape(name))?;
             }
             if let Some(desc) = pg.description.as_ref() {
                 write!(buf, r#"<desc lang="ja">"#)?;
-                write!(buf, "{}", escape(&desc))?;
+                write!(buf, "{}", escape(desc))?;
                 if let Some(extended) = pg.extended.as_ref() {
                     for (key, value) in extended.iter() {
                         if key.is_empty() {
-                            write!(buf, "{}", escape(&value))?;
+                            write!(buf, "{}", escape(value))?;
                         } else {
-                            write!(buf, "\n{}\n{}", escape(&key), escape(&value))?;
+                            write!(buf, "\n{}\n{}", escape(key), escape(value))?;
                         }
                     }
                 }
@@ -253,14 +253,14 @@ where
                         write!(
                             buf,
                             r#"<category lang="ja">{}</category>"#,
-                            escape(&genre_str)
+                            escape(genre_str)
                         )?;
                     } else {
                         write!(
                             buf,
                             r#"<category lang="ja">{} / {}</category>"#,
-                            escape(&genre_str),
-                            escape(&subgenre_str)
+                            escape(genre_str),
+                            escape(subgenre_str)
                         )?;
                     }
                 }

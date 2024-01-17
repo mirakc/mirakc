@@ -28,10 +28,7 @@ pub struct EitSection {
 
 impl EitSection {
     pub fn is_valid(&self) -> bool {
-        match self.table_id {
-            0x50 | 0x51 | 0x58 | 0x59 => true,
-            _ => false,
-        }
+        matches!(self.table_id, 0x50 | 0x51 | 0x58 | 0x59)
     }
 
     pub fn is_basic(&self) -> bool {
@@ -80,7 +77,7 @@ impl EitEvent {
     }
 
     pub fn duration(&self) -> Option<Duration> {
-        self.duration.map(|v| Duration::milliseconds(v))
+        self.duration.map(Duration::milliseconds)
     }
 
     pub fn end_time(&self) -> Option<DateTime<Jst>> {
