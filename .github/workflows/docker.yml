@@ -95,7 +95,7 @@ jobs:
             [worker.oci]
               max-parallelism = 1
       - name: Restore cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /tmp/.docker-cache
           key: ${{ runner.os }}-docker-cache-${{ matrix.distro }}-${{ hashFiles('**/Cargo.lock', 'docker/build-scripts/*') }}

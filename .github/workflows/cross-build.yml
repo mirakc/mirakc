@@ -24,7 +24,7 @@ jobs:
       # A toolchain must be installed before Swatinem/rust-cache,
       # but it will be installed in the Build step.
       - name: Cache for Cargo
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
