@@ -25,7 +25,7 @@ test-log = { version = "0.2.14", features = ["trace"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 
 [build-dependencies]
-vergen = { version = "8.3.0", features = ["git", "gitcl"] }
+vergen = { version = "8.3.1", features = ["git", "gitcl"] }
 
 # We don't specify versions because Dependabot cannot update crates in this section.
 [target.'cfg(target_os = "macos")'.dependencies]
