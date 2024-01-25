@@ -1,6 +1,6 @@
 [package]
 name = "mirakc-timeshift-fs"
-version = "3.0.0"
+version = "3.1.0-dev.0"
 authors = ["Contributors of mirakc"]
 description = "A userspace filesystem to expose timeshift records as files"
 edition = "2021"
