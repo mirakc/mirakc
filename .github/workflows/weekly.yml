@@ -5,6 +5,9 @@ on:
     - cron: '19 19 * * 5'  # every Friday
   workflow_dispatch:
 
+env:
+  DENO_DIR: /tmp/deno
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -29,6 +32,9 @@ jobs:
           # works properly.
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable  # required for scripts/bump-version
+      - uses: denoland/setup-deno@v1  # required for scripts/release
+        with:
+          deno-version: v1.x
       - name: git config
         run: |
           git config user.name "${{ steps.bot-details.outputs.name }}"

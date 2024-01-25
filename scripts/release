@@ -87,7 +87,7 @@ else
   OPTIONS="-i $1"
 fi
 
-VERSION=$($DOCKER run -q --rm node npx -y --no-update-notifier semver $CURRENT $OPTIONS)
+VERSION=$(deno run npm:semver $CURRENT $OPTIONS)
 
 if [ "$COMMIT" = YES ]
 then
