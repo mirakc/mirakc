@@ -18,6 +18,6 @@ jobs:
           cargo llvm-cov nextest --all-features --workspace
           --codecov --output-path=codecov.json
       - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           files: codecov.json
