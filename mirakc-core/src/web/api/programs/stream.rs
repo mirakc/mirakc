@@ -108,7 +108,7 @@ where
         //
         // The value can be safely converted into i64 because the value is less
         // than 24h.
-        let duration = Duration::seconds(max_start_delay.as_secs() as i64);
+        let duration = Duration::try_seconds(max_start_delay.as_secs() as i64).unwrap();
         let wait_until = program.start_at.unwrap() + duration;
         builder = builder.insert("wait_until", &wait_until.timestamp_millis())?;
     }
