@@ -73,7 +73,7 @@ mod tests {
     impl Data {
         fn new(ms: i64) -> Self {
             Data {
-                duration_some: Some(Duration::milliseconds(ms)),
+                duration_some: Some(Duration::try_milliseconds(ms).unwrap()),
                 duration_none: None,
             }
         }

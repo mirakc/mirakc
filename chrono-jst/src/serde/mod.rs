@@ -19,7 +19,7 @@ impl<'de> serde::de::Visitor<'de> for DurationVisitor {
     where
         E: serde::de::Error,
     {
-        Ok(Duration::milliseconds(value))
+        Duration::try_milliseconds(value).ok_or(serde::de::Error::custom("out of bounds"))
     }
 
     fn visit_u64<E>(self, value: u64) -> Result<Duration, E>
@@ -27,7 +27,7 @@ impl<'de> serde::de::Visitor<'de> for DurationVisitor {
         E: serde::de::Error,
     {
         match i64::try_from(value) {
-            Ok(v) => Ok(Duration::milliseconds(v)),
+            Ok(v) => Duration::try_milliseconds(v).ok_or(serde::de::Error::custom("out of bound")),
             Err(e) => Err(serde::de::Error::custom(e)),
         }
     }

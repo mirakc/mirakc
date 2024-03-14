@@ -185,7 +185,7 @@ where
     const DATETIME_FORMAT: &str = "%Y%m%d%H%M%S %z";
 
     let end_after = Jst::midnight();
-    let start_before = end_after + chrono::Duration::days(query.days as i64);
+    let start_before = end_after + chrono::Duration::try_days(query.days as i64).unwrap();
 
     let services = epg.call(epg::QueryServices).await?;
 

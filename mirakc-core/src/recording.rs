@@ -168,7 +168,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             token.cancel();
         }
         if let Some(schedule) = self.queue.peek() {
-            let expires_at = schedule.start_at - Duration::seconds(PREP_SECS);
+            let expires_at = schedule.start_at - Duration::try_seconds(PREP_SECS).unwrap();
             let duration = match (expires_at - Jst::now()).to_std() {
                 Ok(duration) => {
                     tracing::debug!(%expires_at, "Set timer");
@@ -587,7 +587,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         // No notification message will be emitted.
         // Users know what they are doing.
 
-        let prep_time = Duration::seconds(PREP_SECS);
+        let prep_time = Duration::try_seconds(PREP_SECS).unwrap();
         tracing::info!(tag, "Remove tagged schedules");
         self.schedules.retain(|_, schedule| {
             if !schedule.tags.contains(tag) {
@@ -821,7 +821,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
     async fn maintain_schedules(&mut self, now: DateTime<Jst>) -> bool {
         use RecordingScheduleState::*;
 
-        let max_delay = Duration::hours(MAX_DELAY_HOURS);
+        let max_delay = Duration::try_hours(MAX_DELAY_HOURS).unwrap();
 
         let len = self.schedules.len();
         let mut expired = vec![];
@@ -861,7 +861,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
     fn dequeue_next_schedules(&mut self, now: DateTime<Jst>) -> Vec<ProgramId> {
         let mut program_ids = vec![];
-        let prep_secs = Duration::seconds(PREP_SECS);
+        let prep_secs = Duration::try_seconds(PREP_SECS).unwrap();
         while let Some(schedule) = self.queue.peek() {
             if schedule.start_at - now <= prep_secs {
                 let schedule = self.queue.pop().unwrap();
@@ -1891,7 +1891,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 1, 3), now - Duration::hours(1), "2h"),
+            program!((0, 1, 3), now - Duration::try_hours(1).unwrap(), "2h"),
             options!("3.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1921,7 +1921,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 1, 1), now + Duration::hours(1)),
+            program!((0, 1, 1), now + Duration::try_hours(1).unwrap()),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1945,7 +1945,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 1, 4), now - Duration::minutes(30)),
+            program!((0, 1, 4), now - Duration::try_minutes(30).unwrap()),
             options!("4.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -1976,7 +1976,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 1, 1), now + Duration::hours(1)),
+            program!((0, 1, 1), now + Duration::try_hours(1).unwrap()),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2000,7 +2000,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
-            program!((0, 1, 4), now - Duration::minutes(30)),
+            program!((0, 1, 4), now - Duration::try_minutes(30).unwrap()),
             options!("4.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2080,7 +2080,7 @@ mod tests {
         // Adding a schedule for an ended program is allowed.
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 1, 2), now - Duration::hours(1), "3h"),
+            program!((0, 1, 2), now - Duration::try_hours(1).unwrap(), "3h"),
             options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2090,7 +2090,7 @@ mod tests {
         // Adding a schedule for a program already started is allowed.
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 1, 3), now - Duration::hours(1), "30m"),
+            program!((0, 1, 3), now - Duration::try_hours(1).unwrap(), "30m"),
             options!("3.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2108,7 +2108,11 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 1, 1), now + Duration::seconds(PREP_SECS + 1), "1h"),
+            program!(
+                (0, 1, 1),
+                now + Duration::try_seconds(PREP_SECS + 1).unwrap(),
+                "1h"
+            ),
             options!("1.m2ts", 0),
             hashset!["tag1".to_string()]
         );
@@ -2117,7 +2121,11 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 1, 2), now + Duration::seconds(PREP_SECS + 1), "1h"),
+            program!(
+                (0, 1, 2),
+                now + Duration::try_seconds(PREP_SECS + 1).unwrap(),
+                "1h"
+            ),
             options!("2.m2ts", 0),
             hashset!["tag2".to_string()]
         );
@@ -2127,7 +2135,11 @@ mod tests {
         // Schedules which will start soon are always retained.
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 1, 3), now + Duration::seconds(PREP_SECS - 1), "1h"),
+            program!(
+                (0, 1, 3),
+                now + Duration::try_seconds(PREP_SECS - 1).unwrap(),
+                "1h"
+            ),
             options!("3.m2ts", 0),
             hashset!["tag1".to_string()]
         );
@@ -2181,12 +2193,12 @@ mod tests {
         let now = Jst::now();
         let config = config_for_test("/tmp");
 
-        let max_delay = Duration::hours(MAX_DELAY_HOURS);
+        let max_delay = Duration::try_hours(MAX_DELAY_HOURS).unwrap();
 
         let mut manager = manager!(config.clone());
         let schedule = schedule!(
             RecordingScheduleState::Scheduled,
-            program!((0, 1, 1), now + Duration::hours(1), "1h"),
+            program!((0, 1, 1), now + Duration::try_hours(1).unwrap(), "1h"),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2266,7 +2278,7 @@ mod tests {
         failed.expect_emit().never();
         manager.recording_failed.register(Emitter::new(failed));
 
-        let start_time = now - Duration::minutes(30);
+        let start_time = now - Duration::try_minutes(30).unwrap();
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
@@ -2309,7 +2321,7 @@ mod tests {
         });
         manager.recording_failed.register(Emitter::new(failed));
 
-        let start_time = now - Duration::minutes(30);
+        let start_time = now - Duration::try_minutes(30).unwrap();
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
@@ -2358,7 +2370,7 @@ mod tests {
         });
         manager.recording_failed.register(Emitter::new(failed));
 
-        let start_time = now - Duration::minutes(30);
+        let start_time = now - Duration::try_minutes(30).unwrap();
 
         let schedule = schedule!(
             RecordingScheduleState::Recording,
@@ -2515,7 +2527,7 @@ mod tests {
 
         let schedule = schedule!(
             RecordingScheduleState::Rescheduling,
-            program!((0, 1, 1), now - Duration::minutes(30), "1h"),
+            program!((0, 1, 1), now - Duration::try_minutes(30).unwrap(), "1h"),
             options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2640,7 +2652,7 @@ pub(crate) mod stub {
         ) -> actlet::Result<<QueryRecordingSchedule as Message>::Reply> {
             let mut program = EpgProgram::new(msg.program_id);
             program.start_at = Some(Jst::now());
-            program.duration = Some(Duration::minutes(1));
+            program.duration = Some(Duration::try_minutes(1).unwrap());
             match msg.program_id.eid().value() {
                 0 => Ok(Err(Error::ProgramNotFound)),
                 _ => Ok(Ok(schedule!(
@@ -2682,7 +2694,7 @@ pub(crate) mod stub {
         ) -> actlet::Result<<RemoveRecordingSchedule as Message>::Reply> {
             let mut program = EpgProgram::new(msg.program_id);
             program.start_at = Some(Jst::now());
-            program.duration = Some(Duration::minutes(1));
+            program.duration = Some(Duration::try_minutes(1).unwrap());
             match msg.program_id.eid().value() {
                 0 => Ok(Err(Error::ScheduleNotFound)),
                 _ => Ok(Ok(schedule!(
