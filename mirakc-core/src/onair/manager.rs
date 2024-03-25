@@ -35,6 +35,9 @@ pub struct OnairProgramManager<T, E> {
     program_changed: EmitterRegistry<OnairProgramChanged>,
 }
 
+// The address contained in each variant is never used at this point.
+// However, it should be kept by the variant theoretically.
+#[allow(dead_code)]
 enum Tracker<T, E> {
     Local(Address<LocalTracker<T, E>>),
     Remote(Address<RemoteTracker<E>>),
