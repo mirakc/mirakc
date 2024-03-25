@@ -567,10 +567,18 @@ impl Tuner {
     }
 
     fn is_supported_type(&self, channel: &EpgChannel) -> bool {
+        if let Restriction::Channel(ch_type, ref ch) = self.restriction {
+            debug_assert_eq!(channel.channel_type, ch_type);
+            debug_assert_eq!(channel.channel, ch.as_str());
+        }
         self.channel_types.contains(&channel.channel_type)
     }
 
     fn is_available_for(&self, channel: &EpgChannel) -> bool {
+        if let Restriction::Channel(ch_type, ref ch) = self.restriction {
+            debug_assert_eq!(channel.channel_type, ch_type);
+            debug_assert_eq!(channel.channel, ch.as_str());
+        }
         match self.restriction {
             Restriction::Exclusive => false,
             _ => self.is_available() && self.is_supported_type(channel),
@@ -578,6 +586,10 @@ impl Tuner {
     }
 
     fn is_reuseable(&self, channel: &EpgChannel) -> bool {
+        if let Restriction::Channel(ch_type, ref ch) = self.restriction {
+            debug_assert_eq!(channel.channel_type, ch_type);
+            debug_assert_eq!(channel.channel, ch.as_str());
+        }
         match self.restriction {
             Restriction::Exclusive => false,
             _ => self.activity.is_reuseable(channel),
