@@ -2,7 +2,7 @@
 
 > A Mirakurun-compatible PVR backend written in Rust
 
-[![ci-status](https://github.com/mirakc/mirakc/workflows/CI/badge.svg)](https://github.com/mirakc/mirakc/actions?workflow=CI)
+[![ci](https://github.com/mirakc/mirakc/actions/workflows/ci.yml/badge.svg)](https://github.com/mirakc/mirakc/actions/workflows/ci.yml)
 [![coverage](https://codecov.io/gh/mirakc/mirakc/branch/main/graph/badge.svg?token=EP5rQLo3Rv)](https://codecov.io/gh/mirakc/mirakc)
 [![alpine-size](https://img.shields.io/docker/image-size/mirakc/mirakc/alpine?label=alpine)](https://hub.docker.com/r/mirakc/mirakc/tags?page=1&name=alpine)
 [![debian-size](https://img.shields.io/docker/image-size/mirakc/mirakc/debian?label=debian)](https://hub.docker.com/r/mirakc/mirakc/tags?page=1&name=debian)
