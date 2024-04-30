@@ -27,7 +27,7 @@ hyper-util = "0.1"
 indexmap = { version = "2.2.6", features = ["serde"] }
 is-terminal = "0.4.12"
 itertools = "0.12.1"
-libc = "0.2.153"
+libc = "0.2.154"
 maplit = "1.0.2"
 mime = "0.3.17"
 mustache = "0.9.0"
