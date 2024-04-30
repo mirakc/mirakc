@@ -12,7 +12,7 @@ build = "build.rs"
 clap = { version = "4.5.4", features = ["derive", "env"] }
 fuser = { version = "0.14.0", default-features = false, features = ["abi-7-31"] }
 indexmap = { version = "2.2.6", features = ["serde"] }
-libc = "0.2.153"
+libc = "0.2.154"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.5.0"
 serde_json = { version = "1.0.116", features = ["preserve_order"] }
