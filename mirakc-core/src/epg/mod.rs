@@ -1147,8 +1147,8 @@ impl EpgProgram {
         for desc in event.descriptors.iter() {
             match desc {
                 EitDescriptor::ShortEvent { event_name, text } => {
-                    self.name = event_name.clone();
-                    self.description = text.clone();
+                    self.name.clone_from(event_name);
+                    self.description.clone_from(text);
                 }
                 EitDescriptor::Component(value) => {
                     self.video = Some(value.clone());
