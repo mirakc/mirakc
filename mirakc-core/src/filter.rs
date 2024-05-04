@@ -119,7 +119,7 @@ impl FilterPipelineBuilder {
         } else {
             self.filters.push(filter);
             if let Some(content_type) = config.content_type.as_ref() {
-                self.content_type = content_type.clone();
+                self.content_type.clone_from(content_type);
             }
         }
         Ok(self.filters.len())

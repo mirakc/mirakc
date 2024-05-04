@@ -2887,8 +2887,8 @@ mod tests {
         }
         let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.chunk_size = chunk_size;
         config.num_chunks = num_chunks;
         config.validate("test");
@@ -2921,7 +2921,7 @@ mod tests {
     fn test_timeshift_recorder_config_validate_empty_data_file() {
         let ts_file = NamedTempFile::new().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
         config.data_file = "".into();
         config.validate("test");
     }
@@ -2933,7 +2933,7 @@ mod tests {
     fn test_timeshift_recorder_config_validate_data_file_is_file() {
         let ts_file = NamedTempFile::new().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
         config.data_file = "/dev/null".into();
         config.validate("test");
     }
@@ -2947,8 +2947,8 @@ mod tests {
             .tempfile()
             .unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.validate("test");
     }
 
@@ -2960,8 +2960,8 @@ mod tests {
         let ts_file = NamedTempFile::new().unwrap();
         let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.chunk_size = 0;
         config.validate("test");
     }
@@ -2974,8 +2974,8 @@ mod tests {
         let ts_file = NamedTempFile::new().unwrap();
         let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.chunk_size = 1;
         config.validate("test");
     }
@@ -2988,8 +2988,8 @@ mod tests {
         let ts_file = NamedTempFile::new().unwrap();
         let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.num_chunks = 2;
         config.validate("test");
     }
@@ -3002,8 +3002,8 @@ mod tests {
         let ts_file = NamedTempFile::new().unwrap();
         let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.num_reserves = 0;
         config.validate("test");
     }
@@ -3016,8 +3016,8 @@ mod tests {
         let ts_file = NamedTempFile::new().unwrap();
         let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.num_chunks = 3;
         config.num_reserves = 2;
         config.validate("test");
@@ -3031,8 +3031,8 @@ mod tests {
         let ts_file = NamedTempFile::new().unwrap();
         let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.uses.tuner = "".to_string();
         config.validate("test");
     }
@@ -3045,8 +3045,8 @@ mod tests {
         let ts_file = NamedTempFile::new().unwrap();
         let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.uses.channel = "".to_string();
         config.validate("test");
     }
@@ -3059,8 +3059,8 @@ mod tests {
         let ts_file = NamedTempFile::new().unwrap();
         let data_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         let mut config = timeshift_recorder_config();
-        config.ts_file = ts_file.path().to_owned();
-        config.data_file = data_file.path().to_owned();
+        ts_file.path().clone_into(&mut config.ts_file);
+        data_file.path().clone_into(&mut config.data_file);
         config.validate("test");
     }
 

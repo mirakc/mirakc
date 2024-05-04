@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use actlet::Action;
 use actlet::Message;
 use actlet::Signal;

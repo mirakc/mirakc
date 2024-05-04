@@ -2293,7 +2293,7 @@ mod tests {
 
         let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
         assert!(changed);
-        assert!(manager.recorders.get(&(0, 1, 1).into()).is_none());
+        assert!(!manager.recorders.contains_key(&(0, 1, 1).into()));
         assert_matches!(manager.schedules.get(&(0, 1, 1).into()), Some(schedule) => {
             assert_matches!(schedule.state, RecordingScheduleState::Finished);
         });
@@ -2339,7 +2339,7 @@ mod tests {
 
         let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
         assert!(changed);
-        assert!(manager.recorders.get(&(0, 1, 1).into()).is_none());
+        assert!(!manager.recorders.contains_key(&(0, 1, 1).into()));
         assert_matches!(manager.schedules.get(&(0, 1, 1).into()), Some(schedule) => {
             assert_matches!(schedule.state, RecordingScheduleState::Rescheduling);
         });
@@ -2385,7 +2385,7 @@ mod tests {
 
         let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
         assert!(changed);
-        assert!(manager.recorders.get(&(0, 1, 1).into()).is_none());
+        assert!(!manager.recorders.contains_key(&(0, 1, 1).into()));
         assert_matches!(manager.schedules.get(&(0, 1, 1).into()), Some(schedule) => {
             assert_matches!(schedule.state, RecordingScheduleState::Failed);
         });
