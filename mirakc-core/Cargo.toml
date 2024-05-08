@@ -51,7 +51,7 @@ tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 url = { version = "2.5.0", features = ["serde"] }
 utoipa = { version = "4.2.2", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "6.0.0", features = ["axum"] }
+utoipa-swagger-ui = { version = "7.0.1", features = ["axum"] }
 walkdir = "2.5.0"
 
 [dev-dependencies]
