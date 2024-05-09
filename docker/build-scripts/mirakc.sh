@@ -11,12 +11,12 @@ PROFILE=$4
 TRIPLE=$(echo "$RUST_TARGET_TRIPLE" | tr '-' '_' | tr [:lower:] [:upper:])
 
 # Enforce to use a specific compiler in the cc crate.
-export CC="$GCC"
+export CC_${TRIPLE}="$GCC"
 
 # A workaround to fix the following issue:
 # https://github.com/rust-lang/backtrace-rs/issues/249
 if [ "$TARGETPLATFORM" = linux/arm/v7 ]; then
-  export CFLAGS='-mfpu=neon'
+  export CFLAGS_${TRIPLE}='-mfpu=neon'
 fi
 
 # Use environment variables instead of creating .cargo/config:
