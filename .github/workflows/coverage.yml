@@ -21,3 +21,5 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           files: codecov.json
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
