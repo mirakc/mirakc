@@ -8,14 +8,9 @@ on:
     paths-ignore:
       - '**.md'
 
+# Don't run jobs which use secrets.
 jobs:
   build:
     uses: ./.github/workflows/build.yml
   cross-build:
     uses: ./.github/workflows/cross-build.yml
-  coverage:
-    # Skip if this PR is created by dependabot.
-    if: ${{ github.actor != 'dependabot[bot]' }}
-    uses: ./.github/workflows/coverage.yml
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

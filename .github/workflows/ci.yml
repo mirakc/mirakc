@@ -14,7 +14,3 @@ jobs:
     uses: ./.github/workflows/build.yml
   cross-build:
     uses: ./.github/workflows/cross-build.yml
-  coverage:
-    uses: ./.github/workflows/coverage.yml
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
