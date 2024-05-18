@@ -31,7 +31,9 @@ struct Opt {
 
 #[derive(Clone, ValueEnum)]
 enum LogFormat {
+    /// Text.
     Text,
+    /// JSON.
     Json,
 }
 
