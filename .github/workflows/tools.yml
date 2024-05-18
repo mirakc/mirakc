@@ -1,11 +1,6 @@
 name: tools
 
 on:
-  workflow_call:
-    inputs:
-      version:
-        required: false
-        type: string
   workflow_dispatch:
     inputs:
       version:

@@ -11,4 +11,8 @@ jobs:
     with:
       ref-name: ${{ github.ref_name }}  # tag name
       ref-type: ${{ github.ref_type }}  # tag
-    secrets: inherit
+    secrets:
+      CI_BOT_APP_ID: ${{ secrets.CI_BOT_APP_ID }}
+      CI_BOT_PRIVATE_KEY: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}

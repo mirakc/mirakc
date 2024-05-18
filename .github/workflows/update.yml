@@ -6,6 +6,11 @@ on:
       ref-name:
         required: true
         type: string
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
+      DOCKERHUB_USER:
+        required: true
     outputs:
       num-commits:
         description: >-

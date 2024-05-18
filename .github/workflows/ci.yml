@@ -12,10 +12,9 @@ on:
 jobs:
   build:
     uses: ./.github/workflows/build.yml
-    secrets: inherit
   cross-build:
     uses: ./.github/workflows/cross-build.yml
-    secrets: inherit
   coverage:
     uses: ./.github/workflows/coverage.yml
-    secrets: inherit
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
