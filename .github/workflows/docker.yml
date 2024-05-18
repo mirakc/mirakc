@@ -9,6 +9,15 @@ on:
       ref-type:
         required: true
         type: string
+    secrets:
+      CI_BOT_APP_ID:
+        required: true
+      CI_BOT_PRIVATE_KEY:
+        required: true
+      DOCKERHUB_USER:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       ref-name:

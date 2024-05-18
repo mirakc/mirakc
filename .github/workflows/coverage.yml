@@ -2,11 +2,18 @@ name: coverage
 
 on:
   workflow_call:
+    secrets:
+      CODECOV_TOKEN:
+        required: false
 
 jobs:
   coverage:
     runs-on: ubuntu-latest
     continue-on-error: true
+    env:
+      # Any secret cannot be accessible in the `if:` context.
+      # See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#example-using-secrets.
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -16,10 +23,16 @@ jobs:
       - name: Generate code coverage
         run: >-
           cargo llvm-cov nextest --all-features --workspace
-          --codecov --output-path=codecov.json
+          --lcov --output-path=coverage.lcov
+      - name: Report code coverage
+        # Show the report as a comment on this PR when CODECOV_TOKEN is not available.
+        if: ${{ env.CODECOV_TOKEN == '' && github.event_name == 'pull_request' }}
+        uses: zgosalvez/github-actions-report-lcov@v3
+        with:
+          coverage-files: coverage.lcov
       - name: Upload coverage to codecov.io
+        # Upload the result to codecov only when CODECOV_TOKEN is available.
+        if: ${{ env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v4
         with:
-          files: codecov.json
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.lcov

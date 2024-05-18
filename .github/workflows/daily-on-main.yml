@@ -9,7 +9,9 @@ jobs:
     uses: ./.github/workflows/update.yml
     with:
       ref-name: main
-    secrets: inherit
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
   docker:
     if: needs.update.outputs.num-commits > 0
     needs:
@@ -18,4 +20,8 @@ jobs:
     with:
       ref-name: main
       ref-type: branch
-    secrets: inherit
+    secrets:
+      CI_BOT_APP_ID: ${{ secrets.CI_BOT_APP_ID }}
+      CI_BOT_PRIVATE_KEY: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}

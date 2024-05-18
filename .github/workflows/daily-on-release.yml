@@ -9,4 +9,6 @@ jobs:
     uses: ./.github/workflows/update.yml
     with:
       ref-name: release
-    secrets: inherit
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
