@@ -2,18 +2,24 @@
 # See https://github.com/dependabot/feedback/issues/889.
 version: 2
 updates:
+  # main branch
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: daily
       time: '01:01'  # UTC
-  # main branch
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: daily
-      time: '04:04'  # UTC
+      time: '03:03'  # UTC
   # release branch
+  - package-ecosystem: github-actions
+    target-branch: release
+    directory: /
+    schedule:
+      interval: daily
+      time: '05:05'  # UTC
   - package-ecosystem: cargo
     target-branch: release
     directory: /
