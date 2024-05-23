@@ -8,11 +8,23 @@ updates:
     schedule:
       interval: daily
       time: '01:01'  # UTC
+    # Workaround for bug https://github.com/dependabot/dependabot-core/issues/9784.
+    # Block can be removed once it's fixed.
+    commit-message:
+      prefix: "build(deps)"
+      prefix-development: "build(deps-dev)"
+      include: "scope"
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: daily
       time: '03:03'  # UTC
+    # Workaround for bug https://github.com/dependabot/dependabot-core/issues/9784.
+    # Block can be removed once it's fixed.
+    commit-message:
+      prefix: "build(deps)"
+      prefix-development: "build(deps-dev)"
+      include: "scope"
   # release branch
   - package-ecosystem: github-actions
     target-branch: release
@@ -20,9 +32,21 @@ updates:
     schedule:
       interval: daily
       time: '05:05'  # UTC
+    # Workaround for bug https://github.com/dependabot/dependabot-core/issues/9784.
+    # Block can be removed once it's fixed.
+    commit-message:
+      prefix: "build(deps)"
+      prefix-development: "build(deps-dev)"
+      include: "scope"
   - package-ecosystem: cargo
     target-branch: release
     directory: /
     schedule:
       interval: daily
       time: '07:07'  # UTC
+    # Workaround for bug https://github.com/dependabot/dependabot-core/issues/9784.
+    # Block can be removed once it's fixed.
+    commit-message:
+      prefix: "build(deps)"
+      prefix-development: "build(deps-dev)"
+      include: "scope"
