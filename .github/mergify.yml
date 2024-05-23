@@ -1,5 +1,5 @@
 pull_request_rules:
-  - name: automatic merge for Dependabot pull requests
+  - name: Automatically approve Dependabot PRs
     conditions:
       - author = dependabot[bot]
       - check-success = build / build (macos-latest, stable)
@@ -8,6 +8,13 @@ pull_request_rules:
       - check-success = cross-build / cross-build (ubuntu-latest, stable, arm-unknown-linux-gnueabi)
       - check-success = cross-build / cross-build (ubuntu-latest, stable, armv7-unknown-linux-gnueabihf)
       - check-success = cross-build / cross-build (ubuntu-latest, stable, aarch64-unknown-linux-gnu)
+    actions:
+      review:
+        type: APPROVE
+  - name: automatic merge for Dependabot pull requests
+    conditions:
+      - author = dependabot[bot]
+      - '#approved-reviews-by >= 1'
     actions:
       merge:
         method: merge
