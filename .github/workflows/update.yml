@@ -22,10 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       num-commits: ${{ steps.count.outputs.num-commits }}
+    # Use the default GitHub bot account because we don't need to invoke any
+    # other workflows triggered by a push event.
     steps:
-      # Use the default GitHub bot account because we don't need to invoke any
-      # other workflows triggered by a push event.
-      - uses: raven-actions/bot-details@v1
+      # Use `main` in order to use actions/github-script@v7 for avoiding a warning.
+      - uses: raven-actions/bot-details@main
         id: bot-details
       - uses: actions/checkout@v4
         with:

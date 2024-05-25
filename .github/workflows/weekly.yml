@@ -11,15 +11,16 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Use the `mirakc-ci` bot account in order to invoke the release workflow
+    # triggered by a push event for a release tag.
     steps:
-      # Use the `mirakc-ci` bot account in order to invoke the release workflow
-      # triggered by a push event for a release tag.
       - uses: tibdex/github-app-token@v2
         id: generate-token
         with:
           app_id: ${{ secrets.CI_BOT_APP_ID }}
           private_key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
-      - uses: raven-actions/bot-details@v1
+      # Use `main` in order to use actions/github-script@v7 for avoiding a warning.
+      - uses: raven-actions/bot-details@main
         id: bot-details
         with:
           bot-slug-name: mirakc-ci
