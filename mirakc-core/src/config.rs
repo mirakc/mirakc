@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::SystemTime;
 
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -63,10 +62,6 @@ fn normalize(config_path: &Path, mut config: Config) -> Arc<Config> {
         _ => config.validate(),
     }
 
-    config.last_modified = std::fs::metadata(config_path)
-        .map(|metadata| metadata.modified().ok())
-        .ok()
-        .flatten();
     tracing::info!(?config_path, "Loaded");
     Arc::new(config)
 }
@@ -87,8 +82,6 @@ fn normalize(config_path: &Path, mut config: Config) -> Arc<Config> {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(Debug))]
 pub struct Config {
-    #[serde(skip)]
-    pub last_modified: Option<SystemTime>,
     #[serde(default)]
     pub epg: EpgConfig,
     #[serde(default)]
