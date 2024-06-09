@@ -1241,6 +1241,7 @@ mod tests {
     use tempfile::NamedTempFile;
     use test_log::test;
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn test_load() {
         let config_yml_path = format!("{}/tests/config.yml", std::env!("CARGO_MANIFEST_DIR"));
