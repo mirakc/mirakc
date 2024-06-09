@@ -41,7 +41,7 @@ nothing can be done with mirakc alone.
 For example, mirakc provides an API endpoint which returns a schedule of TV
 programs, but mirakc has no functionality to collect EIT tables from TS streams.
 mirakc just delegates that to an external program which is defined in the
-`jobs.update-schedules.command` property in the configuration YAML file.
+`jobs.update-schedules.command` property in the configuration YAML/TOML file.
 
 Of course, this design may make mirakc less efficient because using child
 processes and pipes between them increases CPU and memory usages.  But it's
