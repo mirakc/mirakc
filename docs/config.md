@@ -120,8 +120,15 @@ An absolute path to a folder where EPG-related data will be stored.
 EPG-related data will be lost when mirakc stops.
 
 ```yaml
+# YAML
 epg:
   cache-dir: /path/to/epg/cache
+```
+
+```toml
+# TOML
+[epg]
+cache-dir = "/path/to/epg/cache"
 ```
 
 ## server.addrs
@@ -133,9 +140,16 @@ There are two address types.
 HTTP protocol:
 
 ```yaml
+# YAML
 server:
   addrs:
     - http: '0.0.0.0:40772'
+```
+
+```toml
+# TOML
+[[server.addrs]]
+http = "0.0.0.0:40772"
 ```
 
 HTTPS protocol is not supported at this point.
@@ -143,9 +157,16 @@ HTTPS protocol is not supported at this point.
 UNIX domain socket:
 
 ```yaml
+# YAML
 server:
   addrs:
     - unix: /var/run/mirakc.sock
+```
+
+```toml
+# TOML
+[[server.addrs]]
+unix = "/var/run/mirakc.sock"
 ```
 
 mirakc never changes the ownership and permission of the socket.  Change them
@@ -155,10 +176,20 @@ specific UID/GID.
 Multiple addresses can be bound like below:
 
 ```yaml
+# YAML
 server:
   addrs:
     - http: '0.0.0.0:40772'
     - unix: /var/run/mirakc.sock
+```
+
+```toml
+# TOML
+[[server.addrs]]
+http = "0.0.0.0:40772"
+
+[[server.addrs]]
+unix = "/var/run/mirakc.sock"
 ```
 
 ## server.stream-chunk-size
@@ -166,8 +197,15 @@ server:
 The maximum size of a chunk for streaming.
 
 ```yaml
+# YAML
 server:
   stream-chunk-size: 32768
+```
+
+```toml
+# TOML
+[server]
+stream-chunk-size = 32768
 ```
 
 An actual size of a chunk may be smaller than this value.
@@ -179,8 +217,15 @@ The default chunk size is 32 KiB which is large enough for 10 ms buffering.
 The maximum number of chunks that can be buffered.
 
 ```yaml
+# YAML
 server:
   stream-max-chunks: 1000
+```
+
+```toml
+# TOML
+[server]
+stream-max-chunks = 1000
 ```
 
 Chunks are dropped when the buffer is full.
@@ -194,8 +239,15 @@ The time limit for a streaming request.  The request will fail when the time
 reached this limit.
 
 ```yaml
+# YAML
 server:
   stream-time-limit: 20000
+```
+
+```toml
+# TOML
+[server]
+stream-time-limit = 20000
 ```
 
 The value must be larger than `prepTime` defined in [EPGStation](https://github.com/l3tnun/EPGStation/blob/v1.6.9/src/server/Model/Operator/Recording/RecordingManageModel.ts#L45),
@@ -214,8 +266,15 @@ client disconnect all that time due to the issue#1313.
 time of a TV program in [a human-friendly format](https://github.com/tailhook/humantime).
 
 ```yaml
+# YAML
 server:
   program-stream-max-start-delay: 3h
+```
+
+```toml
+# TOML
+[server]
+program-stream-max-start-delay = "3h"
 ```
 
 The value must be less than `24h`.  The value will be converted into the number
@@ -240,14 +299,26 @@ Definitions of mount points for static files and folders on the file system.
   * Show entries listing for directories
 
 ```yaml
+# YAML
 server:
   mounts:
     /public:
       path: /path/to/public
       listing: true
-    /:
+    /www:
       path: /path/to/www
       index: index.html
+```
+
+```toml
+# TOML
+[server.mounts."/public"]
+path = "/path/to/public"
+listing = true
+
+[server.mounts."/www"]
+path = "/path/to/www"
+index = "index.html"
 ```
 
 This property can be used for providing some kind of Web UI for mirakc.
@@ -260,8 +331,15 @@ view of static files mounted by using `server.mounts`.
 The filename must end with the `.mustache` extension.
 
 ```yaml
+# YAML
 server:
   folder-view-template-path: /path/to/template.html.mustache
+```
+
+```toml
+# TOML
+[server]
+folder-view-template-path = "/path/to/template.html.mustache"
 ```
 
 Template variables:
@@ -313,6 +391,7 @@ Definitions of channels.  At least, one channel must be defined.
   * Disable the channel definition
 
 ```yaml
+# YAML
 channels:
   - name: ETV
     type: GR
@@ -324,8 +403,8 @@ channels:
     channel: '27'
     disabled: true
 
-  # Use only the service 101 in BS1.
-  - name: BS1
+  # Use only the service 101 in NHK-BS.
+  - name: NHK-BS
     type: BS
     channel: BS15_0
     services: [101]
@@ -350,10 +429,56 @@ channels:
     extra-args: '--space 1'
 ```
 
+```toml
+# TOML
+[[channels]]
+name = "ETV"
+type = "GR"
+channel = "26"
+
+# Disable NHK.
+[[channels]]
+name = "NHK"
+type = "GR"
+channel = "27"
+disabled = true
+
+# Use only the service 101 in NHK-BS.
+[[channels]]
+name = "NHK-BS"
+type = "BS"
+channel = "BS15_0"
+services = [ 101 ]
+
+# Exclude the service 531 from OUJ.
+[[channels]]
+name = "OUJ"
+type = "BS"
+channel = "BS11_2"
+excluded-services = [ 531 ]
+
+# Extra arguments for szap-s2j
+[[channels]]
+name = "BS SPTV"
+type = "SKY"
+channel = "CH585"
+extra-args = "-l JCSAT3A"
+serviceId = [ 33353 ]
+
+# Extra arguments for BonRecTest
+[[channels]]
+name = "ND02"
+type = "CS"
+channel = "000"
+extra-args = "--space 1"
+```
+
 Definitions with the same `type` and `channel` will be merged.  For example, the
 following definitions:
 
 ```yaml
+# YAML
+channels:
   - name: NHK1
     type: GR
     channel: '27'
@@ -372,19 +497,60 @@ following definitions:
     channel: '26'
     services: [1034]
 
-  - name: BS1
+  - name: NHK-BS
     type: BS
     channel: BS15_0
     extra-args: args
-  - name: BS1
+  - name: NHK-BS
     type: BS
     channel: BS15_0
-    extra-args: differecnt-args
+    extra-args: different-args
+```
+
+```toml
+# TOML
+[[channels]]
+name = "NHK1"
+type = "GR"
+channel = "27"
+services = [ 1024 ]
+
+[[channels]]
+name = "NHK2"
+type = "GR"
+channel = "27"
+services = [ 1025 ]
+
+[[channels]]
+name = "ETV"
+type = "GR"
+channel = "26"
+excluded-services = [ 1034 ]
+
+[[channels]]
+name = "ETV3"
+type = "GR"
+channel = "26"
+services = [ 1034 ]
+
+[[channels]]
+name = "NHK-BS"
+type = "BS"
+channel = "BS15_0"
+extra-args = "args"
+
+[[channels]]
+name = "BS1"
+type = "BS"
+channel = "BS15_0"
+extra-args = "different-args"
 ```
 
 are equivalent to:
 
 ```yaml
+# YAML
+channels:
   # `services` of channels having the same `type` and `channel` will be merged.
   - name: ETV
     type: GR
@@ -399,10 +565,35 @@ are equivalent to:
 
   # Channels having the same `type` and `channel` should have the same
   # `extra-args`.
-  - name: BS1
+  - name: HNK-BS
     type: BS
     channel: BS15_0
     extra-args: args
+```
+
+```toml
+# TOML
+[[channels]]
+# `services` of channels having the same `type` and `channel` will be merged.
+name = "ETV"
+type = "GR"
+channel = "27"
+services = [ 1024, 1025 ]
+
+[[channels]]
+# `services` becomes empty if there is a channel with empty `services`.
+name = "ETV"
+type = "GR"
+channel = "27"
+excluded-services = [ 1034 ]
+
+[[channels]]
+# Channels having the same `type` and `channel` should have the same
+# `extra-args`.
+name = "HNK-BS"
+type = "BS"
+channel = "BS15_0"
+extra-args = "args"
 ```
 
 ## tuners
@@ -442,6 +633,7 @@ possible to use upstream Mirakurun-compatible servers as tuners.  See the sample
 below.
 
 ```yaml
+# YAML
 tuners:
   - name: GR0
     types: [GR]
@@ -459,6 +651,26 @@ tuners:
     types: [GR, BS]
     command: >-
       curl -sG http://upstream:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0
+```
+
+```toml
+# TOML
+[[tuners]]
+name = "GR0"
+types = [ "GR" ]
+command = "recdvb {{{channel}}} {{{duration}}} -"
+
+[[tuners]]
+name = "Disabled"
+types = [ "GR" ]
+command = "cat /dev/null"
+disabled = true
+
+# A tuner can be defined by using an "upstream" Mirakurun-compatible server.
+[[tuners]]
+name = "upstream"
+types = [ "GR", "BS" ]
+command = "curl -sG http://upstream:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0"
 ```
 
 ## filters
@@ -725,17 +937,32 @@ The timeshift recording has the following limitations:
   filled or the TV program ends
 
 ```yaml
+# YAML
 timeshift:
   recorders:
-    bs1:
+    nhk-bs:
       service-id: 400101  # NHK BS
-      ts-file: /path/to/bs1.timeshift.m2ts
-      data-file: /path/to/bs1.timeshift.data
+      ts-file: /path/to/nhk-bs.timeshift.m2ts
+      data-file: /path/to/nhk-bs.timeshift.data
       num-chunks: 4000  # about 616GB
       uses:
-        tuner: tuner-for-bs1-timeshift-recording
+        tuner: tuner-for-nhk-bs-timeshift-recording
         channel-type: BS
         channel: BS15_0
+```
+
+```toml
+# TOML
+[timeshift.recorders.nhk-bs]
+service-id = 400101  # NHK BS
+ts-file = "/path/to/nhk-bs.timeshift.m2ts"
+data-file = "/path/to/nhk-bs.timeshift.data"
+num-chunks = 4000  # about 616GB
+
+[timeshift.recorders.nhk-bs.uses]
+tuner = "tuner-for-nhk-bs-timeshift-recording"
+channel-type = "BS"
+channel = "BS15_0"
 ```
 
 ### timeshift.recorders
@@ -799,6 +1026,7 @@ A local tracker tracks on-air TV programs by collecting EIT [p/f] sections of a
 service every minute using a local tuner.
 
 ```yaml
+# YAML
 tuners:
   # The `gr-tracker` tuner is used only by the `gr` local tracker.
   - name: gr-tracker
@@ -814,6 +1042,21 @@ onair-program-trackers:
       channel-types: [GR]
       uses:
         tuner: gr-tracker
+```
+
+```toml
+# TOML
+[[tuners]]
+# The `gr-tracker` tuner is used only by the `gr` local tracker.
+name = "gr-tracker"
+types = [ "GR" ]
+command = "recpt1 --device /dev/px4video2 {{{channel}}} {{{duration}}} -"
+
+# The `gr` local tracker tracks on-air programs of every services
+# found by `jobs.scan-services` executed on `GR` channels.
+[onair-program-trackers.gr.local]
+channel-types = [ "GR" ]
+uses = { tuner = "gr-tracker" }
 ```
 
 The following properties can be specified:
@@ -853,10 +1096,17 @@ A remote tracker tracks on-air TV programs by listening events from the `events`
 Web endpoint.
 
 ```yaml
+# YAML
 onair-program-trackers:
   remote:
     remote:
       url: http://remote:40772/
+```
+
+```toml
+# TOML
+[onair-program-trackers.remote.remote]
+url = "http://remote:40772/"
 ```
 
 The following properties can be specified:
@@ -890,10 +1140,18 @@ used in mirakc at runtime.
 `resource.logos` specifies a logo image for each service.
 
 ```yaml
+# YAML
 resource:
   logos:
     - service-id: 400101
-      image: /path/to/bs1.png  # you can use any format of image
+      image: /path/to/nhk-bs.png  # you can use any format of image
+```
+
+```toml
+# TOML
+[[resource.logos]]
+service-id = 400101
+image = "/path/to/nhk-bs.png"  # you can use any format of image
 ```
 
 mirakc does not collect logo images from TS streams at runtime.  However, you

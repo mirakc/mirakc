@@ -4,7 +4,7 @@ This folder contains files for Docker support.
 
 ## How to build images from source
 
-Using [docker-compose.yml](./docker-compose.yml):
+Using [compose.yaml](./compose.yaml):
 
 ```shell
 docker buildx bake --load

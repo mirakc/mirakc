@@ -19,7 +19,7 @@ struct Opt {
     ///
     /// YAML (*.yml or *.yaml) or TOML (*.toml) formats are supported.
     ///
-    /// See docs/config.md for details of the YAML format.
+    /// See docs/config.md for details of the YAML/TOML format.
     #[arg(short, long, env = "MIRAKC_CONFIG", verbatim_doc_comment)]
     config: PathBuf,
 

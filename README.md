@@ -63,7 +63,7 @@ filters:
       socat -,cool-write tcp-connect:remote:40774
 ```
 
-Create `docker-compose.yml`:
+Create `compose.yaml`:
 
 ```yaml
 services:
@@ -97,8 +97,7 @@ docker compose up
 ```
 
 You can also launch a mirakc container by using other tools like `podman` and
-`podman-compose` which support Docker-compatible images and
-`docker-compose.yml`:
+`podman-compose` which support Docker-compatible images and `compose.yaml`:
 
 ```shell
 podman-compose up
