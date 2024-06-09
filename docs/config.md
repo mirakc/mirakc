@@ -1,6 +1,6 @@
 # Configuration
 
-For simplicity, mirakc uses a single YAML file for configuration.
+For simplicity, mirakc uses a single YAML/TOML file for configuration.
 
 Most of properties in the configuration are optional.  You can simply omit
 properties which have default values listed below if the default values are

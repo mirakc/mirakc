@@ -1,0 +1,45 @@
+[epg]
+cache-dir = "/var/lib/mirakc/epg"
+
+[[server.addrs]]
+# Replace `localhost` with `0.0.0.0` (ipv4) or `::` (ipv6) if you like to
+# connect from other hosts.
+http = "0.0.0.0:40772"
+
+# Change the following channel settings according to your environment.
+
+[[channels]]
+name = "NHK"
+type = "GR"
+channel = "27"
+
+[[channels]]
+name = "NHK-BS"
+type = "BS"
+channel = "BS15_0"
+
+# Use a Mirakurun-compatible server as a tuner.
+[[tuners]]
+name = "mirakc"
+types = [ "GR", "BS" ]
+command = "curl -sG http://mirakc:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0"
+
+# Normally, you need to define a tuner for each device like below:
+#
+# [[tuners]]
+# name = "bs1"
+# types = [ "BS" ]
+# command = "recpt1 --device /dev/px4video0 {{{channel}}} - -"
+#
+# [[tuners]]
+# name = "gr1"
+# types = [ "GR" ]
+# command = "recpt1 --device /dev/px4video2 {{{channel}}} - -"
+
+# Optionally, you can specify a command to process TS packets before sending
+# them to a client.
+#
+# The following command processes TS packets on a remote server listening on
+# TCP port 40774.
+[filters.decode-filter]
+command = "socat -,cool-write tcp-connect:remote:40774"

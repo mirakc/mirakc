@@ -7,12 +7,12 @@ server:
   addrs:
     - http: '0.0.0.0:40772'
 
-# Change the following settings according to your environment.
+# Change the following channel settings according to your environment.
 channels:
   - name: NHK
     type: GR
     channel: '27'
-  - name: BS1
+  - name: NHK-BS
     type: BS
     channel: BS15_0
 
