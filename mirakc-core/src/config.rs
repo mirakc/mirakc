@@ -1244,13 +1244,13 @@ mod tests {
     #[test]
     fn test_load() {
         let config_yml_path = format!("{}/tests/config.yml", std::env!("CARGO_MANIFEST_DIR"));
-        load(&config_yml_path);
+        load(config_yml_path);
 
         let config_yaml_path = format!("{}/tests/config.yaml", std::env!("CARGO_MANIFEST_DIR"));
-        let config_yaml = load(&config_yaml_path);
+        let config_yaml = load(config_yaml_path);
 
         let config_toml = format!("{}/tests/config.toml", std::env!("CARGO_MANIFEST_DIR"));
-        let config_toml = load(&config_toml);
+        let config_toml = load(config_toml);
 
         pretty_assertions::assert_eq!(config_yaml, config_toml);
     }
