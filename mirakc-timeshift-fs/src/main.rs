@@ -20,10 +20,12 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " ", env!("VERGEN_GIT_S
 #[derive(Parser)]
 #[command(author, about, version = VERSION)]
 struct Opt {
-    /// Path to a configuration file in a YAML format.
+    /// Path to a configuration file.
     ///
     /// The MIRAKC_CONFIG environment variable is used if this option is not
     /// specified.  Its value has to be an absolute path.
+    ///
+    /// YAML (*.yml or *.yaml) or TOML (*.toml) formats are supported.
     ///
     /// See docs/config.md for details of the YAML format.
     #[arg(short, long, env = "MIRAKC_CONFIG")]

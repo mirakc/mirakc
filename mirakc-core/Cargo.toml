@@ -45,6 +45,7 @@ thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["full"] }
 tokio-stream = { version = "0.1.15", features = ["io-util"] }
 tokio-util = { version = "0.7.11", features = ["codec", "io"] }
+toml = "0.8.14"
 tower = { version = "0.4.13", default-features = false, features = ["util", "make"] }
 tower-http = { version = "0.5.2", features = ["fs", "trace"] }
 tracing = "0.1.40"
@@ -58,6 +59,7 @@ walkdir = "2.5.0"
 assert_matches = "1.5.0"
 env_logger = "0.11.3"
 mockall = "0.12.1"
+pretty_assertions = "1.4.0"
 static_assertions = "1.1.0"
 tempfile = "3.10.1"
 test-log = { version = "0.2.16", features = ["trace"] }

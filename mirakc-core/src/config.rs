@@ -20,14 +20,42 @@ use crate::tuner::TunerSubscriptionId;
 
 pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
     let config_path = config_path.as_ref();
+    match config_path.extension() {
+        Some(ext) => {
+            let ext = ext.to_ascii_lowercase();
+            if ext == "yml" || ext == "yaml" {
+                load_yaml(config_path)
+            } else if ext == "toml" {
+                load_toml(config_path)
+            } else {
+                panic!("Format unsupported: {config_path:?}");
+            }
+        }
+        None => panic!("No extension contained in the filename: {config_path:?}"),
+    }
+}
 
+fn load_yaml(config_path: &Path) -> Arc<Config> {
     let reader = File::open(config_path).unwrap_or_else(|err| {
-        panic!("Failed to open {:?}: {}", config_path, err);
+        panic!("Failed to open {config_path:?}: {err}");
     });
-    let mut config: Config = serde_yaml::from_reader(reader).unwrap_or_else(|err| {
-        panic!("Failed to parse {:?}: {}", config_path, err);
+    let config: Config = serde_yaml::from_reader(reader).unwrap_or_else(|err| {
+        panic!("Failed to parse {config_path:?}: {err}");
     });
+    normalize(config_path, config)
+}
 
+fn load_toml(config_path: &Path) -> Arc<Config> {
+    let toml = std::fs::read_to_string(config_path).unwrap_or_else(|err| {
+        panic!("Failed to open {config_path:?}: {err}");
+    });
+    let config: Config = toml::from_str(&toml).unwrap_or_else(|err| {
+        panic!("Failed to parse {config_path:?}: {err}");
+    });
+    normalize(config_path, config)
+}
+
+fn normalize(config_path: &Path, mut config: Config) -> Arc<Config> {
     config = config.normalize();
 
     match std::env::var_os("MIRAKC_CONFIG_SKIP_VALIDATION") {
@@ -1216,8 +1244,37 @@ mod tests {
     use indexmap::indexmap;
     use maplit::hashmap;
     use maplit::hashset;
+    use tempfile::Builder;
     use tempfile::NamedTempFile;
     use test_log::test;
+
+    #[test]
+    fn test_load() {
+        let config_yml_path = format!("{}/tests/config.yml", std::env!("CARGO_MANIFEST_DIR"));
+        load(&config_yml_path);
+
+        let config_yaml_path = format!("{}/tests/config.yaml", std::env!("CARGO_MANIFEST_DIR"));
+        let config_yaml = load(&config_yaml_path);
+
+        let config_toml = format!("{}/tests/config.toml", std::env!("CARGO_MANIFEST_DIR"));
+        let config_toml = load(&config_toml);
+
+        pretty_assertions::assert_eq!(config_yaml, config_toml);
+    }
+
+    #[test]
+    #[should_panic(expected = "Format unsupported:")]
+    fn test_load_unsupported() {
+        let config_txt = Builder::new().suffix(".txt").tempfile().unwrap();
+        load(config_txt.path());
+    }
+
+    #[test]
+    #[should_panic(expected = "No extension contained in the filename:")]
+    fn test_load_no_extension() {
+        let config_no_ext = Builder::new().tempfile().unwrap();
+        load(config_no_ext.path());
+    }
 
     #[test]
     fn test_config() {

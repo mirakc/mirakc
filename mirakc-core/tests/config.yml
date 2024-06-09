@@ -1,0 +1,63 @@
+epg:
+  cache-dir: /tmp
+
+server:
+  addrs:
+    - http: '0.0.0.0:40772'
+    - unix: /var/run/mirakc.sock
+  mounts:
+    /videos:
+      path: /tmp
+      listing: true
+
+channels:
+  - name: NHK
+    type: GR
+    channel: '27'
+  - name: NHK-BS
+    type: BS
+    channel: BS15_0
+    services: [101]
+
+tuners:
+  - name: upstream
+    types: [GR, BS]
+    command: >-
+      curl -s http://upstream:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0
+  - name: recpt1
+    types: [GR]
+    command: >-
+      recpt1 --device /path/to/dev {{{channel}}} - -
+  - name: recdvb
+    types: [GR]
+    command: >-
+      recdvb --dev 1 {{{channel}}} - -
+  - name: dvbv5-zap
+    types: [GR]
+    command: >-
+      dvbv5-zap -a 0 -c /path/to/conf -r -P {{{channel}}} -o -
+  - name: tracker
+    types: [GR, BS]
+    command: >-
+      true
+
+filters:
+  decode-filter:
+    command: >-
+      socat -,cool-write tcp-connect:tsd:40773
+
+recording:
+  basedir: /tmp
+
+onair-program-trackers:
+  tracker:
+    local:
+      channel-types: [GR, BS]
+      uses:
+        tuner: tracker
+
+resource:
+  strings-yaml: /bin/true
+  logos:
+    - service-id: 3273601024
+      image: /bin/true
