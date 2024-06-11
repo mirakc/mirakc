@@ -10,7 +10,7 @@ build = "build.rs"
 
 [dependencies]
 actlet = { path = "../actlet" }
-clap = { version = "4.5.6", features = ["derive", "env"] }
+clap = { version = "4.5.7", features = ["derive", "env"] }
 chrono = { version = "0.4.38", default-features = false, features = ["clock", "serde"] }
 humantime = "2.1.0"
 mirakc-core = { path = "../mirakc-core" }
