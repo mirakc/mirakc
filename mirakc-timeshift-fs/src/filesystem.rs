@@ -54,11 +54,7 @@ impl TimeshiftFilesystem {
     fn create_handle(&mut self, octx: OpenContext) -> u64 {
         loop {
             let handle = self.next_handle;
-            self.next_handle = if handle == u64::max_value() {
-                1
-            } else {
-                handle + 1
-            };
+            self.next_handle = if handle == u64::MAX { 1 } else { handle + 1 };
             if let Entry::Vacant(entry) = self.open_contexts.entry(handle) {
                 entry.insert(octx);
                 return handle;
@@ -659,7 +655,7 @@ impl RecordBuffer {
 
     fn fill1(&mut self, range: &Range<u64>) -> Result<(), Error> {
         debug_assert!(self.buf.is_empty());
-        debug_assert!(range.end - range.start <= usize::max_value() as u64);
+        debug_assert!(range.end - range.start <= usize::MAX as u64);
         let len = (range.end - range.start) as usize;
         self.buf.reserve(len);
         self.file.seek(SeekFrom::Start(range.start))?;
@@ -672,11 +668,11 @@ impl RecordBuffer {
 
     fn fill2(&mut self, first: &Range<u64>, second: &Range<u64>) -> Result<(), Error> {
         debug_assert!(self.buf.is_empty());
-        debug_assert!(first.end - first.start <= usize::max_value() as u64);
+        debug_assert!(first.end - first.start <= usize::MAX as u64);
         let first_len = (first.end - first.start) as usize;
-        debug_assert!(second.end - second.start <= usize::max_value() as u64);
+        debug_assert!(second.end - second.start <= usize::MAX as u64);
         let second_len = (second.end - second.start) as usize;
-        debug_assert!((first_len as u64) + (second_len as u64) <= usize::max_value() as u64);
+        debug_assert!((first_len as u64) + (second_len as u64) <= usize::MAX as u64);
         self.buf.reserve(first_len + second_len);
         self.file.seek(SeekFrom::Start(first.start))?;
         let _ = (&mut self.file)
