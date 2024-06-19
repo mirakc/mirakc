@@ -91,7 +91,7 @@ mod tests {
 
         assert!(serde_json::from_str::<Data>(&format!(
             r#"{{"duration_some":{},"duration_none":null}}"#,
-            u64::max_value()
+            u64::MAX
         ))
         .is_err());
     }

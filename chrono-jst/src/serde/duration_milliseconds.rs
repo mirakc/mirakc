@@ -50,10 +50,7 @@ mod tests {
             serde_json::from_str::<Data>(JSON).unwrap()
         );
 
-        assert!(
-            serde_json::from_str::<Data>(&format!(r#"{{"duration":{}}}"#, u64::max_value()))
-                .is_err()
-        );
+        assert!(serde_json::from_str::<Data>(&format!(r#"{{"duration":{}}}"#, u64::MAX)).is_err());
     }
 
     #[test]

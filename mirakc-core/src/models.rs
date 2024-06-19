@@ -337,7 +337,7 @@ impl TunerUserPriority {
 
 impl From<i32> for TunerUserPriority {
     fn from(value: i32) -> Self {
-        TunerUserPriority(value.max(Self::MIN).min(Self::MAX))
+        TunerUserPriority(value.clamp(Self::MIN, Self::MAX))
     }
 }
 
