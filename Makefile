@@ -12,11 +12,11 @@ check:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 .PHONY: build
-build: format
+build:
 	cargo build --all-features
 
 .PHONY: test
-test: build
+test:
 	cargo nextest run --all-features
 
 .PHONY: format
