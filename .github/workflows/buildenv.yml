@@ -1,13 +1,28 @@
 name: buildenv
 
 on:
+  schedule:
+    - cron: '12 12 * * *' # UTC
   workflow_dispatch:
 
 env:
   DEBIAN_CODENAME: bookworm
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      needs-updating: ${{ steps.check.outputs.needs-updating }}
+    steps:
+      - name: Check if update available
+        id: check
+        uses: lucacome/docker-image-update-checker@v1
+        with:
+          base-image: rust:slim-${{ env.DEBIAN_CODENAME }}
+          image: mirakc/buildenv:debian-linux-amd64
   docker:
+    needs: check
+    if: needs.check.outputs.needs-updating == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
