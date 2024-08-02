@@ -14,7 +14,7 @@ clap = { version = "4.5.13", features = ["derive", "env"] }
 chrono = { version = "0.4.38", default-features = false, features = ["clock", "serde"] }
 humantime = "2.1.0"
 mirakc-core = { path = "../mirakc-core" }
-serde_json = { version = "1.0.121", features = ["preserve_order"] }
+serde_json = { version = "1.0.122", features = ["preserve_order"] }
 tempfile = "3.10.1"
 tokio = { version = "1.39.2", features = ["full"] }
 tracing = "0.1.40"
