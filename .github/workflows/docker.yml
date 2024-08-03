@@ -140,7 +140,7 @@ jobs:
           build-args: |
             DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
             TOOLS_TAG=${{ steps.docker-tags.outputs.tools-tag }}
-          target: mirakc-timeshift-fs
+          target: timeshift-fs
           platforms: ${{ matrix.platforms }}
           tags: >-
             ${{ format(steps.docker-tags.outputs.tags, 'docker.io/mirakc/timeshift-fs') }},

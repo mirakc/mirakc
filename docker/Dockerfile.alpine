@@ -38,7 +38,7 @@ EXPOSE 40772
 ENTRYPOINT ["/usr/local/bin/mirakc"]
 CMD []
 
-FROM alpine AS mirakc-timeshift-fs
+FROM alpine AS timeshift-fs
 LABEL maintainer="Contributors of mirakc"
 COPY --from=mirakc-build /usr/local/bin/mirakc-timeshift-fs /usr/local/bin/
 COPY --from=mirakc-build /usr/local/bin/run-mirakc-timeshift-fs /usr/local/bin/
