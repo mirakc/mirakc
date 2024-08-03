@@ -42,6 +42,7 @@ impl TimeshiftFilesystem {
         tracing::info!(
             fs_config.uid,
             fs_config.gid,
+            fs_config.start_time_prefix,
             "Create a timeshift filesystem"
         );
         TimeshiftFilesystem {
