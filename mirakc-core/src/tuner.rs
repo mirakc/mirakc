@@ -544,6 +544,7 @@ impl Tuner {
         channel: String,
     ) {
         assert!(self.reserved_for.is_none());
+        assert!(self.channel_types.contains(&channel_type));
         self.reserved_for = Some(user);
         self.restriction = Restriction::Channel(channel_type, channel);
     }
@@ -567,29 +568,20 @@ impl Tuner {
     }
 
     fn is_supported_type(&self, channel: &EpgChannel) -> bool {
-        if let Restriction::Channel(ch_type, ref ch) = self.restriction {
-            debug_assert_eq!(channel.channel_type, ch_type);
-            debug_assert_eq!(channel.channel, ch.as_str());
-        }
         self.channel_types.contains(&channel.channel_type)
     }
 
     fn is_available_for(&self, channel: &EpgChannel) -> bool {
-        if let Restriction::Channel(ch_type, ref ch) = self.restriction {
-            debug_assert_eq!(channel.channel_type, ch_type);
-            debug_assert_eq!(channel.channel, ch.as_str());
-        }
         match self.restriction {
+            Restriction::Channel(ch_type, ref ch) => {
+                ch_type == channel.channel_type && ch.as_str() == channel.channel
+            }
             Restriction::Exclusive => false,
             _ => self.is_available() && self.is_supported_type(channel),
         }
     }
 
     fn is_reuseable(&self, channel: &EpgChannel) -> bool {
-        if let Restriction::Channel(ch_type, ref ch) = self.restriction {
-            debug_assert_eq!(channel.channel_type, ch_type);
-            debug_assert_eq!(channel.channel, ch.as_str());
-        }
         match self.restriction {
             Restriction::Exclusive => false,
             _ => self.activity.is_reuseable(channel),
@@ -1057,6 +1049,123 @@ mod tests {
                 assert_eq!(stream.id().session_id.tuner_index, 2);
                 assert_ne!(stream.id().session_id, stream1.id().session_id);
             });
+        }
+        system.stop();
+    }
+
+    #[test(tokio::test)]
+    async fn test_exclusive_restriction() {
+        let config: Arc<Config> = Arc::new(
+            serde_yaml::from_str(
+                r#"
+                tuners:
+                  - name: tracker
+                    types: [GR]
+                    command: >-
+                      sleep 1
+                onair-program-trackers:
+                  tracker:
+                    local:
+                      channel-types: [GR]
+                      uses:
+                        tuner: tracker
+                "#,
+            )
+            .unwrap(),
+        );
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    // allowed
+                    user: TunerUser {
+                        info: TunerUserInfo::OnairProgramTracker("tracker".to_string()),
+                        priority: 0.into(),
+                    },
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+            });
+        }
+        system.stop();
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()), // not allowed
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
+        }
+        system.stop();
+    }
+
+    #[test(tokio::test)]
+    async fn test_channel_restriction() {
+        let config: Arc<Config> = Arc::new(
+            serde_yaml::from_str(
+                r#"
+                tuners:
+                  - name: timeshift
+                    types: [GR]
+                    command: >-
+                      sleep 1
+                timeshift:
+                  recorders:
+                    nhk:
+                      service-id: 0
+                      ts-file: /dev/null
+                      data-file: /dev/null
+                      num-chunks: 10
+                      uses:
+                        tuner: timeshift
+                        channel-type: GR
+                        channel: '0'
+                "#,
+            )
+            .unwrap(),
+        );
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"), // allowed
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+            });
+        }
+        system.stop();
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("1"), // not allowed
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
         }
         system.stop();
     }
