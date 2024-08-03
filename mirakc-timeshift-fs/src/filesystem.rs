@@ -128,7 +128,11 @@ impl TimeshiftFilesystem {
         }
 
         // [<datetime>.]<id>.<title>.m2ts
-        let id_index = if self.fs_config.start_time_prefix { 1 } else { 0 };
+        let id_index = if self.fs_config.start_time_prefix {
+            1
+        } else {
+            0
+        };
 
         // DIRTY HACK
         // ----------
