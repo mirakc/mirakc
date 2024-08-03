@@ -43,6 +43,24 @@ struct Opt {
     #[arg(short, long, env = "MIRAKC_TIMESHIFT_FS_GID", default_value_t = unsafe { libc::getgid() })]
     gid: u32,
 
+    /// Prepend the start time field in the filename of each record.
+    ///
+    /// If this option is enabled, the filename will be formatted in:
+    ///
+    ///   <record.start_time>.<record.id>.<sanitized record.program.name>.m2ts
+    ///
+    /// Otherwise:
+    ///
+    ///   <record.id>.<sanitized record.program.name>.m2ts
+    ///
+    /// <record.start_time> is the start time in local time formatted in `%Y-%m-%d-%H-%M-%S`.
+    ///
+    /// <record.id> is the record ID formatted in 8 uppercase hexadecimal digits.
+    ///
+    /// This option is disabled by default for backward compatibility.
+    #[arg(long, env = "MIRAKC_TIMESHIFT_FS_START_TIME_PREFIX")]
+    start_time_prefix: bool,
+
     /// Logging format.
     #[arg(long, value_enum, env = "MIRAKC_LOG_FORMAT", default_value = "text")]
     log_format: LogFormat,
@@ -78,6 +96,7 @@ fn main() -> Result<(), Error> {
     let fs_config = TimeshiftFilesystemConfig {
         uid: opt.uid,
         gid: opt.gid,
+        start_time_prefix: opt.start_time_prefix,
     };
     let fs = TimeshiftFilesystem::new(config, fs_config);
 

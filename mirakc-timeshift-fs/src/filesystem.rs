@@ -22,6 +22,7 @@ const BLOCK_SIZE: u64 = 4096;
 pub struct TimeshiftFilesystemConfig {
     pub uid: u32,
     pub gid: u32,
+    pub start_time_prefix: bool,
 }
 
 pub struct TimeshiftFilesystem {
@@ -126,6 +127,9 @@ impl TimeshiftFilesystem {
             return None;
         }
 
+        // [<datetime>.]<id>.<title>.m2ts
+        let id_index = if self.fs_config.start_time_prefix { 1 } else { 0 };
+
         // DIRTY HACK
         // ----------
         // We don't compare `name` with a filename created from a record.
@@ -136,10 +140,10 @@ impl TimeshiftFilesystem {
         // following filename may be specified in `name`:
         //
         //   filename made in open_recorder_dir():
-        //     2000-01-01-00-00-00_6049B5AB_ごごナマ..[字].m2ts
+        //     6049B5AB.ごごナマ..[字].m2ts
         //
         //   LOOKUP name:
-        //     2000-01-01-00-00-00_6049B5AB_こ\u{3099}こ\u{3099}ナマ..[字].m2ts
+        //     6049B5AB.こ\u{3099}こ\u{3099}ナマ..[字].m2ts
         //
         // The normalization form applied to the filename depends on the implementation of
         // each application.  For example, VLC applies NFD before opening a file.  On the other
@@ -148,15 +152,15 @@ impl TimeshiftFilesystem {
         // exactly:
         //
         //   # `cat` seems not to change the filename
-        //   cat 2000-01-01-00-00-00_6049B5AB_ごごナマ..[字].m2ts | ffplay -
+        //   cat 6049B5AB.ごごナマ..[字].m2ts | ffplay -
         //
         // Conversion between String and OsString may not be idempotent.  Therefore, normalizing
         // before comparison may not work in general.
         //
         // We first extract the record ID encoded in `name`, and then look for a record identified
-        // with it.  That means that `<datetime>_<id>_.m2ts` is enough.
-        name.split('_') // <datetime>_<id>_<title>.m2ts
-            .nth(1) // <id>
+        // with it.
+        name.split('.')
+            .nth(id_index)
             .and_then(|s| u32::from_str_radix(s, 16).ok())
             .map(TimeshiftRecordId::from)
             .map(|record_id| Ino::create_record_ino(ino.recorder_index(), record_id))
@@ -202,14 +206,18 @@ impl TimeshiftFilesystem {
                 .name
                 .clone()
                 .map(|s| truncate_string_within(s, Self::MAX_TITLE_SIZE))
-                .unwrap_or("".to_string());
+                .unwrap_or("no-title".to_string());
             let id = record.id.value();
-            let datetime = record
-                .start
-                .timestamp
-                .naive_local()
-                .format("%Y-%m-%d-%H-%M-%S");
-            let filename = sanitize_filename::sanitize(format!("{datetime}_{id:08X}_{title}.m2ts"));
+            let filename = if self.fs_config.start_time_prefix {
+                let datetime = record
+                    .start
+                    .timestamp
+                    .naive_local()
+                    .format("%Y-%m-%d-%H-%M-%S");
+                sanitize_filename::sanitize(format!("{datetime}.{id:08X}.{title}.m2ts"))
+            } else {
+                sanitize_filename::sanitize(format!("{id:08X}.{title}.m2ts"))
+            };
             assert!(filename.len() <= Self::MAX_FILENAME_SIZE);
             assert!(filename.ends_with(".m2ts"));
             entries.push((ino.0, fuser::FileType::RegularFile, filename));

@@ -16,7 +16,7 @@ The directory structure is like below:
   |
   +-- <sanitized recorder.name>/
   |     |
-  .     +-- <record.start_time>_<record.id>_<sanitized record.program.name>.m2ts
+  .     +-- [<record.start_time>.]<record.id>.<sanitized record.program.name>.m2tsb
   .     |
   .     .
 ```
@@ -24,7 +24,8 @@ The directory structure is like below:
 Where:
 
 * `<record.start_time>` is the start time in the local time formatted in [`%Y-%m-%d-%H-%M-%S`](https://docs.rs/chrono/latest/chrono/format/strftime/index.html)
-* `<record.id>` is the record ID formatted in [`:08X`](https://doc.rust-lang.org/std/fmt/index.html)
+  * This field is available only when the `--start-time-prefix` option is enabled
+* `<record.id>` is the record ID formatted in 8 uppercase hexadecimal digits
 
 [FUSE]: https://en.wikipedia.org/wiki/Filesystem_in_Userspace
 
