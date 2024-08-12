@@ -1008,9 +1008,9 @@ checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 
 [[package]]
 name = "libyml"
-version = "0.0.3"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e281a65eeba3d4503a2839252f86374528f9ceafe6fed97c1d3b52e1fb625c1"
+checksum = "64804cc6a5042d4f05379909ba25b503ec04e2c082151d62122d5dcaa274b961"
 
 [[package]]
 name = "linux-raw-sys"
@@ -1940,9 +1940,9 @@ dependencies = [
 
 [[package]]
 name = "serde_yml"
-version = "0.0.10"
+version = "0.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78ce6afeda22f0b55dde2c34897bce76a629587348480384231205c14b59a01f"
+checksum = "48e76bab63c3fd98d27c17f9cbce177f64a91f5e69ac04cafe04e1bb25d1dc3c"
 dependencies = [
  "indexmap",
  "itoa",
