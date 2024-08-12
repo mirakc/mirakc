@@ -1056,7 +1056,7 @@ mod tests {
     #[test(tokio::test)]
     async fn test_exclusive_restriction() {
         let config: Arc<Config> = Arc::new(
-            serde_yaml::from_str(
+            serde_yml::from_str(
                 r#"
                 tuners:
                   - name: tracker
@@ -1114,7 +1114,7 @@ mod tests {
     #[test(tokio::test)]
     async fn test_channel_restriction() {
         let config: Arc<Config> = Arc::new(
-            serde_yaml::from_str(
+            serde_yml::from_str(
                 r#"
                 tuners:
                   - name: timeshift

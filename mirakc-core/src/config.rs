@@ -40,6 +40,7 @@ fn load_yaml(config_path: &Path) -> Arc<Config> {
     });
     let config: Config = serde_yml::from_reader(reader).unwrap_or_else(|err| {
         panic!("Failed to parse {config_path:?}: {err}");
+    });
     normalize(config_path, config)
 }
 
