@@ -25,7 +25,7 @@ humantime-serde = "1.1.1"
 hyper = { version = "1.4.1", features = ["full"] }
 hyper-util = "0.1"
 indexmap = { version = "2.4.0", features = ["serde"] }
-is-terminal = "0.4.12"
+is-terminal = "0.4.13"
 itertools = "0.13.0"
 libc = "0.2.155"
 maplit = "1.0.2"
