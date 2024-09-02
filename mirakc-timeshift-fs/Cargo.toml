@@ -12,7 +12,7 @@ build = "build.rs"
 chrono = { version = "0.4.38", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4.5.16", features = ["derive", "env"] }
 fuser = { version = "0.14.0", default-features = false, features = ["abi-7-31"] }
-indexmap = { version = "2.4.0", features = ["serde"] }
+indexmap = { version = "2.5.0", features = ["serde"] }
 libc = "0.2.158"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.5.0"
