@@ -151,6 +151,8 @@ jobs:
           push: true
       - name: Test (mirakc/mirakc)
         run: |
+          set -eux
+
           # Enable experimental CLI features in Docker daemon.
           echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
           sudo service docker restart
@@ -171,6 +173,8 @@ jobs:
           done
       - name: Test (mirakc/timeshift-fs)
         run: |
+          set -eux
+
           # Enable experimental CLI features in Docker daemon.
           echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
           sudo service docker restart
