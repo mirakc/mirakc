@@ -11,11 +11,14 @@
 #   TARGETVARIANT
 
 ARG TOOLS_TAG=debian
-ARG DEBIAN_CODENAME
+# We set `sid` here in order to avoid the `InvalidDefaultArgInFrom` warning,
+# but this argument is always specified in build commands.  As a result, `sid`
+# is never used.
+ARG DEBIAN_CODENAME=sid
 
 FROM mirakc/tools:$TOOLS_TAG AS mirakc-tools
 
-FROM --platform=linux/amd64 mirakc/buildenv:debian-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
+FROM --platform=$BUILDPLATFORM mirakc/buildenv:debian-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 COPY . ./
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
