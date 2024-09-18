@@ -20,4 +20,4 @@ tokio = { version = "1.40.0", features = ["full"] }
 tracing = "0.1.40"
 
 [build-dependencies]
-vergen-gitcl = { version = "1.0.0", features = ["build"] }
+vergen-gitcl = { version = "1.0.1", features = ["build"] }
