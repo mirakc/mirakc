@@ -47,7 +47,7 @@ tokio-stream = { version = "0.1.16", features = ["io-util"] }
 tokio-util = { version = "0.7.12", features = ["codec", "io"] }
 toml = "0.8.19"
 tower = { version = "0.5.1", default-features = false, features = ["util", "make"] }
-tower-http = { version = "0.5.2", features = ["fs", "trace"] }
+tower-http = { version = "0.6.0", features = ["fs", "trace"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 url = { version = "2.5.2", features = ["serde"] }
