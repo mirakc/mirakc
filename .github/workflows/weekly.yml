@@ -33,7 +33,7 @@ jobs:
           # works properly.
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable  # required for scripts/bump-version
-      - uses: denoland/setup-deno@v1  # required for scripts/release
+      - uses: denoland/setup-deno@v2  # required for scripts/release
         with:
           deno-version: v1.x
       - name: git config
