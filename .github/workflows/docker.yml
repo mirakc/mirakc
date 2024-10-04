@@ -153,10 +153,6 @@ jobs:
         run: |
           set -eux
 
-          # Enable experimental CLI features in Docker daemon.
-          echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
-          sudo service docker restart
-
           IMG="${{ format(steps.docker-tags.outputs.main-tag, 'mirakc/mirakc') }}"
           for PLATFORM in $(echo ${{ matrix.platforms }} | tr ',' ' ')
           do
@@ -174,10 +170,6 @@ jobs:
       - name: Test (mirakc/timeshift-fs)
         run: |
           set -eux
-
-          # Enable experimental CLI features in Docker daemon.
-          echo '{"experimental":true}' | sudo tee /etc/docker/daemon.json
-          sudo service docker restart
 
           IMG="${{ format(steps.docker-tags.outputs.main-tag, 'mirakc/timeshift-fs') }}"
           for PLATFORM in $(echo ${{ matrix.platforms }} | tr ',' ' ')
