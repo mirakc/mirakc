@@ -10,7 +10,7 @@ build = "build.rs"
 
 [dependencies]
 chrono = { version = "0.4.38", default-features = false, features = ["clock", "serde"] }
-clap = { version = "4.5.19", features = ["derive", "env"] }
+clap = { version = "4.5.20", features = ["derive", "env"] }
 fuser = { version = "0.14.0", default-features = false, features = ["abi-7-31"] }
 indexmap = { version = "2.6.0", features = ["serde"] }
 libc = "0.2.159"
