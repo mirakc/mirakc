@@ -35,7 +35,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable  # required for scripts/bump-version
       - uses: denoland/setup-deno@v2  # required for scripts/release
         with:
-          deno-version: v1.x
+          deno-version: v2.x
       - name: git config
         run: |
           git config user.name "${{ steps.bot-details.outputs.name }}"
