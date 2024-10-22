@@ -304,6 +304,14 @@ struct MirakurunCompatAddon;
 
 impl utoipa::Modify for MirakurunCompatAddon {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        fn update_tags(op: &mut utoipa::openapi::path::Operation) {
+            if let Some(tags) = op.tags.as_mut() {
+                if tags.iter().any(|tag| tag.ends_with("::stream")) {
+                    tags.push("stream".to_string());
+                }
+            }
+        }
+
         for path in openapi.paths.paths.values_mut() {
             // mirakurun.Client assumes that every path item has the
             // `parameters` properties even if it's empty.  See
@@ -314,14 +322,29 @@ impl utoipa::Modify for MirakurunCompatAddon {
 
             // mirakurun.Client assumes that every streaming endpoints has a
             // `stream` tag.  See mirakurun.Client.call().
-            for op in path.operations.values_mut() {
-                let tags = match op.tags.as_mut() {
-                    Some(tags) => tags,
-                    None => continue,
-                };
-                if tags.iter().any(|tag| tag.ends_with("::stream")) {
-                    tags.push("stream".to_string());
-                }
+            if let Some(op) = path.get.as_mut() {
+                update_tags(op);
+            }
+            if let Some(op) = path.put.as_mut() {
+                update_tags(op);
+            }
+            if let Some(op) = path.post.as_mut() {
+                update_tags(op);
+            }
+            if let Some(op) = path.delete.as_mut() {
+                update_tags(op);
+            }
+            if let Some(op) = path.options.as_mut() {
+                update_tags(op);
+            }
+            if let Some(op) = path.head.as_mut() {
+                update_tags(op);
+            }
+            if let Some(op) = path.patch.as_mut() {
+                update_tags(op);
+            }
+            if let Some(op) = path.trace.as_mut() {
+                update_tags(op);
             }
         }
     }
@@ -335,7 +358,7 @@ mod tests {
 
     #[test]
     fn test_openapi_docs() {
-        use utoipa::openapi::PathItemType::*;
+        use utoipa::openapi::HttpMethod::*;
 
         let openapi = Docs::openapi();
         let paths = &openapi.paths;

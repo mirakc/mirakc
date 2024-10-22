@@ -51,8 +51,8 @@ tower-http = { version = "0.6.1", features = ["fs", "trace"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 url = { version = "2.5.2", features = ["serde"] }
-utoipa = { version = "4.2.3", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
+utoipa = { version = "5.1.1", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "8.0.2", features = ["axum"] }
 walkdir = "2.5.0"
 
 [dev-dependencies]
