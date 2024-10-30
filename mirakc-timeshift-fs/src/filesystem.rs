@@ -370,7 +370,13 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         }
     }
 
-    fn getattr(&mut self, _req: &fuser::Request, ino: u64, reply: fuser::ReplyAttr) {
+    fn getattr(
+        &mut self,
+        _req: &fuser::Request,
+        ino: u64,
+        _fh: Option<u64>,
+        reply: fuser::ReplyAttr,
+    ) {
         let ino = Ino::from(ino);
         let found = if ino.is_root() {
             Some(fuser::FileAttr {
