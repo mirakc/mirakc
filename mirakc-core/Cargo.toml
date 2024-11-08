@@ -42,7 +42,7 @@ serde_qs = "0.13.0"
 shell-words = "1.1.0"
 smallstr = { version = "0.3.0", features = ["serde"] }
 thiserror = "2.0.0"
-tokio = { version = "1.41.0", features = ["full"] }
+tokio = { version = "1.41.1", features = ["full"] }
 tokio-stream = { version = "0.1.16", features = ["io-util"] }
 tokio-util = { version = "0.7.12", features = ["codec", "io"] }
 toml = "0.8.19"
