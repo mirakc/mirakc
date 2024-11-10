@@ -71,13 +71,17 @@ where
         self.set_timer(ctx);
     }
 
-    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
+    async fn stopping(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!(tracker.name = self.name, "Stopping...");
         if let Some(ref stopped) = self.stopped_emitter {
             let msg = TrackerStopped {
                 tracker: self.name.clone(),
             };
             stopped.emit(msg).await;
         }
+    }
+
+    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!(tracker.name = self.name, "Stopped");
     }
 }

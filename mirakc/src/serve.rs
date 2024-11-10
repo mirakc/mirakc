@@ -62,9 +62,5 @@ pub async fn main(config: Arc<config::Config>) {
     }
 
     tracing::info!("Stopping...");
-    // TODO
-    // ----
-    // Replace `system.stop()` with `system.shutdown().await`.
-    // Currently, `system.shutdown().await` blocks due to some bugs.
-    system.stop();
+    system.shutdown().await;
 }

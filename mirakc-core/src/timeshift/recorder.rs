@@ -419,6 +419,10 @@ where
         // A recording will be started in the HealthCheck handler.
     }
 
+    async fn stopping(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!(recorder.name = self.name, "Stopping...");
+    }
+
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         self.session = None;
         tracing::debug!(recorder.name = self.name, "Stopped");

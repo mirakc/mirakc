@@ -317,10 +317,14 @@ impl Actor for TunerManager {
         self.load_tuners();
     }
 
-    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
+    async fn stopping(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!("Stopping...");
         for tuner in self.tuners.iter_mut() {
             tuner.deactivate();
         }
+    }
+
+    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!("Stopped");
     }
 }

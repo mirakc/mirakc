@@ -5,11 +5,25 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use once_cell::sync::Lazy;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use tracing::Span;
+
+static RECV_TIME_LIMIT_FOR_SHUTDOWN: Lazy<u64> = Lazy::new(|| {
+    let time_limit = std::env::var("ACTLET_RECV_TIME_LIMIT_FOR_SHUTDOWN")
+        .ok()
+        .map(|s| {
+            s.parse::<u64>()
+                .expect("ACTLET_RECV_TIME_LIMIT_FOR_SHUTDOWN must be a u64 value")
+        })
+        .unwrap_or(500); // default: 500ms
+    tracing::debug!(RECV_TIME_LIMIT_FOR_SHUTDOWN = time_limit);
+    time_limit
+});
 
 #[cfg(feature = "derive")]
 pub use actlet_derive::Message;
@@ -60,6 +74,7 @@ impl System {
     ///
     /// Use [`System::shutdown()`].
     pub fn stop(&self) {
+        tracing::debug!("System stopping...");
         self.stop_token.cancel();
     }
 
@@ -353,7 +368,7 @@ where
             tracing::warn!(
                 actor = type_name::<A>(),
                 msg = type_name::<M>(),
-                "The actor is stopped, the message is lost"
+                "Failed to send, the actor may be stopped, the message is lost"
             );
         }
     }
@@ -398,7 +413,8 @@ where
                                 tracing::warn!(
                                     actor = type_name::<A>(),
                                     msg = type_name::<M>(),
-                                    "The actor is stopped, the message is lost"
+                                    "Failed to send asynchronously, \
+                                     The actor may be stopped, the message is lost"
                                 );
                             }
                         }
@@ -411,7 +427,7 @@ where
                 tracing::warn!(
                     actor = type_name::<A>(),
                     msg = type_name::<M>(),
-                    "The actor is stopped, the message is lost"
+                    "The channel has been closed, the actor may be stopped, the message is lost"
                 );
             }
         }
@@ -650,6 +666,12 @@ where
         tracing::debug!(actor = type_name::<Self>(), "Started");
     }
 
+    /// Called when the actor gets started stopping.
+    #[allow(unused_variables)]
+    async fn stopping(&mut self, ctx: &mut Context<Self>) {
+        tracing::debug!(actor = type_name::<Self>(), "Stopping...");
+    }
+
     /// Called when the actor stopped.
     #[allow(unused_variables)]
     async fn stopped(&mut self, ctx: &mut Context<Self>) {
@@ -774,6 +796,7 @@ impl<A: Actor> MessageLoop<A> {
 
     async fn run(&mut self) {
         self.actor.started(&mut self.context).await;
+
         let stop_token = self.context.stop_token.clone();
         loop {
             tokio::select! {
@@ -784,16 +807,23 @@ impl<A: Actor> MessageLoop<A> {
                     }
                 }
                 _ = stop_token.cancelled() => {
-                    self.receiver.close();
+                    // DO NOT CALL `self.receiver.close()` here.
+                    // Messages may be sent after `System.stop()`.
                     break;
                 }
                 else => break,
             }
         }
+
+        self.actor.stopping(&mut self.context).await;
+
         // Ensure that the remaining messages are processed before the stop.
-        while let Some(dispatch) = self.receiver.recv().await {
+        let limit = tokio::time::Duration::from_millis(*RECV_TIME_LIMIT_FOR_SHUTDOWN);
+        while let Ok(Some(dispatch)) = timeout(limit, self.receiver.recv()).await {
             dispatch.dispatch(&mut self.actor, &mut self.context).await;
         }
+
+        self.receiver.close();
         self.actor.stopped(&mut self.context).await;
         self.wait_token.cancel();
     }
@@ -978,13 +1008,16 @@ mod promoter {
             tracing::debug!("Started");
         }
 
-        async fn stopped(&mut self, _ctx: &mut Context<Self>) {
+        async fn stopping(&mut self, _ctx: &mut Context<Self>) {
             tracing::debug!("Waiting for actors to stop...");
             let wait_tokens = std::mem::take(&mut self.wait_tokens);
             for wait_token in wait_tokens.into_iter() {
                 // TODO: introduce id for each actor.
                 wait_token.cancelled().await;
             }
+        }
+
+        async fn stopped(&mut self, _ctx: &mut Context<Self>) {
             tracing::debug!("Stopped");
         }
     }

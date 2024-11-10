@@ -49,6 +49,10 @@ where
         ctx.spawn_task(async move { tracker.run().await });
     }
 
+    async fn stopping(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!(tracker.name = self.0.name, "Stopping...");
+    }
+
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!(tracker.name = self.0.name, "Stopped");
     }

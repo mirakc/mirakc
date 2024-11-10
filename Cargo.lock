@@ -8,6 +8,7 @@ version = "0.0.0"
 dependencies = [
  "actlet-derive",
  "async-trait",
+ "once_cell",
  "thiserror 2.0.0",
  "tokio",
  "tokio-util",

@@ -235,6 +235,10 @@ where
         self.set_timer(ctx);
     }
 
+    async fn stopping(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!("Stopping...");
+    }
+
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!("Stopped");
     }

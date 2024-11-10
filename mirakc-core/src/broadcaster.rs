@@ -216,6 +216,10 @@ impl Actor for Broadcaster {
         tracing::debug!(broadcaster.id = %self.id, "Started");
     }
 
+    async fn stopping(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!(broadcaster.id = %self.id, "Stopping...");
+    }
+
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         tracing::debug!(broadcaster.id = %self.id, "Stopped");
     }

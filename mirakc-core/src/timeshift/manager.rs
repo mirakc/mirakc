@@ -100,6 +100,10 @@ where
         ctx.spawn_task(task);
     }
 
+    async fn stopping(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!("Stopping...");
+    }
+
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
         for (name, holder) in self.recorders.iter() {
             tracing::debug!(recorder.name = name, "Waiting for the recorder to stop...");
