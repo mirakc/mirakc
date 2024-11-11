@@ -74,6 +74,7 @@ pub struct TunerManager {
     config: Arc<Config>,
     tuners: Vec<Tuner>,
     event_emitters: EmitterRegistry<Event>,
+    stopping: bool,
 }
 
 struct TunerSubscription {
@@ -104,6 +105,7 @@ impl TunerManager {
             config,
             tuners: Vec::new(),
             event_emitters: Default::default(),
+            stopping: false,
         }
     }
 
@@ -322,6 +324,12 @@ impl Actor for TunerManager {
         for tuner in self.tuners.iter_mut() {
             tuner.deactivate();
         }
+        // Set the `stopping` flag so that any requests regarding streaming fail during shutdown.
+        //
+        // TODO: `ServiceScanner`, `ClockSynchronizer` and `EitCollector` should be implement as
+        // `Actor` or check the cancellation token of the `JobManager` in order to stop to send
+        // streaming requests to the `TunerManager` during shutdown.
+        self.stopping = true;
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
@@ -441,6 +449,11 @@ impl Handler<StartStreaming> for TunerManager {
     ) -> <StartStreaming as Message>::Reply {
         tracing::debug!(msg.name = "StartStreaming", %msg.channel, %msg.user.info, %msg.user.priority);
 
+        if self.stopping {
+            tracing::debug!("Ignore StartStreaming requests during shutdown");
+            return Err(Error::TunerUnavailable);
+        }
+
         let subscription = self
             .activate_tuner(&msg.channel, &msg.user, &msg.stream_id, ctx)
             .await?;
@@ -488,6 +501,12 @@ pub struct StopStreaming {
 impl Handler<StopStreaming> for TunerManager {
     async fn handle(&mut self, msg: StopStreaming, _ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "StopStreaming", %msg.id);
+
+        if self.stopping {
+            tracing::debug!("Ignore StopStreaming requests during shutdown");
+            return;
+        }
+
         match self.stop_streaming(msg.id).await {
             Ok(Some(user)) if user.is_short_term_user() => {
                 tracing::debug!(stream.id = %msg.id, "Streaming stopped");
