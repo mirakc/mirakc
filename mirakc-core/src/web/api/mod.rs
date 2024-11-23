@@ -161,6 +161,24 @@ where
             .route(
                 "/recording/recorders/:id",
                 routing::delete(recording::recorders::delete),
+            )
+            .route("/recording/records", routing::get(recording::records::list))
+            .route(
+                "/recording/records/:id",
+                routing::get(recording::records::get),
+            )
+            .route(
+                "/recording/records/:id",
+                routing::delete(recording::records::delete),
+            )
+            // The following endpoints won't allocate any tuner.
+            .route(
+                "/recording/records/:id/stream",
+                routing::get(recording::records::stream::get),
+            )
+            .route(
+                "/recording/records/:id/stream",
+                routing::head(recording::records::stream::head),
             );
     };
 
@@ -229,6 +247,11 @@ where
         recording::recorders::get,
         recording::recorders::create,
         recording::recorders::delete,
+        recording::records::list,
+        recording::records::get,
+        recording::records::delete,
+        recording::records::stream::get,
+        recording::records::stream::head,
         timeshift::list,
         timeshift::get,
         timeshift::stream,

@@ -163,6 +163,85 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
     }
 }
 
+/// A record ID.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub(in crate::web) struct RecordId(u64);
+
+/// A record model.
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(title = "Record")]
+pub(in crate::web) struct WebRecord {
+    /// The record ID.
+    #[schema(value_type = u64)]
+    pub id: RecordId,
+    /// Metadata of the TV program.
+    pub program: MirakurunProgram,
+    /// Recording options.
+    pub options: RecordingOptions,
+    /// A list of tags.
+    #[schema(value_type = Vec<String>)]
+    pub tags: HashSet<String>,
+    /// The start time of the **actual** recording in UNIX time (milliseconds).
+    ///
+    /// The value may not equal to the start time of the TV program.
+    #[serde(with = "ts_milliseconds")]
+    #[schema(value_type = i64)]
+    pub recording_start_time: DateTime<Jst>,
+    /// The end time of the **actual** recording in UNIX time (milliseconds).
+    ///
+    /// The value may not equal to the end time of the TV program.
+    #[serde(with = "ts_milliseconds")]
+    #[schema(value_type = i64)]
+    pub recording_end_time: DateTime<Jst>,
+    /// The duration of the **actual** recording in milliseconds.
+    ///
+    /// The value may not equal to the duration of the TV program.
+    #[serde(with = "duration_milliseconds")]
+    #[schema(value_type = i64)]
+    pub recording_duration: Duration,
+    /// The size of the recorded data.
+    ///
+    /// `null` if there is no file of the recorded data at the location specified by `content_path`
+    /// of the recording schedule.
+    pub size: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, IntoParams)]
+#[serde(rename_all = "kebab-case")]
+#[into_params(parameter_in = Query)]
+pub(in crate::web) struct RecordDeletionSetting {
+    /// `1` or `true` will purge the recorded data.
+    ///
+    /// The recorded data won't be purged by default.
+    #[serde(default = "RecordDeletionSetting::default_purge")]
+    #[serde(deserialize_with = "RecordDeletionSetting::deserialize_purge")]
+    pub purge: bool, // default: false
+}
+
+impl RecordDeletionSetting {
+    fn default_purge() -> bool {
+        false
+    }
+
+    // TODO(refactor): took from FilterSetting::deserialize_stream_decode_query()
+    fn deserialize_purge<'de, D>(deserializer: D) -> Result<bool, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s == "0" || s == "false" {
+            return Ok(false);
+        }
+        if s == "1" || s == "true" {
+            return Ok(true);
+        }
+        Err(serde::de::Error::custom(
+            "The value of the decode query must be 0, 1, false or true",
+        ))
+    }
+}
+
 /// A timeshift recorder model.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
