@@ -9,6 +9,7 @@ use axum::http::request::Parts;
 use chrono::DateTime;
 use chrono::Duration;
 use chrono_jst::serde::duration_milliseconds;
+use chrono_jst::serde::duration_milliseconds_option;
 use chrono_jst::serde::ts_milliseconds;
 use chrono_jst::serde::ts_milliseconds_option;
 use chrono_jst::Jst;
@@ -167,8 +168,18 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub(in crate::web) struct RecordId(u64);
 
+/// A recording status.
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(title = "RecordingStatus")]
+pub(in crate::web) enum RecordingStatus {
+    Recording,
+    Recorded,
+    Failed { reason: RecordingFailedReason },
+}
+
 /// A record model.
-#[derive(Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(title = "Record")]
 pub(in crate::web) struct WebRecord {
@@ -182,6 +193,8 @@ pub(in crate::web) struct WebRecord {
     /// A list of tags.
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
+    /// The current status of the record.
+    pub recording_status: RecordingStatus,
     /// The start time of the **actual** recording in UNIX time (milliseconds).
     ///
     /// The value may not equal to the start time of the TV program.
@@ -191,19 +204,26 @@ pub(in crate::web) struct WebRecord {
     /// The end time of the **actual** recording in UNIX time (milliseconds).
     ///
     /// The value may not equal to the end time of the TV program.
-    #[serde(with = "ts_milliseconds")]
+    ///
+    /// Undefined during recording.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(with = "ts_milliseconds_option")]
     #[schema(value_type = i64)]
-    pub recording_end_time: DateTime<Jst>,
+    pub recording_end_time: Option<DateTime<Jst>>,
     /// The duration of the **actual** recording in milliseconds.
     ///
     /// The value may not equal to the duration of the TV program.
-    #[serde(with = "duration_milliseconds")]
+    ///
+    /// Undefined during recording.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(with = "duration_milliseconds_option")]
     #[schema(value_type = i64)]
-    pub recording_duration: Duration,
+    pub recording_duration: Option<Duration>,
     /// The size of the recorded data.
     ///
     /// `null` if there is no file of the recorded data at the location specified by `content_path`
     /// of the recording schedule.
+    #[serde(skip)]
     pub size: Option<u64>,
 }
 
