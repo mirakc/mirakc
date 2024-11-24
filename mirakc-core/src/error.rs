@@ -24,6 +24,8 @@ pub enum Error {
     ScheduleNotFound,
     #[error("Recorder not found")]
     RecorderNotFound,
+    #[error("Now recording")]
+    NowRecording,
     #[error("Out of range")]
     OutOfRange,
     #[error("No content")]
@@ -66,6 +68,10 @@ pub enum Error {
     AxumHttpError(axum::http::Error),
     #[error("actlet error: {0}")]
     ActletError(actlet::Error),
+    #[error("glob::GlobError: {0:?}")]
+    GlobError(glob::GlobError),
+    #[error("glob::PatternError: {0:?}")]
+    GlobPatternError(glob::PatternError),
     #[error(transparent)]
     AnyhowError(#[from] anyhow::Error),
 }
@@ -151,5 +157,17 @@ impl From<axum::http::Error> for Error {
 impl From<actlet::Error> for Error {
     fn from(err: actlet::Error) -> Self {
         Self::ActletError(err)
+    }
+}
+
+impl From<glob::GlobError> for Error {
+    fn from(err: glob::GlobError) -> Self {
+        Self::GlobError(err)
+    }
+}
+
+impl From<glob::PatternError> for Error {
+    fn from(err: glob::PatternError) -> Self {
+        Self::GlobPatternError(err)
     }
 }

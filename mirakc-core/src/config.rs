@@ -806,11 +806,16 @@ impl JobConfig {
 #[serde(deny_unknown_fields)]
 pub struct RecordingConfig {
     pub basedir: Option<PathBuf>,
+    pub records_dir: Option<PathBuf>,
 }
 
 impl RecordingConfig {
     pub fn is_enabled(&self) -> bool {
         self.basedir.is_some()
+    }
+
+    pub fn is_records_api_enabled(&self) -> bool {
+        self.basedir.is_some() && self.records_dir.is_some()
     }
 
     fn validate(&self) {

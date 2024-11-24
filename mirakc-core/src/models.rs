@@ -494,6 +494,7 @@ pub struct MirakurunChannelService {
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(title = "Service")]
+#[cfg_attr(test, derive(Deserialize))]
 pub struct MirakurunService {
     #[schema(value_type = u64)]
     pub id: ServiceId,
@@ -538,6 +539,7 @@ impl From<EpgService> for MirakurunService {
 
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Deserialize))]
 pub struct MirakurunServiceChannel {
     #[serde(rename = "type")]
     pub channel_type: ChannelType,

@@ -115,6 +115,7 @@ macro_rules! service {
         }
     }};
 }
+
 macro_rules! program {
     ($id:expr, $start_at:expr, $duration:literal) => {{
         let mut program = crate::epg::EpgProgram::new($id.into());
@@ -132,6 +133,92 @@ macro_rules! program {
     }};
     ($id:expr) => {
         crate::epg::EpgProgram::new($id.into())
+    };
+}
+
+macro_rules! recording_options {
+    ($content_path:expr, $priority:expr) => {
+        RecordingOptions {
+            content_path: $content_path.into(),
+            priority: $priority.into(),
+            pre_filters: vec![],
+            post_filters: vec![],
+        }
+    };
+}
+
+macro_rules! recording_schedule {
+    ($state:expr, $program:expr, $options:expr) => {
+        RecordingSchedule {
+            state: $state,
+            program: Arc::new($program),
+            options: $options,
+            tags: Default::default(),
+            failed_reason: None,
+        }
+    };
+    ($state:expr, $program:expr, $options:expr, $tags:expr) => {
+        RecordingSchedule {
+            state: $state,
+            program: Arc::new($program),
+            options: $options,
+            tags: $tags,
+            failed_reason: None,
+        }
+    };
+}
+
+macro_rules! recording_manager {
+    ($config:expr) => {
+        RecordingManager::new(
+            $config,
+            TunerManagerStub::default(),
+            EpgStub,
+            OnairProgramManagerStub,
+        )
+    };
+    ($config:expr, $tuner:expr, $epg:expr, $onair:expr) => {
+        RecordingManager::new($config, $tuner, $epg, $onair)
+    };
+}
+
+macro_rules! recorder {
+    ($started_at:expr, $pipeline:expr) => {
+        Recorder {
+            started_at: $started_at,
+            pipeline: $pipeline,
+            stop_trigger: None,
+        }
+    };
+}
+
+macro_rules! record {
+    (recording: $id:expr) => {
+        record!($id, RecordingStatus::Recording)
+    };
+    (finished: $id:expr) => {
+        record!($id, RecordingStatus::Finished)
+    };
+    (failed: $id:expr) => {
+        record!(
+            $id,
+            RecordingStatus::Failed {
+                reason: RecordingFailedReason::RemovedFromEpg,
+            }
+        )
+    };
+    ($id:expr, $status:expr) => {
+        Record {
+            id: $id.into(),
+            program: program!((0, 1, 2)),
+            service: service!((0, 1), "", channel_gr!("", "")),
+            options: recording_options!(format!("{}.m2ts", $id), 0),
+            tags: Default::default(),
+            recording_status: $status,
+            recording_start_time: Jst::now(),
+            recording_end_time: None,
+            recording_duration: None,
+        }
     };
 }
 

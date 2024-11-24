@@ -54,8 +54,8 @@ where
         &tuner_manager,
         channel,
         path.sid,
-        user,
-        filter_setting,
+        &user,
+        &filter_setting,
     )
     .await
 }

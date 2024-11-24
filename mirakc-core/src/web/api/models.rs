@@ -34,9 +34,12 @@ use crate::models::TunerUserInfo;
 use crate::models::TunerUserPriority;
 use crate::onair::OnairProgram;
 use crate::recording;
+use crate::recording::Record;
+use crate::recording::RecordId;
 use crate::recording::RecordingFailedReason;
 use crate::recording::RecordingOptions;
 use crate::recording::RecordingScheduleState;
+use crate::recording::RecordingStatus;
 use crate::timeshift::TimeshiftRecordModel;
 use crate::timeshift::TimeshiftRecorderModel;
 
@@ -164,30 +167,19 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
     }
 }
 
-/// A record ID.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
-pub(in crate::web) struct RecordId(u64);
-
-/// A recording status.
-#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-#[schema(title = "RecordingStatus")]
-pub(in crate::web) enum RecordingStatus {
-    Recording,
-    Recorded,
-    Failed { reason: RecordingFailedReason },
-}
-
 /// A record model.
-#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(title = "Record")]
+#[cfg_attr(test, derive(Deserialize))]
 pub(in crate::web) struct WebRecord {
     /// The record ID.
     #[schema(value_type = u64)]
     pub id: RecordId,
     /// Metadata of the TV program.
     pub program: MirakurunProgram,
+    /// Metadata of the service.
+    pub service: MirakurunService,
     /// Recording options.
     pub options: RecordingOptions,
     /// A list of tags.
@@ -206,6 +198,7 @@ pub(in crate::web) struct WebRecord {
     /// The value may not equal to the end time of the TV program.
     ///
     /// Undefined during recording.
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "ts_milliseconds_option")]
     #[schema(value_type = i64)]
@@ -215,6 +208,7 @@ pub(in crate::web) struct WebRecord {
     /// The value may not equal to the duration of the TV program.
     ///
     /// Undefined during recording.
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "duration_milliseconds_option")]
     #[schema(value_type = i64)]
@@ -223,8 +217,29 @@ pub(in crate::web) struct WebRecord {
     ///
     /// `null` if there is no file of the recorded data at the location specified by `content_path`
     /// of the recording schedule.
-    #[serde(skip)]
+    ///
+    /// `0` will be set if failed getting the size of the recorded data even though the file
+    /// exists.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
+}
+
+impl From<(Record, Option<u64>)> for WebRecord {
+    fn from((record, size): (Record, Option<u64>)) -> Self {
+        Self {
+            id: record.id,
+            program: record.program.into(),
+            service: record.service.into(),
+            options: record.options,
+            tags: record.tags,
+            recording_status: record.recording_status,
+            recording_start_time: record.recording_start_time,
+            recording_end_time: record.recording_end_time,
+            recording_duration: record.recording_duration,
+            size,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, IntoParams)]

@@ -1,8 +1,7 @@
 use super::*;
 
-use std::ops::Bound;
-
 use crate::models::TunerUser;
+use crate::web::api::stream::calc_start_pos_in_ranges;
 use crate::web::api::stream::streaming;
 
 /// Lists timeshift records.
@@ -114,23 +113,10 @@ where
     };
     let record = timeshift_manager.call(msg).await??;
 
-    let start_pos = if let Some(TypedHeader(ranges)) = ranges {
-        ranges
-            .satisfiable_ranges(record.size)
-            .next()
-            .and_then(|(start, _)| match start {
-                Bound::Included(n) => Some(n),
-                Bound::Excluded(n) => Some(n + 1),
-                _ => None,
-            })
-    } else {
-        None
-    };
-
     let msg = timeshift::CreateTimeshiftRecordStreamSource {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
         record_id: path.id,
-        start_pos,
+        start_pos: calc_start_pos_in_ranges(ranges, record.size),
     };
     let src = timeshift_manager.call(msg).await??;
 
@@ -174,5 +160,5 @@ where
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    streaming(&config, user, stream, filters, content_type, stop_trigger).await
+    streaming(&config, &user, stream, filters, content_type, stop_trigger).await
 }

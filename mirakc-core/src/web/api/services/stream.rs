@@ -47,8 +47,8 @@ where
         &tuner_manager,
         service.channel,
         service_id.sid(),
-        user,
-        filter_setting,
+        &user,
+        &filter_setting,
     )
     .await
 }

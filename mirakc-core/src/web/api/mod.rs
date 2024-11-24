@@ -161,7 +161,12 @@ where
             .route(
                 "/recording/recorders/:id",
                 routing::delete(recording::recorders::delete),
-            )
+            );
+    };
+
+    if config.recording.is_records_api_enabled() {
+        tracing::info!("Enable endpoints for records");
+        router = router
             .route("/recording/records", routing::get(recording::records::list))
             .route(
                 "/recording/records/:id",
@@ -180,7 +185,7 @@ where
                 "/recording/records/:id/stream",
                 routing::head(recording::records::stream::head),
             );
-    };
+    }
 
     if config.timeshift.is_enabled() {
         tracing::info!("Enable endpoints for timeshift recording");

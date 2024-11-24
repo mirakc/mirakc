@@ -49,6 +49,7 @@ impl IntoResponse for Error {
             Error::RecordNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::ScheduleNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::RecorderNotFound => error_response!(StatusCode::NOT_FOUND),
+            Error::NowRecording => error_response!(StatusCode::BAD_REQUEST),
             Error::OutOfRange => error_response!(StatusCode::RANGE_NOT_SATISFIABLE),
             Error::NoContent => error_response!(StatusCode::NO_CONTENT),
             Error::NoLogoData => {
@@ -59,6 +60,9 @@ impl IntoResponse for Error {
             Error::ProgramEnded => error_response!(StatusCode::BAD_REQUEST),
             Error::QuerystringError(_) => error_response!(StatusCode::BAD_REQUEST),
             Error::InvalidPath => error_response!(StatusCode::BAD_REQUEST),
+            Error::IoError(err) if matches!(err.kind(), std::io::ErrorKind::NotFound) => {
+                error_response!(StatusCode::NOT_FOUND)
+            }
             _ => error_response!(StatusCode::INTERNAL_SERVER_ERROR),
         }
     }

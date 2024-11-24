@@ -206,20 +206,16 @@ impl TimeshiftRecord {
         &self,
         recorder_name: String,
         config: &TimeshiftRecorderConfig,
-        start_pos: Option<u64>,
+        start_pos: u64,
     ) -> Result<TimeshiftRecordStreamSource, Error> {
         let file = config.ts_file.clone();
         let file_size = config.max_file_size();
         let id = self.id;
         let size = self.get_size(file_size);
-        let (start, range) = if let Some(pos) = start_pos {
-            (
-                (self.start.pos + pos) % file_size,
-                self.make_range(pos, size)?,
-            )
-        } else {
-            (self.start.pos, self.make_range(0, size)?)
-        };
+        let (start, range) = (
+            (self.start.pos + start_pos) % file_size,
+            self.make_range(start_pos, size)?,
+        );
         Ok(TimeshiftRecordStreamSource {
             recorder_name,
             file,
