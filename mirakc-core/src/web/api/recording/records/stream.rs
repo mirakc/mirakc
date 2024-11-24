@@ -12,7 +12,6 @@ use crate::web::api::stream::streaming;
     path = "/recording/records/{id}/stream",
     params(
         ("id" = u64, Path, description = "Record ID"),
-        ("pre-filters" = Option<[String]>, Query, description = "Pre-filters"),
         ("post-filters" = Option<[String]>, Query, description = "post-filters"),
     ),
     responses(
@@ -43,16 +42,19 @@ pub(in crate::web::api) async fn get(
 
     // `size` must not be `None` at this point.
     let size = size.unwrap();
-    let start_pos = calc_start_pos_in_ranges(ranges, size);
-
-    let range = if matches!(record.recording_status, RecordingStatus::Recording) {
-        MpegTsStreamRange::unbound(start_pos, size)?
-    } else {
-        MpegTsStreamRange::bound(start_pos, size)?
-    };
 
     let stream = tokio_util::io::ReaderStream::new(content);
-    let stream = MpegTsStream::with_range(id, stream, range);
+    let stream = if ranges.is_none() {
+        MpegTsStream::new(id, stream)
+    } else {
+        let start_pos = calc_start_pos_in_ranges(ranges, size);
+        let range = if matches!(record.recording_status, RecordingStatus::Recording) {
+            MpegTsStreamRange::unbound(start_pos, size)?
+        } else {
+            MpegTsStreamRange::bound(start_pos, size)?
+        };
+        MpegTsStream::with_range(id, stream, range)
+    };
 
     let video_tags: Vec<u8> = record
         .program
@@ -94,7 +96,6 @@ pub(in crate::web::api) async fn get(
     path = "/recording/records/{id}/stream",
     params(
         ("id" = u64, Path, description = "Record ID"),
-        ("pre-filters" = Option<[String]>, Query, description = "Pre-filters"),
         ("post-filters" = Option<[String]>, Query, description = "post-filters"),
     ),
     responses(

@@ -612,11 +612,75 @@ async fn test_get_recording_record_stream() {
 
     let res = get("/api/recording/records/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    // TODO: Should have content-length.
+    assert_matches!(res.headers().get("content-length"), None);
+    // Should be seekable.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
+        // TODO: assert_eq!(v, "bytes");
+    });
+    let content = res.into_text().await;
+    assert_eq!(content, "0123456789");
+
+    let res = get("/api/recording/records/1/stream?post-filters[]=mp4").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
+    });
+    // Indefinite length.
+    assert_matches!(res.headers().get("content-length"), None);
+    // Not seekable when post filters are applied.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+
+    // TODO: range requests
+
+    let res = get("/api/recording/records/2/stream").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    // Any record now recording is also seekable.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
+        // TODO: assert_eq!(v, "bytes");
+    });
+    let content = res.into_text().await;
+    assert_eq!(content, "0123456789");
+
+    let res = get("/api/recording/records/2/stream").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    // Indefinite length.
+    assert_matches!(res.headers().get("content-length"), None);
+    // Should be seekable.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
+        // TODO: assert_eq!(v, "bytes");
+    });
+    let content = res.into_text().await;
+    assert_eq!(content, "0123456789");
+
+    let res = get("/api/recording/records/2/stream?post-filters[]=mp4").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
+    });
+    // Indefinite length.
+    assert_matches!(res.headers().get("content-length"), None);
+    // Not seekable when post filters are applied.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+
+    // TODO: range requests
 
     let res = get("/api/recording/records/10/stream").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
-
-    // TODO: ranges, filters
 }
 
 #[test(tokio::test)]
@@ -629,8 +693,6 @@ async fn test_head_recording_record_stream() {
 
     let res = head("/api/recording/records/10/stream").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
-
-    // TODO: ranges, filters
 }
 
 #[test(tokio::test)]
@@ -1279,8 +1341,8 @@ fn prepare_recording_dir(recording_dir: &std::path::Path) {
         assert!(path.is_file());
     };
 
-    write("1.m2ts", b"1");
-    write("2.m2ts", b"2");
+    write("1.m2ts", b"0123456789");
+    write("2.m2ts", b"0123456789");
 }
 
 fn prepare_records_dir(records_dir: &std::path::Path) {

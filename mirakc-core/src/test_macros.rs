@@ -199,14 +199,6 @@ macro_rules! record {
     (finished: $id:expr) => {
         record!($id, RecordingStatus::Finished)
     };
-    (failed: $id:expr) => {
-        record!(
-            $id,
-            RecordingStatus::Failed {
-                reason: RecordingFailedReason::RemovedFromEpg,
-            }
-        )
-    };
     ($id:expr, $status:expr) => {
         Record {
             id: $id.into(),
