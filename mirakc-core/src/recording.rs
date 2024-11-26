@@ -195,6 +195,108 @@ impl<T, E, O> RecordingManager<T, E, O> {
             self.timer_token = Some(token);
         }
     }
+
+    async fn create_record(&self, record_path: &Path, record: &Record) {
+        tracing::info!(?record_path, "Creating record...");
+
+        if record_path.exists() {
+            tracing::warn!(?record_path, "Already exists, will be overwritten");
+        }
+
+        if file_util::save_json(record, record_path) {
+            tracing::info!(?record_path, "Created successfully");
+            // TODO: emit recording.record-saved
+        } else {
+            tracing::error!(?record_path, "Failed to create");
+            // TODO: emit recording.record-broken
+        }
+    }
+
+    // Update record aggressively.
+    // If the record has been broken, it will be overwritten if possible.
+    async fn update_record(&self, program_id: ProgramId) {
+        let recorder = match self.recorders.get(&program_id) {
+            Some(recorder) => recorder,
+            None => {
+                tracing::error!(
+                    schedule.program.id = %program_id,
+                    "INCONSNSTENT: The recorder stopped before the recording stopped",
+                );
+                return;
+            }
+        };
+
+        let record_id = make_record_id(recorder.started_at.timestamp(), program_id.value());
+        let record_path = match make_record_path(&self.config, &record_id) {
+            Some(record_path) => record_path,
+            None => {
+                // The records feature is disabled.
+                return;
+            }
+        };
+
+        tracing::info!(?record_path, "Updating record...");
+
+        let record = match load_record(&self.config, &record_path).await {
+            Ok((mut record, _)) => {
+                if !matches!(record.recording_status, RecordingStatus::Recording) {
+                    tracing::warn!(
+                        ?record_path,
+                        "Recording status has been broken, will be overwritten"
+                    );
+                }
+                match self.schedules.get(&program_id) {
+                    Some(schedule) => {
+                        if matches!(
+                            schedule.state,
+                            RecordingScheduleState::Scheduled | RecordingScheduleState::Tracking
+                        ) {
+                            tracing::error!(?record_path, "inconsistent");
+                        }
+                        record.update_by_schedule(schedule);
+                    }
+                    None => {
+                        // The schedule may have been removed before this method is called.
+                        // For example, `clear_schedules()` clears schedules before the
+                        // recordings stop.
+                        tracing::warn!(?record_path, "No recording schedule, maybe canceled");
+                        record.recording_status = RecordingStatus::Canceled;
+                        record.recording_end_time = None;
+                        record.recording_duration = None;
+                    }
+                }
+                record
+            }
+            Err(err) => match self.schedules.get(&program_id) {
+                Some(schedule) => {
+                    tracing::error!(
+                        ?err,
+                        ?record_path,
+                        "Broken record, will be overwritten with new record"
+                    );
+                    Record::new(
+                        record_id,
+                        recorder.started_at,
+                        recorder.service.clone(),
+                        schedule,
+                    )
+                }
+                None => {
+                    tracing::error!(?err, ?record_path, "Broken record, skip updating");
+                    // TODO: emit recording.record-broken
+                    return;
+                }
+            },
+        };
+
+        if file_util::save_json(&record, &record_path) {
+            tracing::info!(?record_path, "Updated successfully");
+            // TODO: emit recording.record-saved
+        } else {
+            tracing::error!(?record_path, "Failed to save");
+            // TODO: emit recording.record-broken
+        }
+    }
 }
 
 // actor
@@ -1057,10 +1159,13 @@ where
             }
         };
 
+        let now = Jst::now();
+
         let recorder = Recorder {
-            started_at: Jst::now(),
+            started_at: now,
             pipeline,
             stop_trigger: Some(stop_trigger),
+            service: service.clone(),
         };
         self.recorders.insert(program_id, recorder);
         self.schedules.get_mut(&program_id).unwrap().state = RecordingScheduleState::Recording;
@@ -1068,6 +1173,14 @@ where
         // Spawn the following task after the recorder is inserted so that
         // actors receiving RecordingStarted messages can access the recorder.
         ctx.spawn_task(fut);
+
+        let record_id = make_record_id(now.timestamp(), program_id.value());
+        let record_path = make_record_path(&self.config, &record_id);
+        if let Some(record_path) = record_path {
+            let schedule = self.schedules.get(&program_id).unwrap();
+            let record = Record::new(record_id, now, service, schedule);
+            self.create_record(&record_path, &record).await;
+        }
 
         Ok(())
     }
@@ -1288,67 +1401,70 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
         let mut changed = false;
 
-        // Unlike the schedule, the recorder should be removed after the
-        // recording stopped.
-        let recorder = self.recorders.remove(&program_id);
-        match recorder {
-            Some(mut recorder) => {
-                // Manually drop the stop trigger so that we get the exit code
-                // from the program-filter without killing its process.
-                if let Some(stop_trigger) = recorder.stop_trigger.take() {
-                    drop(stop_trigger);
-                }
-
-                let results = recorder.pipeline.wait().await;
-                if check_retry(&results) {
-                    tracing::error!(
-                        schedule.program.id = %program_id,
-                        "Recording stopped before the TV program starts",
-                    );
-                    if let Some(schedule) = maybe_schedule {
-                        tracing::warn!(
-                            %schedule.program.id,
-                            "Need rescheduling",
-                        );
-                        schedule.state = RecordingScheduleState::Rescheduling;
-                        changed = true;
-                        self.emit_recording_failed(
-                            program_id,
-                            RecordingFailedReason::NeedRescheduling,
-                        )
-                        .await;
-                    }
-                } else if let Some(exit_code) = get_first_error(&results) {
-                    tracing::error!(
-                        %exit_code,
-                        schedule.program.id = %program_id,
-                        "The recording pipeline terminated abnormally",
-                    );
-                    let reason = RecordingFailedReason::PipelineError { exit_code };
-                    if let Some(schedule) = maybe_schedule {
-                        schedule.state = RecordingScheduleState::Failed;
-                        schedule.failed_reason = Some(reason.clone());
-                        changed = true;
-                    }
-                    self.emit_recording_failed(program_id, reason).await;
-                } else {
-                    tracing::info!(
-                        schedule.program.id = %program_id,
-                        "The recording finished successfully",
-                    );
-                    if let Some(schedule) = maybe_schedule {
-                        schedule.state = RecordingScheduleState::Finished;
-                        changed = true;
-                    }
-                }
-            }
+        let recorder = match self.recorders.get_mut(&program_id) {
+            Some(recorder) => recorder,
             None => {
-                tracing::debug!(
+                tracing::error!(
                     schedule.program.id = %program_id,
                     "INCONSNSTENT: The recorder stopped before the recording stopped",
                 );
+                let msg = RecordingStopped { program_id };
+                self.recording_stopped.emit(msg).await;
+                return changed;
+            }
+        };
+
+        // Manually drop the stop trigger so that we get the exit code
+        // from the program-filter without killing its process.
+        if let Some(stop_trigger) = recorder.stop_trigger.take() {
+            drop(stop_trigger);
+        }
+
+        let results = recorder.pipeline.wait().await;
+        if check_retry(&results) {
+            tracing::error!(
+                schedule.program.id = %program_id,
+                "Recording stopped before the TV program starts",
+            );
+            if let Some(schedule) = maybe_schedule {
+                tracing::warn!(
+                    %schedule.program.id,
+                    "Need rescheduling",
+                );
+                schedule.state = RecordingScheduleState::Rescheduling;
+                changed = true;
+                self.emit_recording_failed(program_id, RecordingFailedReason::NeedRescheduling)
+                    .await;
+            }
+        } else if let Some(exit_code) = get_first_error(&results) {
+            tracing::error!(
+                %exit_code,
+                schedule.program.id = %program_id,
+                "The recording pipeline terminated abnormally",
+            );
+            let reason = RecordingFailedReason::PipelineError { exit_code };
+            if let Some(schedule) = maybe_schedule {
+                schedule.state = RecordingScheduleState::Failed;
+                schedule.failed_reason = Some(reason.clone());
+                changed = true;
+            }
+            self.emit_recording_failed(program_id, reason).await;
+        } else {
+            tracing::info!(
+                schedule.program.id = %program_id,
+                "The recording finished successfully",
+            );
+            if let Some(schedule) = maybe_schedule {
+                schedule.state = RecordingScheduleState::Finished;
+                changed = true;
             }
         }
+
+        self.update_record(program_id).await;
+
+        // Unlike the schedule, the recorder should be removed after the
+        // recording stopped.
+        self.recorders.remove(&program_id);
 
         // TODO: Save recording logs to a file.
         let msg = RecordingStopped { program_id };
@@ -1642,6 +1758,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 }
                 Recording => {
                     schedule.program = program.clone();
+                    self.update_record(program.id).await;
                 }
                 Finished | Failed => {
                     // Nothing to do.
@@ -1771,6 +1888,9 @@ struct Recorder {
     started_at: DateTime<Jst>,
     pipeline: CommandPipeline<TunerSubscriptionId>,
     stop_trigger: Option<Trigger<StopStreaming>>,
+    // TODO(#2062): added here in order to keep compatibility of schedules.json until next major release.
+    // TODO(#2062): BREAKING CHANGE: move it to RecordingSchedule
+    service: EpgService,
 }
 
 impl Recorder {
@@ -1789,17 +1909,17 @@ pub struct RecorderModel {
     pub pipeline: Vec<CommandPipelineProcessModel>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
-pub struct RecordId(u64);
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct RecordId(String);
 
 impl RecordId {
-    pub fn value(&self) -> u64 {
-        self.0
+    pub fn value(&self) -> &str {
+        &self.0
     }
 }
 
-impl From<u64> for RecordId {
-    fn from(value: u64) -> Self {
+impl From<String> for RecordId {
+    fn from(value: String) -> Self {
         Self(value)
     }
 }
@@ -1808,17 +1928,6 @@ impl std::fmt::Display for RecordId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "record#{}", self.0)
     }
-}
-
-/// A recording status.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-#[derive(ToSchema)]
-#[schema(title = "RecordingStatus")]
-pub enum RecordingStatus {
-    Recording,
-    Finished,
-    Failed { reason: RecordingFailedReason },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1840,6 +1949,72 @@ pub struct Record {
     pub recording_duration: Option<Duration>,
 }
 
+impl Record {
+    fn new(
+        id: RecordId,
+        start_time: DateTime<Jst>,
+        service: EpgService,
+        schedule: &RecordingSchedule,
+    ) -> Self {
+        Self {
+            id,
+            program: (*schedule.program).clone(),
+            service,
+            options: schedule.options.clone(),
+            tags: schedule.tags.clone(),
+            recording_status: RecordingStatus::Recording,
+            recording_start_time: start_time,
+            recording_end_time: None,
+            recording_duration: None,
+        }
+    }
+
+    fn update_by_schedule(&mut self, schedule: &RecordingSchedule) {
+        let now = Jst::now();
+
+        self.program = (*schedule.program).clone();
+        self.options = schedule.options.clone();
+        self.tags = schedule.tags.clone();
+
+        self.recording_end_time = Some(now);
+        self.recording_duration = Some(now - self.recording_start_time);
+
+        match schedule.state {
+            RecordingScheduleState::Scheduled | RecordingScheduleState::Tracking => (),
+            RecordingScheduleState::Recording => {
+                self.recording_status = RecordingStatus::Recording;
+                self.recording_end_time = None;
+                self.recording_duration = None;
+            }
+            RecordingScheduleState::Rescheduling => {
+                self.recording_status = RecordingStatus::Failed {
+                    reason: RecordingFailedReason::NeedRescheduling,
+                };
+            }
+            RecordingScheduleState::Finished => {
+                self.recording_status = RecordingStatus::Finished;
+            }
+            RecordingScheduleState::Failed => {
+                self.recording_status = RecordingStatus::Failed {
+                    reason: schedule.failed_reason.clone().unwrap(),
+                };
+            }
+        }
+    }
+}
+
+/// A recording status.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[derive(ToSchema)]
+#[schema(title = "RecordingStatus")]
+pub enum RecordingStatus {
+    Recording,
+    Finished,
+    Failed { reason: RecordingFailedReason },
+    Canceled,
+}
+
 // helpers
 
 fn check_retry(results: &[std::io::Result<ExitStatus>]) -> bool {
@@ -1859,9 +2034,42 @@ fn get_first_error(results: &[std::io::Result<ExitStatus>]) -> Option<i32> {
         .find(|&code| code != 0)
 }
 
-#[cfg(test)]
-#[macro_use]
-mod test_macros {}
+fn make_record_id(timestamp: i64, program_id: u64) -> RecordId {
+    RecordId(format!("{timestamp:08X}{program_id:08X}"))
+}
+
+pub fn make_record_path(config: &Config, record_id: &RecordId) -> Option<PathBuf> {
+    config
+        .recording
+        .records_dir
+        .as_ref()
+        .map(|records_dir| records_dir.join(format!("{}.record.json", record_id.value())))
+}
+
+pub fn make_content_path(config: &Config, content_path: &Path) -> Option<PathBuf> {
+    config
+        .recording
+        .basedir
+        .as_ref()
+        .map(|basedir| basedir.join(content_path))
+}
+
+pub async fn load_record(
+    config: &Config,
+    record_path: &Path,
+) -> Result<(Record, Option<u64>), Error> {
+    let data = tokio::fs::read(record_path).await?;
+    let record: Record = serde_json::from_slice(&data)?;
+    let content_path = make_content_path(config, &record.options.content_path).unwrap();
+    let size = content_path.is_file().then(|| {
+        content_path
+            .metadata()
+            .ok()
+            .map(|metadata| metadata.len())
+            .unwrap_or(0)
+    });
+    Ok((record, size))
+}
 
 #[cfg(test)]
 mod tests {
@@ -1874,6 +2082,9 @@ mod tests {
     use maplit::hashset;
     use tempfile::TempDir;
     use test_log::test;
+
+    const RECORDING_DIR: &str = "recording";
+    const RECORDS_DIR: &str = ".records";
 
     #[test]
     fn test_save_and_load() {
@@ -1911,7 +2122,11 @@ mod tests {
         let num_schedules = manager.schedules.len();
 
         manager.save_schedules();
-        assert!(temp_dir.path().join("schedules.json").is_file());
+        assert!(temp_dir
+            .path()
+            .join(RECORDING_DIR)
+            .join("schedules.json")
+            .is_file());
 
         let mut manager = recording_manager!(config.clone());
         manager.load_schedules();
@@ -2113,7 +2328,8 @@ mod tests {
     fn test_remove_schedules() {
         let now = Jst::now();
 
-        let config = config_for_test("/tmp");
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
 
         let mut manager = recording_manager!(config);
 
@@ -2200,9 +2416,116 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    async fn test_start_recording() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let program_id = ProgramId::from((0, 1, 1));
+        let content_filename = "1.m2ts";
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(StartRecording {
+                    schedule: recording_schedule!(
+                        RecordingScheduleState::Scheduled,
+                        program!(program_id, now, "1h"),
+                        recording_options!(content_filename, 0)
+                    ),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(())));
+
+            let record_pattern = format!(
+                "{}/{RECORDS_DIR}/*{:08X}.record.json",
+                temp_dir.path().display(),
+                program_id.value()
+            );
+            assert_matches!(glob::glob(&record_pattern).unwrap().next(), Some(Ok(record_path)) => {
+                assert_matches!(load_record(&config, &record_path).await, Ok((record, _)) => {
+                    assert_eq!(record.program.id, program_id);
+                    assert_matches!(record.recording_status, RecordingStatus::Recording);
+                })
+            });
+        }
+        system.shutdown().await;
+
+        let content_path = temp_dir.path().join(RECORDING_DIR).join(content_filename);
+        assert!(content_path.is_file());
+
+        let record_pattern = format!(
+            "{}/{RECORDS_DIR}/*{:08X}.record.json",
+            temp_dir.path().display(),
+            program_id.value()
+        );
+        assert_matches!(glob::glob(&record_pattern).unwrap().next(), Some(Ok(record_path)) => {
+            assert_matches!(load_record(&config, &record_path).await, Ok((record, _)) => {
+                assert_eq!(record.program.id, program_id);
+                // The recording stops when the system stops.
+                assert_matches!(record.recording_status, RecordingStatus::Finished);
+            })
+        });
+    }
+
+    #[test(tokio::test)]
+    async fn test_stop_recording() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let program_id = ProgramId::from((0, 1, 1));
+        let content_filename = "1.m2ts";
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(StartRecording {
+                    schedule: recording_schedule!(
+                        RecordingScheduleState::Scheduled,
+                        program!(program_id, now, "1h"),
+                        recording_options!(content_filename, 0)
+                    ),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(())));
+
+            let result = manager.call(StopRecording { program_id }).await;
+            assert_matches!(result, Ok(Ok(())));
+
+            // TODO: use Emitter<RecordingStopped> for waiting the event.
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            let record_pattern = format!(
+                "{}/{RECORDS_DIR}/*{:08X}.record.json",
+                temp_dir.path().display(),
+                program_id.value()
+            );
+            assert_matches!(glob::glob(&record_pattern).unwrap().next(), Some(Ok(record_path)) => {
+                assert_matches!(load_record(&config, &record_path).await, Ok((record, _)) => {
+                    assert_eq!(record.program.id, program_id);
+                    assert_matches!(record.recording_status, RecordingStatus::Finished);
+                })
+            });
+        }
+        system.shutdown().await;
+
+        let content_path = temp_dir.path().join(RECORDING_DIR).join(content_filename);
+        assert!(content_path.is_file());
+    }
+
+    #[test(tokio::test)]
     async fn test_maintain_schedules() {
         let now = Jst::now();
-        let config = config_for_test("/tmp");
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
 
         let max_delay = Duration::try_hours(MAX_DELAY_HOURS).unwrap();
 
@@ -2600,7 +2923,15 @@ mod tests {
 
     fn config_for_test<P: AsRef<Path>>(dir: P) -> Arc<Config> {
         let mut config = Config::default();
-        config.recording.basedir = Some(dir.as_ref().to_owned());
+
+        let recording_dir = dir.as_ref().join(RECORDING_DIR);
+        std::fs::create_dir(&recording_dir).unwrap();
+        config.recording.basedir = Some(recording_dir);
+
+        let records_dir = dir.as_ref().join(RECORDS_DIR);
+        std::fs::create_dir(&records_dir).unwrap();
+        config.recording.records_dir = Some(records_dir);
+
         Arc::new(config)
     }
 

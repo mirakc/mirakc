@@ -377,7 +377,7 @@ async fn test_get_recording_schedules() {
 async fn test_create_recording_schedule() {
     // Error::ProgramNotFound
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 0).into(),
+        program_id: (0, 1, 0).into(),
         options: RecordingOptions {
             content_path: "0.m2ts".into(),
             priority: 1,
@@ -391,7 +391,7 @@ async fn test_create_recording_schedule() {
 
     // Error::AlreadyExists
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 1).into(),
+        program_id: (0, 1, 1).into(),
         options: RecordingOptions {
             content_path: "1.m2ts".into(),
             priority: 1,
@@ -405,7 +405,7 @@ async fn test_create_recording_schedule() {
 
     // Error::ProgramAlreadyStarted
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 2).into(),
+        program_id: (0, 1, 2).into(),
         options: RecordingOptions {
             content_path: "2.m2ts".into(),
             priority: 1,
@@ -419,7 +419,7 @@ async fn test_create_recording_schedule() {
 
     // Ok
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 4).into(),
+        program_id: (0, 1, 4).into(),
         options: RecordingOptions {
             content_path: "4.m2ts".into(),
             priority: 1,
@@ -433,7 +433,7 @@ async fn test_create_recording_schedule() {
 
     // Error::InvalidPath
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 4).into(),
+        program_id: (0, 1, 4).into(),
         options: RecordingOptions {
             content_path: "/4.m2ts".into(),
             priority: 1,
@@ -447,7 +447,7 @@ async fn test_create_recording_schedule() {
 
     // Error::InvalidPath
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 4).into(),
+        program_id: (0, 1, 4).into(),
         options: RecordingOptions {
             content_path: "../4.m2ts".into(),
             priority: 1,
@@ -496,7 +496,7 @@ async fn test_get_recording_recorders() {
 #[test(tokio::test)]
 async fn test_create_recording_recorder() {
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 1).into(),
+        program_id: (0, 1, 1).into(),
         options: RecordingOptions {
             content_path: "program.m2ts".into(),
             priority: 1,
@@ -509,7 +509,7 @@ async fn test_create_recording_recorder() {
     assert_eq!(res.status(), StatusCode::CREATED);
 
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 0).into(),
+        program_id: (0, 1, 0).into(),
         options: RecordingOptions {
             content_path: "program.m2ts".into(),
             priority: 1,

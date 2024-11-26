@@ -2,7 +2,9 @@ pub(in crate::web::api) mod stream;
 
 use super::*;
 
-use crate::recording::Record;
+use crate::recording::load_record;
+use crate::recording::make_content_path;
+use crate::recording::make_record_path;
 use crate::recording::RecordId;
 use crate::recording::RecordingStatus;
 
@@ -39,7 +41,7 @@ pub(in crate::web::api) async fn list(
             tracing::warn!(?record_path, "Should be a regular file");
             continue;
         }
-        let tuple = load_record(&config, &record_path)?;
+        let tuple = load_record(&config, &record_path).await?;
         records.push(tuple.into());
     }
     Ok(Json(records))
@@ -50,7 +52,7 @@ pub(in crate::web::api) async fn list(
     get,
     path = "/recording/records/{id}",
     params(
-        ("id" = u64, Path, description = "Record ID"),
+        ("id" = String, Path, description = "Record ID"),
     ),
     responses(
         (status = 200, description = "OK", body = WebRecord),
@@ -63,8 +65,8 @@ pub(in crate::web::api) async fn get(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     Path(id): Path<RecordId>,
 ) -> Result<Json<WebRecord>, Error> {
-    let record_path = make_record_path(&config, id);
-    let tuple = load_record(&config, &record_path)?;
+    let record_path = make_record_path(&config, &id).unwrap();
+    let tuple = load_record(&config, &record_path).await?;
     Ok(Json(tuple.into()))
 }
 
@@ -73,7 +75,7 @@ pub(in crate::web::api) async fn get(
     delete,
     path = "/recording/records/{id}",
     params(
-        ("id" = u64, Path, description = "Record ID"),
+        ("id" = String, Path, description = "Record ID"),
         RecordDeletionSetting,
     ),
     responses(
@@ -89,65 +91,25 @@ pub(in crate::web::api) async fn delete(
     Path(id): Path<RecordId>,
     Qs(deletion_setting): Qs<RecordDeletionSetting>,
 ) -> Result<(), Error> {
-    let record_path = make_record_path(&config, id);
-    let (record, _) = load_record(&config, &record_path)?;
+    let record_path = make_record_path(&config, &id).unwrap();
+    let (record, _) = load_record(&config, &record_path).await?;
     if matches!(record.recording_status, RecordingStatus::Recording) {
         return Err(Error::NowRecording);
     }
     if deletion_setting.purge {
-        let content_path = make_content_path(&config, &record.options.content_path);
+        let content_path = make_content_path(&config, &record.options.content_path).unwrap();
         match std::fs::remove_file(&content_path) {
             Ok(_) => {
-                // TODO: emit recording.data-removed
+                // TODO: emit recording.content-deleted
             }
             Err(err) => tracing::error!(?err, ?content_path),
         }
     }
     match std::fs::remove_file(&record_path) {
         Ok(_) => {
-            // TODO: emit recording.metadata-removed
+            // TODO: emit recording.record-deleted
         }
         Err(err) => tracing::error!(?err, ?record_path),
     }
     Ok(())
-}
-
-// helper functions
-
-fn make_record_path(config: &Config, id: RecordId) -> std::path::PathBuf {
-    let records_dir = config
-        .recording
-        .records_dir
-        .as_ref()
-        .expect("config.recording.records-dir must be defined");
-    records_dir.join(format!("{}.record.json", id.value()))
-}
-
-fn make_content_path(config: &Config, content_path: &std::path::Path) -> std::path::PathBuf {
-    let basedir = config
-        .recording
-        .basedir
-        .as_ref()
-        .expect("config.recording.basedir must be defined");
-    basedir.join(content_path)
-}
-
-fn load_record(
-    config: &Config,
-    record_path: &std::path::Path,
-) -> Result<(Record, Option<u64>), Error> {
-    let record_file = std::fs::File::open(record_path)?;
-    let record: Record = serde_json::from_reader(record_file)?;
-    let data_path = make_content_path(config, &record.options.content_path);
-    let size = if data_path.is_file() {
-        let size = data_path
-            .metadata()
-            .ok()
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        Some(size)
-    } else {
-        None
-    };
-    Ok((record, size))
 }

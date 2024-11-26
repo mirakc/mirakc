@@ -188,6 +188,7 @@ macro_rules! recorder {
             started_at: $started_at,
             pipeline: $pipeline,
             stop_trigger: None,
+            service: service!((0, 1), "sv", channel_gr!("ch", "ch")), // dummy
         }
     };
 }
@@ -201,7 +202,7 @@ macro_rules! record {
     };
     ($id:expr, $status:expr) => {
         Record {
-            id: $id.into(),
+            id: $id.to_string().into(),
             program: program!((0, 1, 2)),
             service: service!((0, 1), "", channel_gr!("", "")),
             options: recording_options!(format!("{}.m2ts", $id), 0),

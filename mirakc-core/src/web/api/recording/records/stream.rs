@@ -11,7 +11,7 @@ use crate::web::api::stream::streaming;
     get,
     path = "/recording/records/{id}/stream",
     params(
-        ("id" = u64, Path, description = "Record ID"),
+        ("id" = String, Path, description = "Record ID"),
         ("post-filters" = Option<[String]>, Query, description = "post-filters"),
     ),
     responses(
@@ -29,10 +29,10 @@ pub(in crate::web::api) async fn get(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error> {
-    let record_path = make_record_path(&config, id);
-    let (record, size) = load_record(&config, &record_path)?;
+    let record_path = make_record_path(&config, &id).unwrap();
+    let (record, size) = load_record(&config, &record_path).await?;
 
-    let content_path = make_content_path(&config, &record.options.content_path);
+    let content_path = make_content_path(&config, &record.options.content_path).unwrap();
     if !content_path.exists() {
         tracing::warn!(?content_path, "No such file, maybe it has been deleted");
         return Err(Error::NoContent);
@@ -95,7 +95,7 @@ pub(in crate::web::api) async fn get(
     head,
     path = "/recording/records/{id}/stream",
     params(
-        ("id" = u64, Path, description = "Record ID"),
+        ("id" = String, Path, description = "Record ID"),
         ("post-filters" = Option<[String]>, Query, description = "post-filters"),
     ),
     responses(
@@ -112,10 +112,10 @@ pub(in crate::web::api) async fn head(
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error> {
-    let record_path = make_record_path(&config, id);
-    let (record, _) = load_record(&config, &record_path)?;
+    let record_path = make_record_path(&config, &id).unwrap();
+    let (record, _) = load_record(&config, &record_path).await?;
 
-    let content_path = make_content_path(&config, &record.options.content_path);
+    let content_path = make_content_path(&config, &record.options.content_path).unwrap();
     if !content_path.exists() {
         tracing::warn!(?content_path, "No such file, maybe it has been deleted");
         return Err(Error::NoContent);
