@@ -1,8 +1,5 @@
 use super::*;
 
-use crate::mpeg_ts_stream::MpegTsStream;
-use crate::mpeg_ts_stream::MpegTsStreamRange;
-use crate::web::api::stream::calc_start_pos_in_ranges;
 use crate::web::api::stream::do_head_stream;
 use crate::web::api::stream::streaming;
 
@@ -17,44 +14,55 @@ use crate::web::api::stream::streaming;
     responses(
         (status = 200, description = "OK"),
         (status = 204, description = "No Content"),
+        (status = 400, description = "Bad Request"),
         (status = 404, description = "Not Found"),
         (status = 500, description = "Internal Server Error"),
     ),
     operation_id = "getRecordStream",
 )]
-pub(in crate::web::api) async fn get(
+pub(in crate::web::api) async fn get<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     Path(id): Path<RecordId>,
     ranges: Option<TypedHeader<axum_extra::headers::Range>>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error> {
-    let record_path = make_record_path(&config, &id).unwrap();
-    let (record, size) = load_record(&config, &record_path).await?;
+) -> Result<Response, Error>
+where
+    R: Call<recording::OpenContent>,
+    R: Call<recording::QueryRecord>,
+{
+    let (record, content_length) = recording_manager
+        .call(recording::QueryRecord { id: id.clone() })
+        .await??;
 
-    let content_path = make_content_path(&config, &record.options.content_path).unwrap();
-    if !content_path.exists() {
-        tracing::warn!(?content_path, "No such file, maybe it has been deleted");
-        return Err(Error::NoContent);
+    let content_length = match content_length {
+        Some(content_length) if content_length > 0 => content_length,
+        _ => return Err(Error::NoContent),
+    };
+
+    if ranges.is_some() && !filter_setting.post_filters.is_empty() {
+        return Err(Error::InvalidRequest(
+            "Filters cannot be used in range requests",
+        ));
     }
 
-    let content = tokio::fs::File::open(&content_path).await?;
-
-    // `size` must not be `None` at this point.
-    let size = size.unwrap();
-
-    let stream = tokio_util::io::ReaderStream::new(content);
-    let stream = if ranges.is_none() {
-        MpegTsStream::new(id, stream)
-    } else {
-        let start_pos = calc_start_pos_in_ranges(ranges, size);
-        let range = if matches!(record.recording_status, RecordingStatus::Recording) {
-            MpegTsStreamRange::unbound(start_pos, size)?
-        } else {
-            MpegTsStreamRange::bound(start_pos, size)?
-        };
-        MpegTsStream::with_range(id, stream, range)
+    let ranges = match ranges {
+        Some(TypedHeader(ranges)) => ranges
+            .satisfiable_ranges(match record.recording_status {
+                RecordingStatus::Recording => 0,
+                _ => content_length,
+            })
+            .collect(),
+        None => vec![],
     };
+
+    let stream = recording_manager
+        .call(recording::OpenContent {
+            id: id.clone(),
+            ranges,
+        })
+        .await??;
 
     let video_tags: Vec<u8> = record
         .program
@@ -79,7 +87,6 @@ pub(in crate::web::api) async fn get(
         .insert("video_tags", &video_tags)?
         .insert("audio_tags", &audio_tags)?
         .insert("id", &record.id.value())?
-        .insert("size", &size)?
         .build();
 
     let mut builder = FilterPipelineBuilder::new(data);
@@ -113,7 +120,12 @@ pub(in crate::web::api) async fn head(
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error> {
     let record_path = make_record_path(&config, &id).unwrap();
-    let (record, _) = load_record(&config, &record_path).await?;
+    let (record, content_length) = load_record(&config, &record_path).await?;
+
+    let _content_length = match content_length {
+        Some(content_length) if content_length > 0 => content_length,
+        _ => return Err(Error::NoContent),
+    };
 
     let content_path = make_content_path(&config, &record.options.content_path).unwrap();
     if !content_path.exists() {

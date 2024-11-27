@@ -31,9 +31,9 @@ post-filters:
 
 recording:
   # Enable endpoints for recording
-  basedir: {recording_dir}
+  basedir: /tmp
   # Enable endpoints for records
-  records-dir: {records_dir}
+  records-dir: /tmp
 
 # Enable endpoints for timeshift recording
 timeshift:

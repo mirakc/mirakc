@@ -2,7 +2,6 @@ use super::*;
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::PathBuf;
 
 use assert_matches::assert_matches;
 use axum::body::Body;
@@ -13,11 +12,9 @@ use axum::http::header::LOCATION;
 use axum::http::Request;
 use axum::http::StatusCode;
 use axum::response::Response;
-use chrono_jst::Jst;
 use http_body_util::BodyExt; // for `collect`
 use mime::APPLICATION_JSON;
 use serde_json::json;
-use tempfile::TempDir;
 use test_log::test;
 use tower::ServiceExt;
 
@@ -25,9 +22,7 @@ use crate::epg::stub::EpgStub;
 use crate::models::TunerUserPriority;
 use crate::onair::stub::OnairProgramManagerStub;
 use crate::recording::stub::RecordingManagerStub;
-use crate::recording::Record;
 use crate::recording::RecordingOptions;
-use crate::recording::RecordingStatus;
 use crate::timeshift::stub::TimeshiftManagerStub;
 use crate::tuner::stub::TunerManagerStub;
 use api::models::*;
@@ -544,73 +539,77 @@ async fn test_delete_recording_recorder() {
 async fn test_get_recording_records() {
     let res = get("/api/recording/records").await;
     assert_eq!(res.status(), StatusCode::OK);
-    let json = res.into_text().await;
+    let json = into_text(res).await;
     let records: Vec<WebRecord> = serde_json::from_str(&json).unwrap();
-    assert_eq!(records.len(), 3);
+    assert_eq!(records.len(), 0);
 }
 
 #[test(tokio::test)]
 async fn test_get_recording_record() {
-    let res = get("/api/recording/records/0").await;
+    let res = get("/api/recording/records/not-found").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
-    let res = get("/api/recording/records/1").await;
+    let res = get("/api/recording/records/finished").await;
     assert_eq!(res.status(), StatusCode::OK);
-    let json = res.into_text().await;
+    let json = into_text(res).await;
     let record: WebRecord = serde_json::from_str(&json).unwrap();
-    assert!(record.size.is_some());
+    assert!(record.content_length.is_some());
 
-    let res = get("/api/recording/records/2").await;
+    let res = get("/api/recording/records/recording").await;
     // Any record now recording can be accessible.
     assert_eq!(res.status(), StatusCode::OK);
-    let json = res.into_text().await;
+    let json = into_text(res).await;
     let record: WebRecord = serde_json::from_str(&json).unwrap();
-    assert!(record.size.is_some());
+    assert!(record.content_length.is_some());
 
-    let res = get("/api/recording/records/10").await;
+    let res = get("/api/recording/records/no-content").await;
     // Any record can be accessible regardless of existence of the recorded data.
     assert_eq!(res.status(), StatusCode::OK);
     // But `WebRecord::size` is `None`.
-    let json = res.into_text().await;
+    let json = into_text(res).await;
     let record: WebRecord = serde_json::from_str(&json).unwrap();
-    assert_eq!(record.size, None);
+    assert_eq!(record.content_length, None);
 }
 
 #[test(tokio::test)]
 async fn test_delete_recording_record() {
-    let res = delete("/api/recording/records/0").await;
+    let res = delete("/api/recording/records/not-found").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
-    let res = delete("/api/recording/records/1").await;
+    let res = delete("/api/recording/records/finished").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert!(!res.record_path(1).exists());
-    assert!(res.recorded_data_path(1).exists());
+    let json = into_text(res).await;
+    let result: WebRecordRemovalResult = serde_json::from_str(&json).unwrap();
+    assert!(result.record_removed);
+    assert!(!result.content_removed);
 
-    let res = delete("/api/recording/records/1?purge=true").await;
+    let res = delete("/api/recording/records/finished?purge=true").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert!(!res.record_path(1).exists());
-    assert!(!res.recorded_data_path(1).exists());
+    let json = into_text(res).await;
+    let result: WebRecordRemovalResult = serde_json::from_str(&json).unwrap();
+    assert!(result.record_removed);
+    assert!(result.content_removed);
 
-    let res = delete("/api/recording/records/2").await;
+    let res = delete("/api/recording/records/recording").await;
     // Any record now recording cannot be deleted.
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    assert!(res.record_path(2).exists());
-    assert!(res.recorded_data_path(2).exists());
 
-    let res = delete("/api/recording/records/10?purge=true").await;
+    let res = delete("/api/recording/records/no-content?purge=true").await;
     // Any existing record can be deleted successfully regardless of existence of the recorded
     // data.
     assert_eq!(res.status(), StatusCode::OK);
-    assert!(!res.record_path(10).exists());
-    assert!(!res.recorded_data_path(10).exists());
+    let json = into_text(res).await;
+    let result: WebRecordRemovalResult = serde_json::from_str(&json).unwrap();
+    assert!(result.record_removed);
+    assert!(!result.content_removed);
 }
 
 #[test(tokio::test)]
 async fn test_get_recording_record_stream() {
-    let res = get("/api/recording/records/0/stream").await;
+    let res = get("/api/recording/records/not-found/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
-    let res = get("/api/recording/records/1/stream").await;
+    let res = get("/api/recording/records/finished/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
     assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
@@ -622,10 +621,10 @@ async fn test_get_recording_record_stream() {
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
         // TODO: assert_eq!(v, "bytes");
     });
-    let content = res.into_text().await;
+    let content = into_text(res).await;
     assert_eq!(content, "0123456789");
 
-    let res = get("/api/recording/records/1/stream?post-filters[]=mp4").await;
+    let res = get("/api/recording/records/finished/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
     assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
@@ -640,16 +639,16 @@ async fn test_get_recording_record_stream() {
 
     // TODO: range requests
 
-    let res = get("/api/recording/records/2/stream").await;
+    let res = get("/api/recording/records/recording/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
     // Any record now recording is also seekable.
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
         // TODO: assert_eq!(v, "bytes");
     });
-    let content = res.into_text().await;
+    let content = into_text(res).await;
     assert_eq!(content, "0123456789");
 
-    let res = get("/api/recording/records/2/stream").await;
+    let res = get("/api/recording/records/recording/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
     assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
@@ -661,10 +660,10 @@ async fn test_get_recording_record_stream() {
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
         // TODO: assert_eq!(v, "bytes");
     });
-    let content = res.into_text().await;
+    let content = into_text(res).await;
     assert_eq!(content, "0123456789");
 
-    let res = get("/api/recording/records/2/stream?post-filters[]=mp4").await;
+    let res = get("/api/recording/records/recording/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
     assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
@@ -679,19 +678,19 @@ async fn test_get_recording_record_stream() {
 
     // TODO: range requests
 
-    let res = get("/api/recording/records/10/stream").await;
+    let res = get("/api/recording/records/no-content/stream").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 }
 
 #[test(tokio::test)]
 async fn test_head_recording_record_stream() {
-    let res = head("/api/recording/records/0/stream").await;
+    let res = head("/api/recording/records/not-found/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
-    let res = head("/api/recording/records/1/stream").await;
+    let res = head("/api/recording/records/finished/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
 
-    let res = head("/api/recording/records/10/stream").await;
+    let res = head("/api/recording/records/no-content/stream").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 }
 
@@ -787,7 +786,7 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
     assert_matches!(res.headers().get("content-type"), Some(v) => {
         assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
     });
-    let playlist = res.into_text().await;
+    let playlist = into_text(res).await;
     assert!(playlist.contains("#KODIPROP:mimetype=video/mp2t\n"));
 
     let res = get(&format!("{}?post-filters[]=mp4", endpoint)).await;
@@ -795,7 +794,7 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
     assert_matches!(res.headers().get("content-type"), Some(v) => {
         assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
     });
-    let playlist = res.into_text().await;
+    let playlist = into_text(res).await;
     assert!(playlist.contains("#KODIPROP:mimetype=video/mp4\n"));
 }
 
@@ -1144,22 +1143,18 @@ async fn test_filter_setting() {
     );
 }
 
-async fn get(endpoint: &str) -> TestResponse {
+async fn get(endpoint: &str) -> Response {
     let app = create_app(Default::default());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::get(endpoint)
         .header(HOST, "mirakc.test")
         .body(Body::empty())
         .unwrap();
-    let inner = app.inner.oneshot(req).await.unwrap();
-    TestResponse {
-        inner,
-        tempdir: app.tempdir,
-    }
+    app.oneshot(req).await.unwrap()
 }
 
-async fn get_with_peer_info(endpoint: &str, peer_info: Option<PeerInfo>) -> TestResponse {
-    let (config, tempdir) = config_for_test();
+async fn get_with_peer_info(endpoint: &str, peer_info: Option<PeerInfo>) -> Response {
+    let config = config_for_test();
     let app = build_app(&config)
         .layer(helper::ReplaceConnectInfoLayer::new(peer_info))
         .with_state(Arc::new(AppState {
@@ -1176,14 +1171,13 @@ async fn get_with_peer_info(endpoint: &str, peer_info: Option<PeerInfo>) -> Test
         .header(HOST, "mirakc.test")
         .body(Body::empty())
         .unwrap();
-    let inner = app.oneshot(req).await.unwrap();
-    TestResponse { inner, tempdir }
+    app.oneshot(req).await.unwrap()
 }
 
 async fn get_with_test_config(
     endpoint: &str,
     test_config: Arc<HashMap<&'static str, String>>,
-) -> TestResponse {
+) -> Response {
     let app = create_app(test_config.clone());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let mut builder = Request::get(endpoint).header(HOST, "mirakc.test");
@@ -1194,28 +1188,20 @@ async fn get_with_test_config(
         }
     }
     let req = builder.body(Body::empty()).unwrap();
-    let inner = app.inner.oneshot(req).await.unwrap();
-    TestResponse {
-        inner,
-        tempdir: app.tempdir,
-    }
+    app.oneshot(req).await.unwrap()
 }
 
-async fn head(endpoint: &str) -> TestResponse {
+async fn head(endpoint: &str) -> Response {
     let app = create_app(Default::default());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::head(endpoint)
         .header(HOST, "mirakc.test")
         .body(Body::empty())
         .unwrap();
-    let inner = app.inner.oneshot(req).await.unwrap();
-    TestResponse {
-        inner,
-        tempdir: app.tempdir,
-    }
+    app.oneshot(req).await.unwrap()
 }
 
-async fn post<T>(endpoint: &str, data: T) -> TestResponse
+async fn post<T>(endpoint: &str, data: T) -> Response
 where
     T: serde::Serialize,
 {
@@ -1226,30 +1212,22 @@ where
         .header(CONTENT_TYPE, APPLICATION_JSON.as_ref())
         .body(Body::from(serde_json::to_vec(&json!(data)).unwrap()))
         .unwrap();
-    let inner = app.inner.oneshot(req).await.unwrap();
-    TestResponse {
-        inner,
-        tempdir: app.tempdir,
-    }
+    app.oneshot(req).await.unwrap()
 }
 
-async fn delete(endpoint: &str) -> TestResponse {
+async fn delete(endpoint: &str) -> Response {
     let app = create_app(Default::default());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::delete(endpoint)
         .header(HOST, "mirakc.test")
         .body(Body::empty())
         .unwrap();
-    let inner = app.inner.oneshot(req).await.unwrap();
-    TestResponse {
-        inner,
-        tempdir: app.tempdir,
-    }
+    app.oneshot(req).await.unwrap()
 }
 
-fn create_app(test_config: Arc<HashMap<&'static str, String>>) -> TestApp {
-    let (config, tempdir) = config_for_test();
-    let inner = build_app(&config)
+fn create_app(test_config: Arc<HashMap<&'static str, String>>) -> Router {
+    let config = config_for_test();
+    build_app(&config)
         .layer(helper::ReplaceConnectInfoLayer::new(Some(PeerInfo::Test)))
         .with_state(Arc::new(AppState {
             config,
@@ -1259,105 +1237,25 @@ fn create_app(test_config: Arc<HashMap<&'static str, String>>) -> TestApp {
             recording_manager: RecordingManagerStub,
             timeshift_manager: TimeshiftManagerStub,
             onair_manager: OnairProgramManagerStub,
-        }));
-    TestApp { inner, tempdir }
+        }))
 }
 
-struct TestApp {
-    inner: Router,
-    tempdir: TempDir,
+async fn into_text(res: Response) -> String {
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    String::from_utf8_lossy(&bytes).to_string()
 }
 
-struct TestResponse {
-    inner: Response,
-    tempdir: TempDir,
-}
-
-impl TestResponse {
-    const RECORDING_FOLDER: &str = "recording";
-    const RECORDS_FOLDER: &str = ".records";
-
-    fn status(&self) -> StatusCode {
-        self.inner.status()
-    }
-
-    fn headers(&self) -> &HeaderMap<HeaderValue> {
-        self.inner.headers()
-    }
-
-    fn recording_dir(&self) -> PathBuf {
-        self.tempdir.path().join(Self::RECORDING_FOLDER)
-    }
-
-    fn recorded_data_path(&self, id: u64) -> PathBuf {
-        self.recording_dir().join(format!("{id}.m2ts"))
-    }
-
-    fn records_dir(&self) -> PathBuf {
-        self.tempdir.path().join(Self::RECORDS_FOLDER)
-    }
-
-    fn record_path(&self, id: u64) -> PathBuf {
-        self.records_dir().join(format!("{id}.record.json"))
-    }
-
-    async fn into_text(self) -> String {
-        let bytes = self.inner.into_body().collect().await.unwrap().to_bytes();
-        String::from_utf8_lossy(&bytes).to_string()
-    }
-}
-
-fn config_for_test() -> (Arc<Config>, TempDir) {
-    let tempdir = tempfile::tempdir().unwrap();
-
-    let recording_dir = tempdir.path().join(TestResponse::RECORDING_FOLDER);
-    prepare_recording_dir(&recording_dir);
-
-    let records_dir = tempdir.path().join(TestResponse::RECORDS_FOLDER);
-    prepare_records_dir(&records_dir);
-
+fn config_for_test() -> Arc<Config> {
     let config_yaml = format!(
         include_str!("config.yml"),
         manifest_dir = env!("CARGO_MANIFEST_DIR"),
-        recording_dir = recording_dir.display(),
-        records_dir = records_dir.display()
     );
 
-    let config = Arc::new(
+    Arc::new(
         serde_yaml::from_str::<Config>(&config_yaml)
             .unwrap()
             .normalize(),
-    );
-
-    (config, tempdir)
-}
-
-fn prepare_recording_dir(recording_dir: &std::path::Path) {
-    std::fs::create_dir(recording_dir).unwrap();
-
-    let write = |filename, data| {
-        let path = recording_dir.join(filename);
-        std::fs::write(&path, data).unwrap();
-        assert!(path.is_file());
-    };
-
-    write("1.m2ts", b"0123456789");
-    write("2.m2ts", b"0123456789");
-}
-
-fn prepare_records_dir(records_dir: &std::path::Path) {
-    std::fs::create_dir(records_dir).unwrap();
-
-    let write = |filename, record| {
-        let path = records_dir.join(filename);
-        let json = serde_json::to_vec(&record).unwrap();
-        std::fs::write(&path, json).unwrap();
-        assert!(path.is_file());
-    };
-
-    write("1.record.json", record!(finished: 1));
-    write("2.record.json", record!(recording: 2));
-    write("10.record.json", record!(finished: 10)); // no recorded data
+    )
 }
 
 fn string_table_for_test() -> Arc<StringTable> {

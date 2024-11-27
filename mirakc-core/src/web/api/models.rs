@@ -213,20 +213,21 @@ pub(in crate::web) struct WebRecord {
     #[serde(with = "duration_milliseconds_option")]
     #[schema(value_type = i64)]
     pub recording_duration: Option<Duration>,
-    /// The size of the recorded data.
+    /// The MIME type of the content.
+    pub content_type: String,
+    /// The size of the content.
     ///
-    /// `null` if there is no file of the recorded data at the location specified by `content_path`
-    /// of the recording schedule.
+    /// `null` if there is no content file at the location specified by `content_path` of the
+    /// recording schedule.
     ///
-    /// `0` will be set if failed getting the size of the recorded data even though the file
-    /// exists.
+    /// `0` will be set if failed getting the size of the content file even though the file exists.
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub content_length: Option<u64>,
 }
 
 impl From<(Record, Option<u64>)> for WebRecord {
-    fn from((record, size): (Record, Option<u64>)) -> Self {
+    fn from((record, content_length): (Record, Option<u64>)) -> Self {
         Self {
             id: record.id,
             program: record.program.into(),
@@ -237,7 +238,8 @@ impl From<(Record, Option<u64>)> for WebRecord {
             recording_start_time: record.recording_start_time,
             recording_end_time: record.recording_end_time,
             recording_duration: record.recording_duration,
-            size,
+            content_type: record.content_type.clone(),
+            content_length,
         }
     }
 }
@@ -245,16 +247,16 @@ impl From<(Record, Option<u64>)> for WebRecord {
 #[derive(Debug, Deserialize, Serialize, IntoParams)]
 #[serde(rename_all = "kebab-case")]
 #[into_params(parameter_in = Query)]
-pub(in crate::web) struct RecordDeletionSetting {
-    /// `1` or `true` will purge the recorded data.
+pub(in crate::web) struct WebRecordRemovalSetting {
+    /// `1` or `true` will purge the content file.
     ///
-    /// The recorded data won't be purged by default.
-    #[serde(default = "RecordDeletionSetting::default_purge")]
-    #[serde(deserialize_with = "RecordDeletionSetting::deserialize_purge")]
+    /// The content file won't be purged by default.
+    #[serde(default = "WebRecordRemovalSetting::default_purge")]
+    #[serde(deserialize_with = "WebRecordRemovalSetting::deserialize_purge")]
     pub purge: bool, // default: false
 }
 
-impl RecordDeletionSetting {
+impl WebRecordRemovalSetting {
     fn default_purge() -> bool {
         false
     }
@@ -275,6 +277,20 @@ impl RecordDeletionSetting {
             "The value of the decode query must be 0, 1, false or true",
         ))
     }
+}
+
+/// The result of a record removal request.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(title = "RecordRemovalResult")]
+#[cfg_attr(test, derive(Deserialize))]
+pub(in crate::web) struct WebRecordRemovalResult {
+    /// `true` when the record file has been removed successfully.
+    pub record_removed: bool,
+    /// `true` when the content file has been removed successfully.
+    /// `true` if there is no content file and the `purge` query parameter is set.
+    /// Otherwise `false`.
+    pub content_removed: bool,
 }
 
 /// A timeshift recorder model.

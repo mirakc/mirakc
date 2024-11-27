@@ -8,6 +8,12 @@ use crate::recording::make_record_path;
 use crate::recording::RecordId;
 use crate::recording::RecordingStatus;
 
+// NOTE: Record files can be directly accessible in this module, but we send messages to the
+// `RecordingManager` actor in order to serialize all requests and process them one by one.
+// This approach avoids race conditions regarding file operations and ensures consistency of
+// records stored in the file system.  In addition, we don't need to use record files for testing
+// purposes because we can use stub implementation like as others.
+
 /// List records.
 ///
 /// The following kind of records are also listed:
@@ -25,25 +31,18 @@ use crate::recording::RecordingStatus;
     ),
     operation_id = "getRecords",
 )]
-pub(in crate::web::api) async fn list(
-    State(ConfigExtractor(config)): State<ConfigExtractor>,
-) -> Result<Json<Vec<WebRecord>>, Error> {
-    let records_dir = config
-        .recording
-        .records_dir
-        .as_ref()
-        .expect("config.recording.records-dir must be defined");
-    let record_pattern = format!("{}/*.record.json", records_dir.display());
-    let mut records: Vec<WebRecord> = vec![];
-    for record_path in glob::glob(&record_pattern)? {
-        let record_path = record_path?;
-        if !record_path.is_file() {
-            tracing::warn!(?record_path, "Should be a regular file");
-            continue;
-        }
-        let tuple = load_record(&config, &record_path).await?;
-        records.push(tuple.into());
-    }
+pub(in crate::web::api) async fn list<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
+) -> Result<Json<Vec<WebRecord>>, Error>
+where
+    R: Call<recording::QueryRecords>,
+{
+    let records: Vec<WebRecord> = recording_manager
+        .call(recording::QueryRecords)
+        .await??
+        .into_iter()
+        .map(WebRecord::from)
+        .collect();
     Ok(Json(records))
 }
 
@@ -61,22 +60,27 @@ pub(in crate::web::api) async fn list(
     ),
     operation_id = "getRecord",
 )]
-pub(in crate::web::api) async fn get(
-    State(ConfigExtractor(config)): State<ConfigExtractor>,
+pub(in crate::web::api) async fn get<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     Path(id): Path<RecordId>,
-) -> Result<Json<WebRecord>, Error> {
-    let record_path = make_record_path(&config, &id).unwrap();
-    let tuple = load_record(&config, &record_path).await?;
-    Ok(Json(tuple.into()))
+) -> Result<Json<WebRecord>, Error>
+where
+    R: Call<recording::QueryRecord>,
+{
+    let record: WebRecord = recording_manager
+        .call(recording::QueryRecord { id })
+        .await??
+        .into();
+    Ok(Json(record))
 }
 
-/// Deletes a record.
+/// Removes a record.
 #[utoipa::path(
     delete,
     path = "/recording/records/{id}",
     params(
         ("id" = String, Path, description = "Record ID"),
-        RecordDeletionSetting,
+        WebRecordRemovalSetting,
     ),
     responses(
         (status = 200, description = "OK"),
@@ -84,32 +88,24 @@ pub(in crate::web::api) async fn get(
         (status = 404, description = "Not Found"),
         (status = 500, description = "Internal Server Error"),
     ),
-    operation_id = "deleteRecord",
+    operation_id = "removeRecord",
 )]
-pub(in crate::web::api) async fn delete(
-    State(ConfigExtractor(config)): State<ConfigExtractor>,
+pub(in crate::web::api) async fn delete<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     Path(id): Path<RecordId>,
-    Qs(deletion_setting): Qs<RecordDeletionSetting>,
-) -> Result<(), Error> {
-    let record_path = make_record_path(&config, &id).unwrap();
-    let (record, _) = load_record(&config, &record_path).await?;
-    if matches!(record.recording_status, RecordingStatus::Recording) {
-        return Err(Error::NowRecording);
-    }
-    if deletion_setting.purge {
-        let content_path = make_content_path(&config, &record.options.content_path).unwrap();
-        match std::fs::remove_file(&content_path) {
-            Ok(_) => {
-                // TODO: emit recording.content-deleted
-            }
-            Err(err) => tracing::error!(?err, ?content_path),
-        }
-    }
-    match std::fs::remove_file(&record_path) {
-        Ok(_) => {
-            // TODO: emit recording.record-deleted
-        }
-        Err(err) => tracing::error!(?err, ?record_path),
-    }
-    Ok(())
+    Qs(removal_setting): Qs<WebRecordRemovalSetting>,
+) -> Result<Json<WebRecordRemovalResult>, Error>
+where
+    R: Call<recording::RemoveRecord>,
+{
+    let (record_removed, content_removed) = recording_manager
+        .call(recording::RemoveRecord {
+            id,
+            purge: removal_setting.purge,
+        })
+        .await??;
+    Ok(Json(WebRecordRemovalResult {
+        record_removed,
+        content_removed,
+    }))
 }

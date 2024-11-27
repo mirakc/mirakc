@@ -1,6 +1,7 @@
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ops::Bound;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -18,6 +19,7 @@ use itertools::Itertools;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::BufWriter;
+use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
@@ -38,6 +40,7 @@ use crate::models::ProgramId;
 use crate::models::ServiceId;
 use crate::models::TunerUser;
 use crate::models::TunerUserInfo;
+use crate::mpeg_ts_stream::MpegTsStream;
 use crate::onair;
 use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
@@ -279,6 +282,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                         recorder.started_at,
                         recorder.service.clone(),
                         schedule,
+                        recorder.content_type.clone(),
                     )
                 }
                 None => {
@@ -1107,7 +1111,7 @@ where
         }
         builder.add_program_filter(&self.config.filters.program_filter)?;
         builder.add_post_filters(&self.config.post_filters, &schedule.options.post_filters)?;
-        let (filters, _) = builder.build();
+        let (filters, content_type) = builder.build();
 
         let basedir = self.config.recording.basedir.as_ref().unwrap();
 
@@ -1166,6 +1170,7 @@ where
             pipeline,
             stop_trigger: Some(stop_trigger),
             service: service.clone(),
+            content_type: content_type.clone(),
         };
         self.recorders.insert(program_id, recorder);
         self.schedules.get_mut(&program_id).unwrap().state = RecordingScheduleState::Recording;
@@ -1178,11 +1183,257 @@ where
         let record_path = make_record_path(&self.config, &record_id);
         if let Some(record_path) = record_path {
             let schedule = self.schedules.get(&program_id).unwrap();
-            let record = Record::new(record_id, now, service, schedule);
+            let record = Record::new(record_id, now, service, schedule, content_type);
             self.create_record(&record_path, &record).await;
         }
 
         Ok(())
+    }
+}
+
+// query records
+
+#[derive(Message)]
+#[reply(Result<Vec<(Record, Option<u64>)>, Error>)]
+pub struct QueryRecords;
+
+#[async_trait]
+impl<T, E, O> Handler<QueryRecords> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        _msg: QueryRecords,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryRecords as Message>::Reply {
+        tracing::debug!(msg.name = "QueryRecords");
+        self.query_records().await
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn query_records(&self) -> Result<Vec<(Record, Option<u64>)>, Error> {
+        let records_dir = match self.config.recording.records_dir.as_ref() {
+            Some(records_dir) => records_dir,
+            None => return Err(Error::WrongConfig("config.recording.records-dir")),
+        };
+
+        let mut records = vec![];
+        let record_pattern = format!("{}/*.record.json", records_dir.display());
+        for record_path in glob::glob(&record_pattern)? {
+            let record_path = record_path?;
+            if !record_path.is_file() {
+                tracing::warn!(?record_path, "Should be a regular file");
+                continue;
+            }
+            records.push(load_record(&self.config, &record_path).await?);
+        }
+
+        Ok(records)
+    }
+}
+
+// query record
+
+#[derive(Message)]
+#[reply(Result<(Record, Option<u64>), Error>)]
+pub struct QueryRecord {
+    pub id: RecordId,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<QueryRecord> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: QueryRecord,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryRecord as Message>::Reply {
+        tracing::debug!(msg.name = "QueryRecord", %msg.id);
+        self.query_record(&msg.id).await
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn query_record(&self, id: &RecordId) -> Result<(Record, Option<u64>), Error> {
+        let record_path = match make_record_path(&self.config, id) {
+            Some(record_path) => record_path,
+            None => return Err(Error::WrongConfig("config.recording.records-dir")),
+        };
+
+        load_record(&self.config, &record_path).await
+    }
+}
+
+// remove record
+
+#[derive(Message)]
+#[reply(Result<(bool, bool), Error>)]
+pub struct RemoveRecord {
+    pub id: RecordId,
+    pub purge: bool,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<RemoveRecord> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: RemoveRecord,
+        _ctx: &mut Context<Self>,
+    ) -> <RemoveRecord as Message>::Reply {
+        tracing::debug!(msg.name = "RemoveRecord", %msg.id, msg.purge);
+        self.remove_record(&msg.id, msg.purge).await
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn remove_record(&self, id: &RecordId, purge: bool) -> Result<(bool, bool), Error> {
+        let record_path = match make_record_path(&self.config, id) {
+            Some(record_path) => record_path,
+            None => return Err(Error::WrongConfig("config.recording.records-dir")),
+        };
+
+        let (record, _) = load_record(&self.config, &record_path).await?;
+
+        if matches!(record.recording_status, RecordingStatus::Recording) {
+            tracing::warn!(
+                ?record_path,
+                "Cannot remove the record performing the recording"
+            );
+            return Err(Error::NowRecording);
+        }
+
+        let mut record_removed = false;
+        let mut content_removed = false;
+
+        if purge {
+            let content_path =
+                make_content_path(&self.config, &record.options.content_path).unwrap();
+            if content_path.exists() {
+                match std::fs::remove_file(&content_path) {
+                    Ok(_) => {
+                        content_removed = true;
+                        // TODO: emit recording.content-removed
+                    }
+                    Err(err) => tracing::error!(?err, ?content_path),
+                }
+            } else {
+                tracing::warn!(?record_path, ?content_path, "No content file");
+                content_removed = true;
+            }
+        }
+
+        debug_assert!(record_path.exists());
+        match std::fs::remove_file(&record_path) {
+            Ok(_) => {
+                record_removed = true;
+                // TODO: emit recording.record-removed
+            }
+            Err(err) => tracing::error!(?err, ?record_path),
+        }
+
+        Ok((record_removed, content_removed))
+    }
+}
+
+// open content
+
+pub type ContentStream = MpegTsStream<RecordId, ReaderStream<tokio::fs::File>>;
+
+#[derive(Message)]
+#[reply(Result<ContentStream, Error>)]
+pub struct OpenContent {
+    pub id: RecordId,
+    pub ranges: Vec<(Bound<u64>, Bound<u64>)>,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<OpenContent> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        msg: OpenContent,
+        _ctx: &mut Context<Self>,
+    ) -> <OpenContent as Message>::Reply {
+        tracing::debug!(msg.name = "OpenContent", %msg.id);
+        self.open_content(&msg.id, &msg.ranges).await
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn open_content(
+        &self,
+        id: &RecordId,
+        _ranges: &[(Bound<u64>, Bound<u64>)],
+    ) -> Result<ContentStream, Error> {
+        let record_path = match make_record_path(&self.config, id) {
+            Some(record_path) => record_path,
+            None => return Err(Error::WrongConfig("config.recording.records-dir")),
+        };
+
+        let (record, content_length) = load_record(&self.config, &record_path).await?;
+        let _content_length = match content_length {
+            Some(content_length) if content_length > 0 => content_length,
+            _ => return Err(Error::NoContent),
+        };
+
+        let content_path = make_content_path(&self.config, &record.options.content_path).unwrap();
+        if !content_path.exists() {
+            tracing::warn!(?content_path, "No such file, maybe it has been removed");
+            return Err(Error::NoContent);
+        }
+
+        let content = tokio::fs::File::open(&content_path).await?;
+
+        let stream = tokio_util::io::ReaderStream::new(content);
+        // TODO: ranges
+        let stream = MpegTsStream::new(id.clone(), stream);
+
+        Ok(stream)
     }
 }
 
@@ -1891,6 +2142,7 @@ struct Recorder {
     // TODO(#2062): added here in order to keep compatibility of schedules.json until next major release.
     // TODO(#2062): BREAKING CHANGE: move it to RecordingSchedule
     service: EpgService,
+    content_type: String,
 }
 
 impl Recorder {
@@ -1947,6 +2199,7 @@ pub struct Record {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(with = "duration_milliseconds_option")]
     pub recording_duration: Option<Duration>,
+    pub content_type: String,
 }
 
 impl Record {
@@ -1955,6 +2208,7 @@ impl Record {
         start_time: DateTime<Jst>,
         service: EpgService,
         schedule: &RecordingSchedule,
+        content_type: String,
     ) -> Self {
         Self {
             id,
@@ -1966,6 +2220,7 @@ impl Record {
             recording_start_time: start_time,
             recording_end_time: None,
             recording_duration: None,
+            content_type,
         }
     }
 
@@ -3021,6 +3276,55 @@ pub(crate) mod stub {
             _msg: QueryRecordingSchedules,
         ) -> actlet::Result<<QueryRecordingSchedules as Message>::Reply> {
             Ok(vec![])
+        }
+    }
+
+    #[async_trait]
+    impl Call<QueryRecords> for RecordingManagerStub {
+        async fn call(
+            &self,
+            _msg: QueryRecords,
+        ) -> actlet::Result<<QueryRecords as Message>::Reply> {
+            Ok(Ok(vec![]))
+        }
+    }
+
+    #[async_trait]
+    impl Call<QueryRecord> for RecordingManagerStub {
+        async fn call(&self, msg: QueryRecord) -> actlet::Result<<QueryRecord as Message>::Reply> {
+            match msg.id.value() {
+                "recording" => Ok(Ok((record!(recording: msg.id.clone()), Some(1)))),
+                "finished" => Ok(Ok((record!(recording: msg.id.clone()), Some(1)))),
+                "no-content" => Ok(Ok((record!(recording: msg.id.clone()), None))),
+                _ => Ok(Err(Error::RecordNotFound)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Call<RemoveRecord> for RecordingManagerStub {
+        async fn call(
+            &self,
+            msg: RemoveRecord,
+        ) -> actlet::Result<<RemoveRecord as Message>::Reply> {
+            match msg.id.value() {
+                "recording" => Ok(Err(Error::NowRecording)),
+                "finished" => Ok(Ok((true, msg.purge))),
+                "no-content" => Ok(Ok((true, false))),
+                _ => Ok(Err(Error::RecordNotFound)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Call<OpenContent> for RecordingManagerStub {
+        async fn call(&self, msg: OpenContent) -> actlet::Result<<OpenContent as Message>::Reply> {
+            match msg.id.value() {
+                "recording" => Ok(Err(Error::NoContent)), // TODO
+                "finished" => Ok(Err(Error::NoContent)),  // TODO
+                "no-content" => Ok(Err(Error::NoContent)),
+                _ => Ok(Err(Error::RecordNotFound)),
+            }
         }
     }
 

@@ -24,7 +24,7 @@ macro_rules! error_response {
         )
             .into_response()
     };
-    ($status_code:expr, $reason:literal) => {
+    ($status_code:expr, $reason:expr) => {
         (
             $status_code,
             Json(ErrorBody {
@@ -60,6 +60,10 @@ impl IntoResponse for Error {
             Error::ProgramEnded => error_response!(StatusCode::BAD_REQUEST),
             Error::QuerystringError(_) => error_response!(StatusCode::BAD_REQUEST),
             Error::InvalidPath => error_response!(StatusCode::BAD_REQUEST),
+            Error::InvalidRequest(reason) => error_response!(StatusCode::BAD_REQUEST, reason),
+            Error::WrongConfig(reason) => {
+                error_response!(StatusCode::INTERNAL_SERVER_ERROR, reason)
+            }
             Error::IoError(err) if matches!(err.kind(), std::io::ErrorKind::NotFound) => {
                 error_response!(StatusCode::NOT_FOUND)
             }

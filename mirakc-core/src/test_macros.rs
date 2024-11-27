@@ -189,6 +189,7 @@ macro_rules! recorder {
             pipeline: $pipeline,
             stop_trigger: None,
             service: service!((0, 1), "sv", channel_gr!("ch", "ch")), // dummy
+            content_type: "video/MP2T".to_owned(),
         }
     };
 }
@@ -211,6 +212,7 @@ macro_rules! record {
             recording_start_time: Jst::now(),
             recording_end_time: None,
             recording_duration: None,
+            content_type: "video/MP2T".to_owned(),
         }
     };
 }
