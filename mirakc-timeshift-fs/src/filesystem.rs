@@ -254,7 +254,7 @@ impl TimeshiftFilesystem {
             fuser::FileAttr {
                 ino: ino.0,
                 size,
-                blocks: (size + BLOCK_SIZE - 1) / BLOCK_SIZE,
+                blocks: size.div_ceil(BLOCK_SIZE),
                 atime: std::time::UNIX_EPOCH,
                 mtime: end_time,
                 ctime: end_time,
