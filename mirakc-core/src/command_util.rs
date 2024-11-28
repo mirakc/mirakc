@@ -234,11 +234,7 @@ where
                     //
                     // However, we cannot wait for any async task here, so we wait
                     // for the process termination in a busy loop.
-                    loop {
-                        match data.process.try_wait() {
-                            Ok(None) => (),
-                            _ => break,
-                        }
+                    while let Ok(None) = data.process.try_wait() {
                         sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
                     }
                 }

@@ -6,7 +6,7 @@ pub(super) fn escape(str: &str) -> Escape<'_> {
 
 pub(super) struct Escape<'a>(pub &'a str);
 
-impl<'a> std::fmt::Display for Escape<'a> {
+impl std::fmt::Display for Escape<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Because the internet is always right, turns out there's not that many
         // characters to escape: http://stackoverflow.com/questions/7381974
