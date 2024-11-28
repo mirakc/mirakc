@@ -101,6 +101,50 @@ where
             None
         };
 
+    let _record_saved_unregister_trigger = if config.recording.is_records_api_enabled() {
+        let id = recording_manager
+            .call(crate::recording::RegisterEmitter::RecordSaved(
+                feeder.clone().into(),
+            ))
+            .await?;
+        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::RecordSaved(id)))
+    } else {
+        None
+    };
+
+    let _record_removed_unregister_trigger = if config.recording.is_records_api_enabled() {
+        let id = recording_manager
+            .call(crate::recording::RegisterEmitter::RecordRemoved(
+                feeder.clone().into(),
+            ))
+            .await?;
+        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::RecordRemoved(id)))
+    } else {
+        None
+    };
+
+    let _content_removed_unregister_trigger = if config.recording.is_records_api_enabled() {
+        let id = recording_manager
+            .call(crate::recording::RegisterEmitter::ContentRemoved(
+                feeder.clone().into(),
+            ))
+            .await?;
+        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::ContentRemoved(id)))
+    } else {
+        None
+    };
+
+    let _record_broken_unregister_trigger = if config.recording.is_records_api_enabled() {
+        let id = recording_manager
+            .call(crate::recording::RegisterEmitter::RecordBroken(
+                feeder.clone().into(),
+            ))
+            .await?;
+        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::RecordBroken(id)))
+    } else {
+        None
+    };
+
     let _timeshift_event_unregister_trigger = if config.timeshift.is_enabled() {
         let id = timeshift_manager
             .call(crate::timeshift::RegisterEmitter(feeder.clone().into()))
@@ -130,6 +174,10 @@ where
         _recording_stopped_unregister_trigger,
         _recording_failed_unregister_trigger,
         _recording_rescheduled_unregister_trigger,
+        _record_saved_unregister_trigger,
+        _record_removed_unregister_trigger,
+        _content_removed_unregister_trigger,
+        _record_broken_unregister_trigger,
         _timeshift_event_unregister_trigger,
         _onair_program_changed_unregister_trigger,
     });
@@ -243,6 +291,55 @@ impl From<crate::recording::RecordingRescheduled> for Event {
     }
 }
 
+// record events
+
+impl_emit! {crate::recording::RecordSaved}
+
+impl From<crate::recording::RecordSaved> for Event {
+    fn from(val: crate::recording::RecordSaved) -> Self {
+        Self::default()
+            .event("recording.record-saved")
+            .json_data(RecordSaved { id: val.id })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::RecordRemoved}
+
+impl From<crate::recording::RecordRemoved> for Event {
+    fn from(val: crate::recording::RecordRemoved) -> Self {
+        Self::default()
+            .event("recording.record-removed")
+            .json_data(RecordRemoved { id: val.id })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::ContentRemoved}
+
+impl From<crate::recording::ContentRemoved> for Event {
+    fn from(val: crate::recording::ContentRemoved) -> Self {
+        Self::default()
+            .event("recording.content-removed")
+            .json_data(ContentRemoved { id: val.id })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::RecordBroken}
+
+impl From<crate::recording::RecordBroken> for Event {
+    fn from(val: crate::recording::RecordBroken) -> Self {
+        Self::default()
+            .event("recording.record-broken")
+            .json_data(RecordBroken {
+                id: val.id,
+                reason: val.reason,
+            })
+            .unwrap()
+    }
+}
+
 // timeshift events
 
 impl_emit! {crate::timeshift::TimeshiftEvent}
@@ -331,6 +428,10 @@ struct EventStreamWrapper<S> {
     _recording_stopped_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
     _recording_failed_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
     _recording_rescheduled_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _record_saved_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _record_removed_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _content_removed_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _record_broken_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
     _timeshift_event_unregister_trigger: Option<Trigger<crate::timeshift::UnregisterEmitter>>,
     _onair_program_changed_unregister_trigger: Option<Trigger<crate::onair::UnregisterEmitter>>,
 }

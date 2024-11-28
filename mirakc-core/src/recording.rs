@@ -75,6 +75,10 @@ pub struct RecordingManager<T, E, O> {
     recording_stopped: EmitterRegistry<RecordingStopped>,
     recording_failed: EmitterRegistry<RecordingFailed>,
     recording_rescheduled: EmitterRegistry<RecordingRescheduled>,
+    record_saved: EmitterRegistry<RecordSaved>,
+    record_removed: EmitterRegistry<RecordRemoved>,
+    content_removed: EmitterRegistry<ContentRemoved>,
+    record_broken: EmitterRegistry<RecordBroken>,
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
@@ -92,6 +96,10 @@ impl<T, E, O> RecordingManager<T, E, O> {
             recording_stopped: Default::default(),
             recording_failed: Default::default(),
             recording_rescheduled: Default::default(),
+            record_saved: Default::default(),
+            record_removed: Default::default(),
+            content_removed: Default::default(),
+            record_broken: Default::default(),
         }
     }
 }
@@ -208,10 +216,11 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
         if file_util::save_json(record, record_path) {
             tracing::info!(?record_path, "Created successfully");
-            // TODO: emit recording.record-saved
+            self.emit_record_saved(&record.id).await;
         } else {
-            tracing::error!(?record_path, "Failed to create");
-            // TODO: emit recording.record-broken
+            tracing::error!(?record_path, "Failed to save");
+            self.emit_record_broken(&record.id, "Failed to save record")
+                .await;
         }
     }
 
@@ -287,7 +296,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 }
                 None => {
                     tracing::error!(?err, ?record_path, "Broken record, skip updating");
-                    // TODO: emit recording.record-broken
+                    self.emit_record_broken(&record_id, "Broken record").await;
                     return;
                 }
             },
@@ -295,10 +304,11 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
         if file_util::save_json(&record, &record_path) {
             tracing::info!(?record_path, "Updated successfully");
-            // TODO: emit recording.record-saved
+            self.emit_record_saved(&record.id).await;
         } else {
             tracing::error!(?record_path, "Failed to save");
-            // TODO: emit recording.record-broken
+            self.emit_record_broken(&record.id, "Faild to save record")
+                .await;
         }
     }
 }
@@ -1346,7 +1356,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 match std::fs::remove_file(&content_path) {
                     Ok(_) => {
                         content_removed = true;
-                        // TODO: emit recording.content-removed
+                        self.emit_content_removed(id).await;
                     }
                     Err(err) => tracing::error!(?err, ?content_path),
                 }
@@ -1360,7 +1370,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         match std::fs::remove_file(&record_path) {
             Ok(_) => {
                 record_removed = true;
-                // TODO: emit recording.record-removed
+                self.emit_record_removed(id).await;
             }
             Err(err) => tracing::error!(?err, ?record_path),
         }
@@ -1446,6 +1456,10 @@ pub enum RegisterEmitter {
     RecordingStopped(Emitter<RecordingStopped>),
     RecordingFailed(Emitter<RecordingFailed>),
     RecordingRescheduled(Emitter<RecordingRescheduled>),
+    RecordSaved(Emitter<RecordSaved>),
+    RecordRemoved(Emitter<RecordRemoved>),
+    ContentRemoved(Emitter<ContentRemoved>),
+    RecordBroken(Emitter<RecordBroken>),
 }
 
 #[async_trait]
@@ -1494,6 +1508,26 @@ where
                 tracing::debug!(msg.name = "RegisterEmitter::RecordingRescheduled", id);
                 id
             }
+            RegisterEmitter::RecordSaved(emitter) => {
+                let id = self.record_saved.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::RecordSaved", id);
+                id
+            }
+            RegisterEmitter::RecordRemoved(emitter) => {
+                let id = self.record_removed.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::RecordRemoved", id);
+                id
+            }
+            RegisterEmitter::ContentRemoved(emitter) => {
+                let id = self.content_removed.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::ContentRemoved", id);
+                id
+            }
+            RegisterEmitter::RecordBroken(emitter) => {
+                let id = self.record_broken.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::RecordBroken", id);
+                id
+            }
         }
     }
 }
@@ -1532,6 +1566,10 @@ pub enum UnregisterEmitter {
     RecordingStopped(usize),
     RecordingFailed(usize),
     RecordingRescheduled(usize),
+    RecordSaved(usize),
+    RecordRemoved(usize),
+    ContentRemoved(usize),
+    RecordBroken(usize),
 }
 
 #[async_trait]
@@ -1565,6 +1603,22 @@ where
             UnregisterEmitter::RecordingRescheduled(id) => {
                 tracing::debug!(msg.name = "UnregisterEmitter::RecordingRescheduled", id);
                 self.recording_rescheduled.unregister(id);
+            }
+            UnregisterEmitter::RecordSaved(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::RecordSaved", id);
+                self.record_saved.unregister(id);
+            }
+            UnregisterEmitter::RecordRemoved(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::RecordRemoved", id);
+                self.record_removed.unregister(id);
+            }
+            UnregisterEmitter::ContentRemoved(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::ContentRemoved", id);
+                self.content_removed.unregister(id);
+            }
+            UnregisterEmitter::RecordBroken(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::RecordBroken", id);
+                self.record_broken.unregister(id);
             }
         }
     }
@@ -1795,6 +1849,66 @@ impl<T, E, O> RecordingManager<T, E, O> {
     async fn emit_recording_rescheduled(&self, program_id: ProgramId) {
         let msg = RecordingRescheduled { program_id };
         self.recording_rescheduled.emit(msg).await;
+    }
+}
+
+// record saved
+
+#[derive(Clone, Message)]
+pub struct RecordSaved {
+    pub id: RecordId,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_record_saved(&self, id: &RecordId) {
+        let msg = RecordSaved { id: id.clone() };
+        self.record_saved.emit(msg).await;
+    }
+}
+
+// record removed
+
+#[derive(Clone, Message)]
+pub struct RecordRemoved {
+    pub id: RecordId,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_record_removed(&self, id: &RecordId) {
+        let msg = RecordRemoved { id: id.clone() };
+        self.record_removed.emit(msg).await;
+    }
+}
+
+// content removed
+
+#[derive(Clone, Message)]
+pub struct ContentRemoved {
+    pub id: RecordId,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_content_removed(&self, id: &RecordId) {
+        let msg = ContentRemoved { id: id.clone() };
+        self.content_removed.emit(msg).await;
+    }
+}
+
+// record broken
+
+#[derive(Clone, Message)]
+pub struct RecordBroken {
+    pub id: RecordId,
+    pub reason: &'static str,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_record_broken(&self, id: &RecordId, reason: &'static str) {
+        let msg = RecordBroken {
+            id: id.clone(),
+            reason,
+        };
+        self.record_broken.emit(msg).await;
     }
 }
 
@@ -2337,6 +2451,7 @@ mod tests {
     use maplit::hashset;
     use tempfile::TempDir;
     use test_log::test;
+    use tokio::sync::Notify;
 
     const RECORDING_DIR: &str = "recording";
     const RECORDS_DIR: &str = ".records";
@@ -2680,9 +2795,20 @@ mod tests {
         let program_id = ProgramId::from((0, 1, 1));
         let content_filename = "1.m2ts";
 
+        let mut record_saved = MockRecordSavedValidator::new();
+        let program_id_part = format!("{:08X}", program_id.value());
+        record_saved.expect_emit().times(2).returning(move |msg| {
+            assert!(msg.id.value().ends_with(&program_id_part));
+        });
+
         let system = System::new();
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::RecordSaved(Emitter::new(record_saved)))
+                .await;
+            assert_matches!(result, Ok(_));
 
             let result = manager
                 .call(StartRecording {
@@ -2736,9 +2862,33 @@ mod tests {
         let program_id = ProgramId::from((0, 1, 1));
         let content_filename = "1.m2ts";
 
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+
+        let mut stopped = MockRecordingStoppedValidator::new();
+        stopped
+            .expect_emit()
+            .returning(move |_| notify2.notify_one());
+
+        let mut record_saved = MockRecordSavedValidator::new();
+        let program_id_part = format!("{:08X}", program_id.value());
+        record_saved.expect_emit().times(2).returning(move |msg| {
+            assert!(msg.id.value().ends_with(&program_id_part));
+        });
+
         let system = System::new();
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::RecordingStopped(Emitter::new(stopped)))
+                .await;
+            assert_matches!(result, Ok(_));
+
+            let result = manager
+                .call(RegisterEmitter::RecordSaved(Emitter::new(record_saved)))
+                .await;
+            assert_matches!(result, Ok(_));
 
             let result = manager
                 .call(StartRecording {
@@ -2754,8 +2904,7 @@ mod tests {
             let result = manager.call(StopRecording { program_id }).await;
             assert_matches!(result, Ok(Ok(())));
 
-            // TODO: use Emitter<RecordingStopped> for waiting the event.
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            notify.notified().await;
 
             let record_pattern = format!(
                 "{}/{RECORDS_DIR}/*{:08X}.record.json",
@@ -2854,6 +3003,100 @@ mod tests {
             assert!(changed);
             assert!(manager.schedules.is_empty());
         }
+    }
+
+    #[test(tokio::test)]
+    async fn test_remove_record() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let program_id = ProgramId::from((0, 1, 1));
+        let content_filename = "1.m2ts";
+
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+
+        let mut stopped = MockRecordingStoppedValidator::new();
+        stopped
+            .expect_emit()
+            .returning(move |_| notify2.notify_one());
+
+        let mut record_removed = MockRecordRemovedValidator::new();
+        let program_id_part = format!("{:08X}", program_id.value());
+        record_removed.expect_emit().times(1).returning(move |msg| {
+            assert!(msg.id.value().ends_with(&program_id_part));
+        });
+
+        let mut content_removed = MockContentRemovedValidator::new();
+        let program_id_part = format!("{:08X}", program_id.value());
+        content_removed
+            .expect_emit()
+            .times(1)
+            .returning(move |msg| {
+                assert!(msg.id.value().ends_with(&program_id_part));
+            });
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::RecordingStopped(Emitter::new(stopped)))
+                .await;
+            assert_matches!(result, Ok(_));
+
+            let result = manager
+                .call(RegisterEmitter::RecordRemoved(Emitter::new(record_removed)))
+                .await;
+            assert_matches!(result, Ok(_));
+
+            let result = manager
+                .call(RegisterEmitter::ContentRemoved(Emitter::new(
+                    content_removed,
+                )))
+                .await;
+            assert_matches!(result, Ok(_));
+
+            let result = manager
+                .call(StartRecording {
+                    schedule: recording_schedule!(
+                        RecordingScheduleState::Scheduled,
+                        program!(program_id, now, "1h"),
+                        recording_options!(content_filename, 0)
+                    ),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(())));
+
+            let result = manager.call(StopRecording { program_id }).await;
+            assert_matches!(result, Ok(Ok(())));
+
+            notify.notified().await;
+
+            let result = manager.call(QueryRecords).await;
+            let id = assert_matches!(result, Ok(Ok(tuples)) => {
+                assert_eq!(tuples.len(), 1);
+                tuples[0].0.id.clone()
+            });
+
+            let record_path = temp_dir
+                .path()
+                .join(RECORDS_DIR)
+                .join(format!("{}.record.json", id.value()));
+            assert!(record_path.exists());
+
+            let content_path = temp_dir.path().join(RECORDING_DIR).join(content_filename);
+            assert!(content_path.exists());
+
+            let result = manager.call(RemoveRecord { id, purge: true }).await;
+            assert_matches!(result, Ok(Ok((true, true))));
+
+            assert!(!record_path.exists());
+            assert!(!content_path.exists());
+        }
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -3223,6 +3466,42 @@ mod tests {
         #[async_trait]
         impl Emit<RecordingRescheduled> for RecordingRescheduledValidator {
             async fn emit(&self, msg: RecordingRescheduled);
+        }
+    }
+
+    mockall::mock! {
+        RecordSavedValidator {}
+
+        #[async_trait]
+        impl Emit<RecordSaved> for RecordSavedValidator {
+            async fn emit(&self, msg: RecordSaved);
+        }
+    }
+
+    mockall::mock! {
+        RecordRemovedValidator {}
+
+        #[async_trait]
+        impl Emit<RecordRemoved> for RecordRemovedValidator {
+            async fn emit(&self, msg: RecordRemoved);
+        }
+    }
+
+    mockall::mock! {
+        ContentRemovedValidator {}
+
+        #[async_trait]
+        impl Emit<ContentRemoved> for ContentRemovedValidator {
+            async fn emit(&self, msg: ContentRemoved);
+        }
+    }
+
+    mockall::mock! {
+        RecordBrokenValidator {}
+
+        #[async_trait]
+        impl Emit<RecordBroken> for RecordBrokenValidator {
+            async fn emit(&self, msg: RecordBroken);
         }
     }
 }

@@ -133,6 +133,59 @@ An event sent when recording for a TV program is rescheduled.
 }
 ```
 
+## recording.record-saved
+
+An event sent when a record is saved successfully.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" }  // RecordId
+  }
+}
+```
+
+## recording.record-removed
+
+An event sent when a record is removed.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" }  // RecordId
+  }
+}
+```
+
+## recording.content-removed
+
+An event sent when a content is removed.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" }  // RecordId
+  }
+}
+```
+
+## recording.record-broken
+
+An event sent when a record has been broken.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" },  // RecordId
+    "reason": { "type": "string" }
+  }
+}
+```
+
 ## timeshift.timeline
 
 An event sent when the timeshift timeline for a service advances.
