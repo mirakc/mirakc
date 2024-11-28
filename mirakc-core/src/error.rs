@@ -38,8 +38,8 @@ pub enum Error {
     AlreadyExists,
     #[error("Program ended")]
     ProgramEnded,
-    #[error("Invalid path")]
-    InvalidPath,
+    #[error("Invalid path: {0}")]
+    InvalidPath(&'static str),
     #[error("Timeshift config inconsistent")]
     TimeshiftConfigInconsistent,
     #[error("Invalid request: {0}")]

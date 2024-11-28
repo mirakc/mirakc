@@ -113,25 +113,24 @@ where
     ),
     operation_id = "checkRecordStream",
 )]
-pub(in crate::web::api) async fn head(
+pub(in crate::web::api) async fn head<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     Path(id): Path<RecordId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error> {
-    let record_path = make_record_path(&config, &id).unwrap();
-    let (record, content_length) = load_record(&config, &record_path).await?;
+) -> Result<Response, Error>
+where
+    R: Call<recording::QueryRecord>,
+{
+    let (_record, content_length) = recording_manager
+        .call(recording::QueryRecord { id: id.clone() })
+        .await??;
 
     let _content_length = match content_length {
         Some(content_length) if content_length > 0 => content_length,
         _ => return Err(Error::NoContent),
     };
-
-    let content_path = make_content_path(&config, &record.options.content_path).unwrap();
-    if !content_path.exists() {
-        tracing::warn!(?content_path, "No such file, maybe it has been deleted");
-        return Err(Error::NoContent);
-    }
 
     do_head_stream(&config, &user, &filter_setting)
 }

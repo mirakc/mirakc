@@ -108,8 +108,17 @@ pub(in crate::web) struct WebRecordingScheduleInput {
 
 impl WebRecordingScheduleInput {
     pub fn validate(&self, config: &Config) -> Result<(), Error> {
+        if self.options.content_path.to_str().is_none() {
+            let err = Error::InvalidPath("Must be a valid Unicode string");
+            tracing::error!(
+                %err,
+                input.options.content_path = ?self.options.content_path
+            );
+            return Err(err);
+        }
+
         if self.options.content_path.is_absolute() {
-            let err = Error::InvalidPath;
+            let err = Error::InvalidPath("Must be a relative path");
             tracing::error!(
                 %err,
                 input.options.content_path = ?self.options.content_path
@@ -123,7 +132,7 @@ impl WebRecordingScheduleInput {
             .parse_dot()?
             .starts_with(basedir)
         {
-            let err = Error::InvalidPath;
+            let err = Error::InvalidPath("Must be under config.recording.basedir");
             tracing::error!(
                 %err,
                 input.options.content_path = ?self.options.content_path

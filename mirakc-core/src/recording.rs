@@ -25,6 +25,7 @@ use utoipa::ToSchema;
 
 use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipeline;
+use crate::command_util::CommandPipelineOutput;
 use crate::command_util::CommandPipelineProcessModel;
 use crate::config::Config;
 use crate::epg;
@@ -1381,7 +1382,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 // open content
 
-pub type ContentStream = MpegTsStream<RecordId, ReaderStream<tokio::fs::File>>;
+pub type ContentStream = MpegTsStream<RecordId, ReaderStream<CommandPipelineOutput<RecordId>>>;
 
 #[derive(Message)]
 #[reply(Result<ContentStream, Error>)]
@@ -1407,10 +1408,10 @@ where
     async fn handle(
         &mut self,
         msg: OpenContent,
-        _ctx: &mut Context<Self>,
+        ctx: &mut Context<Self>,
     ) -> <OpenContent as Message>::Reply {
         tracing::debug!(msg.name = "OpenContent", %msg.id);
-        self.open_content(&msg.id, &msg.ranges).await
+        self.open_content(&msg.id, &msg.ranges, ctx).await
     }
 }
 
@@ -1419,6 +1420,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         &self,
         id: &RecordId,
         _ranges: &[(Bound<u64>, Bound<u64>)],
+        ctx: &mut Context<Self>,
     ) -> Result<ContentStream, Error> {
         let record_path = match make_record_path(&self.config, id) {
             Some(record_path) => record_path,
@@ -1437,9 +1439,19 @@ impl<T, E, O> RecordingManager<T, E, O> {
             return Err(Error::NoContent);
         }
 
-        let content = tokio::fs::File::open(&content_path).await?;
+        let mut pipeline = spawn_pipeline(
+            vec![format!("cat '{}'", content_path.to_str().unwrap())],
+            id.clone(),
+            "content",
+        )?;
 
-        let stream = tokio_util::io::ReaderStream::new(content);
+        let (_, output) = pipeline.take_endpoints();
+
+        ctx.spawn_task(async move {
+            let _ = pipeline.wait().await;
+        });
+
+        let stream = ReaderStream::new(output);
         // TODO: ranges
         let stream = MpegTsStream::new(id.clone(), stream);
 
@@ -2236,6 +2248,8 @@ pub enum RecordingScheduleState {
 #[schema(title = "RecordingOptions")]
 pub struct RecordingOptions {
     /// A relative path of a file to store recorded data.
+    ///
+    /// The path must be a valid Unicode string.
     #[schema(value_type = String)]
     pub content_path: PathBuf,
     /// A priority of tuner usage.
@@ -2407,7 +2421,7 @@ fn make_record_id(timestamp: i64, program_id: u64) -> RecordId {
     RecordId(format!("{timestamp:08X}{program_id:08X}"))
 }
 
-pub fn make_record_path(config: &Config, record_id: &RecordId) -> Option<PathBuf> {
+fn make_record_path(config: &Config, record_id: &RecordId) -> Option<PathBuf> {
     config
         .recording
         .records_dir
@@ -2415,7 +2429,7 @@ pub fn make_record_path(config: &Config, record_id: &RecordId) -> Option<PathBuf
         .map(|records_dir| records_dir.join(format!("{}.record.json", record_id.value())))
 }
 
-pub fn make_content_path(config: &Config, content_path: &Path) -> Option<PathBuf> {
+fn make_content_path(config: &Config, content_path: &Path) -> Option<PathBuf> {
     config
         .recording
         .basedir
@@ -2423,10 +2437,7 @@ pub fn make_content_path(config: &Config, content_path: &Path) -> Option<PathBuf
         .map(|basedir| basedir.join(content_path))
 }
 
-pub async fn load_record(
-    config: &Config,
-    record_path: &Path,
-) -> Result<(Record, Option<u64>), Error> {
+async fn load_record(config: &Config, record_path: &Path) -> Result<(Record, Option<u64>), Error> {
     let data = tokio::fs::read(record_path).await?;
     let record: Record = serde_json::from_slice(&data)?;
     let content_path = make_content_path(config, &record.options.content_path).unwrap();
@@ -3572,8 +3583,8 @@ pub(crate) mod stub {
     impl Call<QueryRecord> for RecordingManagerStub {
         async fn call(&self, msg: QueryRecord) -> actlet::Result<<QueryRecord as Message>::Reply> {
             match msg.id.value() {
-                "recording" => Ok(Ok((record!(recording: msg.id.clone()), Some(1)))),
-                "finished" => Ok(Ok((record!(recording: msg.id.clone()), Some(1)))),
+                "recording" => Ok(Ok((record!(recording: msg.id.clone()), Some(10)))),
+                "finished" => Ok(Ok((record!(recording: msg.id.clone()), Some(10)))),
                 "no-content" => Ok(Ok((record!(recording: msg.id.clone()), None))),
                 _ => Ok(Err(Error::RecordNotFound)),
             }
@@ -3599,8 +3610,21 @@ pub(crate) mod stub {
     impl Call<OpenContent> for RecordingManagerStub {
         async fn call(&self, msg: OpenContent) -> actlet::Result<<OpenContent as Message>::Reply> {
             match msg.id.value() {
-                "recording" => Ok(Err(Error::NoContent)), // TODO
-                "finished" => Ok(Err(Error::NoContent)),  // TODO
+                "recording" | "finished" => {
+                    let mut pipeline = spawn_pipeline(
+                        vec!["echo -n 0123456789".to_string()],
+                        msg.id.clone(),
+                        "test",
+                    )
+                    .unwrap();
+                    let (_, output) = pipeline.take_endpoints();
+                    let stream = ReaderStream::new(output);
+                    let stream = MpegTsStream::new(msg.id.clone(), stream);
+                    tokio::spawn(async move {
+                        let _ = pipeline.wait().await;
+                    });
+                    Ok(Ok(stream))
+                }
                 "no-content" => Ok(Err(Error::NoContent)),
                 _ => Ok(Err(Error::RecordNotFound)),
             }

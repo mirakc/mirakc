@@ -59,7 +59,7 @@ impl IntoResponse for Error {
             Error::AlreadyExists => error_response!(StatusCode::BAD_REQUEST),
             Error::ProgramEnded => error_response!(StatusCode::BAD_REQUEST),
             Error::QuerystringError(_) => error_response!(StatusCode::BAD_REQUEST),
-            Error::InvalidPath => error_response!(StatusCode::BAD_REQUEST),
+            Error::InvalidPath(reason) => error_response!(StatusCode::BAD_REQUEST, reason),
             Error::InvalidRequest(reason) => error_response!(StatusCode::BAD_REQUEST, reason),
             Error::WrongConfig(reason) => {
                 error_response!(StatusCode::INTERNAL_SERVER_ERROR, reason)

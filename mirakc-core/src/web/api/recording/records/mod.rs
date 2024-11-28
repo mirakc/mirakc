@@ -2,9 +2,6 @@ pub(in crate::web::api) mod stream;
 
 use super::*;
 
-use crate::recording::load_record;
-use crate::recording::make_content_path;
-use crate::recording::make_record_path;
 use crate::recording::RecordId;
 use crate::recording::RecordingStatus;
 
