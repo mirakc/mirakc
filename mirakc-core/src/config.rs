@@ -829,6 +829,17 @@ impl RecordingConfig {
                 "config.recording.basedir: must be a path to an existing directory"
             );
         }
+
+        if let Some(ref records_dir) = self.records_dir {
+            assert!(
+                records_dir.is_absolute(),
+                "config.recording.records-dir: must be an absolute path"
+            );
+            assert!(
+                records_dir.is_dir(),
+                "config.recording.records-dir: must be a path to an existing directory"
+            );
+        }
     }
 }
 

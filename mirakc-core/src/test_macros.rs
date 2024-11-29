@@ -196,12 +196,17 @@ macro_rules! recorder {
 
 macro_rules! record {
     (recording: $id:expr) => {
-        record!($id, RecordingStatus::Recording)
+        record!(
+            $id,
+            RecordingStatus::Recording,
+            Jst::now(),
+            Option::<DateTime<Jst>>::None
+        )
     };
     (finished: $id:expr) => {
-        record!($id, RecordingStatus::Finished)
+        record!($id, RecordingStatus::Finished, Jst::now(), Some(Jst::now()))
     };
-    ($id:expr, $status:expr) => {
+    ($id:expr, $status:expr, $start_time:expr, $end_time:expr) => {
         Record {
             id: $id.to_string().into(),
             program: program!((0, 1, 2)),
@@ -209,9 +214,9 @@ macro_rules! record {
             options: recording_options!(format!("{}.m2ts", $id), 0),
             tags: Default::default(),
             recording_status: $status,
-            recording_start_time: Jst::now(),
-            recording_end_time: None,
-            recording_duration: None,
+            recording_start_time: $start_time,
+            recording_end_time: $end_time.clone(),
+            recording_duration: $end_time.map(|t| t - $start_time),
             content_type: "video/MP2T".to_owned(),
         }
     };

@@ -338,14 +338,6 @@ where
             return;
         }
 
-        // Create the .records folder in the config.recording.basedir if it does not exist.
-        if let Some(records_dir) = self.config.recording.records_dir.as_ref() {
-            if !records_dir.exists() {
-                std::fs::create_dir(records_dir).unwrap();
-            }
-            assert!(records_dir.exists());
-        }
-
         self.epg
             .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
@@ -1351,8 +1343,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         let mut content_removed = false;
 
         if purge {
-            let content_path =
-                make_content_path(&self.config, &record.options.content_path).unwrap();
+            let content_path = make_content_path(&self.config, &record).unwrap();
             if content_path.exists() {
                 match std::fs::remove_file(&content_path) {
                     Ok(_) => {
@@ -1382,10 +1373,11 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 // open content
 
-pub type ContentStream = MpegTsStream<RecordId, ReaderStream<CommandPipelineOutput<RecordId>>>;
+type ContentStream = MpegTsStream<RecordId, ReaderStream<CommandPipelineOutput<RecordId>>>;
+type StopTrigger = Trigger<actlet::Stop>;
 
 #[derive(Message)]
-#[reply(Result<ContentStream, Error>)]
+#[reply(Result<(ContentStream, Option<StopTrigger>), Error>)]
 pub struct OpenContent {
     pub id: RecordId,
     pub ranges: Vec<(Bound<u64>, Bound<u64>)>,
@@ -1419,9 +1411,9 @@ impl<T, E, O> RecordingManager<T, E, O> {
     async fn open_content(
         &self,
         id: &RecordId,
-        _ranges: &[(Bound<u64>, Bound<u64>)],
+        ranges: &[(Bound<u64>, Bound<u64>)],
         ctx: &mut Context<Self>,
-    ) -> Result<ContentStream, Error> {
+    ) -> Result<(ContentStream, Option<StopTrigger>), Error> {
         let record_path = match make_record_path(&self.config, id) {
             Some(record_path) => record_path,
             None => return Err(Error::WrongConfig("config.recording.records-dir")),
@@ -1433,29 +1425,13 @@ impl<T, E, O> RecordingManager<T, E, O> {
             _ => return Err(Error::NoContent),
         };
 
-        let content_path = make_content_path(&self.config, &record.options.content_path).unwrap();
-        if !content_path.exists() {
-            tracing::warn!(?content_path, "No such file, maybe it has been removed");
-            return Err(Error::NoContent);
-        }
+        let mut content_source = ContentSource::new(&self.config, &record)?;
+        let stream = content_source.create_stream(ranges);
 
-        let mut pipeline = spawn_pipeline(
-            vec![format!("cat '{}'", content_path.to_str().unwrap())],
-            id.clone(),
-            "content",
-        )?;
+        let addr = ctx.spawn_actor(content_source).await;
+        let stop_trigger = Some(addr.trigger(actlet::Stop));
 
-        let (_, output) = pipeline.take_endpoints();
-
-        ctx.spawn_task(async move {
-            let _ = pipeline.wait().await;
-        });
-
-        let stream = ReaderStream::new(output);
-        // TODO: ranges
-        let stream = MpegTsStream::new(id.clone(), stream);
-
-        Ok(stream)
+        Ok((stream, stop_trigger))
     }
 }
 
@@ -2151,6 +2127,56 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 }
 
+// content source actor
+
+struct ContentSource {
+    pipeline: CommandPipeline<RecordId>,
+}
+
+impl ContentSource {
+    fn new(config: &Config, record: &Record) -> Result<Self, Error> {
+        let content_path = make_content_path(config, record).unwrap();
+        if !content_path.exists() {
+            tracing::warn!(?content_path, "No such file, maybe it has been removed");
+            return Err(Error::NoContent);
+        }
+
+        let content_path_str = content_path.to_str().unwrap();
+        let cmd = match record.recording_status {
+            RecordingStatus::Recording => format!("tail -c +0 -f '{content_path_str}'"),
+            _ => format!("cat '{content_path_str}'"),
+        };
+
+        let pipeline = spawn_pipeline(vec![cmd], record.id.clone(), "content")?;
+
+        Ok(Self { pipeline })
+    }
+
+    fn create_stream(&mut self, _ranges: &[(Bound<u64>, Bound<u64>)]) -> ContentStream {
+        let (_, output) = self.pipeline.take_endpoints();
+
+        let stream = ReaderStream::new(output);
+        // TODO: ranges
+        MpegTsStream::new(self.pipeline.id().clone(), stream)
+    }
+}
+
+#[async_trait]
+impl Actor for ContentSource {
+    async fn started(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!(content_source.pipeline.id = %self.pipeline.id(), "Started");
+    }
+
+    async fn stopping(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!(content_source.pipeline.id = %self.pipeline.id(), "Stopping...");
+        self.pipeline.kill();
+    }
+
+    async fn stopped(&mut self, _ctx: &mut Context<Self>) {
+        tracing::debug!(content_source.pipeline.id = %self.pipeline.id(), "Stopped");
+    }
+}
+
 // models
 
 #[derive(Debug, Eq)]
@@ -2429,18 +2455,18 @@ fn make_record_path(config: &Config, record_id: &RecordId) -> Option<PathBuf> {
         .map(|records_dir| records_dir.join(format!("{}.record.json", record_id.value())))
 }
 
-fn make_content_path(config: &Config, content_path: &Path) -> Option<PathBuf> {
+fn make_content_path(config: &Config, record: &Record) -> Option<PathBuf> {
     config
         .recording
         .basedir
         .as_ref()
-        .map(|basedir| basedir.join(content_path))
+        .map(|basedir| basedir.join(&record.options.content_path))
 }
 
 async fn load_record(config: &Config, record_path: &Path) -> Result<(Record, Option<u64>), Error> {
     let data = tokio::fs::read(record_path).await?;
     let record: Record = serde_json::from_slice(&data)?;
-    let content_path = make_content_path(config, &record.options.content_path).unwrap();
+    let content_path = make_content_path(config, &record).unwrap();
     let size = content_path.is_file().then(|| {
         content_path
             .metadata()
@@ -2462,6 +2488,7 @@ mod tests {
     use maplit::hashset;
     use tempfile::TempDir;
     use test_log::test;
+    use tokio::io::AsyncReadExt;
     use tokio::sync::Notify;
 
     const RECORDING_DIR: &str = "recording";
@@ -3111,6 +3138,107 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    async fn test_open_content() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let id = RecordId("1".to_string());
+        let record = record!(finished: id.clone());
+        let record_path = make_record_path(&config, &id).unwrap();
+        assert!(file_util::save_json(&record, &record_path));
+
+        let content_path = make_content_path(&config, &record).unwrap();
+        assert!(file_util::save_data(b"0123456789", &content_path));
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(OpenContent {
+                    id: id.clone(),
+                    ranges: vec![],
+                })
+                .await;
+            let (stream, stop_trigger) = match result {
+                Ok(Ok(tuple)) => tuple,
+                _ => panic!(),
+            };
+
+            let mut reader = tokio_util::io::StreamReader::new(stream);
+
+            let mut buf = [0; 10];
+            reader.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"0123456789");
+
+            tokio::fs::write(&content_path, b"0123456789abc")
+                .await
+                .unwrap();
+
+            let mut buf = [0; 3];
+            assert_matches!(reader.read_exact(&mut buf).await, Err(_)); // EOF
+
+            drop(stop_trigger);
+        }
+        system.shutdown().await;
+
+        // TODO: range request
+    }
+
+    #[test(tokio::test)]
+    async fn test_open_content_during_recording() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let id = RecordId("1".to_string());
+        let record = record!(recording: id.clone());
+        let record_path = make_record_path(&config, &id).unwrap();
+        assert!(file_util::save_json(&record, &record_path));
+
+        let content_path = make_content_path(&config, &record).unwrap();
+        tokio::fs::write(&content_path, b"0123456789")
+            .await
+            .unwrap();
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(OpenContent {
+                    id: id.clone(),
+                    ranges: vec![],
+                })
+                .await;
+            let (stream, stop_trigger) = match result {
+                Ok(Ok(tuple)) => tuple,
+                _ => panic!(),
+            };
+
+            let mut reader = tokio_util::io::StreamReader::new(stream);
+
+            let mut buf = [0; 10];
+            reader.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"0123456789");
+
+            tokio::fs::write(&content_path, b"0123456789abc")
+                .await
+                .unwrap();
+
+            let mut buf = [0; 3];
+            reader.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"abc");
+
+            drop(stop_trigger);
+
+            assert_matches!(reader.read_exact(&mut buf).await, Err(_)); // EOF
+        }
+        system.shutdown().await;
+
+        // TODO: range request
+    }
+
+    #[test(tokio::test)]
     async fn test_handle_recording_stopped() {
         let now = Jst::now();
 
@@ -3623,7 +3751,7 @@ pub(crate) mod stub {
                     tokio::spawn(async move {
                         let _ = pipeline.wait().await;
                     });
-                    Ok(Ok(stream))
+                    Ok(Ok((stream, None)))
                 }
                 "no-content" => Ok(Err(Error::NoContent)),
                 _ => Ok(Err(Error::RecordNotFound)),

@@ -86,7 +86,16 @@ where
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    streaming(config, user, stream, filters, content_type, stop_trigger).await
+    streaming(
+        config,
+        user,
+        stream,
+        filters,
+        content_type,
+        stop_trigger,
+        config.server.stream_time_limit,
+    )
+    .await
 }
 
 pub(in crate::web::api) async fn streaming<T, S, D>(
@@ -96,6 +105,7 @@ pub(in crate::web::api) async fn streaming<T, S, D>(
     filters: Vec<String>,
     content_type: String,
     stop_triggers: D,
+    time_limit: u64,
 ) -> Result<Response, Error>
 where
     T: fmt::Display + Clone + Send + Unpin + 'static,
@@ -104,15 +114,7 @@ where
 {
     let range = stream.range();
     if filters.is_empty() {
-        do_streaming(
-            user,
-            stream,
-            content_type,
-            range,
-            stop_triggers,
-            config.server.stream_time_limit,
-        )
-        .await
+        do_streaming(user, stream, content_type, range, stop_triggers, time_limit).await
     } else {
         tracing::debug!(?filters, "Streaming with filters");
 
@@ -165,15 +167,8 @@ where
             drop(pipeline);
         });
 
-        do_streaming(
-            user,
-            ReceiverStream::new(receiver),
-            content_type,
-            range,
-            stop_triggers,
-            config.server.stream_time_limit,
-        )
-        .await
+        let stream = ReceiverStream::new(receiver);
+        do_streaming(user, stream, content_type, range, stop_triggers, time_limit).await
     }
 }
 
