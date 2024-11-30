@@ -65,13 +65,7 @@ where
     };
 
     let (stream, stop_trigger) = recording_manager
-        .call(recording::OpenContent {
-            id: id.clone(),
-            ranges,
-            // See the `tail` command used in `ContentSource::new()` for the reason why the time
-            // limit is 1500ms.
-            time_limit: 1500,
-        })
+        .call(recording::OpenContent::new(id.clone(), ranges))
         .await??;
 
     let video_tags: Vec<u8> = record

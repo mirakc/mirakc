@@ -1388,6 +1388,20 @@ pub struct OpenContent {
     pub time_limit: u64,
 }
 
+impl OpenContent {
+    // See the `tail` command used in `ContentSource::new()` for the reason why the time limit is
+    // 1500ms.
+    const DEFAULT_TIME_LIMIT: u64 = 1500;
+
+    pub fn new(id: RecordId, ranges: Vec<(Bound<u64>, Bound<u64>)>) -> Self {
+        Self {
+            id,
+            ranges,
+            time_limit: Self::DEFAULT_TIME_LIMIT,
+        }
+    }
+}
+
 #[async_trait]
 impl<T, E, O> Handler<OpenContent> for RecordingManager<T, E, O>
 where
@@ -3196,13 +3210,7 @@ mod tests {
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
 
-            let result = manager
-                .call(OpenContent {
-                    id: id.clone(),
-                    ranges: vec![],
-                    time_limit: 10000, // 10s
-                })
-                .await;
+            let result = manager.call(OpenContent::new(id.clone(), vec![])).await;
             let (stream, stop_trigger) = match result {
                 Ok(Ok(tuple)) => tuple,
                 _ => panic!(),
@@ -3246,15 +3254,7 @@ mod tests {
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
 
-            let result = manager
-                .call(OpenContent {
-                    id: id.clone(),
-                    ranges: vec![],
-                    // See the `tail` command used in `ContentSource::new()` for the reason why
-                    // the time limit is 1500ms.
-                    time_limit: 1500,
-                })
-                .await;
+            let result = manager.call(OpenContent::new(id.clone(), vec![])).await;
             let (stream, stop_trigger) = match result {
                 Ok(Ok(tuple)) => tuple,
                 _ => panic!(),
@@ -3303,13 +3303,7 @@ mod tests {
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
 
-            let result = manager
-                .call(OpenContent {
-                    id: id.clone(),
-                    ranges: vec![],
-                    time_limit: 10000, // 10s
-                })
-                .await;
+            let result = manager.call(OpenContent::new(id.clone(), vec![])).await;
             let (stream, stop_trigger) = match result {
                 Ok(Ok(tuple)) => tuple,
                 _ => panic!(),
