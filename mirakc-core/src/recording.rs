@@ -3214,9 +3214,7 @@ mod tests {
             reader.read_exact(&mut buf).await.unwrap(); // EOF reaches.
             assert_eq!(&buf, b"0123456789");
 
-            tokio::fs::write(&content_path, b"0123456789abc")
-                .await
-                .unwrap();
+            append(&content_path, b"abc").await;
 
             assert_matches!(reader.read_exact(&mut buf).await, Err(err) => {
                 assert_matches!(err.kind(), std::io::ErrorKind::UnexpectedEof);
@@ -3268,10 +3266,7 @@ mod tests {
             reader.read_exact(&mut buf).await.unwrap(); // EOF reaches.
             assert_eq!(&buf, b"0123456789");
 
-            // Append "abc".
-            tokio::fs::write(&content_path, b"0123456789abc")
-                .await
-                .unwrap();
+            append(&content_path, b"abc").await;
 
             let mut buf = [0; 3];
             reader.read_exact(&mut buf).await.unwrap(); // EOF reaches again.
@@ -3669,6 +3664,18 @@ mod tests {
         config.filters.program_filter.command = "cat".to_string();
 
         Arc::new(config)
+    }
+
+    async fn append(path: &Path, data: &[u8]) {
+        use tokio::io::AsyncWriteExt;
+        tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .await
+            .unwrap()
+            .write_all(data)
+            .await
+            .unwrap();
     }
 
     mockall::mock! {
