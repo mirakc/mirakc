@@ -11,7 +11,7 @@ use crate::recording::RecordingStatus;
 // records stored in the file system.  In addition, we don't need to use record files for testing
 // purposes because we can use stub implementation like as others.
 
-/// List records.
+/// Lists records.
 ///
 /// The following kind of records are also listed:
 ///
@@ -73,7 +73,18 @@ where
 
 /// Removes a record.
 ///
-/// Any record cannot be removed while it's recording.  Firstly stop the recording, then remove.
+/// The record cannot be removed while it's recording.  Firstly stop the recording, then remove.
+///
+/// The record can be removed even while streaming its content.  In this case, the streaming will
+/// stop once the buffered data has been sent.
+///
+/// The content file of the record is removed together with the record if the `purge` query
+/// parameter is specified.
+///
+/// A `recording.record-removed` event will be sent if the record is removed successfully.
+///
+/// A `recording.content-removed` event will be sent if the content file of the record is removed
+/// successfully.
 #[utoipa::path(
     delete,
     path = "/recording/records/{id}",

@@ -5,12 +5,13 @@ use crate::web::api::stream::streaming;
 
 /// Gets a media stream of the content of a record.
 ///
-/// It's possible to get a media stream of a record even while it's recording.  Data will be sent
-/// when data is appended to the content file event if the stream reaches EOF at some point.
+/// It's possible to get a media stream of the record even while it's recording.  In this case, data
+/// will be sent when data is appended to the content file event if the stream reaches EOF at that
+/// point.  The streaming will stop within 2 seconds after the stream reaches the *true* EOF.
 ///
-/// A request for a record with no content file always returns status code 204.
+/// A request for a record without content file always returns status code 204.
 ///
-/// A range requests with filters causes an error response with status code 400.
+/// A range request with filters always causes an error response with status code 400.
 #[utoipa::path(
     get,
     path = "/recording/records/{id}/stream",

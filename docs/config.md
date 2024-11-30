@@ -928,13 +928,14 @@ server onto `<recording.basedir>/videos`, the content will be saved on the NAS.
 ### recording.records-dir
 
 `recording.records-dir` is used together with `recording.basedir` and specifies an absolute path to
-the records directory which is Used for storing records for recorded TV programs.  Each record has
-the following filename and it's stored in the directory specified by `recording.records-dir`:
+a holder where records for recorded TV programs are stored.
 
 ```
 <recording.records-dir>
   +-- <record.id>.record.json
 ```
+
+You can specify a holder inside `recording.basedir` to `recording.records-dir` if you want.
 
 The following web endpoinds are enabled when `recording.basedir` and `recording.records-dir` are
 specified:

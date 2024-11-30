@@ -57,9 +57,16 @@ where
 
 /// Starts recording immediately.
 ///
-/// > **Warning**: Use `POST /api/recording/schedules` instead.
-/// > The recording will start even if the TV program has not started.
+/// > [!WARNING]
+/// > Use `POST /api/recording/schedules` instead.
+/// > The recording starts even if the TV program has not started.
 /// > In this case, the recording will always fail.
+///
+/// ### If config.recording.records-dir is specified
+///
+/// A record will be created in the specified folder and a `recording.record-saved` event will be
+/// sent if the record is created successfully.  Otherwise, a `recording.record-broken` event will
+/// be sent instead.
 #[utoipa::path(
     post,
     path = "/recording/recorders",
@@ -95,12 +102,16 @@ where
 
 /// Stops recording.
 ///
-/// Unlike `DELETE /api/recording/schedules/{program_id}`, this endpoint only
-/// stops the recording without removing the corresponding recording schedule.
+/// Unlike `DELETE /api/recording/schedules/{program_id}`, this endpoint only stops the recording
+/// without removing the corresponding recording schedule.
 ///
-/// A `recording.stopped` event will occur
-/// and `GET /api/recording/schedules/{program_id}` will return the schedule
-/// information.
+/// A `recording.stopped` event will be sent and `GET /api/recording/schedules/{program_id}` will
+/// return the schedule information.
+///
+/// ### If config.recording.records-dir is specified
+///
+/// A `recording.record-saved` event will be sent if the record is updated successfully.
+/// Otherwise, a `recording.record-broken` event will be sent instead.
 #[utoipa::path(
     delete,
     path = "/recording/recorders/{program_id}",

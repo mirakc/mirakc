@@ -59,6 +59,12 @@ where
 }
 
 /// Books a recording schedule.
+///
+/// ### If config.recording.records-dir is specified
+///
+/// When the recording starts, a record will be created in the specified folder and a
+/// `recording.record-saved` event will be sent if the record is created successfully.  Otherwise,
+/// a `recording.record-broken` event will be sent instead.
 #[utoipa::path(
     post,
     path = "/recording/schedules",
