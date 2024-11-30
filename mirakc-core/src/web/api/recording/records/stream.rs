@@ -3,7 +3,14 @@ use super::*;
 use crate::web::api::stream::do_head_stream;
 use crate::web::api::stream::streaming;
 
-/// Gets a media stream of a record.
+/// Gets a media stream of the content of a record.
+///
+/// It's possible to get a media stream of a record even while it's recording.  Data will be sent
+/// when data is appended to the content file event if the stream reaches EOF at some point.
+///
+/// A request for a record with no content file always returns status code 204.
+///
+/// A range requests with filters causes an error response with status code 400.
 #[utoipa::path(
     get,
     path = "/recording/records/{id}/stream",
@@ -61,6 +68,9 @@ where
         .call(recording::OpenContent {
             id: id.clone(),
             ranges,
+            // See the `tail` command used in `ContentSource::new()` for the reason why the time
+            // limit is 1500ms.
+            time_limit: 1500,
         })
         .await??;
 
@@ -95,17 +105,7 @@ where
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    let time_limit = 3000; // 3s
-    streaming(
-        &config,
-        &user,
-        stream,
-        filters,
-        content_type,
-        stop_trigger,
-        time_limit,
-    )
-    .await
+    streaming(&config, &user, stream, filters, content_type, stop_trigger).await
 }
 
 #[utoipa::path(

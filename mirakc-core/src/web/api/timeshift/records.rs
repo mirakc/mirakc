@@ -160,15 +160,5 @@ where
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    let time_limit = config.server.stream_time_limit;
-    streaming(
-        &config,
-        &user,
-        stream,
-        filters,
-        content_type,
-        stop_trigger,
-        time_limit,
-    )
-    .await
+    streaming(&config, &user, stream, filters, content_type, stop_trigger).await
 }

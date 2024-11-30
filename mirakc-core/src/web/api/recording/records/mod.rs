@@ -17,7 +17,7 @@ use crate::recording::RecordingStatus;
 ///
 /// * Records currently recording
 /// * Records failed recording but have recorded data
-/// * Records whose recorded data has been deleted outside the system after recording
+/// * Records that have no content files (maybe, those were removed outside the system)
 ///
 #[utoipa::path(
     get,
@@ -72,6 +72,8 @@ where
 }
 
 /// Removes a record.
+///
+/// Any record cannot be removed while it's recording.  Firstly stop the recording, then remove.
 #[utoipa::path(
     delete,
     path = "/recording/records/{id}",

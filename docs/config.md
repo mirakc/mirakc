@@ -45,6 +45,7 @@ suitable for your environment.
 | [jobs.update-schedules.schedule]         | `'0 21 8,20 * * * *'` (execute at 08:21 and 20:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
 | [recording.basedir]                      | `None`                            |
+| [recording.records-dir]                  | `None`                            |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
 | [timeshift.recorders\[\].service-id]     |                                   |
 | [timeshift.recorders\[\].ts-file]        |                                   |
@@ -97,6 +98,7 @@ suitable for your environment.
 [jobs.update-schedules.schedule]: #jobsupdate-schedules
 [jobs.update-schedules.disabled]: #jobsupdate-schedules
 [recording.basedir]: #recordingbasedir
+[recording.records-dir]: #recordingrecords-dir
 [timeshift.command]: #timeshift
 [timeshift.recorders\[\].service-id]: #timeshiftrecorders
 [timeshift.recorders\[\].ts-file]: #timeshiftrecorders
@@ -901,7 +903,7 @@ The following files are stored in the base directory specified by this property:
 * `schedules.json` contains recording schedules
 
 You can specify multiple nested directories in the `options.contentPath`
-property in a JSON data used in the following Web endpoints:
+property in a JSON data used in the following web endpoints:
 
 * [POST /api/recording/schedules](./web-api.md#postapirecordingschedules)
 
@@ -922,6 +924,26 @@ For example, the following JSON data sent to the Web endpoints above
 will record the content of the TV program under in the
 `<recording.basedir>/videos` folder.  If you mount a shared folder on a NAS
 server onto `<recording.basedir>/videos`, the content will be saved on the NAS.
+
+### recording.records-dir
+
+`recording.records-dir` is used together with `recording.basedir` and specifies an absolute path to
+the records directory which is Used for storing records for recorded TV programs.  Each record has
+the following filename and it's stored in the directory specified by `recording.records-dir`:
+
+```
+<recording.records-dir>
+  +-- <record.id>.record.json
+```
+
+The following web endpoinds are enabled when `recording.basedir` and `recording.records-dir` are
+specified:
+
+* `GET /api/recording/records`
+* `GET /api/recording/records/{id}`
+* `DELETE /api/recording/records/{id}`
+* `GET /api/recording/records/{id}/stream`
+* `HEAD /api/recording/records/{id}/stream`
 
 ## timeshift
 

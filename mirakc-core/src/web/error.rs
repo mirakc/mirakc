@@ -49,7 +49,6 @@ impl IntoResponse for Error {
             Error::RecordNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::ScheduleNotFound => error_response!(StatusCode::NOT_FOUND),
             Error::RecorderNotFound => error_response!(StatusCode::NOT_FOUND),
-            Error::NowRecording => error_response!(StatusCode::BAD_REQUEST),
             Error::OutOfRange => error_response!(StatusCode::RANGE_NOT_SATISFIABLE),
             Error::NoContent => error_response!(StatusCode::NO_CONTENT),
             Error::NoLogoData => {

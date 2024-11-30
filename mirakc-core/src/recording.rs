@@ -4,10 +4,12 @@ use std::collections::HashSet;
 use std::ops::Bound;
 use std::path::Path;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::ExitStatus;
 use std::sync::Arc;
 
 use actlet::prelude::*;
+use bytes::Bytes;
 use chrono::DateTime;
 use chrono::Duration;
 use chrono_jst::serde::duration_milliseconds_option;
@@ -19,13 +21,14 @@ use itertools::Itertools;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::BufWriter;
+use tokio_stream::Stream;
+use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipeline;
-use crate::command_util::CommandPipelineOutput;
 use crate::command_util::CommandPipelineProcessModel;
 use crate::config::Config;
 use crate::epg;
@@ -239,7 +242,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             }
         };
 
-        let record_id = make_record_id(recorder.started_at.timestamp(), program_id.value());
+        let record_id = RecordId::from((recorder.started_at, program_id));
         let record_path = match make_record_path(&self.config, &record_id) {
             Some(record_path) => record_path,
             None => {
@@ -1033,7 +1036,7 @@ where
                     "Failed to start recording",
                 );
                 let reason = RecordingFailedReason::StartRecordingFailed {
-                    message: format!("{}", err),
+                    message: format!("{err}"),
                 };
                 if let Some(schedule) = self.schedules.get_mut(&program_id) {
                     schedule.state = RecordingScheduleState::Failed;
@@ -1157,7 +1160,7 @@ where
                     addr.emit(RecordingFailed {
                         program_id,
                         reason: RecordingFailedReason::IoError {
-                            message: format!("{}", err),
+                            message: format!("{err}"),
                             os_error: err.raw_os_error(),
                         },
                     })
@@ -1182,7 +1185,7 @@ where
         // actors receiving RecordingStarted messages can access the recorder.
         ctx.spawn_task(fut);
 
-        let record_id = make_record_id(now.timestamp(), program_id.value());
+        let record_id = RecordId::from((now, program_id));
         let record_path = make_record_path(&self.config, &record_id);
         if let Some(record_path) = record_path {
             let schedule = self.schedules.get(&program_id).unwrap();
@@ -1232,7 +1235,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         };
 
         let mut records = vec![];
-        let record_pattern = format!("{}/*.record.json", records_dir.display());
+        let record_pattern = format!("{}/*.record.json", records_dir.to_str().unwrap());
         for record_path in glob::glob(&record_pattern)? {
             let record_path = record_path?;
             if !record_path.is_file() {
@@ -1334,9 +1337,9 @@ impl<T, E, O> RecordingManager<T, E, O> {
         if matches!(record.recording_status, RecordingStatus::Recording) {
             tracing::warn!(
                 ?record_path,
-                "Cannot remove the record performing the recording"
+                "Cannot remove the record while it's recording"
             );
-            return Err(Error::NowRecording);
+            return Err(Error::InvalidRequest("Now recording"));
         }
 
         let mut record_removed = false;
@@ -1373,7 +1376,8 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 // open content
 
-type ContentStream = MpegTsStream<RecordId, ReaderStream<CommandPipelineOutput<RecordId>>>;
+type ContentStream =
+    MpegTsStream<RecordId, Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send>>>;
 type StopTrigger = Trigger<actlet::Stop>;
 
 #[derive(Message)]
@@ -1381,6 +1385,7 @@ type StopTrigger = Trigger<actlet::Stop>;
 pub struct OpenContent {
     pub id: RecordId,
     pub ranges: Vec<(Bound<u64>, Bound<u64>)>,
+    pub time_limit: u64,
 }
 
 #[async_trait]
@@ -1403,7 +1408,8 @@ where
         ctx: &mut Context<Self>,
     ) -> <OpenContent as Message>::Reply {
         tracing::debug!(msg.name = "OpenContent", %msg.id);
-        self.open_content(&msg.id, &msg.ranges, ctx).await
+        self.open_content(&msg.id, &msg.ranges, msg.time_limit, ctx)
+            .await
     }
 }
 
@@ -1412,6 +1418,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         &self,
         id: &RecordId,
         ranges: &[(Bound<u64>, Bound<u64>)],
+        time_limit: u64,
         ctx: &mut Context<Self>,
     ) -> Result<(ContentStream, Option<StopTrigger>), Error> {
         let record_path = match make_record_path(&self.config, id) {
@@ -1426,7 +1433,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         };
 
         let mut content_source = ContentSource::new(&self.config, &record)?;
-        let stream = content_source.create_stream(ranges);
+        let stream = content_source.create_stream(ranges, time_limit);
 
         let addr = ctx.spawn_actor(content_source).await;
         let stop_trigger = Some(addr.trigger(actlet::Stop));
@@ -2142,8 +2149,14 @@ impl ContentSource {
         }
 
         let content_path_str = content_path.to_str().unwrap();
+        // TODO: ranges
         let cmd = match record.recording_status {
-            RecordingStatus::Recording => format!("tail -c +0 -f '{content_path_str}'"),
+            RecordingStatus::Recording => {
+                // We use `tail -f` for streaming during recording in order to send data to be
+                // appended to the content file in the future after the stream reaches EOF at that
+                // point.
+                format!("tail -f -c +0 -s 1 '{content_path_str}'")
+            }
             _ => format!("cat '{content_path_str}'"),
         };
 
@@ -2152,12 +2165,24 @@ impl ContentSource {
         Ok(Self { pipeline })
     }
 
-    fn create_stream(&mut self, _ranges: &[(Bound<u64>, Bound<u64>)]) -> ContentStream {
+    fn create_stream(
+        &mut self,
+        _ranges: &[(Bound<u64>, Bound<u64>)],
+        time_limit: u64,
+    ) -> ContentStream {
         let (_, output) = self.pipeline.take_endpoints();
 
-        let stream = ReaderStream::new(output);
+        let stream = ReaderStream::new(output)
+            // We set a time limit in order to stop streaming when the stream reaches the *true*
+            // EOF.  Because `tail -f` doesn't terminate when the stream reaches an EOF at that
+            // point.
+            //
+            // We cannot use a RecordingStopped emitter for this purpose.  Because the streaming
+            // has to continue in order to send remaining data until the *true* EOF reaches.
+            .timeout(std::time::Duration::from_millis(time_limit))
+            .map_while(Result::ok);
         // TODO: ranges
-        MpegTsStream::new(self.pipeline.id().clone(), stream)
+        MpegTsStream::new(self.pipeline.id().clone(), Box::pin(stream))
     }
 }
 
@@ -2319,8 +2344,18 @@ pub struct RecorderModel {
 pub struct RecordId(String);
 
 impl RecordId {
+    fn new(timestamp: i64, program_id: u64) -> Self {
+        Self(format!("{timestamp:016X}{program_id:016X}"))
+    }
+
     pub fn value(&self) -> &str {
         &self.0
+    }
+}
+
+impl From<(DateTime<Jst>, ProgramId)> for RecordId {
+    fn from(value: (DateTime<Jst>, ProgramId)) -> Self {
+        Self::new(value.0.timestamp_millis(), value.1.value())
     }
 }
 
@@ -2443,10 +2478,6 @@ fn get_first_error(results: &[std::io::Result<ExitStatus>]) -> Option<i32> {
         .find(|&code| code != 0)
 }
 
-fn make_record_id(timestamp: i64, program_id: u64) -> RecordId {
-    RecordId(format!("{timestamp:08X}{program_id:08X}"))
-}
-
 fn make_record_path(config: &Config, record_id: &RecordId) -> Option<PathBuf> {
     config
         .recording
@@ -2493,6 +2524,14 @@ mod tests {
 
     const RECORDING_DIR: &str = "recording";
     const RECORDS_DIR: &str = ".records";
+
+    #[test]
+    fn test_record_id() {
+        assert_eq!(
+            RecordId::new(0, 0).value(),
+            "00000000000000000000000000000000"
+        );
+    }
 
     #[test]
     fn test_save_and_load() {
@@ -2861,7 +2900,7 @@ mod tests {
 
             let record_pattern = format!(
                 "{}/{RECORDS_DIR}/*{:08X}.record.json",
-                temp_dir.path().display(),
+                temp_dir.path().to_str().unwrap(),
                 program_id.value()
             );
             assert_matches!(glob::glob(&record_pattern).unwrap().next(), Some(Ok(record_path)) => {
@@ -2878,7 +2917,7 @@ mod tests {
 
         let record_pattern = format!(
             "{}/{RECORDS_DIR}/*{:08X}.record.json",
-            temp_dir.path().display(),
+            temp_dir.path().to_str().unwrap(),
             program_id.value()
         );
         assert_matches!(glob::glob(&record_pattern).unwrap().next(), Some(Ok(record_path)) => {
@@ -2946,7 +2985,7 @@ mod tests {
 
             let record_pattern = format!(
                 "{}/{RECORDS_DIR}/*{:08X}.record.json",
-                temp_dir.path().display(),
+                temp_dir.path().to_str().unwrap(),
                 program_id.value()
             );
             assert_matches!(glob::glob(&record_pattern).unwrap().next(), Some(Ok(record_path)) => {
@@ -3158,6 +3197,7 @@ mod tests {
                 .call(OpenContent {
                     id: id.clone(),
                     ranges: vec![],
+                    time_limit: 10000, // 10s
                 })
                 .await;
             let (stream, stop_trigger) = match result {
@@ -3168,15 +3208,16 @@ mod tests {
             let mut reader = tokio_util::io::StreamReader::new(stream);
 
             let mut buf = [0; 10];
-            reader.read_exact(&mut buf).await.unwrap();
+            reader.read_exact(&mut buf).await.unwrap(); // EOF reaches.
             assert_eq!(&buf, b"0123456789");
 
             tokio::fs::write(&content_path, b"0123456789abc")
                 .await
                 .unwrap();
 
-            let mut buf = [0; 3];
-            assert_matches!(reader.read_exact(&mut buf).await, Err(_)); // EOF
+            assert_matches!(reader.read_exact(&mut buf).await, Err(err) => {
+                assert_matches!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+            });
 
             drop(stop_trigger);
         }
@@ -3208,6 +3249,65 @@ mod tests {
                 .call(OpenContent {
                     id: id.clone(),
                     ranges: vec![],
+                    time_limit: 100,
+                })
+                .await;
+            let (stream, stop_trigger) = match result {
+                Ok(Ok(tuple)) => tuple,
+                _ => panic!(),
+            };
+
+            let mut reader = tokio_util::io::StreamReader::new(stream);
+
+            let mut buf = [0; 10];
+            reader.read_exact(&mut buf).await.unwrap(); // EOF reaches.
+            assert_eq!(&buf, b"0123456789");
+
+            // Append "abc".
+            tokio::fs::write(&content_path, b"0123456789abc")
+                .await
+                .unwrap();
+
+            let mut buf = [0; 3];
+            reader.read_exact(&mut buf).await.unwrap(); // EOF reaches again.
+            assert_eq!(&buf, b"abc");
+
+            // The streaming will stop within 100ms without explicit `drop(stop_trigger)`.
+            assert_matches!(reader.read_exact(&mut buf).await, Err(err) => {
+                assert_matches!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+            });
+
+            drop(stop_trigger);
+        }
+        system.shutdown().await;
+
+        // TODO: range request
+    }
+
+    #[test(tokio::test)]
+    async fn test_open_content_stop_trigger() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let id = RecordId("1".to_string());
+        let record = record!(recording: id.clone());
+        let record_path = make_record_path(&config, &id).unwrap();
+        assert!(file_util::save_json(&record, &record_path));
+
+        let content_path = make_content_path(&config, &record).unwrap();
+        tokio::fs::write(&content_path, b"0123456789")
+            .await
+            .unwrap();
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(OpenContent {
+                    id: id.clone(),
+                    ranges: vec![],
+                    time_limit: 10000, // 10s
                 })
                 .await;
             let (stream, stop_trigger) = match result {
@@ -3221,17 +3321,12 @@ mod tests {
             reader.read_exact(&mut buf).await.unwrap();
             assert_eq!(&buf, b"0123456789");
 
-            tokio::fs::write(&content_path, b"0123456789abc")
-                .await
-                .unwrap();
-
-            let mut buf = [0; 3];
-            reader.read_exact(&mut buf).await.unwrap();
-            assert_eq!(&buf, b"abc");
-
             drop(stop_trigger);
 
-            assert_matches!(reader.read_exact(&mut buf).await, Err(_)); // EOF
+            // The streaming will stop soon before the timeout.
+            assert_matches!(reader.read_exact(&mut buf).await, Err(err) => {
+                assert_matches!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+            });
         }
         system.shutdown().await;
 
@@ -3310,10 +3405,7 @@ mod tests {
         );
         manager.schedules.insert((0, 1, 1).into(), schedule);
 
-        let recorder = recorder!(
-            start_time,
-            pipeline![format!("sh -c 'exit {}'", EXIT_RETRY)]
-        );
+        let recorder = recorder!(start_time, pipeline![format!("sh -c 'exit {EXIT_RETRY}'")]);
         manager.recorders.insert((0, 1, 1).into(), recorder);
 
         let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
@@ -3540,7 +3632,7 @@ mod tests {
         assert!(!check_retry(&results));
 
         // retry
-        let mut pipeline: CommandPipeline<u8> = pipeline![format!("sh -c 'exit {}'", EXIT_RETRY)];
+        let mut pipeline: CommandPipeline<u8> = pipeline![format!("sh -c 'exit {EXIT_RETRY}'")];
         let results = pipeline.wait().await;
         assert!(check_retry(&results));
     }
@@ -3726,7 +3818,7 @@ pub(crate) mod stub {
             msg: RemoveRecord,
         ) -> actlet::Result<<RemoveRecord as Message>::Reply> {
             match msg.id.value() {
-                "recording" => Ok(Err(Error::NowRecording)),
+                "recording" => Ok(Err(Error::InvalidRequest(""))),
                 "finished" => Ok(Ok((true, msg.purge))),
                 "no-content" => Ok(Ok((true, false))),
                 _ => Ok(Err(Error::RecordNotFound)),
@@ -3746,7 +3838,8 @@ pub(crate) mod stub {
                     )
                     .unwrap();
                     let (_, output) = pipeline.take_endpoints();
-                    let stream = ReaderStream::new(output);
+                    let stream: Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send>> =
+                        Box::pin(ReaderStream::new(output));
                     let stream = MpegTsStream::new(msg.id.clone(), stream);
                     tokio::spawn(async move {
                         let _ = pipeline.wait().await;

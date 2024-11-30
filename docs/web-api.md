@@ -1,5 +1,9 @@
 # Web API
 
+> [!WARNING]
+> See the Swagger UI for a detailed description of each web API endpoint.
+> This document will be removed eventually.
+
 Web API endpoints listed below have been implemented at this moment:
 
 | ENDPOINT                                        | COMPATIBLE WITH MIRAKURUN? |
@@ -34,6 +38,10 @@ Web API endpoints listed below have been implemented at this moment:
 | [POST /api/recording/recorders]                 |                            |
 | [GET /api/recording/recorders/{program_id}]     |                            |
 | [DELETE /api/recording/recorders/{program_id}]  |                            |
+| [GET /api/recording/records]                    |                            |
+| [GET /api/recording/records/{id}]               |                            |
+| [DELETE /api/recording/records/{id}]            |                            |
+| [GET /api/recording/records/{id}/stream]        |                            |
 | [GET /api/timeshift]                            |                            |
 | [GET /api/timeshift/{recorder}]                 |                            |
 | [GET /api/timeshift/{recorder}/records]         |                            |
@@ -68,6 +76,10 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 * [POST /api/recording/recorders]
 * [GET /api/recording/recorders/{program_id}]
 * [DELETE /api/recording/recorders/{program_id}]
+* [GET /api/recording/records]
+* [GET /api/recording/records/{id}]
+* [DELETE /api/recording/records/{id}]
+* [GET /api/recording/records/{id}/stream]
 * [GET /api/timeshift]
 * [GET /api/timeshift/{recorder}]
 * [GET /api/timeshift/{recorder}/records]
@@ -105,6 +117,10 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [POST /api/recording/recorders]: #postapirecordingrecorders
 [GET /api/recording/recorders/{program_id}]: #get-apirecordingrecordersprogram_id
 [DELETE /api/recording/recorders/{program_id}]: #deleteapirecordingrecordersprogram_id
+[GET /api/recording/records]: #getapirecordingrecords
+[GET /api/recording/records/{id}]: #getapirecordingrecordsid
+[DELETE /api/recording/records/{id}]: #deleteapirecordingrecordsid
+[GET /api/recording/records/{id}/stream]: #getapirecordingrecordsidstream
 [GET /api/timeshift]: #get-apitimeshift
 [GET /api/timeshift/{recorder}]: #get-apitimeshiftrecorder
 [GET /api/timeshift/{recorder}/records]: #get-apitimeshiftrecorderrecords
@@ -287,19 +303,22 @@ parameter for compatibility with Mirakurun and returns all programs.
 
 ## Web API endpoints for recording
 
-mirakc doesn't provide the following endpoints:
+The following web API endpoints are enabled when `config.recording.basedir` is specified:
 
-* Listing recorded TV programs
-* Getting metadata of a recorded TV program
-* Streaming a recorded TV program
+* [GET /api/recording/schedules]
+* [POST /api/recording/schedules]
+* [GET /api/recording/schedules/{program_id}]
+* [DELETE /api/recording/schedules/{program_id}]
+* [GET /api/recording/recorders]
+* [POST /api/recording/recorders]
+* [GET /api/recording/recorders/{program_id}]
+* [DELETE /api/recording/recorders/{program_id}]
 
-These functions are out of scope of mirakc.  Because there already exist some
-media center applications that provide better functions to manage media files
-than mirakc.
+These endpoints are enough for recording TV programs.  And you can play recorded files with your
+favorite media center applications.
 
-If you don't like to use any media center applications, you can simply mount
-a folder specified in `config.recording.records-dir` (or
-`config.recording.contents-dir`) onto somewhere like below:
+If you don't like to use any media center applications, you can simply mount a folder specified in
+`config.recording.basedir` onto somewhere like below:
 
 ```yaml
 server:
@@ -310,10 +329,17 @@ server:
       listing: true
 
 recording:
-  records-dir: /var/lib/mirakc/recording
-  # Recorded media files will be stored in /path/to/videos.
-  contents-dir: /path/to/videos
+  basedir: /var/lib/mirakc/recording
 ```
+
+Generally, existing media center applications has similar (and mostly better) functionalities, but
+the following web API endpoints are enabled when `config.recording.record-dir` is specified
+together with `config.recording.basedir`:
+
+* [GET /api/recording/records]
+* [GET /api/recording/records/{id}]
+* [DELETE /api/recording/records/{id}]
+* [GET /api/recording/records/{id}/stream]
 
 ### GET /api/recording/schedules
 
@@ -346,6 +372,22 @@ Returns a recorder for a specified program.
 ### DELETE /api/recording/recorders/{program_id}
 
 Stop recording for a specified program without deleting its recording schedule.
+
+### GET /api/recording/records
+
+Returns a list of records.
+
+### GET /api/recording/records/{id}
+
+Returns metadata of a record.
+
+### DELETE /api/recording/records/{id}
+
+Removes a record.
+
+### GET /api/recording/records/{id}/stream
+
+Starts streaming of the content of a record.
 
 ## Web API endpoints for timeshift recording and playback
 

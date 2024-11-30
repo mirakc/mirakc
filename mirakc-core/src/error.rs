@@ -24,8 +24,6 @@ pub enum Error {
     ScheduleNotFound,
     #[error("Recorder not found")]
     RecorderNotFound,
-    #[error("Now recording")]
-    NowRecording,
     #[error("Out of range")]
     OutOfRange,
     #[error("No content")]
