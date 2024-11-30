@@ -3249,7 +3249,9 @@ mod tests {
                 .call(OpenContent {
                     id: id.clone(),
                     ranges: vec![],
-                    time_limit: 100,
+                    // See the `tail` command used in `ContentSource::new()` for the reason why
+                    // the time limit is 1500ms.
+                    time_limit: 1500,
                 })
                 .await;
             let (stream, stop_trigger) = match result {
