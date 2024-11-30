@@ -1376,8 +1376,8 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 // open content
 
-type ContentStream =
-    MpegTsStream<RecordId, Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send>>>;
+type BoxedStream = Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send>>;
+type ContentStream = MpegTsStream<RecordId, BoxedStream>;
 type StopTrigger = Trigger<actlet::Stop>;
 
 #[derive(Message)]
@@ -3845,20 +3845,9 @@ pub(crate) mod stub {
         async fn call(&self, msg: OpenContent) -> actlet::Result<<OpenContent as Message>::Reply> {
             match msg.id.value() {
                 "recording" | "finished" => {
-                    let mut pipeline = spawn_pipeline(
-                        vec!["echo -n 0123456789".to_string()],
-                        msg.id.clone(),
-                        "test",
-                    )
-                    .unwrap();
-                    let (_, output) = pipeline.take_endpoints();
-                    let stream: Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send>> =
-                        Box::pin(ReaderStream::new(output));
-                    let stream = MpegTsStream::new(msg.id.clone(), stream);
-                    tokio::spawn(async move {
-                        let _ = pipeline.wait().await;
-                    });
-                    Ok(Ok((stream, None)))
+                    let chunk = Bytes::from_static(b"0123456789");
+                    let stream: BoxedStream = Box::pin(tokio_stream::once(Ok(chunk)));
+                    Ok(Ok((MpegTsStream::new(msg.id.clone(), stream), None)))
                 }
                 "no-content" => Ok(Err(Error::NoContent)),
                 _ => Ok(Err(Error::RecordNotFound)),
