@@ -1240,11 +1240,6 @@ fn create_app(test_config: Arc<HashMap<&'static str, String>>) -> Router {
         }))
 }
 
-async fn into_text(res: Response) -> String {
-    let bytes = res.into_body().collect().await.unwrap().to_bytes();
-    String::from_utf8_lossy(&bytes).to_string()
-}
-
 fn config_for_test() -> Arc<Config> {
     let config_yaml = format!(
         include_str!("config.yml"),
@@ -1262,6 +1257,11 @@ fn string_table_for_test() -> Arc<StringTable> {
     crate::string_table::load(
         format!("{}/../resources/strings.yml", env!("CARGO_MANIFEST_DIR")).as_str(),
     )
+}
+
+async fn into_text(res: Response) -> String {
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    String::from_utf8_lossy(&bytes).to_string()
 }
 
 mod helper {

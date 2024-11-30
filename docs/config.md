@@ -903,7 +903,7 @@ The following files are stored in the base directory specified by this property:
 * `schedules.json` contains recording schedules
 
 You can specify multiple nested directories in the `options.contentPath`
-property in a JSON data used in the following web endpoints:
+property in a JSON data used in the following Web endpoints:
 
 * [POST /api/recording/schedules](./web-api.md#postapirecordingschedules)
 
