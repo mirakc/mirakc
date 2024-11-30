@@ -2155,7 +2155,10 @@ impl ContentSource {
                 // We use `tail -f` for streaming during recording in order to send data to be
                 // appended to the content file in the future after the stream reaches EOF at that
                 // point.
-                format!("tail -f -c +0 -s 1 '{content_path_str}'")
+                //
+                // NOTE: `tail` in macOS doesn't support `-s` option.  The default value of the
+                // sleep interval of `tail` in GNU coreutils is 1.0 second.
+                format!("tail -f -c +0 '{content_path_str}'")
             }
             _ => format!("cat '{content_path_str}'"),
         };
