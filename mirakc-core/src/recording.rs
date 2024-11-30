@@ -3661,6 +3661,8 @@ mod tests {
         std::fs::create_dir(&records_dir).unwrap();
         config.recording.records_dir = Some(records_dir);
 
+        config.filters.program_filter.command = "cat".to_string();
+
         Arc::new(config)
     }
 
