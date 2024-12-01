@@ -141,7 +141,7 @@ An event sent when a record is saved successfully.
 {
   "type": "object",
   "properties": {
-    "id": { "type": "string" }  // RecordId
+    "recordId": { "type": "string" }  // RecordId
   }
 }
 ```
@@ -154,7 +154,7 @@ An event sent when a record is removed.
 {
   "type": "object",
   "properties": {
-    "id": { "type": "string" }  // RecordId
+    "recordId": { "type": "string" }  // RecordId
   }
 }
 ```
@@ -167,7 +167,7 @@ An event sent when a content is removed.
 {
   "type": "object",
   "properties": {
-    "id": { "type": "string" }  // RecordId
+    "recordId": { "type": "string" }  // RecordId
   }
 }
 ```
@@ -180,7 +180,7 @@ An event sent when a record has been broken.
 {
   "type": "object",
   "properties": {
-    "id": { "type": "string" },  // RecordId
+    "recordId": { "type": "string" },  // RecordId
     "reason": { "type": "string" }
   }
 }

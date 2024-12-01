@@ -252,7 +252,9 @@ impl From<crate::recording::RecordSaved> for Event {
     fn from(val: crate::recording::RecordSaved) -> Self {
         Self::default()
             .event("recording.record-saved")
-            .json_data(RecordSaved { id: val.id })
+            .json_data(RecordSaved {
+                record_id: val.record_id,
+            })
             .unwrap()
     }
 }
@@ -263,7 +265,9 @@ impl From<crate::recording::RecordRemoved> for Event {
     fn from(val: crate::recording::RecordRemoved) -> Self {
         Self::default()
             .event("recording.record-removed")
-            .json_data(RecordRemoved { id: val.id })
+            .json_data(RecordRemoved {
+                record_id: val.record_id,
+            })
             .unwrap()
     }
 }
@@ -274,7 +278,9 @@ impl From<crate::recording::ContentRemoved> for Event {
     fn from(val: crate::recording::ContentRemoved) -> Self {
         Self::default()
             .event("recording.content-removed")
-            .json_data(ContentRemoved { id: val.id })
+            .json_data(ContentRemoved {
+                record_id: val.record_id,
+            })
             .unwrap()
     }
 }
@@ -286,7 +292,7 @@ impl From<crate::recording::RecordBroken> for Event {
         Self::default()
             .event("recording.record-broken")
             .json_data(RecordBroken {
-                id: val.id,
+                record_id: val.record_id,
                 reason: val.reason,
             })
             .unwrap()

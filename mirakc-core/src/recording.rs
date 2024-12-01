@@ -1865,12 +1865,14 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 #[derive(Clone, Message)]
 pub struct RecordSaved {
-    pub id: RecordId,
+    pub record_id: RecordId,
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_record_saved(&self, id: &RecordId) {
-        let msg = RecordSaved { id: id.clone() };
+    async fn emit_record_saved(&self, record_id: &RecordId) {
+        let msg = RecordSaved {
+            record_id: record_id.clone(),
+        };
         self.record_saved.emit(msg).await;
     }
 }
@@ -1879,12 +1881,14 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 #[derive(Clone, Message)]
 pub struct RecordRemoved {
-    pub id: RecordId,
+    pub record_id: RecordId,
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_record_removed(&self, id: &RecordId) {
-        let msg = RecordRemoved { id: id.clone() };
+    async fn emit_record_removed(&self, record_id: &RecordId) {
+        let msg = RecordRemoved {
+            record_id: record_id.clone(),
+        };
         self.record_removed.emit(msg).await;
     }
 }
@@ -1893,12 +1897,14 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 #[derive(Clone, Message)]
 pub struct ContentRemoved {
-    pub id: RecordId,
+    pub record_id: RecordId,
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_content_removed(&self, id: &RecordId) {
-        let msg = ContentRemoved { id: id.clone() };
+    async fn emit_content_removed(&self, record_id: &RecordId) {
+        let msg = ContentRemoved {
+            record_id: record_id.clone(),
+        };
         self.content_removed.emit(msg).await;
     }
 }
@@ -1907,14 +1913,14 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 #[derive(Clone, Message)]
 pub struct RecordBroken {
-    pub id: RecordId,
+    pub record_id: RecordId,
     pub reason: &'static str,
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_record_broken(&self, id: &RecordId, reason: &'static str) {
+    async fn emit_record_broken(&self, record_id: &RecordId, reason: &'static str) {
         let msg = RecordBroken {
-            id: id.clone(),
+            record_id: record_id.clone(),
             reason,
         };
         self.record_broken.emit(msg).await;
@@ -2892,7 +2898,7 @@ mod tests {
         let mut record_saved = MockRecordSavedValidator::new();
         let program_id_part = format!("{:08X}", program_id.value());
         record_saved.expect_emit().times(2).returning(move |msg| {
-            assert!(msg.id.value().ends_with(&program_id_part));
+            assert!(msg.record_id.value().ends_with(&program_id_part));
         });
 
         let system = System::new();
@@ -2967,7 +2973,7 @@ mod tests {
         let mut record_saved = MockRecordSavedValidator::new();
         let program_id_part = format!("{:08X}", program_id.value());
         record_saved.expect_emit().times(2).returning(move |msg| {
-            assert!(msg.id.value().ends_with(&program_id_part));
+            assert!(msg.record_id.value().ends_with(&program_id_part));
         });
 
         let system = System::new();
@@ -3120,7 +3126,7 @@ mod tests {
         let mut record_removed = MockRecordRemovedValidator::new();
         let program_id_part = format!("{:08X}", program_id.value());
         record_removed.expect_emit().times(1).returning(move |msg| {
-            assert!(msg.id.value().ends_with(&program_id_part));
+            assert!(msg.record_id.value().ends_with(&program_id_part));
         });
 
         let mut content_removed = MockContentRemovedValidator::new();
@@ -3129,7 +3135,7 @@ mod tests {
             .expect_emit()
             .times(1)
             .returning(move |msg| {
-                assert!(msg.id.value().ends_with(&program_id_part));
+                assert!(msg.record_id.value().ends_with(&program_id_part));
             });
 
         let system = System::new();

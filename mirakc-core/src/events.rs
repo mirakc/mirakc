@@ -52,25 +52,25 @@ pub struct RecordingRescheduled {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordSaved {
-    pub id: RecordId,
+    pub record_id: RecordId,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordRemoved {
-    pub id: RecordId,
+    pub record_id: RecordId,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContentRemoved {
-    pub id: RecordId,
+    pub record_id: RecordId,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordBroken {
-    pub id: RecordId,
+    pub record_id: RecordId,
     pub reason: &'static str,
 }
 
