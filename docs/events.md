@@ -151,7 +151,7 @@ The `recording.record-saved` event for a record may be sent multiple times.  For
 updated.
 
 The `recording.record-saved` event for a record will no long sent once the recording status of the
-record becomes `finished`.
+record becomes `finished`, `failed` or `canceled`.
 
 The order of occurrence of `recording.started`, `recording.stopped` and `recording-record-saved`
 events is not guaranteed.
@@ -200,7 +200,7 @@ Like `recording.record-saved` events, the `recording.record-broken` event for a 
 multiple times.
 
 The `recording.record-broken` event for a record will no long sent once the recording status of the
-record becomes `finished`.
+record becomes `finished`, `failed` or `canceled`.
 
 The order of occurrence of `recording.started`, `recording.stopped` and `recording-record-broken`
 events is not guaranteed.
