@@ -146,6 +146,16 @@ An event sent when a record is saved successfully.
 }
 ```
 
+The `recording.record-saved` event for a record may be sent multiple times.  For example, a
+`recording.record-saved` event will be sent when metadata of the TV program currently recorded is
+updated.
+
+The `recording.record-saved` event for a record will no long sent once the recording status of the
+record becomes `finished`.
+
+The order of occurrence of `recording.started`, `recording.stopped` and `recording-record-saved`
+events is not guaranteed.
+
 ## recording.record-removed
 
 An event sent when a record is removed.
@@ -185,6 +195,15 @@ An event sent when a record has been broken.
   }
 }
 ```
+
+Like `recording.record-saved` events, the `recording.record-broken` event for a record may be sent
+multiple times.
+
+The `recording.record-broken` event for a record will no long sent once the recording status of the
+record becomes `finished`.
+
+The order of occurrence of `recording.started`, `recording.stopped` and `recording-record-broken`
+events is not guaranteed.
 
 ## timeshift.timeline
 
