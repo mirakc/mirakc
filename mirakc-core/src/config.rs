@@ -2255,13 +2255,14 @@ mod tests {
             ChannelType::BS,
             ChannelType::CS,
             ChannelType::SKY,
+            ChannelType::BS4K,
         ];
         config.command = "open tuner".to_string();
         assert_eq!(
             serde_yaml::from_str::<TunerConfig>(
                 r#"
                 name: x
-                types: [GR, BS, CS, SKY]
+                types: [GR, BS, CS, SKY, BS4K]
                 command: open tuner
             "#
             )

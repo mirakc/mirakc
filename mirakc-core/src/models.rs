@@ -25,6 +25,7 @@ pub enum ChannelType {
     BS,
     CS,
     SKY,
+    BS4K,
 }
 
 impl fmt::Display for ChannelType {
@@ -34,6 +35,7 @@ impl fmt::Display for ChannelType {
             ChannelType::BS => write!(f, "BS"),
             ChannelType::CS => write!(f, "CS"),
             ChannelType::SKY => write!(f, "SKY"),
+            ChannelType::BS4K => write!(f, "BS4K"),
         }
     }
 }
@@ -856,12 +858,14 @@ mod tests {
         );
 
         assert_eq!(
-            serde_json::from_str::<Vec<ChannelType>>(r#"["GR", "BS", "CS", "SKY"]"#).unwrap(),
+            serde_json::from_str::<Vec<ChannelType>>(r#"["GR", "BS", "CS", "SKY", "BS4K"]"#)
+                .unwrap(),
             vec![
                 ChannelType::GR,
                 ChannelType::BS,
                 ChannelType::CS,
-                ChannelType::SKY
+                ChannelType::SKY,
+                ChannelType::BS4K,
             ]
         );
     }

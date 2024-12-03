@@ -375,7 +375,7 @@ Definitions of channels.  At least, one channel must be defined.
 * name
   * An arbitrary name of the channel
 * type
-  * One of channel types in `GR`, `BS`, `CS` and `SKY`
+  * One of channel types in `GR`, `BS`, `CS`, `SKY` and `BS4K`
 * channel
   * A channel parameter used in a tuner command template
 * extra-args
