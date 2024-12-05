@@ -102,9 +102,9 @@ impl<T, E, O> RecordingManager<T, E, O> {
             recording_failed: Default::default(),
             recording_rescheduled: Default::default(),
             record_saved: Default::default(),
+            record_broken: Default::default(),
             record_removed: Default::default(),
             content_removed: Default::default(),
-            record_broken: Default::default(),
         }
     }
 }
@@ -221,10 +221,11 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
         if file_util::save_json(record, record_path) {
             tracing::info!(?record_path, "Created successfully");
-            self.emit_record_saved(&record.id).await;
+            self.emit_record_saved(record.id.clone(), record.recording_status.clone())
+                .await;
         } else {
             tracing::error!(?record_path, "Failed to save");
-            self.emit_record_broken(&record.id, "Failed to save record")
+            self.emit_record_broken(record.id.clone(), "Failed to save record")
                 .await;
         }
     }
@@ -305,7 +306,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 }
                 None => {
                     tracing::error!(?err, ?record_path, "Broken record, skip updating");
-                    self.emit_record_broken(&record_id, "Broken record").await;
+                    self.emit_record_broken(record_id, "Broken record").await;
                     return;
                 }
             },
@@ -313,10 +314,11 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
         if file_util::save_json(&record, &record_path) {
             tracing::info!(?record_path, "Updated successfully");
-            self.emit_record_saved(&record.id).await;
+            self.emit_record_saved(record.id, record.recording_status)
+                .await;
         } else {
             tracing::error!(?record_path, "Failed to save");
-            self.emit_record_broken(&record.id, "Faild to save record")
+            self.emit_record_broken(record.id, "Faild to save record")
                 .await;
         }
     }
@@ -1358,7 +1360,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 match std::fs::remove_file(&content_path) {
                     Ok(_) => {
                         content_removed = true;
-                        self.emit_content_removed(id).await;
+                        self.emit_content_removed(id.clone()).await;
                     }
                     Err(err) => tracing::error!(?err, ?content_path),
                 }
@@ -1372,7 +1374,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         match std::fs::remove_file(&record_path) {
             Ok(_) => {
                 record_removed = true;
-                self.emit_record_removed(id).await;
+                self.emit_record_removed(id.clone()).await;
             }
             Err(err) => tracing::error!(?err, ?record_path),
         }
@@ -1873,46 +1875,16 @@ impl<T, E, O> RecordingManager<T, E, O> {
 #[derive(Clone, Message)]
 pub struct RecordSaved {
     pub record_id: RecordId,
+    pub recording_status: RecordingStatus,
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_record_saved(&self, record_id: &RecordId) {
+    async fn emit_record_saved(&self, record_id: RecordId, recording_status: RecordingStatus) {
         let msg = RecordSaved {
-            record_id: record_id.clone(),
+            record_id,
+            recording_status,
         };
         self.record_saved.emit(msg).await;
-    }
-}
-
-// record removed
-
-#[derive(Clone, Message)]
-pub struct RecordRemoved {
-    pub record_id: RecordId,
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_record_removed(&self, record_id: &RecordId) {
-        let msg = RecordRemoved {
-            record_id: record_id.clone(),
-        };
-        self.record_removed.emit(msg).await;
-    }
-}
-
-// content removed
-
-#[derive(Clone, Message)]
-pub struct ContentRemoved {
-    pub record_id: RecordId,
-}
-
-impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_content_removed(&self, record_id: &RecordId) {
-        let msg = ContentRemoved {
-            record_id: record_id.clone(),
-        };
-        self.content_removed.emit(msg).await;
     }
 }
 
@@ -1925,12 +1897,37 @@ pub struct RecordBroken {
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_record_broken(&self, record_id: &RecordId, reason: &'static str) {
-        let msg = RecordBroken {
-            record_id: record_id.clone(),
-            reason,
-        };
+    async fn emit_record_broken(&self, record_id: RecordId, reason: &'static str) {
+        let msg = RecordBroken { record_id, reason };
         self.record_broken.emit(msg).await;
+    }
+}
+
+// record removed
+
+#[derive(Clone, Message)]
+pub struct RecordRemoved {
+    pub record_id: RecordId,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_record_removed(&self, record_id: RecordId) {
+        let msg = RecordRemoved { record_id };
+        self.record_removed.emit(msg).await;
+    }
+}
+
+// content removed
+
+#[derive(Clone, Message)]
+pub struct ContentRemoved {
+    pub record_id: RecordId,
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_content_removed(&self, record_id: RecordId) {
+        let msg = ContentRemoved { record_id };
+        self.content_removed.emit(msg).await;
     }
 }
 
@@ -2504,8 +2501,8 @@ impl Record {
 pub enum RecordingStatus {
     Recording,
     Finished,
-    Failed { reason: RecordingFailedReason },
     Canceled,
+    Failed { reason: RecordingFailedReason },
 }
 
 // helpers
@@ -2949,11 +2946,28 @@ mod tests {
         let program_id = ProgramId::from((0, 1, 1));
         let content_filename = "1.m2ts";
 
+        let mut seq = mockall::Sequence::new();
         let mut record_saved = MockRecordSavedValidator::new();
-        let program_id_part = format!("{:08X}", program_id.value());
-        record_saved.expect_emit().times(2).returning(move |msg| {
-            assert!(msg.record_id.value().ends_with(&program_id_part));
-        });
+
+        record_saved.expect_emit()
+            .withf(move |msg| {
+                let program_id_part = format!("{:08X}", program_id.value());
+                msg.record_id.value().ends_with(&program_id_part) &&
+                    matches!(msg.recording_status, RecordingStatus::Recording)
+            })
+            .returning(|_| ())
+            .once()
+            .in_sequence(&mut seq);
+
+        record_saved.expect_emit()
+            .withf(move |msg| {
+                let program_id_part = format!("{:08X}", program_id.value());
+                msg.record_id.value().ends_with(&program_id_part) &&
+                    matches!(msg.recording_status, RecordingStatus::Finished)
+            })
+            .returning(|_| ())
+            .once()
+            .in_sequence(&mut seq);
 
         let system = System::new();
         {
@@ -3015,11 +3029,28 @@ mod tests {
 
         let program_id = ProgramId::from((0, 1, 1));
 
+        let mut seq = mockall::Sequence::new();
         let mut record_saved = MockRecordSavedValidator::new();
-        let program_id_part = format!("{:08X}", program_id.value());
-        record_saved.expect_emit().times(2).returning(move |msg| {
-            assert!(msg.record_id.value().ends_with(&program_id_part));
-        });
+
+        record_saved.expect_emit()
+            .withf(move |msg| {
+                let program_id_part = format!("{:08X}", program_id.value());
+                msg.record_id.value().ends_with(&program_id_part) &&
+                    matches!(msg.recording_status, RecordingStatus::Recording)
+            })
+            .returning(|_| ())
+            .once()
+            .in_sequence(&mut seq);
+
+        record_saved.expect_emit()
+            .withf(move |msg| {
+                let program_id_part = format!("{:08X}", program_id.value());
+                msg.record_id.value().ends_with(&program_id_part) &&
+                    matches!(msg.recording_status, RecordingStatus::Finished)
+            })
+            .returning(|_| ())
+            .once()
+            .in_sequence(&mut seq);
 
         let system = System::new();
         {
@@ -3090,16 +3121,35 @@ mod tests {
         let notify = Arc::new(Notify::new());
         let notify2 = notify.clone();
 
+        let mut seq = mockall::Sequence::new();
         let mut stopped = MockRecordingStoppedValidator::new();
+        let mut record_saved = MockRecordSavedValidator::new();
+
+        record_saved.expect_emit()
+            .withf(move |msg| {
+                let program_id_part = format!("{:08X}", program_id.value());
+                msg.record_id.value().ends_with(&program_id_part) &&
+                    matches!(msg.recording_status, RecordingStatus::Recording)
+            })
+            .returning(|_| ())
+            .once()
+            .in_sequence(&mut seq);
+
+        record_saved.expect_emit()
+            .withf(move |msg| {
+                let program_id_part = format!("{:08X}", program_id.value());
+                msg.record_id.value().ends_with(&program_id_part) &&
+                    matches!(msg.recording_status, RecordingStatus::Finished)
+            })
+            .returning(|_| ())
+            .once()
+            .in_sequence(&mut seq);
+
         stopped
             .expect_emit()
-            .returning(move |_| notify2.notify_one());
-
-        let mut record_saved = MockRecordSavedValidator::new();
-        let program_id_part = format!("{:08X}", program_id.value());
-        record_saved.expect_emit().times(2).returning(move |msg| {
-            assert!(msg.record_id.value().ends_with(&program_id_part));
-        });
+            .returning(move |_| notify2.notify_one())
+            .once()
+            .in_sequence(&mut seq);
 
         let system = System::new();
         {
@@ -3243,25 +3293,36 @@ mod tests {
         let notify = Arc::new(Notify::new());
         let notify2 = notify.clone();
 
+        let mut seq = mockall::Sequence::new();
         let mut stopped = MockRecordingStoppedValidator::new();
+        let mut record_removed = MockRecordRemovedValidator::new();
+        let mut content_removed = MockContentRemovedValidator::new();
+
         stopped
             .expect_emit()
-            .returning(move |_| notify2.notify_one());
+            .returning(move |_| notify2.notify_one())
+            .once()
+            .in_sequence(&mut seq);
 
-        let mut record_removed = MockRecordRemovedValidator::new();
-        let program_id_part = format!("{:08X}", program_id.value());
-        record_removed.expect_emit().times(1).returning(move |msg| {
-            assert!(msg.record_id.value().ends_with(&program_id_part));
-        });
-
-        let mut content_removed = MockContentRemovedValidator::new();
-        let program_id_part = format!("{:08X}", program_id.value());
         content_removed
             .expect_emit()
-            .times(1)
-            .returning(move |msg| {
-                assert!(msg.record_id.value().ends_with(&program_id_part));
-            });
+            .withf(move |msg| {
+                let program_id_part = format!("{:08X}", program_id.value());
+                msg.record_id.value().ends_with(&program_id_part)
+            })
+            .returning(|_| ())
+            .once()
+            .in_sequence(&mut seq);
+
+        record_removed
+            .expect_emit()
+            .withf(move |msg| {
+                let program_id_part = format!("{:08X}", program_id.value());
+                msg.record_id.value().ends_with(&program_id_part)
+            })
+            .returning(|_| ())
+            .once()
+            .in_sequence(&mut seq);
 
         let system = System::new();
         {

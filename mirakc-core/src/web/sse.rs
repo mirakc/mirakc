@@ -98,9 +98,9 @@ where
     }
 
     let _record_saved_unregister_trigger = register_emitter_for_records!(RecordSaved);
+    let _record_broken_unregister_trigger = register_emitter_for_records!(RecordBroken);
     let _record_removed_unregister_trigger = register_emitter_for_records!(RecordRemoved);
     let _content_removed_unregister_trigger = register_emitter_for_records!(ContentRemoved);
-    let _record_broken_unregister_trigger = register_emitter_for_records!(RecordBroken);
 
     let _timeshift_event_unregister_trigger = register_emitter_if_enabled!(
         timeshift_manager,
@@ -128,9 +128,9 @@ where
         _recording_failed_unregister_trigger,
         _recording_rescheduled_unregister_trigger,
         _record_saved_unregister_trigger,
+        _record_broken_unregister_trigger,
         _record_removed_unregister_trigger,
         _content_removed_unregister_trigger,
-        _record_broken_unregister_trigger,
         _timeshift_event_unregister_trigger,
         _onair_program_changed_unregister_trigger,
     });
@@ -254,6 +254,21 @@ impl From<crate::recording::RecordSaved> for Event {
             .event("recording.record-saved")
             .json_data(RecordSaved {
                 record_id: val.record_id,
+                recording_status: val.recording_status,
+            })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::RecordBroken}
+
+impl From<crate::recording::RecordBroken> for Event {
+    fn from(val: crate::recording::RecordBroken) -> Self {
+        Self::default()
+            .event("recording.record-broken")
+            .json_data(RecordBroken {
+                record_id: val.record_id,
+                reason: val.reason,
             })
             .unwrap()
     }
@@ -280,20 +295,6 @@ impl From<crate::recording::ContentRemoved> for Event {
             .event("recording.content-removed")
             .json_data(ContentRemoved {
                 record_id: val.record_id,
-            })
-            .unwrap()
-    }
-}
-
-impl_emit! {crate::recording::RecordBroken}
-
-impl From<crate::recording::RecordBroken> for Event {
-    fn from(val: crate::recording::RecordBroken) -> Self {
-        Self::default()
-            .event("recording.record-broken")
-            .json_data(RecordBroken {
-                record_id: val.record_id,
-                reason: val.reason,
             })
             .unwrap()
     }
