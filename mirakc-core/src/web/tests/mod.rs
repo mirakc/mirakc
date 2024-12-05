@@ -373,12 +373,7 @@ async fn test_create_recording_schedule() {
     // Error::ProgramNotFound
     let input = WebRecordingScheduleInput {
         program_id: (0, 1, 0).into(),
-        options: RecordingOptions {
-            content_path: "0.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        options: recording_options!("0.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -387,12 +382,7 @@ async fn test_create_recording_schedule() {
     // Error::AlreadyExists
     let input = WebRecordingScheduleInput {
         program_id: (0, 1, 1).into(),
-        options: RecordingOptions {
-            content_path: "1.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        options: recording_options!("1.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -401,12 +391,7 @@ async fn test_create_recording_schedule() {
     // Error::ProgramAlreadyStarted
     let input = WebRecordingScheduleInput {
         program_id: (0, 1, 2).into(),
-        options: RecordingOptions {
-            content_path: "2.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        options: recording_options!("2.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -415,12 +400,7 @@ async fn test_create_recording_schedule() {
     // Ok
     let input = WebRecordingScheduleInput {
         program_id: (0, 1, 4).into(),
-        options: RecordingOptions {
-            content_path: "4.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        options: recording_options!("4.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -429,12 +409,7 @@ async fn test_create_recording_schedule() {
     // Error::InvalidPath
     let input = WebRecordingScheduleInput {
         program_id: (0, 1, 4).into(),
-        options: RecordingOptions {
-            content_path: "/4.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        options: recording_options!("/4.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -443,16 +418,20 @@ async fn test_create_recording_schedule() {
     // Error::InvalidPath
     let input = WebRecordingScheduleInput {
         program_id: (0, 1, 4).into(),
-        options: RecordingOptions {
-            content_path: "../4.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        options: recording_options!("../4.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Use auto-generated filename for the content file.
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 1, 4).into(),
+        options: recording_options!(1),
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/schedules", input).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
 }
 
 #[test(tokio::test)]
@@ -492,12 +471,7 @@ async fn test_get_recording_recorders() {
 async fn test_create_recording_recorder() {
     let input = WebRecordingScheduleInput {
         program_id: (0, 1, 1).into(),
-        options: RecordingOptions {
-            content_path: "program.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        options: recording_options!("program.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/recorders", input).await;
@@ -505,16 +479,19 @@ async fn test_create_recording_recorder() {
 
     let input = WebRecordingScheduleInput {
         program_id: (0, 1, 0).into(),
-        options: RecordingOptions {
-            content_path: "program.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        options: recording_options!("program.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/recorders", input).await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 1, 1).into(),
+        options: recording_options!(1),
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/recorders", input).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
 }
 
 #[test(tokio::test)]

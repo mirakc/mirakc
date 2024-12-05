@@ -62,7 +62,7 @@ where
 /// > The recording starts even if the TV program has not started.
 /// > In this case, the recording will always fail.
 ///
-/// ### If config.recording.records-dir is specified
+/// ### If `config.recording.records-dir` is specified
 ///
 /// A record will be created in the specified folder and a `recording.record-saved` event will be
 /// sent if the record is created successfully.  Otherwise, a `recording.record-broken` event will
@@ -108,7 +108,7 @@ where
 /// A `recording.stopped` event will be sent and `GET /api/recording/schedules/{program_id}` will
 /// return the schedule information.
 ///
-/// ### If config.recording.records-dir is specified
+/// ### If `config.recording.records-dir` is specified
 ///
 /// A `recording.record-saved` event will be sent if the record is updated successfully.
 /// Otherwise, a `recording.record-broken` event will be sent instead.

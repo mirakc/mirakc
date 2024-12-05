@@ -137,9 +137,17 @@ macro_rules! program {
 }
 
 macro_rules! recording_options {
+    ($priority:expr) => {
+        RecordingOptions {
+            content_path: None,
+            priority: $priority.into(),
+            pre_filters: vec![],
+            post_filters: vec![],
+        }
+    };
     ($content_path:expr, $priority:expr) => {
         RecordingOptions {
-            content_path: $content_path.into(),
+            content_path: Some($content_path.into()),
             priority: $priority.into(),
             pre_filters: vec![],
             post_filters: vec![],
@@ -217,6 +225,7 @@ macro_rules! record {
             recording_start_time: $start_time,
             recording_end_time: $end_time.clone(),
             recording_duration: $end_time.map(|t| t - $start_time),
+            content_path: format!("{}.m2ts", $id).into(),
             content_type: "video/MP2T".to_owned(),
         }
     };

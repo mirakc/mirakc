@@ -18,6 +18,7 @@ use chrono_jst::serde::ts_milliseconds_option;
 use chrono_jst::Jst;
 use indexmap::IndexMap;
 use itertools::Itertools;
+use path_dedot::ParseDot;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::BufWriter;
@@ -290,11 +291,15 @@ impl<T, E, O> RecordingManager<T, E, O> {
                         ?record_path,
                         "Broken record, will be overwritten with new record"
                     );
+                    let content_path =
+                        make_content_path_from_schedule(&self.config, &record_id, schedule);
+                    let content_path = make_relative_content_path(&self.config, &content_path);
                     Record::new(
                         record_id,
                         recorder.started_at,
                         recorder.service.clone(),
                         schedule,
+                        content_path,
                         recorder.content_type.clone(),
                     )
                 }
@@ -1119,13 +1124,10 @@ where
         builder.add_post_filters(&self.config.post_filters, &schedule.options.post_filters)?;
         let (filters, content_type) = builder.build();
 
-        let basedir = self.config.recording.basedir.as_ref().unwrap();
+        let now = Jst::now();
+        let record_id = RecordId::from((now, program_id));
 
-        let content_path = if schedule.options.content_path.is_absolute() {
-            schedule.options.content_path.clone()
-        } else {
-            basedir.join(&schedule.options.content_path)
-        };
+        let content_path = make_content_path_from_schedule(&self.config, &record_id, schedule);
         // We assumed that schedule.content_path has already been normalized.
         if let Some(dir) = content_path.parent() {
             // Create missing directories if they don't exist.
@@ -1169,8 +1171,6 @@ where
             }
         };
 
-        let now = Jst::now();
-
         let recorder = Recorder {
             started_at: now,
             pipeline,
@@ -1185,11 +1185,18 @@ where
         // actors receiving RecordingStarted messages can access the recorder.
         ctx.spawn_task(fut);
 
-        let record_id = RecordId::from((now, program_id));
         let record_path = make_record_path(&self.config, &record_id);
         if let Some(record_path) = record_path {
             let schedule = self.schedules.get(&program_id).unwrap();
-            let record = Record::new(record_id, now, service, schedule, content_type);
+            let content_path = make_relative_content_path(&self.config, &content_path);
+            let record = Record::new(
+                record_id,
+                now,
+                service,
+                schedule,
+                content_path,
+                content_type,
+            );
             self.create_record(&record_path, &record).await;
         }
 
@@ -2324,11 +2331,22 @@ pub enum RecordingScheduleState {
 #[derive(ToSchema)]
 #[schema(title = "RecordingOptions")]
 pub struct RecordingOptions {
-    /// A relative path of a file to store recorded data.
+    /// The path of the content file relative to `config.recording.basedir`.
     ///
     /// The path must be a valid Unicode string.
-    #[schema(value_type = String)]
-    pub content_path: PathBuf,
+    ///
+    /// ### If `config.recording.records-dir` is NOT specified
+    ///
+    /// This is a required option.  A response with the status code 401 will be replied if this
+    /// option is not specified.
+    ///
+    /// ### If `config.recording.records-dir` is specified
+    ///
+    /// An auto-generated filename will be used for the content file if this option is not
+    /// specified.
+    #[schema(value_type = Option<String>)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_path: Option<PathBuf>,
     /// A priority of tuner usage.
     #[serde(default)]
     pub priority: i32,
@@ -2414,6 +2432,7 @@ pub struct Record {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(with = "duration_milliseconds_option")]
     pub recording_duration: Option<Duration>,
+    pub content_path: PathBuf,
     pub content_type: String,
 }
 
@@ -2423,8 +2442,11 @@ impl Record {
         start_time: DateTime<Jst>,
         service: EpgService,
         schedule: &RecordingSchedule,
+        content_path: PathBuf,
         content_type: String,
     ) -> Self {
+        debug_assert!(content_path.is_relative());
+        debug_assert!(!content_type.is_empty());
         Self {
             id,
             program: (*schedule.program).clone(),
@@ -2435,6 +2457,7 @@ impl Record {
             recording_start_time: start_time,
             recording_end_time: None,
             recording_duration: None,
+            content_path,
             content_type,
         }
     }
@@ -2512,12 +2535,40 @@ fn make_record_path(config: &Config, record_id: &RecordId) -> Option<PathBuf> {
         .map(|records_dir| records_dir.join(format!("{}.record.json", record_id.value())))
 }
 
+fn make_content_filename(record_id: &RecordId) -> String {
+    format!("{}.content", record_id.value())
+}
+
 fn make_content_path(config: &Config, record: &Record) -> Option<PathBuf> {
     config
         .recording
         .basedir
         .as_ref()
-        .map(|basedir| basedir.join(&record.options.content_path))
+        .map(|basedir| basedir.join(&record.content_path))
+}
+
+fn make_relative_content_path(config: &Config, content_path: &Path) -> PathBuf {
+    let basedir = config.recording.basedir.as_ref().unwrap();
+    content_path.strip_prefix(basedir).unwrap().to_owned()
+}
+
+fn make_content_path_from_schedule(
+    config: &Config,
+    record_id: &RecordId,
+    schedule: &RecordingSchedule,
+) -> PathBuf {
+    let basedir = config.recording.basedir.as_ref().unwrap();
+
+    match schedule.options.content_path.as_ref() {
+        Some(content_path) => {
+            debug_assert!(content_path.is_relative());
+            basedir.join(content_path).parse_dot().unwrap().into_owned()
+        }
+        None => {
+            assert!(config.recording.is_records_api_enabled());
+            basedir.join(make_content_filename(record_id))
+        }
+    }
 }
 
 async fn load_record(config: &Config, record_path: &Path) -> Result<(Record, Option<u64>), Error> {
@@ -2940,6 +2991,77 @@ mod tests {
 
         let content_path = temp_dir.path().join(RECORDING_DIR).join(content_filename);
         assert!(content_path.is_file());
+
+        let record_pattern = format!(
+            "{}/{RECORDS_DIR}/*{:08X}.record.json",
+            temp_dir.path().to_str().unwrap(),
+            program_id.value()
+        );
+        assert_matches!(glob::glob(&record_pattern).unwrap().next(), Some(Ok(record_path)) => {
+            assert_matches!(load_record(&config, &record_path).await, Ok((record, _)) => {
+                assert_eq!(record.program.id, program_id);
+                // The recording stops when the system stops.
+                assert_matches!(record.recording_status, RecordingStatus::Finished);
+            })
+        });
+    }
+
+    #[test(tokio::test)]
+    async fn test_start_recording_without_content_path() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let program_id = ProgramId::from((0, 1, 1));
+
+        let mut record_saved = MockRecordSavedValidator::new();
+        let program_id_part = format!("{:08X}", program_id.value());
+        record_saved.expect_emit().times(2).returning(move |msg| {
+            assert!(msg.record_id.value().ends_with(&program_id_part));
+        });
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::RecordSaved(Emitter::new(record_saved)))
+                .await;
+            assert_matches!(result, Ok(_));
+
+            let result = manager
+                .call(StartRecording {
+                    schedule: recording_schedule!(
+                        RecordingScheduleState::Scheduled,
+                        program!(program_id, now, "1h"),
+                        recording_options!(0)
+                    ),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(())));
+
+            let record_pattern = format!(
+                "{}/{RECORDS_DIR}/*{:08X}.record.json",
+                temp_dir.path().to_str().unwrap(),
+                program_id.value()
+            );
+            assert_matches!(glob::glob(&record_pattern).unwrap().next(), Some(Ok(record_path)) => {
+                assert_matches!(load_record(&config, &record_path).await, Ok((record, _)) => {
+                    assert_eq!(record.program.id, program_id);
+                    assert_matches!(record.recording_status, RecordingStatus::Recording);
+                    assert!(record.content_path.to_str().unwrap().ends_with(".content"));
+                })
+            });
+        }
+        system.shutdown().await;
+
+        let content_pattern = format!(
+            "{}/{RECORDING_DIR}/*{:08X}.content",
+            temp_dir.path().to_str().unwrap(),
+            program_id.value()
+        );
+        assert_matches!(glob::glob(&content_pattern).unwrap().next(), Some(Ok(_)));
 
         let record_pattern = format!(
             "{}/{RECORDS_DIR}/*{:08X}.record.json",

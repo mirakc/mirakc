@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use async_trait::async_trait;
 use axum::extract::FromRequestParts;
@@ -108,36 +109,41 @@ pub(in crate::web) struct WebRecordingScheduleInput {
 
 impl WebRecordingScheduleInput {
     pub fn validate(&self, config: &Config) -> Result<(), Error> {
-        if self.options.content_path.to_str().is_none() {
-            let err = Error::InvalidPath("Must be a valid Unicode string");
-            tracing::error!(
-                %err,
-                input.options.content_path = ?self.options.content_path
-            );
-            return Err(err);
-        }
+        match self.options.content_path.as_ref() {
+            Some(content_path) => {
+                if content_path.to_str().is_none() {
+                    let err = Error::InvalidPath("Must be a valid Unicode string");
+                    tracing::error!(
+                        %err,
+                        input.options.content_path = ?content_path
+                    );
+                    return Err(err);
+                }
 
-        if self.options.content_path.is_absolute() {
-            let err = Error::InvalidPath("Must be a relative path");
-            tracing::error!(
-                %err,
-                input.options.content_path = ?self.options.content_path
-            );
-            return Err(err);
-        }
+                if content_path.is_absolute() {
+                    let err = Error::InvalidPath("Must be a relative path");
+                    tracing::error!(
+                        %err,
+                        input.options.content_path = ?content_path
+                    );
+                    return Err(err);
+                }
 
-        let basedir = config.recording.basedir.as_ref().unwrap();
-        if !basedir
-            .join(&self.options.content_path)
-            .parse_dot()?
-            .starts_with(basedir)
-        {
-            let err = Error::InvalidPath("Must be under config.recording.basedir");
-            tracing::error!(
-                %err,
-                input.options.content_path = ?self.options.content_path
-            );
-            return Err(err);
+                let basedir = config.recording.basedir.as_ref().unwrap();
+                if !basedir.join(content_path).parse_dot()?.starts_with(basedir) {
+                    let err = Error::InvalidPath("Must be under config.recording.basedir");
+                    tracing::error!(
+                        %err,
+                        input.options.content_path = ?content_path
+                    );
+                    return Err(err);
+                }
+            }
+            None => {
+                if !config.recording.is_records_api_enabled() {
+                    return Err(Error::InvalidRequest("contentPath is required"));
+                }
+            }
         }
 
         Ok(())
@@ -222,6 +228,9 @@ pub(in crate::web) struct WebRecord {
     #[serde(with = "duration_milliseconds_option")]
     #[schema(value_type = i64)]
     pub recording_duration: Option<Duration>,
+    #[schema(value_type = String)]
+    /// The path of the content file relative to `config.recording.basedir`.
+    pub content_path: PathBuf,
     /// The MIME type of the content.
     pub content_type: String,
     /// The size of the content.
@@ -247,7 +256,8 @@ impl From<(Record, Option<u64>)> for WebRecord {
             recording_start_time: record.recording_start_time,
             recording_end_time: record.recording_end_time,
             recording_duration: record.recording_duration,
-            content_type: record.content_type.clone(),
+            content_path: record.content_path,
+            content_type: record.content_type,
             content_length,
         }
     }
@@ -581,5 +591,60 @@ where
             .unwrap_or_default();
 
         Ok(TunerUser { info, priority })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_matches::assert_matches;
+
+    #[test]
+    fn test_web_recording_schedule_input_valudate() {
+        let mut config = Config::default();
+        config.recording.basedir = Some("/tmp".into());
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!("1.m2ts", 1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Ok(()));
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!("/1.m2ts", 1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Err(err) => {
+            assert_matches!(err, Error::InvalidPath(_));
+        });
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!("../1.m2ts", 1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Err(err) => {
+            assert_matches!(err, Error::InvalidPath(_));
+        });
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!(1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Err(err) => {
+            assert_matches!(err, Error::InvalidRequest(_));
+        });
+
+        config.recording.records_dir = Some("/tmp".into());
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!(1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Ok(()));
     }
 }
