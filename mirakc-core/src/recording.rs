@@ -2193,9 +2193,12 @@ impl ContentSource {
         _ranges: &[(Bound<u64>, Bound<u64>)],
         time_limit: u64,
     ) -> ContentStream {
+        // 32 KiB, large enough for 10 ms buffering.
+        const CHUNK_SIZE: usize = 4096 * 8;
+
         let (_, output) = self.pipeline.take_endpoints();
 
-        let stream = ReaderStream::new(output)
+        let stream = ReaderStream::with_capacity(output, CHUNK_SIZE)
             // We set a time limit in order to stop streaming when the stream reaches the *true*
             // EOF.  Because `tail -f` doesn't terminate when the stream reaches an EOF at that
             // point.
