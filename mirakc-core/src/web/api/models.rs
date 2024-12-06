@@ -191,23 +191,65 @@ pub(in crate::web) struct WebRecord {
     /// The record ID.
     #[schema(value_type = u64)]
     pub id: RecordId,
+
     /// Metadata of the TV program.
     pub program: MirakurunProgram,
+
     /// Metadata of the service.
     pub service: MirakurunService,
-    /// Recording options.
-    pub options: RecordingOptions,
-    /// A list of tags.
+
+    /// A list of tags copied from the recording schedule.
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
+
+    /// Information about the recording.
+    pub recording: WebRecordingInfo,
+
+    /// Information about the content.
+    pub content: WebContentInfo,
+}
+
+impl From<(Record, Option<u64>)> for WebRecord {
+    fn from((record, content_length): (Record, Option<u64>)) -> Self {
+        Self {
+            id: record.id,
+            program: record.program.into(),
+            service: record.service.into(),
+            tags: record.tags,
+            recording: WebRecordingInfo {
+                options: record.options,
+                status: record.recording_status,
+                start_time: record.recording_start_time,
+                end_time: record.recording_end_time,
+                duration: record.recording_duration,
+            },
+            content: WebContentInfo {
+                path: record.content_path,
+                r#type: record.content_type,
+                length: content_length,
+            },
+        }
+    }
+}
+
+/// A recording information model.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(title = "RecordingInfo")]
+#[cfg_attr(test, derive(Deserialize))]
+pub(in crate::web) struct WebRecordingInfo {
+    /// Recording options.
+    pub options: RecordingOptions,
+
     /// The current status of the record.
-    pub recording_status: RecordingStatus,
+    pub status: RecordingStatus,
     /// The start time of the **actual** recording in UNIX time (milliseconds).
     ///
     /// The value may not equal to the start time of the TV program.
     #[serde(with = "ts_milliseconds")]
     #[schema(value_type = i64)]
-    pub recording_start_time: DateTime<Jst>,
+    pub start_time: DateTime<Jst>,
+
     /// The end time of the **actual** recording in UNIX time (milliseconds).
     ///
     /// The value may not equal to the end time of the TV program.
@@ -217,7 +259,8 @@ pub(in crate::web) struct WebRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "ts_milliseconds_option")]
     #[schema(value_type = i64)]
-    pub recording_end_time: Option<DateTime<Jst>>,
+    pub end_time: Option<DateTime<Jst>>,
+
     /// The duration of the **actual** recording in milliseconds.
     ///
     /// The value may not equal to the duration of the TV program.
@@ -227,12 +270,22 @@ pub(in crate::web) struct WebRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "duration_milliseconds_option")]
     #[schema(value_type = i64)]
-    pub recording_duration: Option<Duration>,
-    #[schema(value_type = String)]
+    pub duration: Option<Duration>,
+}
+
+/// A content information model.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(title = "ContentInfo")]
+#[cfg_attr(test, derive(Deserialize))]
+pub(in crate::web) struct WebContentInfo {
     /// The path of the content file relative to `config.recording.basedir`.
-    pub content_path: PathBuf,
+    #[schema(value_type = String)]
+    pub path: PathBuf,
+
     /// The MIME type of the content.
-    pub content_type: String,
+    pub r#type: String,
+
     /// The size of the content.
     ///
     /// `null` if there is no content file at the location specified by `content_path` of the
@@ -241,26 +294,7 @@ pub(in crate::web) struct WebRecord {
     /// `0` will be set if failed getting the size of the content file even though the file exists.
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_length: Option<u64>,
-}
-
-impl From<(Record, Option<u64>)> for WebRecord {
-    fn from((record, content_length): (Record, Option<u64>)) -> Self {
-        Self {
-            id: record.id,
-            program: record.program.into(),
-            service: record.service.into(),
-            options: record.options,
-            tags: record.tags,
-            recording_status: record.recording_status,
-            recording_start_time: record.recording_start_time,
-            recording_end_time: record.recording_end_time,
-            recording_duration: record.recording_duration,
-            content_path: record.content_path,
-            content_type: record.content_type,
-            content_length,
-        }
-    }
+    pub length: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, IntoParams)]

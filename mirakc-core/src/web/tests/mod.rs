@@ -530,14 +530,14 @@ async fn test_get_recording_record() {
     assert_eq!(res.status(), StatusCode::OK);
     let json = into_text(res).await;
     let record: WebRecord = serde_json::from_str(&json).unwrap();
-    assert!(record.content_length.is_some());
+    assert!(record.content.length.is_some());
 
     let res = get("/api/recording/records/recording").await;
     // Any record now recording can be accessible.
     assert_eq!(res.status(), StatusCode::OK);
     let json = into_text(res).await;
     let record: WebRecord = serde_json::from_str(&json).unwrap();
-    assert!(record.content_length.is_some());
+    assert!(record.content.length.is_some());
 
     let res = get("/api/recording/records/no-content").await;
     // Any record can be accessible regardless of existence of the recorded data.
@@ -545,7 +545,7 @@ async fn test_get_recording_record() {
     // But `WebRecord::size` is `None`.
     let json = into_text(res).await;
     let record: WebRecord = serde_json::from_str(&json).unwrap();
-    assert_eq!(record.content_length, None);
+    assert_eq!(record.content.length, None);
 }
 
 #[test(tokio::test)]
