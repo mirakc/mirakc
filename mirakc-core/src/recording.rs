@@ -2949,21 +2949,23 @@ mod tests {
         let mut seq = mockall::Sequence::new();
         let mut record_saved = MockRecordSavedValidator::new();
 
-        record_saved.expect_emit()
+        record_saved
+            .expect_emit()
             .withf(move |msg| {
                 let program_id_part = format!("{:08X}", program_id.value());
-                msg.record_id.value().ends_with(&program_id_part) &&
-                    matches!(msg.recording_status, RecordingStatus::Recording)
+                msg.record_id.value().ends_with(&program_id_part)
+                    && matches!(msg.recording_status, RecordingStatus::Recording)
             })
             .returning(|_| ())
             .once()
             .in_sequence(&mut seq);
 
-        record_saved.expect_emit()
+        record_saved
+            .expect_emit()
             .withf(move |msg| {
                 let program_id_part = format!("{:08X}", program_id.value());
-                msg.record_id.value().ends_with(&program_id_part) &&
-                    matches!(msg.recording_status, RecordingStatus::Finished)
+                msg.record_id.value().ends_with(&program_id_part)
+                    && matches!(msg.recording_status, RecordingStatus::Finished)
             })
             .returning(|_| ())
             .once()
@@ -3032,21 +3034,23 @@ mod tests {
         let mut seq = mockall::Sequence::new();
         let mut record_saved = MockRecordSavedValidator::new();
 
-        record_saved.expect_emit()
+        record_saved
+            .expect_emit()
             .withf(move |msg| {
                 let program_id_part = format!("{:08X}", program_id.value());
-                msg.record_id.value().ends_with(&program_id_part) &&
-                    matches!(msg.recording_status, RecordingStatus::Recording)
+                msg.record_id.value().ends_with(&program_id_part)
+                    && matches!(msg.recording_status, RecordingStatus::Recording)
             })
             .returning(|_| ())
             .once()
             .in_sequence(&mut seq);
 
-        record_saved.expect_emit()
+        record_saved
+            .expect_emit()
             .withf(move |msg| {
                 let program_id_part = format!("{:08X}", program_id.value());
-                msg.record_id.value().ends_with(&program_id_part) &&
-                    matches!(msg.recording_status, RecordingStatus::Finished)
+                msg.record_id.value().ends_with(&program_id_part)
+                    && matches!(msg.recording_status, RecordingStatus::Finished)
             })
             .returning(|_| ())
             .once()
@@ -3125,21 +3129,23 @@ mod tests {
         let mut stopped = MockRecordingStoppedValidator::new();
         let mut record_saved = MockRecordSavedValidator::new();
 
-        record_saved.expect_emit()
+        record_saved
+            .expect_emit()
             .withf(move |msg| {
                 let program_id_part = format!("{:08X}", program_id.value());
-                msg.record_id.value().ends_with(&program_id_part) &&
-                    matches!(msg.recording_status, RecordingStatus::Recording)
+                msg.record_id.value().ends_with(&program_id_part)
+                    && matches!(msg.recording_status, RecordingStatus::Recording)
             })
             .returning(|_| ())
             .once()
             .in_sequence(&mut seq);
 
-        record_saved.expect_emit()
+        record_saved
+            .expect_emit()
             .withf(move |msg| {
                 let program_id_part = format!("{:08X}", program_id.value());
-                msg.record_id.value().ends_with(&program_id_part) &&
-                    matches!(msg.recording_status, RecordingStatus::Finished)
+                msg.record_id.value().ends_with(&program_id_part)
+                    && matches!(msg.recording_status, RecordingStatus::Finished)
             })
             .returning(|_| ())
             .once()
