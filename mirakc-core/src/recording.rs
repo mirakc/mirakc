@@ -1496,6 +1496,7 @@ where
         msg: RegisterEmitter,
         ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
+        debug_assert!(self.config.recording.is_enabled());
         match msg {
             RegisterEmitter::RecordingStarted(emitter) => {
                 let id = self.recording_started.register(emitter.clone());
@@ -1524,6 +1525,7 @@ where
                 id
             }
             RegisterEmitter::RecordSaved(emitter) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
                 // Create a task to send messages.
                 //
                 // Sending many messages in the message handler may cause a dead lock
@@ -1536,19 +1538,22 @@ where
                 tracing::debug!(msg.name = "RegisterEmitter::RecordSaved", id);
                 id
             }
+            RegisterEmitter::RecordBroken(emitter) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
+                let id = self.record_broken.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::RecordBroken", id);
+                id
+            }
             RegisterEmitter::RecordRemoved(emitter) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
                 let id = self.record_removed.register(emitter);
                 tracing::debug!(msg.name = "RegisterEmitter::RecordRemoved", id);
                 id
             }
             RegisterEmitter::ContentRemoved(emitter) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
                 let id = self.content_removed.register(emitter);
                 tracing::debug!(msg.name = "RegisterEmitter::ContentRemoved", id);
-                id
-            }
-            RegisterEmitter::RecordBroken(emitter) => {
-                let id = self.record_broken.register(emitter);
-                tracing::debug!(msg.name = "RegisterEmitter::RecordBroken", id);
                 id
             }
         }
@@ -1628,6 +1633,7 @@ where
     O: Call<onair::RegisterEmitter>,
 {
     async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
+        debug_assert!(self.config.recording.is_enabled());
         match msg {
             UnregisterEmitter::RecordingStarted(id) => {
                 tracing::debug!(msg.name = "UnregisterEmitter::RecordingStarted", id);
@@ -1646,20 +1652,24 @@ where
                 self.recording_rescheduled.unregister(id);
             }
             UnregisterEmitter::RecordSaved(id) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
                 tracing::debug!(msg.name = "UnregisterEmitter::RecordSaved", id);
                 self.record_saved.unregister(id);
             }
+            UnregisterEmitter::RecordBroken(id) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
+                tracing::debug!(msg.name = "UnregisterEmitter::RecordBroken", id);
+                self.record_broken.unregister(id);
+            }
             UnregisterEmitter::RecordRemoved(id) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
                 tracing::debug!(msg.name = "UnregisterEmitter::RecordRemoved", id);
                 self.record_removed.unregister(id);
             }
             UnregisterEmitter::ContentRemoved(id) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
                 tracing::debug!(msg.name = "UnregisterEmitter::ContentRemoved", id);
                 self.content_removed.unregister(id);
-            }
-            UnregisterEmitter::RecordBroken(id) => {
-                tracing::debug!(msg.name = "UnregisterEmitter::RecordBroken", id);
-                self.record_broken.unregister(id);
             }
         }
     }
