@@ -1244,14 +1244,11 @@ impl<T, E, O> RecordingManager<T, E, O> {
         };
 
         let mut records = vec![];
-        let record_pattern = format!("{}/*.record.json", records_dir.to_str().unwrap());
-        for record_path in glob::glob(&record_pattern)? {
-            let record_path = record_path?;
-            if !record_path.is_file() {
-                tracing::warn!(?record_path, "Should be a regular file");
-                continue;
+        for record_path in glob_records(records_dir) {
+            match load_record(&self.config, &record_path).await {
+                Ok(tuple) => records.push(tuple),
+                Err(err) => tracing::warn!(?record_path, ?err, "Failed to load, skip"),
             }
-            records.push(load_record(&self.config, &record_path).await?);
         }
 
         Ok(records)
@@ -1527,6 +1524,14 @@ where
                 id
             }
             RegisterEmitter::RecordSaved(emitter) => {
+                // Create a task to send messages.
+                //
+                // Sending many messages in the message handler may cause a dead lock
+                // when the number of messages to be sent is larger than the capacity
+                // of the emitter's channel.  See the issue #705 for example.
+                let task =
+                    Self::emit_record_saved_for_each_record(self.config.clone(), emitter.clone());
+                ctx.spawn_task(task);
                 let id = self.record_saved.register(emitter);
                 tracing::debug!(msg.name = "RegisterEmitter::RecordSaved", id);
                 id
@@ -1545,6 +1550,24 @@ where
                 let id = self.record_broken.register(emitter);
                 tracing::debug!(msg.name = "RegisterEmitter::RecordBroken", id);
                 id
+            }
+        }
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    async fn emit_record_saved_for_each_record(config: Arc<Config>, emitter: Emitter<RecordSaved>) {
+        let records_dir = config.recording.records_dir.as_ref().unwrap();
+        for record_path in glob_records(records_dir) {
+            match load_record(&config, &record_path).await {
+                Ok((record, _)) => {
+                    let msg = RecordSaved {
+                        record_id: record.id,
+                        recording_status: record.recording_status,
+                    };
+                    emitter.emit(msg).await;
+                }
+                Err(err) => tracing::error!(?record_path, ?err, "Failed to load, skip"),
             }
         }
     }
@@ -2580,6 +2603,25 @@ async fn load_record(config: &Config, record_path: &Path) -> Result<(Record, Opt
             .unwrap_or(0)
     });
     Ok((record, size))
+}
+
+fn glob_records(records_dir: &Path) -> impl Iterator<Item = PathBuf> {
+    let record_pattern = format!("{}/*.record.json", records_dir.to_str().unwrap());
+    glob::glob(&record_pattern)
+        .unwrap()
+        .filter_map(|record_path| match record_path {
+            Ok(record_path) if record_path.is_file() => {
+                Some(record_path)
+            }
+            Ok(record_path) => {
+                tracing::warn!(?record_path, "Not a regular file, skip");
+                None
+            }
+            Err(err) => {
+                tracing::warn!(record_path = ?err.path(), err = ?err.error(), "Not accessible, skip");
+                None
+            }
+        })
 }
 
 #[cfg(test)]
