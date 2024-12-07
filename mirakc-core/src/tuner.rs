@@ -1683,7 +1683,7 @@ pub(crate) mod stub {
             }
             if msg.channel.channel == "ch" {
                 let (tx, stream) = BroadcasterStream::new_for_test();
-                let _ = tx.try_send(Bytes::from("hi"));
+                let _ = tx.try_send(Bytes::from("0123456789"));
                 Ok(Ok(MpegTsStream::new(
                     TunerSubscriptionId::default(),
                     stream,

@@ -123,5 +123,5 @@ where
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
     let (filters, content_type) = builder.build();
 
-    streaming(&config, user, stream, filters, content_type, stop_trigger).await
+    streaming(&config, &user, stream, filters, content_type, stop_trigger).await
 }

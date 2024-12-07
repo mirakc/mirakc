@@ -1,0 +1,3 @@
+[build.env]
+# Debug logs for CI
+passthrough = ["RUST_LOG"]

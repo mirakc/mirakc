@@ -79,7 +79,7 @@ pub struct CreateTimeshiftLiveStreamSource {
 pub struct CreateTimeshiftRecordStreamSource {
     pub recorder: TimeshiftRecorderQuery,
     pub record_id: TimeshiftRecordId,
-    pub start_pos: Option<u64>,
+    pub start_pos: u64,
 }
 
 #[derive(Clone, Message)]

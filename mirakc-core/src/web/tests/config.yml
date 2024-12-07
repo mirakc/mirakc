@@ -1,0 +1,55 @@
+server:
+  mounts:
+    /src:
+      path: {manifest_dir}
+    /src-with-listing:
+      path: {manifest_dir}
+      listing: true
+    /src-with-index:
+      path: {manifest_dir}
+      index: Cargo.toml
+    /Cargo.toml:
+      path: {manifest_dir}/Cargo.toml
+
+# Disable service and program filters
+filters:
+  service-filter:
+    command: ''
+  program-filter:
+    command: ''
+
+# filters for testing
+pre-filters:
+  cat:
+    command: cat
+post-filters:
+  cat:
+    command: cat
+  mp4:
+    command: cat
+    content-type: video/mp4
+
+recording:
+  # Enable endpoints for recording
+  basedir: /tmp
+  # Enable endpoints for records
+  records-dir: /tmp
+
+# Enable endpoints for timeshift recording
+timeshift:
+  recorders:
+    test:
+      service-id: 1
+      ts-file: /dev/null
+      data-file: /dev/null
+      num-chunks: 100
+      uses:
+        tuner: tuner
+        channel-type: GR
+        channel: ch
+
+# logo for SID#1
+resource:
+  logos:
+    - service-id: 1
+      image: /dev/null

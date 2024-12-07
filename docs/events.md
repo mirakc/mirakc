@@ -19,6 +19,9 @@ An event sent when the status of a tuner is changed.
 }
 ```
 
+When a client connects to `/events`, a `tuner.status-changed` event for each active tuner will be
+sent to the client.
+
 ## epg.programs-updated
 
 An event sent when EPG programs of a service are updated.
@@ -31,6 +34,10 @@ An event sent when EPG programs of a service are updated.
   }
 }
 ```
+
+When a client connects to `/events`, an `epg.programs-updated` event for each existing service will
+be sent to the client.
+
 ## recording.started
 
 An event sent when recording for a TV program is started.
@@ -133,6 +140,102 @@ An event sent when recording for a TV program is rescheduled.
 }
 ```
 
+## recording.record-saved
+
+An event sent when a record is saved successfully.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recordId": { "type": "string" },  // RecordId
+    "recordingStatus": {
+      "oneOf": [
+        // recording
+        { "type": "string", "const": "recording" },
+        { "type": "string", "const": "finished" },
+        { "type": "string", "const": "canceled" },
+        {
+          "type": "object",
+          "properties": {
+            "failed": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  // same as the "reason" property of the recording.failed event
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+The `recording.record-saved` event for a record may be sent multiple times.  For example, a
+`recording.record-saved` event will be sent when metadata of the TV program currently recorded is
+updated.
+
+The `recording.record-saved` event for a record will no long sent once the recording status of the
+record becomes `finished`, `failed` or `canceled`.
+
+The order of occurrence of `recording.started`, `recording.stopped` and `recording-record-saved`
+events is not guaranteed.
+
+When a client connects to `/events`, a `recording.record-saved` event for each existing record will
+be sent to the client.
+
+## recording.record-removed
+
+An event sent when a record is removed.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recordId": { "type": "string" }  // RecordId
+  }
+}
+```
+
+## recording.content-removed
+
+An event sent when a content is removed.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recordId": { "type": "string" }  // RecordId
+  }
+}
+```
+
+## recording.record-broken
+
+An event sent when a record has been broken.
+
+```jsonc
+{
+  "type": "object",
+  "properties": {
+    "recordId": { "type": "string" },  // RecordId
+    "reason": { "type": "string" }
+  }
+}
+```
+
+Like `recording.record-saved` events, the `recording.record-broken` event for a record may be sent
+multiple times.
+
+The `recording.record-broken` event for a record will no long sent once the recording status of the
+record becomes `finished`, `failed` or `canceled`.
+
+The order of occurrence of `recording.started`, `recording.stopped` and `recording-record-broken`
+events is not guaranteed.
+
 ## timeshift.timeline
 
 An event sent when the timeshift timeline for a service advances.
@@ -149,6 +252,9 @@ An event sent when the timeshift timeline for a service advances.
 }
 ```
 
+When a client connects to `/events`, a `timeshift.timeline` event for each recorder actively
+working will be sent to the client.
+
 ## timeshift.started
 
 An event sent when timeshift recording for a service is started.
@@ -161,6 +267,9 @@ An event sent when timeshift recording for a service is started.
   }
 }
 ```
+
+When a client connects to `/events`, a `timeshift.started` event for each recorder actively working
+will be sent to the client.
 
 ## timeshift.stopped
 
@@ -188,6 +297,9 @@ An event sent when timeshift recording for a TV program is started.
   }
 }
 ```
+
+When a client connects to `/events`, a `timeshift.record-started` event for each TV program
+currently being recorded will be sent to the client.
 
 ## timeshift.record-updated
 
@@ -229,5 +341,8 @@ An event sent when the on-air TV program of a service is changed.
   }
 }
 ```
+
+When a client connects to `/events`, an `onair.program-changed` event for each existing service
+will be sent to the client.
 
 [SSE]: https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events

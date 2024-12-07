@@ -135,7 +135,7 @@ where
 
     let stop_triggers = vec![stream_stop_trigger];
 
-    let result = streaming(&config, user, stream, filters, content_type, stop_triggers).await;
+    let result = streaming(&config, &user, stream, filters, content_type, stop_triggers).await;
 
     if let Err(Error::ProgramNotFound) = result {
         tracing::warn!(program.id = %program_id, "No stream for the program, maybe canceled");

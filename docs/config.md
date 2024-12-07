@@ -45,6 +45,7 @@ suitable for your environment.
 | [jobs.update-schedules.schedule]         | `'0 21 8,20 * * * *'` (execute at 08:21 and 20:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
 | [recording.basedir]                      | `None`                            |
+| [recording.records-dir]                  | `None`                            |
 | [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
 | [timeshift.recorders\[\].service-id]     |                                   |
 | [timeshift.recorders\[\].ts-file]        |                                   |
@@ -97,6 +98,7 @@ suitable for your environment.
 [jobs.update-schedules.schedule]: #jobsupdate-schedules
 [jobs.update-schedules.disabled]: #jobsupdate-schedules
 [recording.basedir]: #recordingbasedir
+[recording.records-dir]: #recordingrecords-dir
 [timeshift.command]: #timeshift
 [timeshift.recorders\[\].service-id]: #timeshiftrecorders
 [timeshift.recorders\[\].ts-file]: #timeshiftrecorders
@@ -922,6 +924,27 @@ For example, the following JSON data sent to the Web endpoints above
 will record the content of the TV program under in the
 `<recording.basedir>/videos` folder.  If you mount a shared folder on a NAS
 server onto `<recording.basedir>/videos`, the content will be saved on the NAS.
+
+### recording.records-dir
+
+`recording.records-dir` is used together with `recording.basedir` and specifies an absolute path to
+a holder where records for recorded TV programs are stored.
+
+```
+<recording.records-dir>
+  +-- <record.id>.record.json
+```
+
+You can specify a holder inside `recording.basedir` to `recording.records-dir` if you want.
+
+The following web endpoinds are enabled when `recording.basedir` and `recording.records-dir` are
+specified:
+
+* `GET /api/recording/records`
+* `GET /api/recording/records/{id}`
+* `DELETE /api/recording/records/{id}`
+* `GET /api/recording/records/{id}/stream`
+* `HEAD /api/recording/records/{id}/stream`
 
 ## timeshift
 

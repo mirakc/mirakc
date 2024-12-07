@@ -9,7 +9,9 @@ use serde::Serialize;
 use crate::models::ProgramId;
 use crate::models::ServiceId;
 use crate::models::TimeshiftRecordId;
+use crate::recording::RecordId;
 use crate::recording::RecordingFailedReason;
+use crate::recording::RecordingStatus;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +48,32 @@ pub struct RecordingFailed {
 #[serde(rename_all = "camelCase")]
 pub struct RecordingRescheduled {
     pub program_id: ProgramId,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordSaved {
+    pub record_id: RecordId,
+    pub recording_status: RecordingStatus,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordBroken {
+    pub record_id: RecordId,
+    pub reason: &'static str,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordRemoved {
+    pub record_id: RecordId,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentRemoved {
+    pub record_id: RecordId,
 }
 
 #[derive(Deserialize, Serialize)]
