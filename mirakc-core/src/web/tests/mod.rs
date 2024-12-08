@@ -372,13 +372,8 @@ async fn test_get_recording_schedules() {
 async fn test_create_recording_schedule() {
     // Error::ProgramNotFound
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 0).into(),
-        options: RecordingOptions {
-            content_path: "0.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        program_id: (0, 1, 0).into(),
+        options: recording_options!("0.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -386,13 +381,8 @@ async fn test_create_recording_schedule() {
 
     // Error::AlreadyExists
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 1).into(),
-        options: RecordingOptions {
-            content_path: "1.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        program_id: (0, 1, 1).into(),
+        options: recording_options!("1.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -400,13 +390,8 @@ async fn test_create_recording_schedule() {
 
     // Error::ProgramAlreadyStarted
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 2).into(),
-        options: RecordingOptions {
-            content_path: "2.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        program_id: (0, 1, 2).into(),
+        options: recording_options!("2.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -414,13 +399,8 @@ async fn test_create_recording_schedule() {
 
     // Ok
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 4).into(),
-        options: RecordingOptions {
-            content_path: "4.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        program_id: (0, 1, 4).into(),
+        options: recording_options!("4.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -428,13 +408,8 @@ async fn test_create_recording_schedule() {
 
     // Error::InvalidPath
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 4).into(),
-        options: RecordingOptions {
-            content_path: "/4.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        program_id: (0, 1, 4).into(),
+        options: recording_options!("/4.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
@@ -442,17 +417,21 @@ async fn test_create_recording_schedule() {
 
     // Error::InvalidPath
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 4).into(),
-        options: RecordingOptions {
-            content_path: "../4.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        program_id: (0, 1, 4).into(),
+        options: recording_options!("../4.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/schedules", input).await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Use auto-generated filename for the content file.
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 1, 4).into(),
+        options: recording_options!(1),
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/schedules", input).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
 }
 
 #[test(tokio::test)]
@@ -491,30 +470,28 @@ async fn test_get_recording_recorders() {
 #[test(tokio::test)]
 async fn test_create_recording_recorder() {
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 1).into(),
-        options: RecordingOptions {
-            content_path: "program.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        program_id: (0, 1, 1).into(),
+        options: recording_options!("program.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/recorders", input).await;
     assert_eq!(res.status(), StatusCode::CREATED);
 
     let input = WebRecordingScheduleInput {
-        program_id: (0, 0, 0).into(),
-        options: RecordingOptions {
-            content_path: "program.m2ts".into(),
-            priority: 1,
-            pre_filters: vec![],
-            post_filters: vec![],
-        },
+        program_id: (0, 1, 0).into(),
+        options: recording_options!("program.m2ts", 1),
         tags: Default::default(),
     };
     let res = post("/api/recording/recorders", input).await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let input = WebRecordingScheduleInput {
+        program_id: (0, 1, 1).into(),
+        options: recording_options!(1),
+        tags: Default::default(),
+    };
+    let res = post("/api/recording/recorders", input).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
 }
 
 #[test(tokio::test)]
@@ -533,6 +510,165 @@ async fn test_delete_recording_recorder() {
 
     let res = delete("/api/recording/recorders/0").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[test(tokio::test)]
+async fn test_get_recording_records() {
+    let res = get("/api/recording/records").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let json = into_text(res).await;
+    let records: Vec<WebRecord> = serde_json::from_str(&json).unwrap();
+    assert_eq!(records.len(), 0);
+}
+
+#[test(tokio::test)]
+async fn test_get_recording_record() {
+    let res = get("/api/recording/records/not-found").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let res = get("/api/recording/records/finished").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let json = into_text(res).await;
+    let record: WebRecord = serde_json::from_str(&json).unwrap();
+    assert!(record.content.length.is_some());
+
+    let res = get("/api/recording/records/recording").await;
+    // Any record now recording can be accessible.
+    assert_eq!(res.status(), StatusCode::OK);
+    let json = into_text(res).await;
+    let record: WebRecord = serde_json::from_str(&json).unwrap();
+    assert!(record.content.length.is_some());
+
+    let res = get("/api/recording/records/no-content").await;
+    // Any record can be accessible regardless of existence of the recorded data.
+    assert_eq!(res.status(), StatusCode::OK);
+    // But `WebRecord::size` is `None`.
+    let json = into_text(res).await;
+    let record: WebRecord = serde_json::from_str(&json).unwrap();
+    assert_eq!(record.content.length, None);
+}
+
+#[test(tokio::test)]
+async fn test_delete_recording_record() {
+    let res = delete("/api/recording/records/not-found").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let res = delete("/api/recording/records/finished").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let json = into_text(res).await;
+    let result: WebRecordRemovalResult = serde_json::from_str(&json).unwrap();
+    assert!(result.record_removed);
+    assert!(!result.content_removed);
+
+    let res = delete("/api/recording/records/finished?purge=true").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let json = into_text(res).await;
+    let result: WebRecordRemovalResult = serde_json::from_str(&json).unwrap();
+    assert!(result.record_removed);
+    assert!(result.content_removed);
+
+    let res = delete("/api/recording/records/recording").await;
+    // Any record now recording cannot be deleted.
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let res = delete("/api/recording/records/no-content?purge=true").await;
+    // Any existing record can be deleted successfully regardless of existence of the recorded
+    // data.
+    assert_eq!(res.status(), StatusCode::OK);
+    let json = into_text(res).await;
+    let result: WebRecordRemovalResult = serde_json::from_str(&json).unwrap();
+    assert!(result.record_removed);
+    assert!(!result.content_removed);
+}
+
+#[test(tokio::test)]
+async fn test_get_recording_record_stream() {
+    let res = get("/api/recording/records/not-found/stream").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let res = get("/api/recording/records/finished/stream").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    // TODO: Should have content-length.
+    assert_matches!(res.headers().get("content-length"), None);
+    // Should be seekable.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
+        // TODO: assert_eq!(v, "bytes");
+    });
+    let content = into_text(res).await;
+    assert_eq!(content, "0123456789");
+
+    let res = get("/api/recording/records/finished/stream?post-filters[]=mp4").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
+    });
+    // Indefinite length.
+    assert_matches!(res.headers().get("content-length"), None);
+    // Not seekable when post filters are applied.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+
+    // TODO: range requests
+
+    let res = get("/api/recording/records/recording/stream").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    // Any record now recording is also seekable.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
+        // TODO: assert_eq!(v, "bytes");
+    });
+    let content = into_text(res).await;
+    assert_eq!(content, "0123456789");
+
+    let res = get("/api/recording/records/recording/stream").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    // Indefinite length.
+    assert_matches!(res.headers().get("content-length"), None);
+    // Should be seekable.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
+        // TODO: assert_eq!(v, "bytes");
+    });
+    let content = into_text(res).await;
+    assert_eq!(content, "0123456789");
+
+    let res = get("/api/recording/records/recording/stream?post-filters[]=mp4").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
+    });
+    // Indefinite length.
+    assert_matches!(res.headers().get("content-length"), None);
+    // Not seekable when post filters are applied.
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+
+    // TODO: range requests
+
+    let res = get("/api/recording/records/no-content/stream").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+}
+
+#[test(tokio::test)]
+async fn test_head_recording_record_stream() {
+    let res = head("/api/recording/records/not-found/stream").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let res = head("/api/recording/records/finished/stream").await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = head("/api/recording/records/no-content/stream").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
 }
 
 #[test(tokio::test)]
@@ -1083,56 +1219,7 @@ fn create_app(test_config: Arc<HashMap<&'static str, String>>) -> Router {
 
 fn config_for_test() -> Arc<Config> {
     let config_yaml = format!(
-        r#"
-        server:
-          mounts:
-            /src:
-              path: {manifest_dir}
-            /src-with-listing:
-              path: {manifest_dir}
-              listing: true
-            /src-with-index:
-              path: {manifest_dir}
-              index: Cargo.toml
-            /Cargo.toml:
-              path: {manifest_dir}/Cargo.toml
-        # Disable service and program filters
-        filters:
-          service-filter:
-            command: ''
-          program-filter:
-            command: ''
-        # filters for testing
-        pre-filters:
-          cat:
-            command: cat
-        post-filters:
-          cat:
-            command: cat
-          mp4:
-            command: cat
-            content-type: video/mp4
-        recording:
-          # Enable endpoints for recording
-          basedir: /tmp
-        # Enable endpoints for timeshift recording
-        timeshift:
-          recorders:
-            test:
-              service-id: 1
-              ts-file: /dev/null
-              data-file: /dev/null
-              num-chunks: 100
-              uses:
-                tuner: tuner
-                channel-type: GR
-                channel: ch
-        # logo for SID#1
-        resource:
-          logos:
-            - service-id: 1
-              image: /dev/null
-        "#,
+        include_str!("config.yml"),
         manifest_dir = env!("CARGO_MANIFEST_DIR"),
     );
 

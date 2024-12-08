@@ -806,11 +806,16 @@ impl JobConfig {
 #[serde(deny_unknown_fields)]
 pub struct RecordingConfig {
     pub basedir: Option<PathBuf>,
+    pub records_dir: Option<PathBuf>,
 }
 
 impl RecordingConfig {
     pub fn is_enabled(&self) -> bool {
         self.basedir.is_some()
+    }
+
+    pub fn is_records_api_enabled(&self) -> bool {
+        self.basedir.is_some() && self.records_dir.is_some()
     }
 
     fn validate(&self) {
@@ -822,6 +827,17 @@ impl RecordingConfig {
             assert!(
                 basedir.is_dir(),
                 "config.recording.basedir: must be a path to an existing directory"
+            );
+        }
+
+        if let Some(ref records_dir) = self.records_dir {
+            assert!(
+                records_dir.is_absolute(),
+                "config.recording.records-dir: must be an absolute path"
+            );
+            assert!(
+                records_dir.is_dir(),
+                "config.recording.records-dir: must be a path to an existing directory"
             );
         }
     }
@@ -2710,6 +2726,14 @@ mod tests {
                 ..Default::default()
             }
         );
+
+        assert_eq!(
+            serde_yaml::from_str::<RecordingConfig>("records-dir: /tmp").unwrap(),
+            RecordingConfig {
+                records_dir: Some("/tmp".into()),
+                ..Default::default()
+            }
+        );
     }
 
     #[test]
@@ -2718,6 +2742,24 @@ mod tests {
         assert!(serde_yaml::from_str::<RecordingConfig>("basedir: /tmp")
             .unwrap()
             .is_enabled());
+    }
+
+    #[test]
+    fn test_recording_is_records_api_enabled() {
+        assert!(!RecordingConfig::default().is_records_api_enabled());
+        assert!(!serde_yaml::from_str::<RecordingConfig>("basedir: /tmp")
+            .unwrap()
+            .is_records_api_enabled());
+        assert!(
+            !serde_yaml::from_str::<RecordingConfig>("records-dir: /tmp")
+                .unwrap()
+                .is_records_api_enabled()
+        );
+        assert!(
+            serde_yaml::from_str::<RecordingConfig>("basedir: /tmp\nrecords-dir: /tmp")
+                .unwrap()
+                .is_records_api_enabled()
+        );
     }
 
     #[test]
@@ -2740,6 +2782,31 @@ mod tests {
     fn test_recording_config_validate_basedir_not_existing() {
         let mut config = RecordingConfig::default();
         config.basedir = Some("/no/such/dir".into());
+        config.validate();
+    }
+
+    #[test]
+    fn test_recording_config_validate_records_dir() {
+        let mut config = RecordingConfig::default();
+        config.records_dir = Some("/tmp".into());
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "config.recording.records-dir: must be an absolute path")]
+    fn test_recording_config_validate_records_dir_relative() {
+        let mut config = RecordingConfig::default();
+        config.records_dir = Some("relative/dir".into());
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "config.recording.records-dir: must be a path to an existing directory"
+    )]
+    fn test_recording_config_validate_records_dir_not_existing() {
+        let mut config = RecordingConfig::default();
+        config.records_dir = Some("/no/such/dir".into());
         config.validate();
     }
 

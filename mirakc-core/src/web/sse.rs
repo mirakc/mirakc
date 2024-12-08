@@ -40,84 +40,81 @@ where
 
     let feeder = EventFeeder(sender);
 
-    let id = tuner_manager
-        .call(crate::tuner::RegisterEmitter(feeder.clone().into()))
-        .await?;
-    let _tuner_event_unregister_trigger =
-        tuner_manager.trigger(crate::tuner::UnregisterEmitter(id));
+    macro_rules! register_emitter {
+        ($target:expr, $register:path, $unregister:path) => {{
+            let id = $target.call($register(feeder.clone().into())).await?;
+            $target.trigger($unregister(id))
+        }};
+    }
 
-    let id = epg
-        .call(crate::epg::RegisterEmitter::ProgramsUpdated(
-            feeder.clone().into(),
-        ))
-        .await?;
-    let _epg_programs_updated_unregister_trigger =
-        epg.trigger(crate::epg::UnregisterEmitter::ProgramsUpdated(id));
+    let _tuner_event_unregister_trigger = register_emitter!(
+        tuner_manager,
+        crate::tuner::RegisterEmitter,
+        crate::tuner::UnregisterEmitter
+    );
 
-    let _recording_started_unregister_trigger = if config.recording.is_enabled() {
-        let id = recording_manager
-            .call(crate::recording::RegisterEmitter::RecordingStarted(
-                feeder.clone().into(),
-            ))
-            .await?;
-        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingStarted(id)))
-    } else {
-        None
-    };
+    let _epg_programs_updated_unregister_trigger = register_emitter!(
+        epg,
+        crate::epg::RegisterEmitter::ProgramsUpdated,
+        crate::epg::UnregisterEmitter::ProgramsUpdated
+    );
 
-    let _recording_stopped_unregister_trigger = if config.recording.is_enabled() {
-        let id = recording_manager
-            .call(crate::recording::RegisterEmitter::RecordingStopped(
-                feeder.clone().into(),
-            ))
-            .await?;
-        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingStopped(id)))
-    } else {
-        None
-    };
-
-    let _recording_failed_unregister_trigger = if config.recording.is_enabled() {
-        let id = recording_manager
-            .call(crate::recording::RegisterEmitter::RecordingFailed(
-                feeder.clone().into(),
-            ))
-            .await?;
-        Some(recording_manager.trigger(crate::recording::UnregisterEmitter::RecordingFailed(id)))
-    } else {
-        None
-    };
-
-    let _recording_rescheduled_unregister_trigger =
-        if config.recording.is_enabled() {
-            let id = recording_manager
-                .call(crate::recording::RegisterEmitter::RecordingRescheduled(
-                    feeder.clone().into(),
-                ))
-                .await?;
-            Some(recording_manager.trigger(
-                crate::recording::UnregisterEmitter::RecordingRescheduled(id),
-            ))
-        } else {
-            None
+    macro_rules! register_emitter_if_enabled {
+        ($target:expr, $register:path, $unregister:path, $enabled:expr) => {
+            if $enabled {
+                Some(register_emitter!($target, $register, $unregister))
+            } else {
+                None
+            }
         };
+    }
 
-    let _timeshift_event_unregister_trigger = if config.timeshift.is_enabled() {
-        let id = timeshift_manager
-            .call(crate::timeshift::RegisterEmitter(feeder.clone().into()))
-            .await?;
-        Some(timeshift_manager.trigger(crate::timeshift::UnregisterEmitter(id)))
-    } else {
-        None
-    };
+    macro_rules! register_emitter_for_recording {
+        ($event:ident) => {
+            register_emitter_if_enabled!(
+                recording_manager,
+                crate::recording::RegisterEmitter::$event,
+                crate::recording::UnregisterEmitter::$event,
+                config.recording.is_enabled()
+            )
+        };
+    }
 
-    let _onair_program_changed_unregister_trigger = if config.has_onair_program_trackers() {
-        let id = onair_manager
-            .call(crate::onair::RegisterEmitter(feeder.clone().into()))
-            .await?;
-        Some(onair_manager.trigger(crate::onair::UnregisterEmitter(id)))
-    } else {
-        None
-    };
+    let _recording_started_unregister_trigger = register_emitter_for_recording!(RecordingStarted);
+    let _recording_stopped_unregister_trigger = register_emitter_for_recording!(RecordingStopped);
+    let _recording_failed_unregister_trigger = register_emitter_for_recording!(RecordingFailed);
+    let _recording_rescheduled_unregister_trigger =
+        register_emitter_for_recording!(RecordingRescheduled);
+
+    macro_rules! register_emitter_for_records {
+        ($event:ident) => {
+            register_emitter_if_enabled!(
+                recording_manager,
+                crate::recording::RegisterEmitter::$event,
+                crate::recording::UnregisterEmitter::$event,
+                config.recording.is_records_api_enabled()
+            )
+        };
+    }
+
+    let _record_saved_unregister_trigger = register_emitter_for_records!(RecordSaved);
+    let _record_broken_unregister_trigger = register_emitter_for_records!(RecordBroken);
+    let _record_removed_unregister_trigger = register_emitter_for_records!(RecordRemoved);
+    let _content_removed_unregister_trigger = register_emitter_for_records!(ContentRemoved);
+
+    let _timeshift_event_unregister_trigger = register_emitter_if_enabled!(
+        timeshift_manager,
+        crate::timeshift::RegisterEmitter,
+        crate::timeshift::UnregisterEmitter,
+        config.timeshift.is_enabled()
+    );
+
+    let _onair_program_changed_unregister_trigger = register_emitter_if_enabled!(
+        onair_manager,
+        crate::onair::RegisterEmitter,
+        crate::onair::UnregisterEmitter,
+        config.has_onair_program_trackers()
+    );
 
     // The Sse instance will be dropped in IntoResponse::into_response().
     // So, we have to create a wrapper for the event stream in order to
@@ -130,6 +127,10 @@ where
         _recording_stopped_unregister_trigger,
         _recording_failed_unregister_trigger,
         _recording_rescheduled_unregister_trigger,
+        _record_saved_unregister_trigger,
+        _record_broken_unregister_trigger,
+        _record_removed_unregister_trigger,
+        _content_removed_unregister_trigger,
         _timeshift_event_unregister_trigger,
         _onair_program_changed_unregister_trigger,
     });
@@ -243,6 +244,62 @@ impl From<crate::recording::RecordingRescheduled> for Event {
     }
 }
 
+// record events
+
+impl_emit! {crate::recording::RecordSaved}
+
+impl From<crate::recording::RecordSaved> for Event {
+    fn from(val: crate::recording::RecordSaved) -> Self {
+        Self::default()
+            .event("recording.record-saved")
+            .json_data(RecordSaved {
+                record_id: val.record_id,
+                recording_status: val.recording_status,
+            })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::RecordBroken}
+
+impl From<crate::recording::RecordBroken> for Event {
+    fn from(val: crate::recording::RecordBroken) -> Self {
+        Self::default()
+            .event("recording.record-broken")
+            .json_data(RecordBroken {
+                record_id: val.record_id,
+                reason: val.reason,
+            })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::RecordRemoved}
+
+impl From<crate::recording::RecordRemoved> for Event {
+    fn from(val: crate::recording::RecordRemoved) -> Self {
+        Self::default()
+            .event("recording.record-removed")
+            .json_data(RecordRemoved {
+                record_id: val.record_id,
+            })
+            .unwrap()
+    }
+}
+
+impl_emit! {crate::recording::ContentRemoved}
+
+impl From<crate::recording::ContentRemoved> for Event {
+    fn from(val: crate::recording::ContentRemoved) -> Self {
+        Self::default()
+            .event("recording.content-removed")
+            .json_data(ContentRemoved {
+                record_id: val.record_id,
+            })
+            .unwrap()
+    }
+}
+
 // timeshift events
 
 impl_emit! {crate::timeshift::TimeshiftEvent}
@@ -331,6 +388,10 @@ struct EventStreamWrapper<S> {
     _recording_stopped_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
     _recording_failed_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
     _recording_rescheduled_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _record_saved_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _record_removed_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _content_removed_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _record_broken_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
     _timeshift_event_unregister_trigger: Option<Trigger<crate::timeshift::UnregisterEmitter>>,
     _onair_program_changed_unregister_trigger: Option<Trigger<crate::onair::UnregisterEmitter>>,
 }

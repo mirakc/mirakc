@@ -36,10 +36,14 @@ pub enum Error {
     AlreadyExists,
     #[error("Program ended")]
     ProgramEnded,
-    #[error("Invalid path")]
-    InvalidPath,
+    #[error("Invalid path: {0}")]
+    InvalidPath(&'static str),
     #[error("Timeshift config inconsistent")]
     TimeshiftConfigInconsistent,
+    #[error("Invalid request: {0}")]
+    InvalidRequest(&'static str),
+    #[error("Wrong configuration: {0}")]
+    WrongConfig(&'static str),
     #[error("Command failed: {0}")]
     CommandFailed(command_util::Error),
     #[error("std::fmt error: {0}")]

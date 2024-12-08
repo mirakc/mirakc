@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use async_trait::async_trait;
 use axum::extract::FromRequestParts;
@@ -9,6 +10,7 @@ use axum::http::request::Parts;
 use chrono::DateTime;
 use chrono::Duration;
 use chrono_jst::serde::duration_milliseconds;
+use chrono_jst::serde::duration_milliseconds_option;
 use chrono_jst::serde::ts_milliseconds;
 use chrono_jst::serde::ts_milliseconds_option;
 use chrono_jst::Jst;
@@ -33,9 +35,12 @@ use crate::models::TunerUserInfo;
 use crate::models::TunerUserPriority;
 use crate::onair::OnairProgram;
 use crate::recording;
+use crate::recording::Record;
+use crate::recording::RecordId;
 use crate::recording::RecordingFailedReason;
 use crate::recording::RecordingOptions;
 use crate::recording::RecordingScheduleState;
+use crate::recording::RecordingStatus;
 use crate::timeshift::TimeshiftRecordModel;
 use crate::timeshift::TimeshiftRecorderModel;
 
@@ -104,27 +109,41 @@ pub(in crate::web) struct WebRecordingScheduleInput {
 
 impl WebRecordingScheduleInput {
     pub fn validate(&self, config: &Config) -> Result<(), Error> {
-        if self.options.content_path.is_absolute() {
-            let err = Error::InvalidPath;
-            tracing::error!(
-                %err,
-                input.options.content_path = ?self.options.content_path
-            );
-            return Err(err);
-        }
+        match self.options.content_path.as_ref() {
+            Some(content_path) => {
+                if content_path.to_str().is_none() {
+                    let err = Error::InvalidPath("Must be a valid Unicode string");
+                    tracing::error!(
+                        %err,
+                        input.options.content_path = ?content_path
+                    );
+                    return Err(err);
+                }
 
-        let basedir = config.recording.basedir.as_ref().unwrap();
-        if !basedir
-            .join(&self.options.content_path)
-            .parse_dot()?
-            .starts_with(basedir)
-        {
-            let err = Error::InvalidPath;
-            tracing::error!(
-                %err,
-                input.options.content_path = ?self.options.content_path
-            );
-            return Err(err);
+                if content_path.is_absolute() {
+                    let err = Error::InvalidPath("Must be a relative path");
+                    tracing::error!(
+                        %err,
+                        input.options.content_path = ?content_path
+                    );
+                    return Err(err);
+                }
+
+                let basedir = config.recording.basedir.as_ref().unwrap();
+                if !basedir.join(content_path).parse_dot()?.starts_with(basedir) {
+                    let err = Error::InvalidPath("Must be under config.recording.basedir");
+                    tracing::error!(
+                        %err,
+                        input.options.content_path = ?content_path
+                    );
+                    return Err(err);
+                }
+            }
+            None => {
+                if !config.recording.is_records_api_enabled() {
+                    return Err(Error::InvalidRequest("contentPath is required"));
+                }
+            }
         }
 
         Ok(())
@@ -161,6 +180,170 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
                 .collect(),
         }
     }
+}
+
+/// A record model.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(title = "Record")]
+#[cfg_attr(test, derive(Deserialize))]
+pub(in crate::web) struct WebRecord {
+    /// The record ID.
+    #[schema(value_type = u64)]
+    pub id: RecordId,
+
+    /// Metadata of the TV program.
+    pub program: MirakurunProgram,
+
+    /// Metadata of the service.
+    pub service: MirakurunService,
+
+    /// A list of tags copied from the recording schedule.
+    #[schema(value_type = Vec<String>)]
+    pub tags: HashSet<String>,
+
+    /// Information about the recording.
+    pub recording: WebRecordingInfo,
+
+    /// Information about the content.
+    pub content: WebContentInfo,
+}
+
+impl From<(Record, Option<u64>)> for WebRecord {
+    fn from((record, content_length): (Record, Option<u64>)) -> Self {
+        Self {
+            id: record.id,
+            program: record.program.into(),
+            service: record.service.into(),
+            tags: record.tags,
+            recording: WebRecordingInfo {
+                options: record.options,
+                status: record.recording_status,
+                start_time: record.recording_start_time,
+                end_time: record.recording_end_time,
+                duration: record.recording_duration,
+            },
+            content: WebContentInfo {
+                path: record.content_path,
+                r#type: record.content_type,
+                length: content_length,
+            },
+        }
+    }
+}
+
+/// A recording information model.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(title = "RecordingInfo")]
+#[cfg_attr(test, derive(Deserialize))]
+pub(in crate::web) struct WebRecordingInfo {
+    /// Recording options.
+    pub options: RecordingOptions,
+
+    /// The current status of the record.
+    pub status: RecordingStatus,
+    /// The start time of the **actual** recording in UNIX time (milliseconds).
+    ///
+    /// The value may not equal to the start time of the TV program.
+    #[serde(with = "ts_milliseconds")]
+    #[schema(value_type = i64)]
+    pub start_time: DateTime<Jst>,
+
+    /// The end time of the **actual** recording in UNIX time (milliseconds).
+    ///
+    /// The value may not equal to the end time of the TV program.
+    ///
+    /// Undefined during recording.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(with = "ts_milliseconds_option")]
+    #[schema(value_type = i64)]
+    pub end_time: Option<DateTime<Jst>>,
+
+    /// The duration of the **actual** recording in milliseconds.
+    ///
+    /// The value may not equal to the duration of the TV program.
+    ///
+    /// Undefined during recording.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(with = "duration_milliseconds_option")]
+    #[schema(value_type = i64)]
+    pub duration: Option<Duration>,
+}
+
+/// A content information model.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(title = "ContentInfo")]
+#[cfg_attr(test, derive(Deserialize))]
+pub(in crate::web) struct WebContentInfo {
+    /// The path of the content file relative to `config.recording.basedir`.
+    #[schema(value_type = String)]
+    pub path: PathBuf,
+
+    /// The MIME type of the content.
+    pub r#type: String,
+
+    /// The size of the content.
+    ///
+    /// `null` if there is no content file at the location specified by `content_path` of the
+    /// recording schedule.
+    ///
+    /// `0` will be set if failed getting the size of the content file even though the file exists.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, IntoParams)]
+#[serde(rename_all = "kebab-case")]
+#[into_params(parameter_in = Query)]
+pub(in crate::web) struct WebRecordRemovalSetting {
+    /// `1` or `true` will purge the content file.
+    ///
+    /// The content file won't be purged by default.
+    #[serde(default = "WebRecordRemovalSetting::default_purge")]
+    #[serde(deserialize_with = "WebRecordRemovalSetting::deserialize_purge")]
+    pub purge: bool, // default: false
+}
+
+impl WebRecordRemovalSetting {
+    fn default_purge() -> bool {
+        false
+    }
+
+    // TODO(refactor): took from FilterSetting::deserialize_stream_decode_query()
+    fn deserialize_purge<'de, D>(deserializer: D) -> Result<bool, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s == "0" || s == "false" {
+            return Ok(false);
+        }
+        if s == "1" || s == "true" {
+            return Ok(true);
+        }
+        Err(serde::de::Error::custom(
+            "The value of the decode query must be 0, 1, false or true",
+        ))
+    }
+}
+
+/// The result of a record removal request.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(title = "RecordRemovalResult")]
+#[cfg_attr(test, derive(Deserialize))]
+pub(in crate::web) struct WebRecordRemovalResult {
+    /// `true` when the record file has been removed successfully.
+    pub record_removed: bool,
+    /// `true` when the content file has been removed successfully.
+    /// `true` if there is no content file and the `purge` query parameter is set.
+    /// Otherwise `false`.
+    pub content_removed: bool,
 }
 
 /// A timeshift recorder model.
@@ -442,5 +625,60 @@ where
             .unwrap_or_default();
 
         Ok(TunerUser { info, priority })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_matches::assert_matches;
+
+    #[test]
+    fn test_web_recording_schedule_input_valudate() {
+        let mut config = Config::default();
+        config.recording.basedir = Some("/tmp".into());
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!("1.m2ts", 1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Ok(()));
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!("/1.m2ts", 1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Err(err) => {
+            assert_matches!(err, Error::InvalidPath(_));
+        });
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!("../1.m2ts", 1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Err(err) => {
+            assert_matches!(err, Error::InvalidPath(_));
+        });
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!(1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Err(err) => {
+            assert_matches!(err, Error::InvalidRequest(_));
+        });
+
+        config.recording.records_dir = Some("/tmp".into());
+
+        let input = WebRecordingScheduleInput {
+            program_id: (0, 1, 2).into(),
+            options: recording_options!(1),
+            tags: Default::default(),
+        };
+        assert_matches!(input.validate(&config), Ok(()));
     }
 }

@@ -308,7 +308,7 @@ where
     fn create_record_stream_source(
         &self,
         record_id: TimeshiftRecordId,
-        start_pos: Option<u64>,
+        start_pos: u64,
     ) -> Result<TimeshiftRecordStreamSource, Error> {
         let record = self.records.get(&record_id).ok_or(Error::ProgramNotFound)?;
         record.create_record_stream_source(self.name.clone(), self.config(), start_pos)

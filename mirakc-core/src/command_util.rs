@@ -175,6 +175,36 @@ where
         (input, output)
     }
 
+    pub fn kill(&mut self) {
+        // We can safely use Span::enter() in non-async functions.
+        let _enter = self.span.enter();
+        if self.commands.is_empty() {
+            // Already terminated.
+            return;
+        }
+        for mut data in std::mem::take(&mut self.commands).into_iter() {
+            match data.process.id() {
+                Some(_) => {
+                    // Always send a SIGKILL to the process.
+                    tracing::debug!(pid = data.pid, "Kill");
+                    let _ = data.process.start_kill();
+
+                    // It's necessary to wait for the process termination because
+                    // the process may  exclusively use resources like a tuner
+                    // device.
+                    //
+                    // However, we cannot wait for any async task here, so we wait
+                    // for the process termination in a busy loop.
+                    while let Ok(None) = data.process.try_wait() {
+                        sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
+                    }
+                }
+                None => tracing::debug!(pid = data.pid, "Already terminated"),
+            }
+        }
+        tracing::debug!("Terminated");
+    }
+
     // Don't use Span::enter() in async functions.
     pub async fn wait(&mut self) -> Vec<io::Result<ExitStatus>> {
         let mut result = Vec::with_capacity(self.commands.len());
@@ -215,33 +245,7 @@ where
     T: Clone + Unpin,
 {
     fn drop(&mut self) {
-        // We can safely use Span::enter() in non-async functions.
-        let _enter = self.span.enter();
-        if self.commands.is_empty() {
-            // Already terminated.
-            return;
-        }
-        for mut data in std::mem::take(&mut self.commands).into_iter() {
-            match data.process.id() {
-                Some(_) => {
-                    // Always send a SIGKILL to the process.
-                    tracing::debug!(pid = data.pid, "Kill");
-                    let _ = data.process.start_kill();
-
-                    // It's necessary to wait for the process termination because
-                    // the process may  exclusively use resources like a tuner
-                    // device.
-                    //
-                    // However, we cannot wait for any async task here, so we wait
-                    // for the process termination in a busy loop.
-                    while let Ok(None) = data.process.try_wait() {
-                        sleep(*COMMAND_PIPELINE_TERMINATION_WAIT_NANOS);
-                    }
-                }
-                None => tracing::debug!(pid = data.pid, "Already terminated"),
-            }
-        }
-        tracing::debug!("Terminated");
+        self.kill();
     }
 }
 

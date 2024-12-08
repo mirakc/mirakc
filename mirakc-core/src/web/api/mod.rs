@@ -60,10 +60,14 @@ where
     E: Call<crate::epg::QueryServices>,
     R: Clone + Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
+    R: Call<crate::recording::OpenContent>,
+    R: Call<crate::recording::QueryRecord>,
     R: Call<crate::recording::QueryRecordingRecorder>,
     R: Call<crate::recording::QueryRecordingRecorders>,
     R: Call<crate::recording::QueryRecordingSchedule>,
     R: Call<crate::recording::QueryRecordingSchedules>,
+    R: Call<crate::recording::QueryRecords>,
+    R: Call<crate::recording::RemoveRecord>,
     R: Call<crate::recording::RemoveRecordingSchedule>,
     R: Call<crate::recording::RemoveRecordingSchedules>,
     R: Call<crate::recording::StartRecording>,
@@ -164,6 +168,29 @@ where
             );
     };
 
+    if config.recording.is_records_api_enabled() {
+        tracing::info!("Enable endpoints for records");
+        router = router
+            .route("/recording/records", routing::get(recording::records::list))
+            .route(
+                "/recording/records/:id",
+                routing::get(recording::records::get),
+            )
+            .route(
+                "/recording/records/:id",
+                routing::delete(recording::records::delete),
+            )
+            // The following endpoints won't allocate any tuner.
+            .route(
+                "/recording/records/:id/stream",
+                routing::get(recording::records::stream::get),
+            )
+            .route(
+                "/recording/records/:id/stream",
+                routing::head(recording::records::stream::head),
+            );
+    }
+
     if config.timeshift.is_enabled() {
         tracing::info!("Enable endpoints for timeshift recording");
         router = router
@@ -229,6 +256,11 @@ where
         recording::recorders::get,
         recording::recorders::create,
         recording::recorders::delete,
+        recording::records::list,
+        recording::records::get,
+        recording::records::delete,
+        recording::records::stream::get,
+        recording::records::stream::head,
         timeshift::list,
         timeshift::get,
         timeshift::stream,

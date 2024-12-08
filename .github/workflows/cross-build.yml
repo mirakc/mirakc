@@ -40,3 +40,5 @@ jobs:
       - name: Run tests
         run: |
           cross test -v --release --target=${{ matrix.target }}
+        env:
+          RUST_LOG: debug

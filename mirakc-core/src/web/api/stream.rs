@@ -2,6 +2,7 @@ use super::*;
 
 use std::fmt;
 use std::io;
+use std::ops::Bound;
 use std::pin::Pin;
 
 use axum::http::header::ACCEPT_RANGES;
@@ -24,13 +25,31 @@ use crate::mpeg_ts_stream::MpegTsStreamRange;
 use crate::mpeg_ts_stream::MpegTsStreamTerminator;
 use crate::web::body::SeekableStreamBody;
 
+pub(in crate::web::api) fn calc_start_pos_in_ranges(
+    ranges: Option<TypedHeader<axum_extra::headers::Range>>,
+    size: u64,
+) -> u64 {
+    match ranges {
+        Some(TypedHeader(ranges)) => ranges
+            .satisfiable_ranges(size)
+            .next()
+            .and_then(|(start, _)| match start {
+                Bound::Included(n) => Some(n),
+                Bound::Excluded(n) => Some(n + 1),
+                _ => None,
+            })
+            .unwrap_or(0),
+        None => 0,
+    }
+}
+
 pub(in crate::web::api) async fn do_get_service_stream<T>(
     config: &Config,
     tuner_manager: &T,
     channel: EpgChannel,
     sid: Sid,
-    user: TunerUser,
-    filter_setting: FilterSetting,
+    user: &TunerUser,
+    filter_setting: &FilterSetting,
 ) -> Result<Response, Error>
 where
     T: Clone,
@@ -72,7 +91,7 @@ where
 
 pub(in crate::web::api) async fn streaming<T, S, D>(
     config: &Config,
-    user: TunerUser,
+    user: &TunerUser,
     stream: MpegTsStream<T, S>,
     filters: Vec<String>,
     content_type: String,
@@ -83,6 +102,8 @@ where
     S: Stream<Item = io::Result<Bytes>> + Send + Unpin + 'static,
     D: Send + Unpin + 'static,
 {
+    let time_limit = config.server.stream_time_limit;
+
     let range = stream.range();
     if filters.is_empty() {
         do_streaming(
@@ -146,20 +167,13 @@ where
             drop(pipeline);
         });
 
-        do_streaming(
-            user,
-            ReceiverStream::new(receiver),
-            content_type,
-            range,
-            stop_triggers,
-            config.server.stream_time_limit,
-        )
-        .await
+        let stream = ReceiverStream::new(receiver);
+        do_streaming(user, stream, content_type, range, stop_triggers, time_limit).await
     }
 }
 
 async fn do_streaming<S, D>(
-    user: TunerUser,
+    user: &TunerUser,
     stream: S,
     content_type: String,
     range: Option<MpegTsStreamRange>,
@@ -262,7 +276,7 @@ mod tests {
         let user = user_for_test(0.into());
 
         let result = do_streaming(
-            user.clone(),
+            &user,
             futures::stream::empty(),
             "video/MP2T".to_string(),
             None,
@@ -273,7 +287,7 @@ mod tests {
         assert_matches!(result, Err(Error::ProgramNotFound));
 
         let result = do_streaming(
-            user.clone(),
+            &user,
             futures::stream::pending(),
             "video/MP2T".to_string(),
             None,
