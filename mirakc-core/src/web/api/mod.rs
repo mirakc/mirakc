@@ -222,6 +222,11 @@ where
 
 #[derive(OpenApi)]
 #[openapi(
+    info(
+        // TODO: `utoipa-gen` should be set the `identifier`.  because CARGO_PKG_LICENSE contains
+        // a SPDX license expression as described in the Cargo Book.
+        license(name = "MIT OR Apache-2.0", identifier = "MIT OR Apache-2.0"),
+    ),
     paths(
         version::get,
         status::get,
