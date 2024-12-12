@@ -211,6 +211,12 @@ pub(in crate::web) struct WebRecord {
 
 impl From<(Record, Option<u64>)> for WebRecord {
     fn from((record, content_length): (Record, Option<u64>)) -> Self {
+        let (status, failed_reason) = match record.recording_status {
+            RecordingStatus::Recording => (WebRecordingStatus::Recording, None),
+            RecordingStatus::Finished => (WebRecordingStatus::Finished, None),
+            RecordingStatus::Canceled => (WebRecordingStatus::Canceled, None),
+            RecordingStatus::Failed { reason } => (WebRecordingStatus::Failed, Some(reason)),
+        };
         Self {
             id: record.id,
             program: record.program.into(),
@@ -218,10 +224,11 @@ impl From<(Record, Option<u64>)> for WebRecord {
             tags: record.tags,
             recording: WebRecordingInfo {
                 options: record.options,
-                status: record.recording_status,
+                status,
                 start_time: record.recording_start_time,
                 end_time: record.recording_end_time,
                 duration: record.recording_duration,
+                failed_reason,
             },
             content: WebContentInfo {
                 path: record.content_path,
@@ -242,7 +249,8 @@ pub(in crate::web) struct WebRecordingInfo {
     pub options: RecordingOptions,
 
     /// The current status of the record.
-    pub status: RecordingStatus,
+    pub status: WebRecordingStatus,
+
     /// The start time of the **actual** recording in UNIX time (milliseconds).
     ///
     /// The value may not equal to the start time of the TV program.
@@ -271,6 +279,35 @@ pub(in crate::web) struct WebRecordingInfo {
     #[serde(with = "duration_milliseconds_option")]
     #[schema(value_type = i64)]
     pub duration: Option<Duration>,
+
+    /// The reason for the recording failure.
+    ///
+    /// This property is available only when the `status` is `failed`.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_reason: Option<RecordingFailedReason>,
+}
+
+/// A recording status.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+#[schema(title = "RecordingStatus")]
+pub enum WebRecordingStatus {
+    Recording,
+    Finished,
+    Canceled,
+    Failed,
+}
+
+impl From<RecordingStatus> for WebRecordingStatus {
+    fn from(value: RecordingStatus) -> Self {
+        match value {
+            RecordingStatus::Recording => Self::Recording,
+            RecordingStatus::Finished => Self::Finished,
+            RecordingStatus::Canceled => Self::Canceled,
+            RecordingStatus::Failed { .. } => Self::Failed,
+        }
+    }
 }
 
 /// A content information model.
