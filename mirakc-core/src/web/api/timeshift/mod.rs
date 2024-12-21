@@ -108,8 +108,6 @@ where
     };
     let src = timeshift_manager.call(msg).await??;
 
-    let (stream, stop_trigger) = src.create_stream().await?;
-
     let data = mustache::MapBuilder::new()
         .insert_str("channel_name", &recorder.service.channel.name)
         .insert("channel_type", &recorder.service.channel.channel_type)?
@@ -117,11 +115,13 @@ where
         .insert("sid", &recorder.service.id.sid())?
         .build();
 
-    let mut builder = FilterPipelineBuilder::new(data);
+    let mut builder = FilterPipelineBuilder::new(data, true); // seekable by default
     builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
     // The stream has already been decoded.
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
-    let (filters, content_type) = builder.build();
+    let (filters, content_type, _seekable) = builder.build();
+
+    let (stream, stop_trigger) = src.create_stream().await?; // TODO: seekable
 
     streaming(&config, &user, stream, filters, content_type, stop_trigger).await
 }

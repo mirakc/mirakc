@@ -68,13 +68,13 @@ where
         .insert("user", &user)?
         .build();
 
-    let mut builder = FilterPipelineBuilder::new(data);
+    let mut builder = FilterPipelineBuilder::new(data, false); // not seekable
     builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
     if !stream.is_decoded() && filter_setting.decode {
         builder.add_decode_filter(&config.filters.decode_filter)?;
     }
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
-    let (filters, content_type) = builder.build();
+    let (filters, content_type, _) = builder.build();
 
     streaming(&config, &user, stream, filters, content_type, stop_trigger).await
 }

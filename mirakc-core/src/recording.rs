@@ -1117,14 +1117,14 @@ where
             .insert("audio_tags", &audio_tags)?;
         let data = builder.build();
 
-        let mut builder = FilterPipelineBuilder::new(data);
+        let mut builder = FilterPipelineBuilder::new(data, false);
         builder.add_pre_filters(&self.config.pre_filters, &schedule.options.pre_filters)?;
         if !stream.is_decoded() {
             builder.add_decode_filter(&self.config.filters.decode_filter)?;
         }
         builder.add_program_filter(&self.config.filters.program_filter)?;
         builder.add_post_filters(&self.config.post_filters, &schedule.options.post_filters)?;
-        let (filters, content_type) = builder.build();
+        let (filters, content_type, _) = builder.build();
 
         let now = Jst::now();
         let record_id = RecordId::from((now, program_id));

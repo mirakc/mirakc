@@ -120,11 +120,6 @@ where
     };
     let src = timeshift_manager.call(msg).await??;
 
-    // We assume that pre-filters don't change TS packets.
-    let seekable = filter_setting.post_filters.is_empty();
-
-    let (stream, stop_trigger) = src.create_stream(seekable).await?;
-
     let video_tags: Vec<u8> = record
         .program
         .video
@@ -154,11 +149,13 @@ where
         .insert("size", &record.size)?
         .build();
 
-    let mut builder = FilterPipelineBuilder::new(data);
+    let mut builder = FilterPipelineBuilder::new(data, true); // seekable by default
     builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
     // The stream has already been decoded.
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
-    let (filters, content_type) = builder.build();
+    let (filters, content_type, seekable) = builder.build();
+
+    let (stream, stop_trigger) = src.create_stream(dbg!(seekable)).await?;
 
     streaming(&config, &user, stream, filters, content_type, stop_trigger).await
 }

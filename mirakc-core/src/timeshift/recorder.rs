@@ -358,7 +358,7 @@ where
             .insert_str("channel", &channel.channel)
             .insert("sid", &self.service.sid())?
             .build();
-        let mut builder = FilterPipelineBuilder::new(data);
+        let mut builder = FilterPipelineBuilder::new(data, false);
         // NOTE
         // ----
         // We always decode stream before recording in order to make it easy to support seeking.
@@ -369,7 +369,7 @@ where
         if !stream.is_decoded() {
             builder.add_decode_filter(&self.config.filters.decode_filter)?;
         }
-        let (mut cmds, _) = builder.build();
+        let (mut cmds, _, _) = builder.build();
 
         let start_pos = self.points.back().map_or(0, |point| point.pos);
         let data = mustache::MapBuilder::new()

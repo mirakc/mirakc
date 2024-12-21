@@ -22,9 +22,8 @@ filters:
 pre-filters:
   cat:
     command: cat
+    seekable: true
 post-filters:
-  cat:
-    command: cat
   mp4:
     command: cat
     content-type: video/mp4

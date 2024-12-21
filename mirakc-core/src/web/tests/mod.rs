@@ -734,7 +734,7 @@ async fn test_get_timeshift_record_stream() {
     assert!(res.headers().contains_key("content-range"));
     assert!(res.headers().contains_key("content-length"));
 
-    let res = get("/api/timeshift/test/records/1/stream?post-filters[]=cat").await;
+    let res = get("/api/timeshift/test/records/1/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
     assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
