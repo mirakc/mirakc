@@ -33,8 +33,11 @@ suitable for your environment.
 | [filters.service-filter.command]         | `mirakc-arib filter-service --sid={{{sid}}}` |
 | [filters.decode-filter.command]          | `''`                              |
 | [filters.program-filter.command]         | `mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} --clock-time={{{clock_time}}} --end-margin=2000{{#video_tags}} --video-tag={{{.}}}{{/video_tags}}{{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}{{#if wait_until}} --wait-until={{{wait_until}}}{{/if}}` |
-| [pre-filters]                            | `{}`                              |
-| [post-filters]                           | `{}`                              |
+| [pre-filters.\*.command]                 | `''`                              |
+| [pre-filters.\*.seekable]                | `false`                           |
+| [post-filters.\*.command]                | `''`                              |
+| [post-filters.\*.content-type]           | `None`                            |
+| [post-filters.\*.seekable]               | `false`                           |
 | [jobs.scan-services.command]             | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.scan-services.schedule]            | `'0 1 8,20 * * * *'` (execute at 08:01 and 20:01 every day) |
 | [jobs.scan-services.disabled]            | `false`                           |
@@ -86,8 +89,11 @@ suitable for your environment.
 [filters.service-filter.command]: #filtersservice-filter
 [filters.decode-filter.command]: #filtersdecode-filter
 [filters.program-filter.command]: #filtersprogram-filter
-[pre-filters]: #pre-filters
-[post-filters]: #post-filters
+[pre-filters.\*.command]: #pre-filters
+[pre-filters.\*.seekable]: #pre-filters
+[post-filters.\*.command]: #post-filters
+[post-filters.\*.content-type]: #post-filters
+[post-filters.\*.seekable]: #post-filters
 [jobs.scan-services.command]: #jobsscan-services
 [jobs.scan-services.schedule]: #jobsscan-services
 [jobs.scan-services.disabled]: #jobsscan-services
@@ -680,28 +686,42 @@ command = "curl -sG http://upstream:40772/api/channels/{{{channel_type}}}/{{{cha
 Definitions of filters used in
 [the streaming pipeline](./inside-mirakc.md#streaming-pipeline).
 
-Each filter definition has the following properties:
+The following properties can be specified in `config.yml`:
 
 * command
   * A Mustache template string of the filter command
   * The command must read data from `stdin`, and output the processed data to
     `stdout`
   * An empty string means that the filter is not defined
-* content-type (optional)
+* content-type
   * A string of the content-type of data output from the filter
   * Absence of this property means that the filter doesn't change the
     content-type of the input data
   * Available only for the `post-filters`
+* seekable (default: `false`)
+  * `true`: Range requests are acceptable when the filter is used
+  * `false`: Range requests are **NOT** acceptable when the filter is used
+
+Each filter has the following properties:
+
+| PROPERTY     | tuner-filter | service-filter | program-filter | pre-filter | post-filter |
+| ------------ | ------------ | -------------- | -------------- | ---------- | ----------- |
+| command      | `?`          | `?`            | `?`            | `?`        | `?`         |
+| seekable     | `false`      | `false`        | `false`        | `?`        | `?`         |
+| content-type |              |                |                |            | `?`         |
+
+Where:
+
+* `?` means that the property is configurable in `config.yml`
+* Empty cell means that the property is **not** available for the filter
 
 Each Mustache template string defined in the `command` property will be rendered
-with the following template data:
+with the following template parameters:
 
 * tuner_index
   * The index of a tuner
-  * Available only for the tuner-filter
 * tuner_name
   * The `name` property of a tuner defined in the `tuners`
-  * Available only for the tuner-filter
 * channel_name
   * The `name` property of a channel defined in the `channels`
 * channel_type
@@ -710,7 +730,6 @@ with the following template data:
   * The `channel` property of a channel defined in the `channels`
 * user
   * Contains information about a user of the stream
-  * Available only for filters except for the tuner-filter
   * See `test_make_filter()` in [//mirakc-core/src/filter.rs](../mirakc-core/src/filter.rs)
     about how to use it
 * sid
@@ -743,6 +762,32 @@ with the following template data:
 * size
   * Size of a record in bytes
   * Available only for the record streaming
+
+Each filter has the following template parameter:
+
+| PARAMETER    | tuner-filter | service-filter | program-filter | pre-filter | post-filter |
+| ------------ | ------------ | -------------- | -------------- | ---------- | ----------- |
+| tuner_index  | `*`          |                |                |            |             |
+| tuner_name   | `*`          |                |                |            |             |
+| channel_name | `*`          | `*`            | `*`            | `*`        | `*`         |
+| channel_type | `*`          | `*`            | `*`            | `*`        | `*`         |
+| channel      | `*`          | `*`            | `*`            | `*`        | `*`         |
+| user         |              | `*`            | `*`            | `*`        | `*`         |
+| sid          |              | `*`            | `*`            | `*`        | `*`         |
+| eid          |              |                | `*`            | `?`        | `?`         |
+| clock_pid    |              |                | `*`            | `?`        | `?`         |
+| clock_pcr    |              |                | `*`            | `?`        | `?`         |
+| clock_time   |              |                | `*`            | `?`        | `?`         |
+| video_tags   |              |                | `*`            | `?`        | `?`         |
+| audio_tags   |              |                | `*`            | `?`        | `?`         |
+| id           |              |                | `*`            | `?`        | `?`         |
+| duration     |              |                | `*`            | `?`        | `?`         |
+| size         |              |                | `*`            | `?`        | `?`         |
+
+Where:
+
+* `*` means that the template parameter is available for the filter
+* Empty cell means that the template parameter is **NOT** available for the filter
 
 ### filters.tuner-filter
 

@@ -93,7 +93,7 @@ pub struct Config {
     #[serde(default)]
     pub filters: FiltersConfig,
     #[serde(default)]
-    pub pre_filters: HashMap<String, FilterConfig>,
+    pub pre_filters: HashMap<String, PreFilterConfig>,
     #[serde(default)]
     pub post_filters: HashMap<String, PostFilterConfig>,
     #[serde(default)]
@@ -154,7 +154,7 @@ impl Config {
         self.filters.validate();
         self.pre_filters
             .iter()
-            .for_each(|(name, config)| config.validate("pre-filters", name));
+            .for_each(|(name, config)| config.validate(name));
         self.post_filters
             .iter()
             .for_each(|(name, config)| config.validate(name));
@@ -643,9 +643,26 @@ impl FilterConfig {
     fn validate(&self, group: &str, name: &str) {
         assert!(
             !self.command.is_empty(),
-            "config.{}[{}].command: must be a non-empty string",
-            group,
-            name
+            "config.{group}[{name}].command: must be a non-empty string"
+        );
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub struct PreFilterConfig {
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub seekable: bool,
+}
+
+impl PreFilterConfig {
+    fn validate(&self, name: &str) {
+        assert!(
+            !self.command.is_empty(),
+            "config.pre-filters[{name}].command: must be a non-empty string"
         );
     }
 }
@@ -658,20 +675,20 @@ pub struct PostFilterConfig {
     pub command: String,
     #[serde(default)]
     pub content_type: Option<String>,
+    #[serde(default)]
+    pub seekable: bool,
 }
 
 impl PostFilterConfig {
     fn validate(&self, name: &str) {
         assert!(
             !self.command.is_empty(),
-            "config.post-filters[{}].command: must be a non-empty string",
-            name
+            "config.post-filters[{name}].command: must be a non-empty string"
         );
         if let Some(content_type) = self.content_type.as_ref() {
             assert!(
                 !content_type.is_empty(),
-                "config.post-filters[{}].content-type: must be a non-empty string",
-                name
+                "config.post-filters[{name}].content-type: must be a non-empty string"
             );
         }
     }
@@ -2465,6 +2482,63 @@ mod tests {
     }
 
     #[test]
+    fn test_pre_filter_config() {
+        assert_eq!(
+            serde_yaml::from_str::<PreFilterConfig>("{}").unwrap(),
+            Default::default()
+        );
+
+        let mut config = PreFilterConfig::default();
+        config.command = "filter".to_string();
+        assert_eq!(
+            serde_yaml::from_str::<PreFilterConfig>(
+                r#"
+                command: filter
+            "#
+            )
+            .unwrap(),
+            config
+        );
+
+        let mut config = PreFilterConfig::default();
+        config.command = "filter".to_string();
+        config.seekable = true;
+        assert_eq!(
+            serde_yaml::from_str::<PreFilterConfig>(
+                r#"
+                command: filter
+                seekable: true
+            "#
+            )
+            .unwrap(),
+            config
+        );
+
+        let result = serde_yaml::from_str::<PreFilterConfig>(
+            r#"
+            unknown:
+              property: value
+        "#,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pre_filter_config_validate() {
+        let mut config = PreFilterConfig::default();
+        config.command = "test".to_string();
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic(expected = "config.pre-filters[test].command: must be a non-empty string")]
+    fn test_pre_filter_config_validate_empty_command() {
+        let mut config = PreFilterConfig::default();
+        config.command = "".to_string();
+        config.validate("test");
+    }
+
+    #[test]
     fn test_post_filter_config() {
         assert_eq!(
             serde_yaml::from_str::<PostFilterConfig>("{}").unwrap(),
@@ -2491,6 +2565,20 @@ mod tests {
                 r#"
                 command: filter
                 content-type: video/mp4
+            "#
+            )
+            .unwrap(),
+            config
+        );
+
+        let mut config = PostFilterConfig::default();
+        config.command = "filter".to_string();
+        config.seekable = true;
+        assert_eq!(
+            serde_yaml::from_str::<PostFilterConfig>(
+                r#"
+                command: filter
+                seekable: true
             "#
             )
             .unwrap(),

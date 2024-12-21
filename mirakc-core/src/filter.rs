@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::config::FilterConfig;
 use crate::config::PostFilterConfig;
+use crate::config::PreFilterConfig;
 use crate::error::Error;
 
 pub struct FilterPipelineBuilder {
@@ -25,7 +26,7 @@ impl FilterPipelineBuilder {
 
     pub fn add_pre_filters(
         &mut self,
-        pre_filters: &HashMap<String, FilterConfig>,
+        pre_filters: &HashMap<String, PreFilterConfig>,
         names: &[String],
     ) -> Result<usize, Error> {
         for name in names.iter() {
@@ -65,7 +66,7 @@ impl FilterPipelineBuilder {
         Ok(self.filters.len())
     }
 
-    fn add_pre_filter(&mut self, config: &FilterConfig, name: &str) -> Result<usize, Error> {
+    fn add_pre_filter(&mut self, config: &PreFilterConfig, name: &str) -> Result<usize, Error> {
         if config.command.is_empty() {
             return Ok(self.filters.len());
         }
