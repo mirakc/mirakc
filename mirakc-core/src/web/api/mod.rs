@@ -39,7 +39,7 @@ mod timeshift;
 mod tuners;
 mod version;
 
-pub(super) mod models;
+pub(crate) mod models;
 use models::*;
 
 #[allow(clippy::type_complexity)]
