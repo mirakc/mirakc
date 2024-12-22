@@ -308,10 +308,10 @@ where
     fn create_record_stream_source(
         &self,
         record_id: TimeshiftRecordId,
-        start_pos: u64,
+        range: &Option<ContentRange>,
     ) -> Result<TimeshiftRecordStreamSource, Error> {
         let record = self.records.get(&record_id).ok_or(Error::ProgramNotFound)?;
-        record.create_record_stream_source(self.name.clone(), self.config(), start_pos)
+        record.create_record_stream_source(self.name.clone(), self.config(), range)
     }
 
     async fn start_recording(&mut self, ctx: &mut Context<Self>) {
@@ -546,7 +546,7 @@ where
         msg: CreateTimeshiftRecordStreamSource,
         _ctx: &mut Context<Self>,
     ) -> <CreateTimeshiftRecordStreamSource as Message>::Reply {
-        self.create_record_stream_source(msg.record_id, msg.start_pos)
+        self.create_record_stream_source(msg.record_id, &msg.range)
     }
 }
 

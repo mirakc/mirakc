@@ -1,7 +1,9 @@
 use super::*;
 
-use crate::web::api::stream::do_get_service_stream;
+use crate::epg::EpgChannel;
 use crate::web::api::stream::do_head_stream;
+use crate::web::api::stream::streaming;
+use crate::web::api::stream::StreamingHeaderParams;
 
 /// Gets a media stream of a service.
 #[utoipa::path(
@@ -45,7 +47,7 @@ where
     do_get_service_stream(
         &config,
         &tuner_manager,
-        service.channel,
+        &service.channel,
         service_id.sid(),
         &user,
         &filter_setting,
@@ -80,14 +82,124 @@ pub(in crate::web::api) async fn head<E>(
     Path(service_id): Path<ServiceId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
-) -> impl IntoResponse
+) -> Result<Response, Error>
 where
     E: Call<epg::QueryService>,
 {
-    let _service = epg.call(epg::QueryService { service_id }).await??;
+    let service = epg.call(epg::QueryService { service_id }).await??;
 
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
     // will success or not until actually starting streaming.
-    do_head_stream(&config, &user, &filter_setting)
+    do_head_service_stream(
+        &config,
+        &service.channel,
+        service.sid(),
+        &user,
+        &filter_setting,
+    )
+    .await
+}
+
+pub(in crate::web::api) async fn do_get_service_stream<T>(
+    config: &Config,
+    tuner_manager: &T,
+    channel: &EpgChannel,
+    sid: Sid,
+    user: &TunerUser,
+    filter_setting: &FilterSetting,
+) -> Result<Response, Error>
+where
+    T: Clone,
+    T: Call<tuner::StartStreaming>,
+    T: TriggerFactory<tuner::StopStreaming>,
+{
+    let stream = tuner_manager
+        .call(tuner::StartStreaming {
+            channel: channel.clone(),
+            user: user.clone(),
+            stream_id: None,
+        })
+        .await??;
+
+    // stop_trigger must be created here in order to stop streaming when an
+    // error occurs.
+    let msg = tuner::StopStreaming { id: stream.id() };
+    let stop_trigger = tuner_manager.trigger(msg);
+
+    let (filters, content_type, seekable) = build_filters(
+        config,
+        user,
+        filter_setting,
+        channel,
+        sid,
+        stream.is_decoded(),
+    )?;
+    debug_assert!(!seekable);
+
+    // Ignore the range header.
+
+    let params = StreamingHeaderParams {
+        seekable,
+        content_type,
+        length: None,
+        range: None,
+        user: user.clone(),
+    };
+
+    streaming(config, stream, filters, &params, stop_trigger).await
+}
+
+pub(in crate::web::api) async fn do_head_service_stream(
+    config: &Config,
+    channel: &EpgChannel,
+    sid: Sid,
+    user: &TunerUser,
+    filter_setting: &FilterSetting,
+) -> Result<Response, Error> {
+    let (_, content_type, seekable) = build_filters(
+        config,
+        user,
+        filter_setting,
+        channel,
+        sid,
+        false, // This is a dummy but works properly.
+    )?;
+    debug_assert!(!seekable);
+
+    let params = StreamingHeaderParams {
+        seekable,
+        content_type,
+        length: None,
+        range: None,
+        user: user.clone(),
+    };
+
+    do_head_stream(&params)
+}
+
+fn build_filters(
+    config: &Config,
+    user: &TunerUser,
+    filter_setting: &FilterSetting,
+    channel: &EpgChannel,
+    sid: Sid,
+    decoded: bool,
+) -> Result<(Vec<String>, String, bool), Error> {
+    let data = mustache::MapBuilder::new()
+        .insert_str("channel_name", &channel.name)
+        .insert("channel_type", &channel.channel_type)?
+        .insert_str("channel", &channel.channel)
+        .insert("user", &user)?
+        .insert("sid", &sid.value())?
+        .build();
+
+    let mut builder = FilterPipelineBuilder::new(data, false); // not seekable
+    builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
+    if !decoded && filter_setting.decode {
+        builder.add_decode_filter(&config.filters.decode_filter)?;
+    }
+    builder.add_service_filter(&config.filters.service_filter)?;
+    builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
+    Ok(builder.build())
 }

@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ops::Range;
 
 use chrono::DateTime;
 use chrono::Duration;
@@ -18,6 +19,7 @@ use crate::epg::EpgChannel;
 use crate::epg::EpgProgram;
 use crate::epg::EpgService;
 use crate::epg::SeriesDescriptor;
+use crate::error::Error;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Deserialize, Serialize, ToSchema)]
 pub enum ChannelType {
@@ -822,6 +824,60 @@ impl From<u32> for MirakurunLangCode {
                 MirakurunLangCode(SmallString::from_str("und"))
             }
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ContentRange(u64, u64, Option<u64>);
+
+impl ContentRange {
+    pub fn with_size(first: u64, last: u64, size: u64) -> Result<Self, Error> {
+        debug_assert_ne!(size, 0);
+        if first >= size || last >= size {
+            return Err(Error::OutOfRange);
+        }
+        Self::new(first, last, Some(size))
+    }
+
+    pub fn without_size(first: u64, last: u64) -> Result<Self, Error> {
+        if first > last {
+            return Err(Error::OutOfRange);
+        }
+        Self::new(first, last, None)
+    }
+
+    pub fn is_partial(&self) -> bool {
+        match self.2 {
+            Some(size) => self.bytes() != size,
+            // Treat as a partial content if the complete length is unknown.
+            None => true,
+        }
+    }
+
+    pub fn make_http_header(&self) -> String {
+        match self {
+            Self(first, last, Some(size)) => format!("bytes {first}-{last}/{size}"),
+            Self(first, last, None) => format!("bytes {first}-{last}/*"),
+        }
+    }
+
+    pub fn first(&self) -> u64 {
+        self.0
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        (self.0 as usize)..((self.1 + 1) as usize)
+    }
+
+    pub fn bytes(&self) -> u64 {
+        self.1 - self.0 + 1
+    }
+
+    fn new(first: u64, last: u64, size: Option<u64>) -> Result<Self, Error> {
+        if first > last {
+            return Err(Error::OutOfRange);
+        }
+        Ok(Self(first, last, size))
     }
 }
 

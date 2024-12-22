@@ -1,7 +1,6 @@
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::ops::Bound;
 use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -41,6 +40,7 @@ use crate::epg::QueryService;
 use crate::error::Error;
 use crate::file_util;
 use crate::filter::FilterPipelineBuilder;
+use crate::models::ContentRange;
 use crate::models::ProgramId;
 use crate::models::ServiceId;
 use crate::models::TunerUser;
@@ -1390,7 +1390,7 @@ type StopTrigger = Trigger<actlet::Stop>;
 #[reply(Result<(ContentStream, Option<StopTrigger>), Error>)]
 pub struct OpenContent {
     pub id: RecordId,
-    pub ranges: Vec<(Bound<u64>, Bound<u64>)>,
+    pub range: Option<ContentRange>,
     pub time_limit: u64,
 }
 
@@ -1399,10 +1399,10 @@ impl OpenContent {
     // 1500ms.
     const DEFAULT_TIME_LIMIT: u64 = 1500;
 
-    pub fn new(id: RecordId, ranges: Vec<(Bound<u64>, Bound<u64>)>) -> Self {
+    pub fn new(id: RecordId, range: Option<ContentRange>) -> Self {
         Self {
             id,
-            ranges,
+            range,
             time_limit: Self::DEFAULT_TIME_LIMIT,
         }
     }
@@ -1428,7 +1428,7 @@ where
         ctx: &mut Context<Self>,
     ) -> <OpenContent as Message>::Reply {
         tracing::debug!(msg.name = "OpenContent", %msg.id);
-        self.open_content(&msg.id, &msg.ranges, msg.time_limit, ctx)
+        self.open_content(&msg.id, msg.range.as_ref(), msg.time_limit, ctx)
             .await
     }
 }
@@ -1437,7 +1437,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
     async fn open_content(
         &self,
         id: &RecordId,
-        ranges: &[(Bound<u64>, Bound<u64>)],
+        range: Option<&ContentRange>,
         time_limit: u64,
         ctx: &mut Context<Self>,
     ) -> Result<(ContentStream, Option<StopTrigger>), Error> {
@@ -1452,8 +1452,8 @@ impl<T, E, O> RecordingManager<T, E, O> {
             _ => return Err(Error::NoContent),
         };
 
-        let mut content_source = ContentSource::new(&self.config, &record)?;
-        let stream = content_source.create_stream(ranges, time_limit);
+        let mut content_source = ContentSource::new(&self.config, &record, range)?;
+        let stream = content_source.create_stream(time_limit);
 
         let addr = ctx.spawn_actor(content_source).await;
         let stop_trigger = Some(addr.trigger(actlet::Stop));
@@ -2198,7 +2198,7 @@ struct ContentSource {
 }
 
 impl ContentSource {
-    fn new(config: &Config, record: &Record) -> Result<Self, Error> {
+    fn new(config: &Config, record: &Record, range: Option<&ContentRange>) -> Result<Self, Error> {
         let content_path = make_content_path(config, record).unwrap();
         if !content_path.exists() {
             tracing::warn!(?content_path, "No such file, maybe it has been removed");
@@ -2206,9 +2206,14 @@ impl ContentSource {
         }
 
         let content_path_str = content_path.to_str().unwrap();
-        // TODO(#2057): ranges
-        let cmd = match record.recording_status {
-            RecordingStatus::Recording => {
+        let cmd = match (range, &record.recording_status) {
+            (Some(range), _) => {
+                debug_assert!(range.is_partial());
+                let skip = range.first();
+                let count = range.bytes();
+                format!("dd if='{content_path_str}' ibs=1 skip={skip} count={count}")
+            }
+            (None, RecordingStatus::Recording) => {
                 // We use `tail -f` for streaming during recording in order to send data to be
                 // appended to the content file in the future after the stream reaches EOF at that
                 // point.
@@ -2225,11 +2230,7 @@ impl ContentSource {
         Ok(Self { pipeline })
     }
 
-    fn create_stream(
-        &mut self,
-        _ranges: &[(Bound<u64>, Bound<u64>)],
-        time_limit: u64,
-    ) -> ContentStream {
+    fn create_stream(&mut self, time_limit: u64) -> ContentStream {
         // 32 KiB, large enough for 10 ms buffering.
         const CHUNK_SIZE: usize = 4096 * 8;
 
@@ -3449,7 +3450,7 @@ mod tests {
         let config = config_for_test(temp_dir.path());
 
         let id = RecordId("1".to_string());
-        let record = record!(finished: id.clone());
+        let record = record!(finished: id.value());
         let record_path = make_record_path(&config, &id).unwrap();
         assert!(file_util::save_json(&record, &record_path));
 
@@ -3460,7 +3461,7 @@ mod tests {
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
 
-            let result = manager.call(OpenContent::new(id.clone(), vec![])).await;
+            let result = manager.call(OpenContent::new(id.clone(), None)).await;
             let (stream, stop_trigger) = match result {
                 Ok(Ok(tuple)) => tuple,
                 _ => panic!(),
@@ -3504,7 +3505,7 @@ mod tests {
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
 
-            let result = manager.call(OpenContent::new(id.clone(), vec![])).await;
+            let result = manager.call(OpenContent::new(id.clone(), None)).await;
             let (stream, stop_trigger) = match result {
                 Ok(Ok(tuple)) => tuple,
                 _ => panic!(),
@@ -3553,7 +3554,7 @@ mod tests {
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
 
-            let result = manager.call(OpenContent::new(id.clone(), vec![])).await;
+            let result = manager.call(OpenContent::new(id.clone(), None)).await;
             let (stream, stop_trigger) = match result {
                 Ok(Ok(tuple)) => tuple,
                 _ => panic!(),
@@ -3859,6 +3860,89 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    async fn test_content_source_create_stream() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let id = RecordId("1".to_string());
+        let record = record!(recording: id.value());
+
+        let content_path = make_content_path(&config, &record).unwrap();
+        let content_path_str = content_path.to_str().unwrap();
+        tokio::fs::write(&content_path, b"0123456789")
+            .await
+            .unwrap();
+
+        // recording, w/o range
+        let mut source = ContentSource::new(&config, &record, None).unwrap();
+        let models = source.pipeline.get_model();
+        assert_eq!(models.len(), 1);
+        assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
+            assert_eq!(*command, format!("tail -f -c +0 '{content_path_str}'"));
+            assert!(pid.is_some());
+        });
+        let stream = source.create_stream(1000);
+        let mut reader = tokio_util::io::StreamReader::new(stream);
+        let mut content = String::new();
+        assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
+            assert_eq!(size, 10);
+            assert_eq!(content, "0123456789");
+        });
+
+        // recording, w/ range
+        let range = Some(ContentRange::without_size(1, 3).unwrap());
+        let mut source = ContentSource::new(&config, &record, range.as_ref()).unwrap();
+        let models = source.pipeline.get_model();
+        assert_eq!(models.len(), 1);
+        assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
+            assert_eq!(*command, format!("dd if='{content_path_str}' ibs=1 skip=1 count=3"));
+            assert!(pid.is_some());
+        });
+        let stream = source.create_stream(1000);
+        let mut reader = tokio_util::io::StreamReader::new(stream);
+        let mut content = String::new();
+        assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
+            assert_eq!(size, 3);
+            assert_eq!(content, "123");
+        });
+
+        let record = record!(finished: id.value());
+
+        // finished, w/o range
+        let mut source = ContentSource::new(&config, &record, None).unwrap();
+        let models = source.pipeline.get_model();
+        assert_eq!(models.len(), 1);
+        assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
+            assert_eq!(*command, format!("cat '{content_path_str}'"));
+            assert!(pid.is_some());
+        });
+        let stream = source.create_stream(1000);
+        let mut reader = tokio_util::io::StreamReader::new(stream);
+        let mut content = String::new();
+        assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
+            assert_eq!(size, 10);
+            assert_eq!(content, "0123456789");
+        });
+
+        // finished, w/ range
+        let range = Some(ContentRange::with_size(1, 3, 10).unwrap());
+        let mut source = ContentSource::new(&config, &record, range.as_ref()).unwrap();
+        let models = source.pipeline.get_model();
+        assert_eq!(models.len(), 1);
+        assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
+            assert_eq!(*command, format!("dd if='{content_path_str}' ibs=1 skip=1 count=3"));
+            assert!(pid.is_some());
+        });
+        let stream = source.create_stream(1000);
+        let mut reader = tokio_util::io::StreamReader::new(stream);
+        let mut content = String::new();
+        assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
+            assert_eq!(size, 3);
+            assert_eq!(content, "123");
+        });
+    }
+
+    #[test(tokio::test)]
     async fn test_check_retry() {
         // exit(0)
         let mut pipeline: CommandPipeline<u8> = pipeline!["true"];
@@ -4061,9 +4145,9 @@ pub(crate) mod stub {
     impl Call<QueryRecord> for RecordingManagerStub {
         async fn call(&self, msg: QueryRecord) -> actlet::Result<<QueryRecord as Message>::Reply> {
             match msg.id.value() {
-                "recording" => Ok(Ok((record!(recording: msg.id.clone()), Some(10)))),
-                "finished" => Ok(Ok((record!(recording: msg.id.clone()), Some(10)))),
-                "no-content" => Ok(Ok((record!(recording: msg.id.clone()), None))),
+                "recording" => Ok(Ok((record!(recording: msg.id.value()), Some(10)))),
+                "finished" => Ok(Ok((record!(finished: msg.id.value()), Some(10)))),
+                "no-content" => Ok(Ok((record!(finished: msg.id.value()), None))),
                 _ => Ok(Err(Error::RecordNotFound)),
             }
         }
@@ -4089,7 +4173,8 @@ pub(crate) mod stub {
         async fn call(&self, msg: OpenContent) -> actlet::Result<<OpenContent as Message>::Reply> {
             match msg.id.value() {
                 "recording" | "finished" => {
-                    let chunk = Bytes::from_static(b"0123456789");
+                    let range = msg.range.as_ref().map(ContentRange::range).unwrap_or(0..10);
+                    let chunk = Bytes::from_static(b"0123456789".get(range).unwrap());
                     let stream: BoxedStream = Box::pin(tokio_stream::once(Ok(chunk)));
                     Ok(Ok((MpegTsStream::new(msg.id.clone(), stream), None)))
                 }

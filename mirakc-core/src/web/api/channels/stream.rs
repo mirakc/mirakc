@@ -1,7 +1,9 @@
 use super::*;
 
+use crate::epg::EpgChannel;
 use crate::web::api::stream::do_head_stream;
 use crate::web::api::stream::streaming;
+use crate::web::api::stream::StreamingHeaderParams;
 
 /// Gets a media stream of a channel.
 #[utoipa::path(
@@ -61,22 +63,26 @@ where
     let msg = tuner::StopStreaming { id: stream.id() };
     let stop_trigger = tuner_manager.trigger(msg);
 
-    let data = mustache::MapBuilder::new()
-        .insert_str("channel_name", &channel.name)
-        .insert("channel_type", &channel.channel_type)?
-        .insert_str("channel", &channel.channel)
-        .insert("user", &user)?
-        .build();
+    let (filters, content_type, seekable) = build_filters(
+        &config,
+        &user,
+        &filter_setting,
+        &channel,
+        stream.is_decoded(),
+    )?;
+    debug_assert!(!seekable);
 
-    let mut builder = FilterPipelineBuilder::new(data, false); // not seekable
-    builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
-    if !stream.is_decoded() && filter_setting.decode {
-        builder.add_decode_filter(&config.filters.decode_filter)?;
-    }
-    builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
-    let (filters, content_type, _) = builder.build();
+    // Ignore the range header.
 
-    streaming(&config, &user, stream, filters, content_type, stop_trigger).await
+    let params = StreamingHeaderParams {
+        seekable,
+        content_type,
+        length: None,
+        range: None,
+        user,
+    };
+
+    streaming(&config, stream, filters, &params, stop_trigger).await
 }
 
 #[utoipa::path(
@@ -110,15 +116,55 @@ pub(in crate::web::api) async fn head<E>(
 where
     E: Call<epg::QueryChannel>,
 {
-    let _channel = epg
+    let channel = epg
         .call(epg::QueryChannel {
             channel_type: path.channel_type,
             channel: path.channel,
         })
         .await??;
 
+    let (_, content_type, seekable) = build_filters(
+        &config,
+        &user,
+        &filter_setting,
+        &channel,
+        false, // This is a dummy but works properly.
+    )?;
+    debug_assert!(!seekable);
+
+    let params = StreamingHeaderParams {
+        seekable,
+        content_type,
+        length: None,
+        range: None,
+        user,
+    };
+
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
     // will success or not until actually starting streaming.
-    do_head_stream(&config, &user, &filter_setting)
+    do_head_stream(&params)
+}
+
+fn build_filters(
+    config: &Config,
+    user: &TunerUser,
+    filter_setting: &FilterSetting,
+    channel: &EpgChannel,
+    decoded: bool,
+) -> Result<(Vec<String>, String, bool), Error> {
+    let data = mustache::MapBuilder::new()
+        .insert_str("channel_name", &channel.name)
+        .insert("channel_type", &channel.channel_type)?
+        .insert_str("channel", &channel.channel)
+        .insert("user", &user)?
+        .build();
+
+    let mut builder = FilterPipelineBuilder::new(data, false); // not seekable
+    builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
+    if !decoded && filter_setting.decode {
+        builder.add_decode_filter(&config.filters.decode_filter)?;
+    }
+    builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
+    Ok(builder.build())
 }

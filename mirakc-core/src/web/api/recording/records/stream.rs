@@ -1,8 +1,11 @@
 use super::*;
 
 use crate::recording::Record;
+use crate::web::api::stream::compute_content_length;
+use crate::web::api::stream::compute_content_range;
 use crate::web::api::stream::do_head_stream;
 use crate::web::api::stream::streaming;
+use crate::web::api::stream::StreamingHeaderParams;
 
 /// Gets a media stream of the content of a record.
 ///
@@ -52,28 +55,26 @@ where
     };
 
     let (filters, content_type, seekable) = build_filters(&config, &filter_setting, &record)?;
+    let incomplete = matches!(record.recording_status, RecordingStatus::Recording);
+    let range = compute_content_range(&ranges, content_length, incomplete, seekable)?;
+    let length = compute_content_length(content_length, incomplete, range.as_ref());
 
-    if ranges.is_some() && !seekable {
-        return Err(Error::InvalidRequest(
-            "Filters cannot be used in range requests",
-        ));
-    }
-
-    let ranges = match ranges {
-        Some(TypedHeader(ranges)) => ranges
-            .satisfiable_ranges(match record.recording_status {
-                RecordingStatus::Recording => 0,
-                _ => content_length,
-            })
-            .collect(),
-        None => vec![],
+    let params = StreamingHeaderParams {
+        seekable,
+        content_type,
+        length,
+        range,
+        user,
     };
 
     let (stream, stop_trigger) = recording_manager
-        .call(recording::OpenContent::new(id.clone(), ranges))
+        .call(recording::OpenContent::new(
+            id.clone(),
+            params.range.clone(),
+        ))
         .await??;
 
-    streaming(&config, &user, stream, filters, content_type, stop_trigger).await
+    streaming(&config, stream, filters, &params, stop_trigger).await
 }
 
 #[utoipa::path(
@@ -96,6 +97,7 @@ pub(in crate::web::api) async fn head<R>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     Path(id): Path<RecordId>,
+    ranges: Option<TypedHeader<axum_extra::headers::Range>>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
 ) -> Result<Response, Error>
@@ -106,19 +108,32 @@ where
         .call(recording::QueryRecord { id: id.clone() })
         .await??;
 
-    let _content_length = match content_length {
+    let content_length = match content_length {
         Some(content_length) if content_length > 0 => content_length,
         _ => return Err(Error::NoContent),
     };
 
-    let (_, _content_type, _seekable) = build_filters(&config, &filter_setting, &record)?;
+    let (_, content_type, seekable) = build_filters(&config, &filter_setting, &record)?;
+    let incomplete = matches!(record.recording_status, RecordingStatus::Recording);
+    let range = compute_content_range(&ranges, content_length, incomplete, seekable)?;
+    let length = compute_content_length(content_length, incomplete, range.as_ref());
 
-    // TODO: add "accept-ranges: bytes"
+    let params = StreamingHeaderParams {
+        seekable,
+        content_type,
+        length,
+        range,
+        user,
+    };
 
-    do_head_stream(&config, &user, &filter_setting)
+    do_head_stream(&params)
 }
 
-fn build_filters(config: &Config, filter_setting: &FilterSetting, record: &Record) -> Result<(Vec<String>, String, bool), Error> {
+fn build_filters(
+    config: &Config,
+    filter_setting: &FilterSetting,
+    record: &Record,
+) -> Result<(Vec<String>, String, bool), Error> {
     let video_tags: Vec<u8> = record
         .program
         .video

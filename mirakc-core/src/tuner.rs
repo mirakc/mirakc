@@ -1634,7 +1634,7 @@ pub(crate) mod stub {
     }
 
     impl TunerManagerStub {
-        pub fn new(test_config: Arc<HashMap<&'static str, String>>) -> Self {
+        pub fn new(test_config: &HashMap<&'static str, String>) -> Self {
             TunerManagerStub {
                 expected_priority: test_config
                     .get("tuner_user_priority")

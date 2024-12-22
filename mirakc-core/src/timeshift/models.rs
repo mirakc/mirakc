@@ -19,9 +19,9 @@ use crate::config::TimeshiftRecorderConfig;
 use crate::epg::EpgProgram;
 use crate::epg::EpgService;
 use crate::error::Error;
+use crate::models::ContentRange;
 use crate::models::TimeshiftRecordId;
 use crate::mpeg_ts_stream::MpegTsStream;
-use crate::mpeg_ts_stream::MpegTsStreamRange;
 
 #[derive(Debug)]
 pub struct TimeshiftRecorderModel {
@@ -90,35 +90,28 @@ pub struct TimeshiftRecordStreamSource {
     file: PathBuf,
     id: TimeshiftRecordId,
     start: u64,
-    range: MpegTsStreamRange,
+    size: u64,
 }
 
 impl TimeshiftRecordStreamSource {
     pub async fn create_stream(
         self,
-        seekable: bool,
+        _seekable: bool,
     ) -> Result<(TimeshiftRecordStream, TimeshiftStreamStopTrigger), Error> {
         tracing::debug!(
             recorder.name = self.recorder_name,
             record.id = %self.id,
-            range.start = self.start,
-            range.bytes = self.range.bytes(),
+            start = self.start,
+            size = self.size,
             "Start streaming"
         );
         let (mut reader, stop_trigger) = TimeshiftFileReader::open(&self.file)
             .await?
             .with_stop_trigger();
         reader.set_position(self.start).await?;
-        let stream = ReaderStream::with_capacity(reader.take(self.range.bytes()), CHUNK_SIZE);
+        let stream = ReaderStream::with_capacity(reader.take(self.size), CHUNK_SIZE);
         let id = format!("timeshift({})/{}", self.recorder_name, self.id);
-        if seekable {
-            Ok((
-                MpegTsStream::with_range(id, stream, self.range).decoded(),
-                stop_trigger,
-            ))
-        } else {
-            Ok((MpegTsStream::new(id, stream).decoded(), stop_trigger))
-        }
+        Ok((MpegTsStream::new(id, stream).decoded(), stop_trigger))
     }
 
     #[cfg(test)]
@@ -128,17 +121,17 @@ impl TimeshiftRecordStreamSource {
             file: "/dev/zero".into(),
             id: 1u32.into(),
             start: 0,
-            range: MpegTsStreamRange::bound(0, 1).unwrap(),
+            size: 1,
         }
     }
 
     pub async fn read(&self, size: u32) -> Result<Vec<u8>, Error> {
         let mut reader = TimeshiftFileReader::open(&self.file).await?;
         reader.set_position(self.start).await?;
-        let size = if (size as u64) < self.range.bytes() {
+        let size = if (size as u64) < self.size {
             size as usize
         } else {
-            self.range.bytes() as usize
+            self.size as usize
         };
         let mut data = Vec::with_capacity(size);
         let _ = reader.take(size as u64).read_to_end(&mut data).await?;
@@ -206,22 +199,22 @@ impl TimeshiftRecord {
         &self,
         recorder_name: String,
         config: &TimeshiftRecorderConfig,
-        start_pos: u64,
+        range: &Option<ContentRange>,
     ) -> Result<TimeshiftRecordStreamSource, Error> {
         let file = config.ts_file.clone();
         let file_size = config.max_file_size();
         let id = self.id;
-        let size = self.get_size(file_size);
-        let (start, range) = (
-            (self.start.pos + start_pos) % file_size,
-            self.make_range(start_pos, size)?,
-        );
+        let content_size = self.get_size(file_size);
+        let (start, size) = match range {
+            Some(range) => ((self.start.pos + range.first()) % file_size, range.bytes()),
+            None => (0, content_size),
+        };
         Ok(TimeshiftRecordStreamSource {
             recorder_name,
             file,
             id,
             start,
-            range,
+            size,
         })
     }
 
@@ -241,14 +234,6 @@ impl TimeshiftRecord {
             file_size - self.start.pos + self.end.pos
         } else {
             self.end.pos - self.start.pos
-        }
-    }
-
-    fn make_range(&self, first: u64, size: u64) -> Result<MpegTsStreamRange, Error> {
-        if self.recording {
-            MpegTsStreamRange::unbound(first, size)
-        } else {
-            MpegTsStreamRange::bound(first, size)
         }
     }
 }

@@ -17,6 +17,7 @@ use chrono_jst::Jst;
 
 use crate::epg::EpgService;
 use crate::error::Error;
+use crate::models::ContentRange;
 use crate::models::TimeshiftRecordId;
 
 pub use manager::TimeshiftManager;
@@ -79,7 +80,7 @@ pub struct CreateTimeshiftLiveStreamSource {
 pub struct CreateTimeshiftRecordStreamSource {
     pub recorder: TimeshiftRecorderQuery,
     pub record_id: TimeshiftRecordId,
-    pub start_pos: u64,
+    pub range: Option<ContentRange>,
 }
 
 #[derive(Clone, Message)]

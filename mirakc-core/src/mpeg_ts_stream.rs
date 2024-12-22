@@ -8,13 +8,10 @@ use tokio::io::AsyncWriteExt;
 use tokio_stream::Stream;
 use tokio_stream::StreamExt;
 
-use crate::error::Error;
-
 #[cfg_attr(test, derive(Debug))]
 pub struct MpegTsStream<T, S> {
     id: T,
     stream: S,
-    range: Option<MpegTsStreamRange>,
     decoded: bool,
 }
 
@@ -24,16 +21,6 @@ impl<T, S> MpegTsStream<T, S> {
             id,
             stream,
             decoded: false,
-            range: None,
-        }
-    }
-
-    pub fn with_range(id: T, stream: S, range: MpegTsStreamRange) -> Self {
-        MpegTsStream {
-            id,
-            stream,
-            decoded: false,
-            range: Some(range),
         }
     }
 
@@ -44,10 +31,6 @@ impl<T, S> MpegTsStream<T, S> {
 
     pub fn is_decoded(&self) -> bool {
         self.decoded
-    }
-
-    pub fn range(&self) -> Option<MpegTsStreamRange> {
-        self.range.clone()
     }
 }
 
@@ -85,60 +68,6 @@ where
         cx: &mut std::task::Context,
     ) -> std::task::Poll<Option<Self::Item>> {
         Pin::new(&mut self.stream).poll_next(cx)
-    }
-}
-
-#[derive(Clone)]
-#[cfg_attr(test, derive(Debug))]
-pub struct MpegTsStreamRange {
-    pub first: u64,
-    pub last: u64,
-    pub size: Option<u64>,
-}
-
-impl MpegTsStreamRange {
-    pub fn bound(first: u64, size: u64) -> Result<Self, Error> {
-        if size == 0 {
-            return Err(Error::NoContent);
-        }
-        if first >= size {
-            return Err(Error::OutOfRange);
-        }
-        Ok(Self::new(first, size - 1, Some(size)))
-    }
-
-    pub fn unbound(first: u64, size: u64) -> Result<Self, Error> {
-        if size == 0 {
-            return Err(Error::NoContent);
-        }
-        if first >= size {
-            return Err(Error::OutOfRange);
-        }
-        Ok(Self::new(first, size - 1, None))
-    }
-
-    pub fn is_partial(&self) -> bool {
-        if let Some(size) = self.size {
-            self.first != 0 || self.last + 1 != size
-        } else {
-            true
-        }
-    }
-
-    pub fn bytes(&self) -> u64 {
-        self.last - self.first + 1
-    }
-
-    pub fn make_content_range(&self) -> String {
-        if let Some(size) = self.size {
-            format!("bytes {}-{}/{}", self.first, self.last, size)
-        } else {
-            format!("bytes {}-{}/*", self.first, self.last)
-        }
-    }
-
-    fn new(first: u64, last: u64, size: Option<u64>) -> Self {
-        MpegTsStreamRange { first, last, size }
     }
 }
 
