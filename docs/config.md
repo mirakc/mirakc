@@ -704,11 +704,11 @@ The following properties can be specified in `config.yml`:
 
 Each filter has the following properties:
 
-| PROPERTY     | tuner-filter | service-filter | program-filter | pre-filter | post-filter |
-| ------------ | ------------ | -------------- | -------------- | ---------- | ----------- |
-| command      | `?`          | `?`            | `?`            | `?`        | `?`         |
-| seekable     | `false`      | `false`        | `false`        | `?`        | `?`         |
-| content-type |              |                |                |            | `?`         |
+| PROPERTY     | tuner-filter | decode-filter | service-filter | program-filter | pre-filter | post-filter |
+| ------------ | ------------ | ------------- | -------------- | -------------- | ---------- | ----------- |
+| command      | `?`          | `?`           | `?`            | `?`            | `?`        | `?`         |
+| seekable     | `false`      | `false`       | `false`        | `false`        | `?`        | `?`         |
+| content-type |              |               |                |                |            | `?`         |
 
 Where:
 
@@ -765,28 +765,36 @@ with the following template parameters:
 
 Each filter has the following template parameter:
 
-| PARAMETER    | tuner-filter | service-filter | program-filter | pre-filter | post-filter |
-| ------------ | ------------ | -------------- | -------------- | ---------- | ----------- |
-| tuner_index  | `*`          |                |                |            |             |
-| tuner_name   | `*`          |                |                |            |             |
-| channel_name | `*`          | `*`            | `*`            | `*`        | `*`         |
-| channel_type | `*`          | `*`            | `*`            | `*`        | `*`         |
-| channel      | `*`          | `*`            | `*`            | `*`        | `*`         |
-| user         |              | `*`            | `*`            | `*`        | `*`         |
-| sid          |              | `*`            | `*`            | `*`        | `*`         |
-| eid          |              |                | `*`            | `?`        | `?`         |
-| clock_pid    |              |                | `*`            | `?`        | `?`         |
-| clock_pcr    |              |                | `*`            | `?`        | `?`         |
-| clock_time   |              |                | `*`            | `?`        | `?`         |
-| video_tags   |              |                | `*`            | `?`        | `?`         |
-| audio_tags   |              |                | `*`            | `?`        | `?`         |
-| id           |              |                | `*`            | `?`        | `?`         |
-| duration     |              |                | `*`            | `?`        | `?`         |
-| size         |              |                | `*`            | `?`        | `?`         |
+| PARAMETER    | tuner-filter | decode-filter | service-filter | program-filter | pre-filter | post-filter |
+| ------------ | ------------ | ------------- | -------------- | -------------- | ---------- | ----------- |
+| tuner_index  | `*`          |               |                |                |            |             |
+| tuner_name   | `*`          |               |                |                |            |             |
+| channel_name | `*`          | `*`           | `*`            | `*`            | `*`        | `*`         |
+| channel_type | `*`          | `*`           | `*`            | `*`            | `*`        | `*`         |
+| channel      | `*`          | `*`           | `*`            | `*`            | `*`        | `*`         |
+| user         |              |               | `*`            | `*`            | `SP`       | `SP`        |
+| sid          |              |               | `*`            | `*`            | `SPRTL`    | `SPRTL`     |
+| eid          |              |               |                | `*`            | `PRT`      | `PRT`       |
+| clock_pid    |              |               |                | `*`            | `P`        | `P`         |
+| clock_pcr    |              |               |                | `*`            | `P`        | `P`         |
+| clock_time   |              |               |                | `*`            | `P`        | `P`         |
+| video_tags   |              |               |                | `*`            | `PRT`      | `PRT`       |
+| audio_tags   |              |               |                | `*`            | `PRT`      | `PRT`       |
+| wait_until   |              |               |                | `*`            | `P`        | `P`         |
+| id           |              |               |                |                | `RT`       | `RT`        |
+| duration     |              |               |                |                | `T`        | `T`         |
+| size         |              |               |                |                | `T`        | `T`         |
 
 Where:
 
 * `*` means that the template parameter is available for the filter
+* `S` means that the template parameter is available for the filter on service streaming
+* `P` means that the template parameter is available for the filter on program streaming
+* `R` means that the template parameter is available for the filter on streaming from a record
+* `T` means that the template parameter is available for the filter on streaming from a timeshift
+  record
+* `L` means that the template parameter is available for the filter on streaming from a timeshift
+  recorder
 * Empty cell means that the template parameter is **NOT** available for the filter
 
 ### filters.tuner-filter
@@ -844,7 +852,7 @@ curl 'http://mirakc:40772/api/programs/{id}/stream?decode=1&pre-filters[0]=recor
 will build the following filter pipeline:
 
 ```
-pre-filters.record | service-filter | decode-filter | program-filter
+pre-filters.record | decode-filter | program-filter
 ```
 
 Pre-filters may change TS packets in the stream, but must not add and remove ones in the stream.
@@ -866,7 +874,7 @@ curl 'http://mirakc:40772/api/programs/{id}/stream?decode=1&post-filters[0]=tran
 will build the following filter pipeline:
 
 ```
-service-filter | decode-filter | program-filter | post-filters.transcode
+decode-filter | program-filter | post-filters.transcode
 ```
 
 Post-filters may change, add and remove TS packets in the stream, and also may change the
