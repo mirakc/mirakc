@@ -1,7 +1,11 @@
 use super::*;
 
+use crate::recording::Record;
+use crate::web::api::stream::compute_content_length;
+use crate::web::api::stream::compute_content_range;
 use crate::web::api::stream::do_head_stream;
 use crate::web::api::stream::streaming;
+use crate::web::api::stream::StreamingHeaderParams;
 
 /// Gets a media stream of the content of a record.
 ///
@@ -17,6 +21,7 @@ use crate::web::api::stream::streaming;
     path = "/recording/records/{id}/stream",
     params(
         ("id" = String, Path, description = "Record ID"),
+        ("pre-filters" = Option<[String]>, Query, description = "pre-filters"),
         ("post-filters" = Option<[String]>, Query, description = "post-filters"),
     ),
     responses(
@@ -49,26 +54,86 @@ where
         _ => return Err(Error::NoContent),
     };
 
-    if ranges.is_some() && !filter_setting.post_filters.is_empty() {
-        return Err(Error::InvalidRequest(
-            "Filters cannot be used in range requests",
-        ));
-    }
+    let (filters, content_type, seekable) = build_filters(&config, &filter_setting, &record)?;
+    let incomplete = matches!(record.recording_status, RecordingStatus::Recording);
+    let range = compute_content_range(&ranges, content_length, incomplete, seekable)?;
+    let length = compute_content_length(content_length, incomplete, range.as_ref());
 
-    let ranges = match ranges {
-        Some(TypedHeader(ranges)) => ranges
-            .satisfiable_ranges(match record.recording_status {
-                RecordingStatus::Recording => 0,
-                _ => content_length,
-            })
-            .collect(),
-        None => vec![],
+    let params = StreamingHeaderParams {
+        seekable,
+        content_type,
+        length,
+        range,
+        user,
     };
 
     let (stream, stop_trigger) = recording_manager
-        .call(recording::OpenContent::new(id.clone(), ranges))
+        .call(recording::OpenContent::new(
+            id.clone(),
+            params.range.clone(),
+        ))
         .await??;
 
+    streaming(&config, stream, filters, &params, stop_trigger).await
+}
+
+#[utoipa::path(
+    head,
+    path = "/recording/records/{id}/stream",
+    params(
+        ("id" = String, Path, description = "Record ID"),
+        ("pre-filters" = Option<[String]>, Query, description = "pre-filters"),
+        ("post-filters" = Option<[String]>, Query, description = "post-filters"),
+    ),
+    responses(
+        (status = 200, description = "OK"),
+        (status = 204, description = "No Content"),
+        (status = 404, description = "Not Found"),
+        (status = 500, description = "Internal Server Error"),
+    ),
+    operation_id = "checkRecordStream",
+)]
+pub(in crate::web::api) async fn head<R>(
+    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
+    State(ConfigExtractor(config)): State<ConfigExtractor>,
+    Path(id): Path<RecordId>,
+    ranges: Option<TypedHeader<axum_extra::headers::Range>>,
+    user: TunerUser,
+    Qs(filter_setting): Qs<FilterSetting>,
+) -> Result<Response, Error>
+where
+    R: Call<recording::QueryRecord>,
+{
+    let (record, content_length) = recording_manager
+        .call(recording::QueryRecord { id: id.clone() })
+        .await??;
+
+    let content_length = match content_length {
+        Some(content_length) if content_length > 0 => content_length,
+        _ => return Err(Error::NoContent),
+    };
+
+    let (_, content_type, seekable) = build_filters(&config, &filter_setting, &record)?;
+    let incomplete = matches!(record.recording_status, RecordingStatus::Recording);
+    let range = compute_content_range(&ranges, content_length, incomplete, seekable)?;
+    let length = compute_content_length(content_length, incomplete, range.as_ref());
+
+    let params = StreamingHeaderParams {
+        seekable,
+        content_type,
+        length,
+        range,
+        user,
+    };
+
+    do_head_stream(&params)
+}
+
+fn build_filters(
+    config: &Config,
+    filter_setting: &FilterSetting,
+    record: &Record,
+) -> Result<(Vec<String>, String, bool), Error> {
     let video_tags: Vec<u8> = record
         .program
         .video
@@ -94,48 +159,9 @@ where
         .insert("id", &record.id.value())?
         .build();
 
-    let mut builder = FilterPipelineBuilder::new(data);
+    let mut builder = FilterPipelineBuilder::new(data, true); // seekable by default
     builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
     // The stream has already been decoded.
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
-    let (filters, content_type) = builder.build();
-
-    streaming(&config, &user, stream, filters, content_type, stop_trigger).await
-}
-
-#[utoipa::path(
-    head,
-    path = "/recording/records/{id}/stream",
-    params(
-        ("id" = String, Path, description = "Record ID"),
-        ("post-filters" = Option<[String]>, Query, description = "post-filters"),
-    ),
-    responses(
-        (status = 200, description = "OK"),
-        (status = 204, description = "No Content"),
-        (status = 404, description = "Not Found"),
-        (status = 500, description = "Internal Server Error"),
-    ),
-    operation_id = "checkRecordStream",
-)]
-pub(in crate::web::api) async fn head<R>(
-    State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
-    State(ConfigExtractor(config)): State<ConfigExtractor>,
-    Path(id): Path<RecordId>,
-    user: TunerUser,
-    Qs(filter_setting): Qs<FilterSetting>,
-) -> Result<Response, Error>
-where
-    R: Call<recording::QueryRecord>,
-{
-    let (_record, content_length) = recording_manager
-        .call(recording::QueryRecord { id: id.clone() })
-        .await??;
-
-    let _content_length = match content_length {
-        Some(content_length) if content_length > 0 => content_length,
-        _ => return Err(Error::NoContent),
-    };
-
-    do_head_stream(&config, &user, &filter_setting)
+    Ok(builder.build())
 }

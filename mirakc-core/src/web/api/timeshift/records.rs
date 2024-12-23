@@ -1,8 +1,12 @@
 use super::*;
 
 use crate::models::TunerUser;
-use crate::web::api::stream::calc_start_pos_in_ranges;
+use crate::timeshift::TimeshiftRecordModel;
+use crate::timeshift::TimeshiftRecorderModel;
+use crate::web::api::stream::compute_content_length;
+use crate::web::api::stream::compute_content_range;
 use crate::web::api::stream::streaming;
+use crate::web::api::stream::StreamingHeaderParams;
 
 /// Lists timeshift records.
 #[utoipa::path(
@@ -113,18 +117,37 @@ where
     };
     let record = timeshift_manager.call(msg).await??;
 
+    let (filters, content_type, seekable) =
+        build_filters(&config, &filter_setting, &recorder, &record)?;
+    let range = compute_content_range(&ranges, record.size, record.recording, seekable)?;
+    let length = compute_content_length(record.size, record.recording, range.as_ref());
+
     let msg = timeshift::CreateTimeshiftRecordStreamSource {
         recorder: TimeshiftRecorderQuery::ByName(path.recorder.clone()),
         record_id: path.id,
-        start_pos: calc_start_pos_in_ranges(ranges, record.size),
+        range: range.clone(),
     };
     let src = timeshift_manager.call(msg).await??;
 
-    // We assume that pre-filters don't change TS packets.
-    let seekable = filter_setting.post_filters.is_empty();
-
     let (stream, stop_trigger) = src.create_stream(seekable).await?;
 
+    let params = StreamingHeaderParams {
+        seekable,
+        content_type,
+        length,
+        range,
+        user,
+    };
+
+    streaming(&config, stream, filters, &params, stop_trigger).await
+}
+
+fn build_filters(
+    config: &Config,
+    filter_setting: &FilterSetting,
+    recorder: &TimeshiftRecorderModel,
+    record: &TimeshiftRecordModel,
+) -> Result<(Vec<String>, String, bool), Error> {
     let video_tags: Vec<u8> = record
         .program
         .video
@@ -154,11 +177,9 @@ where
         .insert("size", &record.size)?
         .build();
 
-    let mut builder = FilterPipelineBuilder::new(data);
+    let mut builder = FilterPipelineBuilder::new(data, true); // seekable by default
     builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
     // The stream has already been decoded.
     builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
-    let (filters, content_type) = builder.build();
-
-    streaming(&config, &user, stream, filters, content_type, stop_trigger).await
+    Ok(builder.build())
 }

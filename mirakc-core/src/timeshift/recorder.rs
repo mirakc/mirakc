@@ -308,10 +308,10 @@ where
     fn create_record_stream_source(
         &self,
         record_id: TimeshiftRecordId,
-        start_pos: u64,
+        range: &Option<ContentRange>,
     ) -> Result<TimeshiftRecordStreamSource, Error> {
         let record = self.records.get(&record_id).ok_or(Error::ProgramNotFound)?;
-        record.create_record_stream_source(self.name.clone(), self.config(), start_pos)
+        record.create_record_stream_source(self.name.clone(), self.config(), range)
     }
 
     async fn start_recording(&mut self, ctx: &mut Context<Self>) {
@@ -358,7 +358,7 @@ where
             .insert_str("channel", &channel.channel)
             .insert("sid", &self.service.sid())?
             .build();
-        let mut builder = FilterPipelineBuilder::new(data);
+        let mut builder = FilterPipelineBuilder::new(data, false);
         // NOTE
         // ----
         // We always decode stream before recording in order to make it easy to support seeking.
@@ -369,7 +369,7 @@ where
         if !stream.is_decoded() {
             builder.add_decode_filter(&self.config.filters.decode_filter)?;
         }
-        let (mut cmds, _) = builder.build();
+        let (mut cmds, _, _) = builder.build();
 
         let start_pos = self.points.back().map_or(0, |point| point.pos);
         let data = mustache::MapBuilder::new()
@@ -546,7 +546,7 @@ where
         msg: CreateTimeshiftRecordStreamSource,
         _ctx: &mut Context<Self>,
     ) -> <CreateTimeshiftRecordStreamSource as Message>::Reply {
-        self.create_record_stream_source(msg.record_id, msg.start_pos)
+        self.create_record_stream_source(msg.record_id, &msg.range)
     }
 }
 

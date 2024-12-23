@@ -6,8 +6,8 @@ use std::ops::Bound;
 use std::pin::Pin;
 
 use axum::http::header::ACCEPT_RANGES;
+use axum::http::header::CONTENT_LENGTH;
 use axum::http::header::CONTENT_RANGE;
-use axum::http::header::TRANSFER_ENCODING;
 use bytes::Bytes;
 use futures::Stream;
 use futures::StreamExt;
@@ -19,82 +19,84 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
 
 use crate::command_util::spawn_pipeline;
-use crate::epg::EpgChannel;
+use crate::models::ContentRange;
 use crate::mpeg_ts_stream::MpegTsStream;
-use crate::mpeg_ts_stream::MpegTsStreamRange;
 use crate::mpeg_ts_stream::MpegTsStreamTerminator;
 use crate::web::body::SeekableStreamBody;
 
-pub(in crate::web::api) fn calc_start_pos_in_ranges(
-    ranges: Option<TypedHeader<axum_extra::headers::Range>>,
-    size: u64,
-) -> u64 {
+#[derive(Debug)]
+pub(in crate::web::api) struct StreamingHeaderParams {
+    pub seekable: bool,
+    pub content_type: String,
+    pub length: Option<u64>,
+    pub range: Option<ContentRange>,
+    pub user: TunerUser,
+}
+
+pub(in crate::web::api) fn compute_content_range(
+    ranges: &Option<TypedHeader<axum_extra::headers::Range>>,
+    content_length: u64,
+    incomplete: bool,
+    seekable: bool,
+) -> Result<Option<ContentRange>, Error> {
     match ranges {
-        Some(TypedHeader(ranges)) => ranges
-            .satisfiable_ranges(size)
-            .next()
-            .and_then(|(start, _)| match start {
-                Bound::Included(n) => Some(n),
-                Bound::Excluded(n) => Some(n + 1),
-                _ => None,
-            })
-            .unwrap_or(0),
-        None => 0,
+        Some(TypedHeader(ranges)) => {
+            let mut range = None;
+            for (start, end) in ranges.satisfiable_ranges(content_length) {
+                if range.is_some() {
+                    return Err(Error::InvalidRequest("Multiple ranges are not supported"));
+                }
+                let first = match start {
+                    Bound::Included(pos) => pos,
+                    _ => unreachable!(),
+                };
+                let last = match end {
+                    Bound::Included(pos) => pos,
+                    Bound::Unbounded => content_length - 1, // 0-based index
+                    _ => unreachable!(),
+                };
+                if incomplete {
+                    range = Some(ContentRange::without_size(first, last)?);
+                } else {
+                    range = Some(ContentRange::with_size(first, last, content_length)?);
+                }
+            }
+            if range.is_none() {
+                return Err(Error::OutOfRange);
+            }
+            if !seekable {
+                tracing::warn!("Not seekable, ignore the range and return the entire stream");
+                range = None;
+            }
+            if let Some(ref r) = range {
+                if !r.is_partial() {
+                    // The range covers the entire content.
+                    range = None;
+                }
+            }
+            Ok(range)
+        }
+        None => Ok(None),
     }
 }
 
-pub(in crate::web::api) async fn do_get_service_stream<T>(
-    config: &Config,
-    tuner_manager: &T,
-    channel: EpgChannel,
-    sid: Sid,
-    user: &TunerUser,
-    filter_setting: &FilterSetting,
-) -> Result<Response, Error>
-where
-    T: Clone,
-    T: Call<tuner::StartStreaming>,
-    T: TriggerFactory<tuner::StopStreaming>,
-{
-    let stream = tuner_manager
-        .call(tuner::StartStreaming {
-            channel: channel.clone(),
-            user: user.clone(),
-            stream_id: None,
-        })
-        .await??;
-
-    // stop_trigger must be created here in order to stop streaming when an
-    // error occurs.
-    let msg = tuner::StopStreaming { id: stream.id() };
-    let stop_trigger = tuner_manager.trigger(msg);
-
-    let data = mustache::MapBuilder::new()
-        .insert_str("channel_name", &channel.name)
-        .insert("channel_type", &channel.channel_type)?
-        .insert_str("channel", &channel.channel)
-        .insert("user", &user)?
-        .insert("sid", &sid.value())?
-        .build();
-
-    let mut builder = FilterPipelineBuilder::new(data);
-    builder.add_pre_filters(&config.pre_filters, &filter_setting.pre_filters)?;
-    if !stream.is_decoded() && filter_setting.decode {
-        builder.add_decode_filter(&config.filters.decode_filter)?;
+pub(in crate::web::api) fn compute_content_length(
+    size: u64,
+    incomplete: bool,
+    range: Option<&ContentRange>,
+) -> Option<u64> {
+    match (range, incomplete) {
+        (Some(range), _) => Some(range.bytes()),
+        (None, true) => None,
+        (None, false) => Some(size),
     }
-    builder.add_service_filter(&config.filters.service_filter)?;
-    builder.add_post_filters(&config.post_filters, &filter_setting.post_filters)?;
-    let (filters, content_type) = builder.build();
-
-    streaming(config, user, stream, filters, content_type, stop_trigger).await
 }
 
 pub(in crate::web::api) async fn streaming<T, S, D>(
     config: &Config,
-    user: &TunerUser,
     stream: MpegTsStream<T, S>,
     filters: Vec<String>,
-    content_type: String,
+    params: &StreamingHeaderParams,
     stop_triggers: D,
 ) -> Result<Response, Error>
 where
@@ -104,13 +106,10 @@ where
 {
     let time_limit = config.server.stream_time_limit;
 
-    let range = stream.range();
     if filters.is_empty() {
         do_streaming(
-            user,
             stream,
-            content_type,
-            range,
+            params,
             stop_triggers,
             config.server.stream_time_limit,
         )
@@ -168,15 +167,13 @@ where
         });
 
         let stream = ReceiverStream::new(receiver);
-        do_streaming(user, stream, content_type, range, stop_triggers, time_limit).await
+        do_streaming(stream, params, stop_triggers, time_limit).await
     }
 }
 
 async fn do_streaming<S, D>(
-    user: &TunerUser,
     stream: S,
-    content_type: String,
-    range: Option<MpegTsStreamRange>,
+    params: &StreamingHeaderParams,
     stop_trigger: D,
     time_limit: u64,
 ) -> Result<Response, Error>
@@ -198,47 +195,56 @@ where
         }
         Err(_) => Err(Error::StreamingTimedOut),
         Ok(_) => {
-            // Send the response headers and start streaming.
-            let mut headers = HeaderMap::new();
-            headers.insert(CONTENT_TYPE, header_value!(content_type));
-            headers.insert(
-                super::X_MIRAKURUN_TUNER_USER_ID,
-                header_value!(&user.get_mirakurun_model().id),
-            );
+            let headers = build_headers(params);
             let body = StreamBody::new(peekable.map_ok(Frame::data).map_err(Error::from));
-            if let Some(range) = range {
-                headers.insert(ACCEPT_RANGES, header_value!("bytes"));
-                headers.insert(CONTENT_RANGE, header_value!(range.make_content_range()));
+            if let Some(ref range) = params.range {
                 let body = SeekableStreamBody::new(body, range.bytes());
-                if range.is_partial() {
-                    Ok((StatusCode::PARTIAL_CONTENT, headers, body).into_response())
-                } else {
-                    Ok((headers, body).into_response())
-                }
+                Ok((StatusCode::PARTIAL_CONTENT, headers, body).into_response())
             } else {
-                headers.insert(ACCEPT_RANGES, header_value!("none"));
                 Ok((headers, axum::body::Body::new(body)).into_response())
             }
         }
     }
 }
 
-pub(in crate::web::api) fn do_head_stream(
-    config: &Config,
-    user: &TunerUser,
-    filter_setting: &FilterSetting,
-) -> Result<Response, Error> {
-    let content_type = determine_stream_content_type(config, filter_setting);
-
+fn build_headers(params: &StreamingHeaderParams) -> HeaderMap {
     let mut headers = HeaderMap::new();
-    headers.insert(ACCEPT_RANGES, header_value!("none"));
-    headers.insert(CONTENT_TYPE, header_value!(content_type));
+
+    headers.insert(
+        ACCEPT_RANGES,
+        if params.seekable {
+            header_value!("bytes")
+        } else {
+            header_value!("none")
+        },
+    );
+
+    match params.length {
+        Some(ref length) if params.seekable => {
+            headers.insert(CONTENT_LENGTH, header_value!(length.to_string()));
+        }
+        _ => (),
+    }
+
+    headers.insert(CONTENT_TYPE, header_value!(params.content_type));
+
     headers.insert(
         super::X_MIRAKURUN_TUNER_USER_ID,
-        header_value!(user.get_mirakurun_model().id),
+        header_value!(params.user.get_mirakurun_model().id),
     );
-    // axum doesn't add the following header even thought we use a StreamBody.
-    headers.insert(TRANSFER_ENCODING, header_value!("chunked"));
+
+    if let Some(ref range) = params.range {
+        debug_assert!(range.is_partial());
+        headers.insert(CONTENT_RANGE, header_value!(range.make_http_header()));
+    }
+
+    headers
+}
+
+pub(in crate::web::api) fn do_head_stream(
+    params: &StreamingHeaderParams,
+) -> Result<Response, Error> {
+    let headers = build_headers(params);
 
     // It's a dirt hack...
     //
@@ -247,7 +253,11 @@ pub(in crate::web::api) fn do_head_stream(
     let body = axum::body::Body::empty().into_data_stream();
     let body = axum::body::Body::from_stream(body);
 
-    Ok((headers, body).into_response())
+    if params.range.is_some() {
+        Ok((StatusCode::PARTIAL_CONTENT, headers, body).into_response())
+    } else {
+        Ok((headers, body).into_response())
+    }
 }
 
 pub(in crate::web::api) fn determine_stream_content_type<'a>(
@@ -273,28 +283,18 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_do_streaming() {
-        let user = user_for_test(0.into());
+        let params = StreamingHeaderParams {
+            seekable: false,
+            content_type: "video/MP2T".to_string(),
+            length: None,
+            range: None,
+            user: user_for_test(0.into()),
+        };
 
-        let result = do_streaming(
-            &user,
-            futures::stream::empty(),
-            "video/MP2T".to_string(),
-            None,
-            (),
-            1000,
-        )
-        .await;
+        let result = do_streaming(futures::stream::empty(), &params, (), 1000).await;
         assert_matches!(result, Err(Error::ProgramNotFound));
 
-        let result = do_streaming(
-            &user,
-            futures::stream::pending(),
-            "video/MP2T".to_string(),
-            None,
-            (),
-            1,
-        )
-        .await;
+        let result = do_streaming(futures::stream::pending(), &params, (), 1).await;
         assert_matches!(result, Err(Error::StreamingTimedOut));
     }
 

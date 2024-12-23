@@ -2,30 +2,33 @@ use std::collections::HashMap;
 
 use crate::config::FilterConfig;
 use crate::config::PostFilterConfig;
+use crate::config::PreFilterConfig;
 use crate::error::Error;
 
 pub struct FilterPipelineBuilder {
     data: mustache::Data,
     filters: Vec<String>,
     content_type: String,
+    seekable: bool,
 }
 
 impl FilterPipelineBuilder {
-    pub fn new(data: mustache::Data) -> Self {
+    pub fn new(data: mustache::Data, seekable: bool) -> Self {
         FilterPipelineBuilder {
             data,
             filters: Vec::new(),
             content_type: "video/MP2T".to_string(),
+            seekable,
         }
     }
 
-    pub fn build(self) -> (Vec<String>, String) {
-        (self.filters, self.content_type)
+    pub fn build(self) -> (Vec<String>, String, bool) {
+        (self.filters, self.content_type, self.seekable)
     }
 
     pub fn add_pre_filters(
         &mut self,
-        pre_filters: &HashMap<String, FilterConfig>,
+        pre_filters: &HashMap<String, PreFilterConfig>,
         names: &[String],
     ) -> Result<usize, Error> {
         for name in names.iter() {
@@ -65,7 +68,7 @@ impl FilterPipelineBuilder {
         Ok(self.filters.len())
     }
 
-    fn add_pre_filter(&mut self, config: &FilterConfig, name: &str) -> Result<usize, Error> {
+    fn add_pre_filter(&mut self, config: &PreFilterConfig, name: &str) -> Result<usize, Error> {
         if config.command.is_empty() {
             return Ok(self.filters.len());
         }
@@ -80,6 +83,9 @@ impl FilterPipelineBuilder {
             tracing::warn!(pre_filter = name, "Empty pre-filter");
         } else {
             self.filters.push(filter);
+            if !config.seekable {
+                self.seekable = false;
+            }
         }
         Ok(self.filters.len())
     }
@@ -99,6 +105,7 @@ impl FilterPipelineBuilder {
             tracing::warn!(filter = name, "Empty filter");
         } else {
             self.filters.push(filter);
+            self.seekable = false;
         }
         Ok(self.filters.len())
     }
@@ -120,6 +127,9 @@ impl FilterPipelineBuilder {
             self.filters.push(filter);
             if let Some(content_type) = config.content_type.as_ref() {
                 self.content_type.clone_from(content_type);
+            }
+            if !config.seekable {
+                self.seekable = false;
             }
         }
         Ok(self.filters.len())
@@ -154,7 +164,7 @@ mod tests {
             .unwrap()
             .build();
 
-        let builder = FilterPipelineBuilder::new(data);
+        let builder = FilterPipelineBuilder::new(data, false);
 
         assert_matches!(builder.make_filter("{{channel_name}}"), Ok(cmd) => {
             assert_eq!(cmd, "test");

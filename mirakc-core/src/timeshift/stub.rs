@@ -68,17 +68,24 @@ impl Call<QueryTimeshiftRecord> for TimeshiftManagerStub {
         &self,
         msg: QueryTimeshiftRecord,
     ) -> actlet::Result<<QueryTimeshiftRecord as Message>::Reply> {
-        if msg.record_id == 1u32.into() {
-            Ok(Ok(TimeshiftRecordModel {
+        match msg.record_id.value() {
+            0 => Ok(Ok(TimeshiftRecordModel {
                 id: msg.record_id,
                 program: program!((0, 0, 0)),
                 start_time: Jst::now(),
                 end_time: Jst::now(),
-                size: 0,
+                size: 10,
                 recording: true,
-            }))
-        } else {
-            Ok(Err(Error::RecordNotFound))
+            })),
+            1 => Ok(Ok(TimeshiftRecordModel {
+                id: msg.record_id,
+                program: program!((0, 0, 0)),
+                start_time: Jst::now(),
+                end_time: Jst::now(),
+                size: 10,
+                recording: false,
+            })),
+            _ => Ok(Err(Error::RecordNotFound)),
         }
     }
 }

@@ -1,7 +1,7 @@
 use super::*;
 
-use crate::web::api::stream::do_get_service_stream;
-use crate::web::api::stream::do_head_stream;
+use crate::web::api::services::stream::do_get_service_stream;
+use crate::web::api::services::stream::do_head_service_stream;
 
 /// Gets a media stream of a service.
 #[utoipa::path(
@@ -52,7 +52,7 @@ where
     do_get_service_stream(
         &config,
         &tuner_manager,
-        channel,
+        &channel,
         path.sid,
         &user,
         &filter_setting,
@@ -91,7 +91,7 @@ pub(in crate::web::api) async fn head<E>(
 where
     E: Call<epg::QueryChannel>,
 {
-    let _channel = epg
+    let channel = epg
         .call(epg::QueryChannel {
             channel_type: path.channel_type,
             channel: path.channel,
@@ -101,5 +101,5 @@ where
     // This endpoint returns a positive response even when no tuner is available
     // for streaming at this point.  No one knows whether this request handler
     // will success or not until actually starting streaming.
-    do_head_stream(&config, &user, &filter_setting)
+    do_head_service_stream(&config, &channel, path.sid, &user, &filter_setting).await
 }

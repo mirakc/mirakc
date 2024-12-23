@@ -6,6 +6,8 @@ use std::future::Future;
 use assert_matches::assert_matches;
 use axum::body::Body;
 use axum::http::header::ACCEPT_RANGES;
+use axum::http::header::CONTENT_LENGTH;
+use axum::http::header::CONTENT_RANGE;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::header::HOST;
 use axum::http::header::LOCATION;
@@ -31,6 +33,12 @@ use qs::*;
 
 // See the following example for how to write tests:
 // https://github.com/tokio-rs/axum/blob/main/examples/testing/src/main.rs
+
+macro_rules! to_json {
+    ($data:expr) => {
+        serde_json::to_string(&$data).unwrap()
+    };
+}
 
 #[test(tokio::test)]
 async fn test_get_unknown() {
@@ -138,13 +146,14 @@ async fn test_get_tuner() {
 async fn test_get_channel_stream() {
     let res = get("/api/channels/GR/ch/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/MP2T");
     });
+    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
 
     let res = get("/api/channels/GR/0/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
@@ -163,9 +172,6 @@ async fn test_get_channel_stream() {
             get(format!("/api/channels/{}/ch/stream?decode={}", channel_type, decode).as_str())
                 .await;
         assert_eq!(res.status(), StatusCode::OK);
-        assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
-            assert_eq!(v, "none");
-        });
     }
 
     for decode in &decode_values {
@@ -175,10 +181,7 @@ async fn test_get_channel_stream() {
 
     let res = get("/api/channels/GR/ch/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
-        assert_eq!(v, "none");
-    });
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/mp4");
     });
 }
@@ -187,13 +190,14 @@ async fn test_get_channel_stream() {
 async fn test_get_channel_service_stream() {
     let res = get("/api/channels/GR/ch/services/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
-        assert_eq!(v, "video/MP2T");
-    });
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
 
     let res = get("/api/channels/GR/0/services/1/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
@@ -212,9 +216,6 @@ async fn test_get_channel_service_stream() {
         .as_str())
         .await;
         assert_eq!(res.status(), StatusCode::OK);
-        assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
-            assert_eq!(v, "none");
-        });
     }
 
     for decode in &decode_values {
@@ -233,10 +234,7 @@ async fn test_get_channel_service_stream() {
 
     let res = get("/api/channels/GR/ch/services/1/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
-        assert_eq!(v, "none");
-    });
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/mp4");
     });
 }
@@ -245,13 +243,14 @@ async fn test_get_channel_service_stream() {
 async fn test_get_service_stream() {
     let res = get("/api/services/1/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
-        assert_eq!(v, "video/MP2T");
-    });
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
 
     let res = get("/api/services/0/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
@@ -261,9 +260,6 @@ async fn test_get_service_stream() {
     for decode in &decode_values {
         let res = get(format!("/api/services/1/stream?decode={}", decode).as_str()).await;
         assert_eq!(res.status(), StatusCode::OK);
-        assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
-                assert_eq!(v, "none");
-        });
     }
 
     for decode in &decode_values {
@@ -278,11 +274,8 @@ async fn test_get_service_stream() {
 
     let res = get("/api/services/1/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/mp4");
-    });
-    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
-        assert_eq!(v, "none");
     });
 }
 
@@ -293,7 +286,8 @@ async fn test_head_service_stream() {
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/MP2T");
     });
 
@@ -312,7 +306,7 @@ async fn test_head_service_stream() {
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/mp4");
     });
 }
@@ -324,10 +318,11 @@ async fn test_get_program_stream() {
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
-    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/MP2T");
     });
+    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
 
     let res = get("/api/programs/0/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
@@ -337,9 +332,6 @@ async fn test_get_program_stream() {
     for decode in &decode_values {
         let res = get(format!("/api/programs/100001/stream?decode={}", decode).as_str()).await;
         assert_eq!(res.status(), StatusCode::OK);
-        assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
-            assert_eq!(v, "none");
-        });
     }
 
     for decode in &decode_values {
@@ -354,10 +346,7 @@ async fn test_get_program_stream() {
 
     let res = get("/api/programs/100001/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
-        assert_eq!(v, "none");
-    });
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/mp4");
     });
 }
@@ -583,92 +572,442 @@ async fn test_delete_recording_record() {
 
 #[test(tokio::test)]
 async fn test_get_recording_record_stream() {
+    // non-existent record
     let res = get("/api/recording/records/not-found/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
+    // finished
     let res = get("/api/recording/records/finished/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
     assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/MP2T");
     });
-    // TODO: Should have content-length.
-    assert_matches!(res.headers().get("content-length"), None);
-    // Should be seekable.
-    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
-        // TODO: assert_eq!(v, "bytes");
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    let content = into_text(res).await;
+    assert_eq!(content, "0123456789");
+
+    // finished, w/ seekable filters
+    let res = get("/api/recording/records/finished/stream?pre-filters[]=cat").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
     });
     let content = into_text(res).await;
     assert_eq!(content, "0123456789");
 
+    // finished, w/ non-seekable filters
     let res = get("/api/recording/records/finished/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
-    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
-        assert_eq!(v, "video/mp4");
-    });
-    // Indefinite length.
-    assert_matches!(res.headers().get("content-length"), None);
-    // Not seekable when post filters are applied.
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
-
-    // TODO: range requests
-
-    let res = get("/api/recording/records/recording/stream").await;
-    assert_eq!(res.status(), StatusCode::OK);
-    // Any record now recording is also seekable.
-    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
-        // TODO: assert_eq!(v, "bytes");
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
     });
+
+    // finished, w/ range covering the entire content
+    let res = get_with_test_config(
+        "/api/recording/records/finished/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=0-")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
     let content = into_text(res).await;
     assert_eq!(content, "0123456789");
 
+    // finished, w/ seekable filters, w/ range
+    let res = get_with_test_config(
+        "/api/recording/records/finished/stream?pre-filters[]=cat",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "3");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), Some(v) => {
+        assert_eq!(v, "bytes 1-3/10");
+    });
+    let content = into_text(res).await;
+    assert_eq!(content, "123");
+
+    // finished, w/ non-seekable filters, w/ range
+    let res = get_with_test_config(
+        "/api/recording/records/finished/stream?post-filters[]=mp4",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    let content = into_text(res).await;
+    assert_eq!(content, "0123456789");
+
+    // recording
     let res = get("/api/recording/records/recording/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
     assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "video/MP2T");
     });
-    // Indefinite length.
-    assert_matches!(res.headers().get("content-length"), None);
-    // Should be seekable.
-    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(_v) => {
-        // TODO: assert_eq!(v, "bytes");
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+    let content = into_text(res).await;
+    assert_eq!(content, "0123456789");
+
+    // recording, w/ seekable filters
+    let res = get("/api/recording/records/recording/stream?pre-filters[]=cat").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
     });
     let content = into_text(res).await;
     assert_eq!(content, "0123456789");
 
+    // recording, w/ non-seekable filters
     let res = get("/api/recording/records/recording/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
-    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
-        assert_eq!(v, "video/mp4");
-    });
-    // Indefinite length.
-    assert_matches!(res.headers().get("content-length"), None);
-    // Not seekable when post filters are applied.
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
+    });
+    let content = into_text(res).await;
+    assert_eq!(content, "0123456789");
 
-    // TODO: range requests
+    // recording, w/ range covering the entire content
+    let res = get_with_test_config(
+        "/api/recording/records/recording/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=0-")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), Some(v) => {
+        assert_eq!(v, "bytes 0-9/*");
+    });
+    let content = into_text(res).await;
+    assert_eq!(content, "0123456789");
 
+    // recording, w/ seekable filters, w/ range
+    let res = get_with_test_config(
+        "/api/recording/records/recording/stream?pre-filters[]=cat",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "3");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), Some(v) => {
+        assert_eq!(v, "bytes 1-3/*");
+    });
+    let content = into_text(res).await;
+    assert_eq!(content, "123");
+
+    // recording, w/ non-seekable filters, w/ range
+    let res = get_with_test_config(
+        "/api/recording/records/finished/stream?post-filters[]=mp4",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    let content = into_text(res).await;
+    assert_eq!(content, "0123456789");
+
+    // no content
     let res = get("/api/recording/records/no-content/stream").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // out of range
+    let res = get_with_test_config(
+        "/api/recording/records/finished/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=100-")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+
+    // multiple ranges
+    let res = get_with_test_config(
+        "/api/recording/records/finished/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3,7-9")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
 
 #[test(tokio::test)]
 async fn test_head_recording_record_stream() {
+    // non-existent record
     let res = head("/api/recording/records/not-found/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
+    // finished
     let res = head("/api/recording/records/finished/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
 
+    // finished, w/ seekable filters
+    let res = head("/api/recording/records/finished/stream?pre-filters[]=cat").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+
+    // finished, w/ non-seekable filters
+    let res = head("/api/recording/records/finished/stream?post-filters[]=mp4").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
+    });
+
+    // finished, w/ range covering the entire content
+    let res = head_with_test_config(
+        "/api/recording/records/finished/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=0-")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+
+    // finished, w/ seekable filters, w/ range
+    let res = head_with_test_config(
+        "/api/recording/records/finished/stream?pre-filters[]=cat",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "3");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), Some(v) => {
+        assert_eq!(v, "bytes 1-3/10");
+    });
+
+    // finished, w/ non-seekable filters, w/ range
+    let res = head_with_test_config(
+        "/api/recording/records/finished/stream?post-filters[]=mp4",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+
+    // recording
+    let res = head("/api/recording/records/recording/stream").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    assert_matches!(res.headers().get(X_MIRAKURUN_TUNER_USER_ID), Some(_));
+
+    // recording, w/ seekable filters
+    let res = head("/api/recording/records/recording/stream?pre-filters[]=cat").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+
+    // recording, w/ non-seekable filters
+    let res = head("/api/recording/records/recording/stream?post-filters[]=mp4").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
+    });
+
+    // recording, w/ range covering the entire content
+    let res = head_with_test_config(
+        "/api/recording/records/recording/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=0-")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), Some(v) => {
+        assert_eq!(v, "bytes 0-9/*");
+    });
+
+    // recording, w/ seekable filters, w/ range
+    let res = head_with_test_config(
+        "/api/recording/records/recording/stream?pre-filters[]=cat",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "3");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), Some(v) => {
+        assert_eq!(v, "bytes 1-3/*");
+    });
+
+    // recording, w/ non-seekable filters, w/ range
+    let res = head_with_test_config(
+        "/api/recording/records/finished/stream?post-filters[]=mp4",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+
+    // no content
     let res = head("/api/recording/records/no-content/stream").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // out of range
+    let res = head_with_test_config(
+        "/api/recording/records/finished/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=100-")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+
+    // multiple ranges
+    let res = head_with_test_config(
+        "/api/recording/records/finished/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3,7-9")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
 
 #[test(tokio::test)]
@@ -708,6 +1047,10 @@ async fn test_get_timeshift_stream() {
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
     assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
 
     let res = get("/api/timeshift/not_found/stream").await;
@@ -716,35 +1059,215 @@ async fn test_get_timeshift_stream() {
 
 #[test(tokio::test)]
 async fn test_get_timeshift_record_stream() {
-    let res = get("/api/timeshift/test/records/1/stream").await;
+    // recording
+    let res = get("/api/timeshift/test/records/0/stream").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "bytes");
     });
-    assert!(res.headers().contains_key("content-range"));
-    assert!(res.headers().contains_key("content-length"));
-
-    let res = get("/api/timeshift/test/records/1/stream?pre-filters[]=cat").await;
-    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
     assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
+
+    // recording, w/ seekable filters
+    let res = get("/api/timeshift/test/records/0/stream?pre-filters[]=cat").await;
+    assert_eq!(res.status(), StatusCode::OK);
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "bytes");
     });
-    assert!(res.headers().contains_key("content-range"));
-    assert!(res.headers().contains_key("content-length"));
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
 
-    let res = get("/api/timeshift/test/records/1/stream?post-filters[]=cat").await;
+    // recording, w/ non-seekable filters
+    let res = get("/api/timeshift/test/records/0/stream?post-filters[]=mp4").await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
     assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
         assert_eq!(v, "none");
     });
-    assert!(!res.headers().contains_key("content-range"));
-    assert!(!res.headers().contains_key("content-length"));
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
+    });
 
-    let res = get("/api/timeshift/not_found/records/1/stream").await;
+    // recording, w/ range covering the entire content
+    let res = get_with_test_config(
+        "/api/timeshift/test/records/0/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=0-")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), Some(v) => {
+        assert_eq!(v, "bytes 0-9/*");
+    });
+
+    // recording, w/ seekable filters, w/ range
+    let res = get_with_test_config(
+        "/api/timeshift/test/records/0/stream?pre-filters[]=cat",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "3");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), Some(v) => {
+        assert_eq!(v, "bytes 1-3/*");
+    });
+
+    // recording, w/ non-seekable filters, w/ range
+    let res = get_with_test_config(
+        "/api/timeshift/test/records/0/stream?post-filters[]=mp4",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+
+    // finished
+    let res = get("/api/timeshift/test/records/1/stream").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
+
+    // finished, w/ seekable filters
+    let res = get("/api/timeshift/test/records/1/stream?pre-filters[]=cat").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+
+    // finished, w/ non-seekable filters
+    let res = get("/api/timeshift/test/records/1/stream?post-filters[]=mp4").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/mp4");
+    });
+
+    // finished, w/ range covering the entire content
+    let res = get_with_test_config(
+        "/api/timeshift/test/records/1/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=0-")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "10");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+
+    // finished, w/ seekable filters, w/ range
+    let res = get_with_test_config(
+        "/api/timeshift/test/records/1/stream?pre-filters[]=cat",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::PARTIAL_CONTENT);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "bytes");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), Some(v) => {
+        assert_eq!(v, "3");
+    });
+    assert_matches!(res.headers().get(CONTENT_RANGE), Some(v) => {
+        assert_eq!(v, "bytes 1-3/10");
+    });
+
+    // finished, w/ non-seekable filters, w/ range
+    let res = get_with_test_config(
+        "/api/timeshift/test/records/1/stream?post-filters[]=mp4",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_RANGE), None);
+
+    // non-existent record
+    let res = get("/api/timeshift/test/records/2/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // non-existent recorder
+    let res = get("/api/timeshift/not_found/records/0/stream").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // out of range
+    let res = get_with_test_config(
+        "/api/timeshift/test/records/1/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=100-")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+
+    // multiple ranges
+    let res = get_with_test_config(
+        "/api/timeshift/test/records/1/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([("range", "bytes=1-3,7-9")]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
 
 #[test(tokio::test)]
@@ -760,7 +1283,7 @@ async fn test_get_iptv_channel_m3u8() {
 async fn test_get_iptv_playlist_(endpoint: &str) {
     let res = get(endpoint).await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
     });
     let playlist = into_text(res).await;
@@ -768,7 +1291,7 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
 
     let res = get(&format!("{}?post-filters[]=mp4", endpoint)).await;
     assert_eq!(res.status(), StatusCode::OK);
-    assert_matches!(res.headers().get("content-type"), Some(v) => {
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
         assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
     });
     let playlist = into_text(res).await;
@@ -817,51 +1340,60 @@ async fn test_get_events() {
 #[test(tokio::test)]
 async fn test_x_mirakurun_priority() {
     // Default priority.
-    let prio = TunerUserPriority::from(0);
-    let test_config = Arc::new(maplit::hashmap! {
-        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
-    });
-    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    let res = get_with_test_config(
+        "/api/channels/GR/ch/stream",
+        maplit::hashmap! {
+            "tuner_user_priority" => to_json!(TunerUserPriority::from(0)),
+        },
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     // Positive priority.
-    let headers = vec![(X_MIRAKURUN_PRIORITY, "1")];
-    let prio = TunerUserPriority::from(1);
-    let test_config = Arc::new(maplit::hashmap! {
-        "request_headers" => serde_json::to_string(&headers).unwrap(),
-        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
-    });
-    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    let res = get_with_test_config(
+        "/api/channels/GR/ch/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([(X_MIRAKURUN_PRIORITY, "1")]),
+            "tuner_user_priority" => to_json!(TunerUserPriority::from(1)),
+        },
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     // When multiple priorities are specified, the highest one is used.
-    let headers = vec![(X_MIRAKURUN_PRIORITY, "1"), (X_MIRAKURUN_PRIORITY, "2")];
-    let prio = TunerUserPriority::from(2);
-    let test_config = Arc::new(maplit::hashmap! {
-        "request_headers" => serde_json::to_string(&headers).unwrap(),
-        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
-    });
-    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    let res = get_with_test_config(
+        "/api/channels/GR/ch/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([
+                (X_MIRAKURUN_PRIORITY, "1"),
+                (X_MIRAKURUN_PRIORITY, "2"),
+            ]),
+            "tuner_user_priority" => to_json!(TunerUserPriority::from(2))
+        },
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     // The maximum priority is 128.
-    let headers = vec![(X_MIRAKURUN_PRIORITY, "256")];
-    let prio = TunerUserPriority::from(128);
-    let test_config = Arc::new(maplit::hashmap! {
-        "request_headers" => serde_json::to_string(&headers).unwrap(),
-        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
-    });
-    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    let res = get_with_test_config(
+        "/api/channels/GR/ch/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([(X_MIRAKURUN_PRIORITY, "256")]),
+            "tuner_user_priority" => to_json!(TunerUserPriority::from(128)),
+        },
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
 
     // Every negative priority is treated as priority(0).
-    let headers = vec![(X_MIRAKURUN_PRIORITY, "-2")];
-    let prio = TunerUserPriority::from(0);
-    let test_config = Arc::new(maplit::hashmap! {
-        "request_headers" => serde_json::to_string(&headers).unwrap(),
-        "tuner_user_priority" => serde_json::to_string(&prio).unwrap(),
-    });
-    let res = get_with_test_config("/api/channels/GR/ch/stream", test_config).await;
+    let res = get_with_test_config(
+        "/api/channels/GR/ch/stream",
+        maplit::hashmap! {
+            "request_headers" => to_json!([(X_MIRAKURUN_PRIORITY, "-2")]),
+            "tuner_user_priority" => to_json!(TunerUserPriority::from(0)),
+        },
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
@@ -1121,7 +1653,7 @@ async fn test_filter_setting() {
 }
 
 async fn get(endpoint: &str) -> Response {
-    let app = create_app(Default::default());
+    let app = create_app(&Default::default());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::get(endpoint)
         .header(HOST, "mirakc.test")
@@ -1153,9 +1685,9 @@ async fn get_with_peer_info(endpoint: &str, peer_info: Option<PeerInfo>) -> Resp
 
 async fn get_with_test_config(
     endpoint: &str,
-    test_config: Arc<HashMap<&'static str, String>>,
+    test_config: HashMap<&'static str, String>,
 ) -> Response {
-    let app = create_app(test_config.clone());
+    let app = create_app(&test_config);
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let mut builder = Request::get(endpoint).header(HOST, "mirakc.test");
     if let Some(json) = test_config.get("request_headers") {
@@ -1169,7 +1701,7 @@ async fn get_with_test_config(
 }
 
 async fn head(endpoint: &str) -> Response {
-    let app = create_app(Default::default());
+    let app = create_app(&Default::default());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::head(endpoint)
         .header(HOST, "mirakc.test")
@@ -1178,11 +1710,28 @@ async fn head(endpoint: &str) -> Response {
     app.oneshot(req).await.unwrap()
 }
 
+async fn head_with_test_config(
+    endpoint: &str,
+    test_config: HashMap<&'static str, String>,
+) -> Response {
+    let app = create_app(&test_config);
+    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
+    let mut builder = Request::head(endpoint).header(HOST, "mirakc.test");
+    if let Some(json) = test_config.get("request_headers") {
+        let headers: Vec<(String, String)> = serde_json::from_str(json).unwrap();
+        for (name, value) in headers.iter() {
+            builder = builder.header(name, value);
+        }
+    }
+    let req = builder.body(Body::empty()).unwrap();
+    app.oneshot(req).await.unwrap()
+}
+
 async fn post<T>(endpoint: &str, data: T) -> Response
 where
     T: serde::Serialize,
 {
-    let app = create_app(Default::default());
+    let app = create_app(&Default::default());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::post(endpoint)
         .header(HOST, "mirakc.test")
@@ -1193,7 +1742,7 @@ where
 }
 
 async fn delete(endpoint: &str) -> Response {
-    let app = create_app(Default::default());
+    let app = create_app(&Default::default());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::delete(endpoint)
         .header(HOST, "mirakc.test")
@@ -1202,14 +1751,14 @@ async fn delete(endpoint: &str) -> Response {
     app.oneshot(req).await.unwrap()
 }
 
-fn create_app(test_config: Arc<HashMap<&'static str, String>>) -> Router {
+fn create_app(test_config: &HashMap<&'static str, String>) -> Router {
     let config = config_for_test();
     build_app(&config)
         .layer(helper::ReplaceConnectInfoLayer::new(Some(PeerInfo::Test)))
         .with_state(Arc::new(AppState {
             config,
             string_table: string_table_for_test(),
-            tuner_manager: TunerManagerStub::new(test_config.clone()),
+            tuner_manager: TunerManagerStub::new(test_config),
             epg: EpgStub,
             recording_manager: RecordingManagerStub,
             timeshift_manager: TimeshiftManagerStub,
