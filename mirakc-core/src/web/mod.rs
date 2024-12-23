@@ -32,7 +32,7 @@ macro_rules! header_value {
 }
 
 mod access_control;
-mod api;
+pub(crate) mod api;
 mod body;
 mod default_headers;
 mod error;

@@ -11,7 +11,7 @@ use crate::models::ServiceId;
 use crate::models::TimeshiftRecordId;
 use crate::recording::RecordId;
 use crate::recording::RecordingFailedReason;
-use crate::recording::RecordingStatus;
+use crate::web::api::models::WebRecordingStatus;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,7 +54,7 @@ pub struct RecordingRescheduled {
 #[serde(rename_all = "camelCase")]
 pub struct RecordSaved {
     pub record_id: RecordId,
-    pub recording_status: RecordingStatus,
+    pub recording_status: WebRecordingStatus,
 }
 
 #[derive(Deserialize, Serialize)]

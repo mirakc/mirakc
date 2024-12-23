@@ -254,7 +254,7 @@ impl From<crate::recording::RecordSaved> for Event {
             .event("recording.record-saved")
             .json_data(RecordSaved {
                 record_id: val.record_id,
-                recording_status: val.recording_status,
+                recording_status: val.recording_status.into(),
             })
             .unwrap()
     }

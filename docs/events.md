@@ -150,24 +150,12 @@ An event sent when a record is saved successfully.
   "properties": {
     "recordId": { "type": "string" },  // RecordId
     "recordingStatus": {
-      "oneOf": [
-        // recording
-        { "type": "string", "const": "recording" },
-        { "type": "string", "const": "finished" },
-        { "type": "string", "const": "canceled" },
-        {
-          "type": "object",
-          "properties": {
-            "failed": {
-              "type": "object",
-              "properties": {
-                "reason": {
-                  // same as the "reason" property of the recording.failed event
-                }
-              }
-            }
-          }
-        }
+      "type": "string",
+      "enum": [
+        "recording",
+        "finished",
+        "canceled",
+        "failed"
       ]
     }
   }

@@ -2529,9 +2529,6 @@ impl Record {
 
 /// A recording status.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-#[derive(ToSchema)]
-#[schema(title = "RecordingStatus")]
 pub enum RecordingStatus {
     Recording,
     Finished,
