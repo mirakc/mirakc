@@ -16,7 +16,7 @@ indexmap = { version = "2.7.0", features = ["serde"] }
 libc = "0.2.169"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.6.0"
-serde_json = { version = "1.0.133", features = ["preserve_order"] }
+serde_json = { version = "1.0.134", features = ["preserve_order"] }
 tracing = "0.1.41"
 
 [dev-dependencies]
