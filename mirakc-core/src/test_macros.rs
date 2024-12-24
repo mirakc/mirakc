@@ -156,19 +156,21 @@ macro_rules! recording_options {
 }
 
 macro_rules! recording_schedule {
-    ($state:expr, $program:expr, $options:expr) => {
+    ($state:expr, $program:expr, $service:expr, $options:expr) => {
         RecordingSchedule {
             state: $state,
-            program: Arc::new($program),
+            program: $program,
+            service: $service,
             options: $options,
             tags: Default::default(),
             failed_reason: None,
         }
     };
-    ($state:expr, $program:expr, $options:expr, $tags:expr) => {
+    ($state:expr, $program:expr, $service:expr, $options:expr, $tags:expr) => {
         RecordingSchedule {
             state: $state,
-            program: Arc::new($program),
+            program: $program,
+            service: $service,
             options: $options,
             tags: $tags,
             failed_reason: None,
@@ -196,7 +198,6 @@ macro_rules! recorder {
             started_at: $started_at,
             pipeline: $pipeline,
             stop_trigger: None,
-            service: service!((0, 1), "sv", channel_gr!("ch", "ch")), // dummy
             content_type: "video/MP2T".to_owned(),
         }
     };

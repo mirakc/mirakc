@@ -1057,7 +1057,7 @@ impl From<ChannelConfig> for EpgChannel {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpgService {
     pub id: ServiceId,

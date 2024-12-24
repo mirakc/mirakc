@@ -83,7 +83,7 @@ impl From<recording::RecordingSchedule> for WebRecordingSchedule {
     fn from(value: recording::RecordingSchedule) -> Self {
         WebRecordingSchedule {
             state: value.state,
-            program: value.program.as_ref().clone().into(),
+            program: value.program.clone().into(),
             options: value.options,
             tags: value.tags,
             failed_reason: value.failed_reason,

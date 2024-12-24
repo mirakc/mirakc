@@ -87,6 +87,7 @@ pub(in crate::web::api) async fn create<E, R>(
 ) -> Result<StatusCode, Error>
 where
     E: Call<epg::QueryProgram>,
+    E: Call<epg::QueryService>,
     R: Call<recording::StartRecording>,
 {
     input.validate(&config)?;
@@ -94,7 +95,11 @@ where
         program_id: input.program_id,
     };
     let program = epg.call(msg).await??;
-    let schedule = RecordingSchedule::new(Arc::new(program), input.options, input.tags);
+    let msg = epg::QueryService {
+        service_id: input.program_id.into(),
+    };
+    let service = epg.call(msg).await??;
+    let schedule = RecordingSchedule::new(program, service, input.options, input.tags);
     let msg = recording::StartRecording { schedule };
     recording_manager.call(msg).await??;
     Ok(StatusCode::CREATED)
