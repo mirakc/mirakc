@@ -1986,14 +1986,28 @@ impl<T, E, O> RecordingManager<T, E, O> {
         &mut self,
         services: &IndexMap<ServiceId, epg::EpgService>,
     ) -> bool {
+        let mut changed = false;
         let mut removed = vec![];
         self.schedules.retain(|&program_id, schedule| {
-            if services.contains_key(&ServiceId::from(program_id)) {
+            if !schedule.can_be_updated_by_epg() {
                 return true;
             }
-            tracing::warn!(%schedule.program.id, "Removed from EPG");
-            removed.push(program_id);
-            false
+            let service_id = ServiceId::from(program_id);
+            match services.get(&service_id) {
+                Some(service) => {
+                    if schedule.service != *service {
+                        schedule.service = service.clone();
+                        changed = true;
+                    }
+                    true
+                }
+                None => {
+                    tracing::warn!(%schedule.program.id, "Removed from EPG");
+                    removed.push(program_id);
+                    changed = true;
+                    false
+                }
+            }
         });
 
         for &program_id in removed.iter() {
@@ -2004,7 +2018,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 .await;
         }
 
-        !removed.is_empty()
+        changed
     }
 }
 
