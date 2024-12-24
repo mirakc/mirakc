@@ -298,7 +298,6 @@ impl<T, E, O> RecordingManager<T, E, O> {
                     Record::new(
                         record_id,
                         recorder.started_at,
-                        recorder.service.clone(),
                         schedule,
                         content_path,
                         recorder.content_type.clone(),
@@ -1069,13 +1068,12 @@ where
         let service_id = program_id.into();
         let schedule = self.schedules.get(&program_id).unwrap();
 
-        let service = self.epg.call(QueryService { service_id }).await??;
         let clock = self.epg.call(QueryClock { service_id }).await??;
 
         let stream = self
             .tuner_manager
             .call(StartStreaming {
-                channel: service.channel.clone(),
+                channel: schedule.service.channel.clone(),
                 user: TunerUser {
                     info: TunerUserInfo::Recorder(program_id),
                     priority: schedule.options.priority.into(),
@@ -1105,9 +1103,9 @@ where
 
         let mut builder = mustache::MapBuilder::new();
         builder = builder
-            .insert_str("channel_name", &service.channel.name)
-            .insert("channel_type", &service.channel.channel_type)?
-            .insert_str("channel", &service.channel.channel)
+            .insert_str("channel_name", &schedule.service.channel.name)
+            .insert("channel_type", &schedule.service.channel.channel_type)?
+            .insert_str("channel", &schedule.service.channel.channel)
             .insert("sid", &program_id.sid().value())?
             .insert("eid", &program_id.eid().value())?
             .insert("clock_pid", &clock.pid)?
@@ -1177,7 +1175,6 @@ where
             started_at: now,
             pipeline,
             stop_trigger: Some(stop_trigger),
-            service: service.clone(),
             content_type: content_type.clone(),
         };
         self.recorders.insert(program_id, recorder);
@@ -1191,14 +1188,7 @@ where
         if let Some(record_path) = record_path {
             let schedule = self.schedules.get(&program_id).unwrap();
             let content_path = make_relative_content_path(&self.config, &content_path);
-            let record = Record::new(
-                record_id,
-                now,
-                service,
-                schedule,
-                content_path,
-                content_type,
-            );
+            let record = Record::new(record_id, now, schedule, content_path, content_type);
             self.create_record(&record_path, &record).await;
         }
 
@@ -2091,7 +2081,7 @@ where
                         schedule.state = RecordingScheduleState::Scheduled;
                         rescheduled.push(program_id);
                     }
-                    schedule.program = Arc::new(program.clone());
+                    schedule.program = program.clone();
                     changed = true;
                 }
             }
@@ -2162,7 +2152,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             match schedule.state {
                 Scheduled | Rescheduling => {
                     rescheduled = schedule.program.start_at != program.start_at;
-                    schedule.program = program.clone();
+                    schedule.program = (*program).clone();
                     schedule.state = Tracking;
                     tracing::info!(
                         %schedule.program.id,
@@ -2171,10 +2161,10 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 }
                 Tracking => {
                     rescheduled = schedule.program.start_at != program.start_at;
-                    schedule.program = program.clone();
+                    schedule.program = (*program).clone();
                 }
                 Recording => {
-                    schedule.program = program.clone();
+                    schedule.program = (*program).clone();
                     self.update_record(program.id).await;
                 }
                 Finished | Failed => {
@@ -2299,7 +2289,8 @@ impl PartialOrd for QueueItem {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RecordingSchedule {
     pub state: RecordingScheduleState,
-    pub program: Arc<EpgProgram>,
+    pub program: EpgProgram,
+    pub service: EpgService,
     pub options: RecordingOptions,
     #[serde(default)]
     pub tags: HashSet<String>,
@@ -2308,10 +2299,16 @@ pub struct RecordingSchedule {
 }
 
 impl RecordingSchedule {
-    pub fn new(program: Arc<EpgProgram>, options: RecordingOptions, tags: HashSet<String>) -> Self {
+    pub fn new(
+        program: EpgProgram,
+        service: EpgService,
+        options: RecordingOptions,
+        tags: HashSet<String>,
+    ) -> Self {
         RecordingSchedule {
             state: RecordingScheduleState::Scheduled,
             program,
+            service,
             options,
             tags,
             failed_reason: None,
@@ -2393,9 +2390,6 @@ struct Recorder {
     started_at: DateTime<Jst>,
     pipeline: CommandPipeline<TunerSubscriptionId>,
     stop_trigger: Option<Trigger<StopStreaming>>,
-    // TODO(#2062): added here in order to keep compatibility of schedules.json until next major release.
-    // TODO(#2062): BREAKING CHANGE: move it to RecordingSchedule
-    service: EpgService,
     content_type: String,
 }
 
@@ -2471,7 +2465,6 @@ impl Record {
     fn new(
         id: RecordId,
         start_time: DateTime<Jst>,
-        service: EpgService,
         schedule: &RecordingSchedule,
         content_path: PathBuf,
         content_type: String,
@@ -2480,8 +2473,8 @@ impl Record {
         debug_assert!(!content_type.is_empty());
         Self {
             id,
-            program: (*schedule.program).clone(),
-            service,
+            program: schedule.program.clone(),
+            service: schedule.service.clone(),
             options: schedule.options.clone(),
             tags: schedule.tags.clone(),
             recording_status: RecordingStatus::Recording,
@@ -2496,7 +2489,7 @@ impl Record {
     fn update_by_schedule(&mut self, schedule: &RecordingSchedule) {
         let now = Jst::now();
 
-        self.program = (*schedule.program).clone();
+        self.program = schedule.program.clone();
         self.options = schedule.options.clone();
         self.tags = schedule.tags.clone();
 
@@ -2669,6 +2662,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 1), now, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2677,6 +2671,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Tracking,
             program!((0, 1, 2), now, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2685,6 +2680,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Recording,
             program!((0, 1, 3), now - Duration::try_hours(1).unwrap(), "2h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("3.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2719,6 +2715,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 1), now + Duration::try_hours(1).unwrap()),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2727,6 +2724,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 2), now),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2735,6 +2733,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Tracking,
             program!((0, 1, 3), now),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("3.m2ts", 1)
         );
         let result = manager.add_schedule(schedule);
@@ -2743,6 +2742,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Recording,
             program!((0, 1, 4), now - Duration::try_minutes(30).unwrap()),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("4.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2774,6 +2774,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 1), now + Duration::try_hours(1).unwrap()),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2782,6 +2783,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 2), now),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2790,6 +2792,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Tracking,
             program!((0, 1, 3), now),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("3.m2ts", 1)
         );
         let result = manager.add_schedule(schedule);
@@ -2798,6 +2801,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Recording,
             program!((0, 1, 4), now - Duration::try_minutes(30).unwrap()),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("4.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2833,6 +2837,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 1), now),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2858,6 +2863,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 1), now, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2868,6 +2874,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 1), now, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2878,6 +2885,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 2), now - Duration::try_hours(1).unwrap(), "3h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2888,6 +2896,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 3), now - Duration::try_hours(1).unwrap(), "30m"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("3.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -2911,6 +2920,7 @@ mod tests {
                 now + Duration::try_seconds(PREP_SECS + 1).unwrap(),
                 "1h"
             ),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0),
             hashset!["tag1".to_string()]
         );
@@ -2924,6 +2934,7 @@ mod tests {
                 now + Duration::try_seconds(PREP_SECS + 1).unwrap(),
                 "1h"
             ),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("2.m2ts", 0),
             hashset!["tag2".to_string()]
         );
@@ -2938,6 +2949,7 @@ mod tests {
                 now + Duration::try_seconds(PREP_SECS - 1).unwrap(),
                 "1h"
             ),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("3.m2ts", 0),
             hashset!["tag1".to_string()]
         );
@@ -2948,6 +2960,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Tracking,
             program!((0, 1, 4), now, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("4.m2ts", 0),
             hashset!["tag2".to_string()]
         );
@@ -2958,6 +2971,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Recording,
             program!((0, 1, 5), now, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("5.m2ts", 0),
             hashset!["tag2".to_string()]
         );
@@ -2968,6 +2982,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Rescheduling,
             program!((0, 1, 6), now, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("6.m2ts", 0),
             hashset!["tag2".to_string()]
         );
@@ -3035,6 +3050,7 @@ mod tests {
                     schedule: recording_schedule!(
                         RecordingScheduleState::Scheduled,
                         program!(program_id, now, "1h"),
+                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
                         recording_options!(content_filename, 0)
                     ),
                 })
@@ -3120,6 +3136,7 @@ mod tests {
                     schedule: recording_schedule!(
                         RecordingScheduleState::Scheduled,
                         program!(program_id, now, "1h"),
+                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
                         recording_options!(0)
                     ),
                 })
@@ -3226,6 +3243,7 @@ mod tests {
                     schedule: recording_schedule!(
                         RecordingScheduleState::Scheduled,
                         program!(program_id, now, "1h"),
+                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
                         recording_options!(content_filename, 0)
                     ),
                 })
@@ -3268,6 +3286,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 1), now + Duration::try_hours(1).unwrap(), "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -3281,6 +3300,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Recording,
             program!((0, 1, 1), now, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -3305,6 +3325,7 @@ mod tests {
             let schedule = recording_schedule!(
                 state,
                 program!((0, 1, 1), now, "1h"),
+                service!((0, 1), "sv", channel_gr!("ch", "ch")),
                 recording_options!("1.m2ts", 0)
             );
             let result = manager.add_schedule(schedule);
@@ -3326,6 +3347,7 @@ mod tests {
             let schedule = recording_schedule!(
                 state,
                 program!((0, 1, 1), now, "1h"),
+                service!((0, 1), "sv", channel_gr!("ch", "ch")),
                 recording_options!("1.m2ts", 0)
             );
             let result = manager.add_schedule(schedule);
@@ -3406,6 +3428,7 @@ mod tests {
                     schedule: recording_schedule!(
                         RecordingScheduleState::Scheduled,
                         program!(program_id, now, "1h"),
+                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
                         recording_options!(content_filename, 0)
                     ),
                 })
@@ -3599,6 +3622,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Recording,
             program!((0, 1, 1), start_time, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0),
             hashset!["tag1".to_string()]
         );
@@ -3642,6 +3666,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Recording,
             program!((0, 1, 1), start_time, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0),
             hashset!["tag1".to_string()]
         );
@@ -3688,6 +3713,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Recording,
             program!((0, 1, 1), start_time, "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0),
             hashset!["tag1".to_string()]
         );
@@ -3722,6 +3748,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 1), now),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -3730,6 +3757,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 2, 1), now),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -3784,6 +3812,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Rescheduling,
             program!((0, 1, 1), now),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -3792,6 +3821,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Scheduled,
             program!((0, 1, 2), now),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("2.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -3841,6 +3871,7 @@ mod tests {
         let schedule = recording_schedule!(
             RecordingScheduleState::Rescheduling,
             program!((0, 1, 1), now - Duration::try_minutes(30).unwrap(), "1h"),
+            service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
         let result = manager.add_schedule(schedule);
@@ -4112,6 +4143,7 @@ pub(crate) mod stub {
                 _ => Ok(Ok(recording_schedule!(
                     RecordingScheduleState::Scheduled,
                     program!(msg.program_id, Jst::now(), "1m"),
+                    service!((0, 1), "sv", channel_gr!("ch", "ch")),
                     recording_options!("test.m2ts", 1)
                 ))),
             }
@@ -4207,6 +4239,7 @@ pub(crate) mod stub {
                 _ => Ok(Ok(recording_schedule!(
                     RecordingScheduleState::Scheduled,
                     program!(msg.program_id, Jst::now(), "1m"),
+                    service!((0, 1), "sv", channel_gr!("ch", "ch")),
                     recording_options!("test.m2ts", 1)
                 ))),
             }
