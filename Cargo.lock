@@ -405,13 +405,13 @@ dependencies = [
 
 [[package]]
 name = "cron"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eee8b2b4516038bc0f1d3c9934bcb4a13dd316e04abbc63c96757a6d75978532"
+checksum = "dbe58904b68d95ad2c69a2e9607ffc70ce196c1910f83a340029c1448e06ed65"
 dependencies = [
  "chrono",
- "nom",
  "once_cell",
+ "winnow",
 ]
 
 [[package]]

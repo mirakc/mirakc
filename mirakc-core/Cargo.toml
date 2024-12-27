@@ -15,7 +15,7 @@ axum-extra = { version = "0.9.6", features = ["typed-header"] }
 bytes = "1.9.0"
 chrono = { version = "0.4.39", default-features = false, features = ["clock", "serde"] }
 chrono-jst = { path = "../chrono-jst" }
-cron = "0.13.0"
+cron = "0.14.0"
 futures = "0.3.31"
 glob = "0.3.1"
 http-body = "1.0.1"
