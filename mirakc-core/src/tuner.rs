@@ -10,6 +10,7 @@ use crate::broadcaster::*;
 use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipeline;
 use crate::config::Config;
+use crate::config::ExcludedChannelConfig;
 use crate::config::FilterConfig;
 use crate::config::OnairProgramTrackerConfig;
 use crate::config::TunerConfig;
@@ -206,6 +207,7 @@ impl TunerManager {
         let found = self
             .tuners
             .iter_mut()
+            .filter(|tuner| !tuner.is_excluded_for(channel))
             .find(|tuner| tuner.is_reuseable(channel));
         if let Some(tuner) = found {
             tracing::debug!(tuner.index, %channel, %user.info, "Reuse active tuner");
@@ -218,6 +220,7 @@ impl TunerManager {
         let found = self
             .tuners
             .iter_mut()
+            .filter(|tuner| !tuner.is_excluded_for(channel))
             .find(|tuner| tuner.is_available_for(channel));
         if let Some(tuner) = found {
             tracing::debug!(tuner.index, %channel, %user.info, "Use tuner");
@@ -236,6 +239,7 @@ impl TunerManager {
             .tuners
             .iter_mut()
             .filter(|tuner| tuner.is_supported_type(channel))
+            .filter(|tuner| !tuner.is_excluded_for(channel))
             .filter(|tuner| tuner.can_grab(user.priority))
             .min_by(|a, b| a.priority().cmp(&b.priority()));
         if let Some(tuner) = found {
@@ -534,6 +538,7 @@ struct Tuner {
     command: String,
     time_limit: u64,
     decoded: bool,
+    excluded_channels: Vec<ExcludedChannelConfig>,
     reserved_for: Option<TunerUserInfo>,
     restriction: Restriction,
     activity: TunerActivity,
@@ -554,6 +559,7 @@ impl Tuner {
             command: config.command.clone(),
             time_limit: config.time_limit,
             decoded: config.decoded,
+            excluded_channels: config.excluded_channels.clone(),
             reserved_for: None,
             restriction: Restriction::None,
             activity: TunerActivity::Inactive,
@@ -592,6 +598,12 @@ impl Tuner {
 
     fn is_supported_type(&self, channel: &EpgChannel) -> bool {
         self.channel_types.contains(&channel.channel_type)
+    }
+
+    fn is_excluded_for(&self, channel: &EpgChannel) -> bool {
+        self.excluded_channels
+            .iter()
+            .any(|excluded| excluded.matches(channel))
     }
 
     fn is_available_for(&self, channel: &EpgChannel) -> bool {
@@ -942,6 +954,18 @@ impl TunerSession {
 impl Drop for TunerSession {
     fn drop(&mut self) {
         tracing::debug!(session.id = %self.id, "Deactivated");
+    }
+}
+
+impl ExcludedChannelConfig {
+    fn matches(&self, epg: &EpgChannel) -> bool {
+        match self {
+            Self::Name(ref name) => epg.name == *name,
+            Self::Params {
+                channel_type,
+                ref channel,
+            } => epg.channel_type == *channel_type && epg.channel == *channel,
+        }
     }
 }
 
@@ -1396,6 +1420,61 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    async fn test_excluded_channel() {
+        let system = System::new();
+
+        {
+            let config: Arc<Config> = Arc::new(
+                serde_yaml::from_str(
+                    r#"
+                tuners:
+                  - name: gr
+                    types: [GR]
+                    command: >-
+                      sleep 1
+                    excluded-channels:
+                      - name: excluded
+                      - params:
+                          channel-type: GR
+                          channel: excluded
+                "#,
+                )
+                .unwrap(),
+            );
+
+            let manager = system.spawn_actor(TunerManager::new(config)).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: channel_gr!("excluded", "channel"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: channel_gr!("channel", "excluded"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: channel_gr!("channel", "channel"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(_)));
+        }
+        system.stop();
+    }
+
+    #[test(tokio::test)]
     async fn test_tuner_is_subscribed() {
         let system = System::new();
         {
@@ -1609,8 +1688,7 @@ mod tests {
             channel_types: vec![ChannelType::GR],
             command,
             time_limit: 10 * 1000,
-            disabled: false,
-            decoded: false,
+            ..Default::default()
         }
     }
 

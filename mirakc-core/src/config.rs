@@ -138,10 +138,27 @@ impl Config {
         //            .unique()
         //            .count(),
         //            "config.channels: `name` must be a unique");
-        self.tuners
-            .iter()
-            .enumerate()
-            .for_each(|(i, config)| config.validate(i));
+        for (i, config) in self.tuners.iter().enumerate() {
+            config.validate(i);
+            for (j, excluded) in config.excluded_channels.iter().enumerate() {
+                match excluded {
+                    ExcludedChannelConfig::Name(ref name) => {
+                        let name = name.as_str();
+                        let n = self
+                            .channels
+                            .iter()
+                            .filter(|channel| channel.name == name)
+                            .count();
+                        assert!(
+                            n < 2,
+                            "config.tuners[{i}].excluded-channels[{j}]: \
+                             `name` must be a unique in config.channels"
+                        );
+                    }
+                    ExcludedChannelConfig::Params { .. } => (),
+                }
+            }
+        }
         assert_eq!(
             self.tuners.len(),
             self.tuners
@@ -524,6 +541,9 @@ pub struct TunerConfig {
     pub disabled: bool,
     #[serde(default)]
     pub decoded: bool,
+    #[serde(default)]
+    #[serde(with = "serde_yaml::with::singleton_map_recursive")]
+    pub excluded_channels: Vec<ExcludedChannelConfig>,
 }
 
 impl TunerConfig {
@@ -550,6 +570,9 @@ impl TunerConfig {
             "config.tuners[{}].command: must be a non-empty string",
             index
         );
+        for (i, excluded) in self.excluded_channels.iter().enumerate() {
+            excluded.validate(index, i);
+        }
     }
 }
 
@@ -562,6 +585,41 @@ impl Default for TunerConfig {
             time_limit: Self::default_time_limit(),
             disabled: false,
             decoded: false,
+            excluded_channels: vec![],
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub enum ExcludedChannelConfig {
+    Name(String),
+    Params {
+        #[serde(rename = "channel-type")]
+        channel_type: ChannelType,
+        channel: String,
+        // TODO(feat): add extra_args if needed
+    },
+}
+
+impl ExcludedChannelConfig {
+    fn validate(&self, tuner_index: usize, index: usize) {
+        match self {
+            Self::Name(name) => {
+                assert!(
+                    !name.is_empty(),
+                    "config.tuners[{tuner_index}].excluded-channels[{index}].name: \
+                     must be a non-empty string",
+                );
+            }
+            Self::Params { ref channel, .. } => {
+                assert!(
+                    !channel.is_empty(),
+                    "config.tuners[{tuner_index}].excluded-channels[{index}].params.channel: \
+                     must be a non-empty string",
+                );
+            }
         }
     }
 }
@@ -1373,6 +1431,38 @@ mod tests {
               - name: test
                 types: [GR]
                 command: test
+            resource:
+              strings-yaml: /bin/sh
+        "#,
+        )
+        .unwrap();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "config.tuners[0].excluded-channels[2]: \
+                    `name` must be a unique in config.channels")]
+    fn test_config_validate_tuner_excluded_channel_name() {
+        let config = serde_yaml::from_str::<Config>(
+            r#"
+            channels:
+              - name: a
+                type: GR
+                channel: a
+              - name: c
+                type: GR
+                channel: c
+              - name: c
+                type: GR
+                channel: c
+            tuners:
+              - name: test
+                types: [GR]
+                command: test
+                excluded-channels:
+                  - name: a
+                  - name: b
+                  - name: c
             resource:
               strings-yaml: /bin/sh
         "#,
@@ -2303,6 +2393,34 @@ mod tests {
             config
         );
 
+        let mut config = TunerConfig::default();
+        config.name = "x".to_string();
+        config.channel_types = vec![ChannelType::GR];
+        config.command = "open tuner".to_string();
+        config.excluded_channels = vec![
+            ExcludedChannelConfig::Name("channel".to_string()),
+            ExcludedChannelConfig::Params {
+                channel_type: ChannelType::GR,
+                channel: "channel".to_string(),
+            },
+        ];
+        assert_eq!(
+            serde_yaml::from_str::<TunerConfig>(
+                r#"
+                name: x
+                types: [GR]
+                command: open tuner
+                excluded-channels:
+                  - name: channel
+                  - params:
+                      channel-type: GR
+                      channel: channel
+            "#
+            )
+            .unwrap(),
+            config
+        );
+
         assert!(serde_yaml::from_str::<TunerConfig>(
             r#"
                 name: x
@@ -2326,9 +2444,7 @@ mod tests {
             name: "test".to_string(),
             channel_types: vec![ChannelType::GR],
             command: "test".to_string(),
-            time_limit: TunerConfig::default_time_limit(),
-            disabled: false,
-            decoded: false,
+            ..Default::default()
         }
     }
 
@@ -2369,6 +2485,29 @@ mod tests {
         config.channel_types = vec![];
         config.command = "".to_string();
         config.disabled = true;
+        config.validate(0);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "config.tuners[0].excluded-channels[0].name: must be a non-empty string"
+    )]
+    fn test_tuner_config_validate_excluded_channel_name_empty() {
+        let mut config = tuner_config();
+        config.excluded_channels = vec![ExcludedChannelConfig::Name("".to_string())];
+        config.validate(0);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "config.tuners[0].excluded-channels[0].params.channel: must be a non-empty string"
+    )]
+    fn test_tuner_config_validate_excluded_channel_params_channel_empty() {
+        let mut config = tuner_config();
+        config.excluded_channels = vec![ExcludedChannelConfig::Params {
+            channel_type: ChannelType::GR,
+            channel: "".to_string(),
+        }];
         config.validate(0);
     }
 
