@@ -8,6 +8,7 @@ on:
         type: string
       ref-type:
         required: true
+        # choice: branch | tag
         type: string
     secrets:
       CI_BOT_APP_ID:
@@ -21,11 +22,15 @@ on:
   workflow_dispatch:
     inputs:
       ref-name:
+        description: 'Name of branch/tag'
         required: true
         type: string
       ref-type:
         required: true
-        type: string
+        type: choice
+        options:
+          - branch
+          - tag
 
 env:
   MAIN_DISTRO: debian
@@ -69,22 +74,24 @@ jobs:
           then
             TAGS="$TAGS,$IMAGE:$VERSION"
           fi
-          if [ "${{ inputs.ref-type }}" = tag ]
-          then
-            # Always update latest image tags when a new git tag is created.
-            TAGS="$TAGS,$IMAGE:${{ matrix.distro }}"
-            if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
-              TAGS="$TAGS,$IMAGE:latest"
-            fi
-          fi
-          if [ "$VERSION" = main ]
-          then
-            TOOLS_TAG=${{ matrix.distro }}
-          else
-            MAJOR=$(echo "$VERSION" | cut -d '.' -f 1)
-            MINOR=$(echo "$VERSION" | cut -d '.' -f 2)
-            TOOLS_TAG="${{ matrix.distro }}-${MAJOR}.${MINOR}"
-          fi
+          case "${{ inputs.ref-type }}" in
+            branch)
+              # Assumed that the branch created from the "main" branch.
+              TOOLS_TAG=${{ matrix.distro }}
+              ;;
+            tag)
+              # Always update latest image tags when a new git tag is created.
+              TAGS="$TAGS,$IMAGE:${{ matrix.distro }}"
+              if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
+                TAGS="$TAGS,$IMAGE:latest"
+              fi
+              MAJOR=$(echo "$VERSION" | cut -d '.' -f 1)
+              MINOR=$(echo "$VERSION" | cut -d '.' -f 2)
+              TOOLS_TAG="${{ matrix.distro }}-${MAJOR}.${MINOR}"
+              ;;
+            *)
+              ;;
+          esac
           echo "Version: $VERSION"
           echo "Main tag: $MAIN_TAG"
           echo "Tags: $TAGS"
