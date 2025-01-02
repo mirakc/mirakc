@@ -29,6 +29,7 @@ suitable for your environment.
 | [tuners\[\].time-limit]                  | `30000` (30s)                     |
 | [tuners\[\].disabled]                    | `false`                           |
 | [tuners\[\].decoded]                     | `false`                           |
+| [tuners\[\].excluded-channels]           | `[]`                              |
 | [filters.tuner-filter.command]           | `''`                              |
 | [filters.service-filter.command]         | `mirakc-arib filter-service --sid={{{sid}}}` |
 | [filters.decode-filter.command]          | `''`                              |
@@ -81,6 +82,7 @@ suitable for your environment.
 [tuners\[\].time-limit]: #tuners
 [tuners\[\].disabled]: #tuners
 [tuners\[\].decoded]: #tuners
+[tuners\[\].excluded-channels]: #tuners
 [filters.tuner-filter.command]: #filterstuner-filter
 [filters.service-filter.command]: #filtersservice-filter
 [filters.decode-filter.command]: #filtersdecode-filter
@@ -614,6 +616,8 @@ Definitions of tuners.  At least, one tuner must be defined.
   * Disable the tuner
 * decoded (optional)
   * PES packets are decoded by the tuner command
+* excluded-channels (optional)
+  * A list of excluded channels
 
 Command template variables:
 
@@ -651,6 +655,22 @@ tuners:
     types: [GR, BS]
     command: >-
       curl -sG http://upstream:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0
+
+  # Exclude a particular channel by name if channel names defined in `channels` are unique.
+  - name: exclude-channel-by-name
+    types: [GR]
+    command: ...
+    excluded-channels:
+      - name: excluded-channel-name
+
+  # Exclude a particular channel by channel parameters.
+  - name: exclude-channel-by-params
+    types: [GR]
+    command: ...
+    excluded-channels:
+      - params:
+          channel-type: GR
+          channel: exclude-channel
 ```
 
 ```toml
