@@ -1315,12 +1315,15 @@ name = "mirakc"
 version = "3.2.20"
 dependencies = [
  "actlet",
+ "assert_matches",
  "chrono",
  "clap",
  "humantime",
  "mirakc-core",
  "serde_json",
+ "serde_yaml",
  "tempfile",
+ "test-log",
  "tokio",
  "tracing",
  "vergen-gitcl",

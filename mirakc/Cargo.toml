@@ -21,3 +21,8 @@ tracing = "0.1.41"
 
 [build-dependencies]
 vergen-gitcl = { version = "1.0.2", features = ["build"] }
+
+[dev-dependencies]
+assert_matches = "1.5.0"
+serde_yaml = "0.9.34"
+test-log = { version = "0.2.16", features = ["trace"] }
