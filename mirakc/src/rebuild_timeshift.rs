@@ -25,7 +25,24 @@ use tokio::signal::unix::SignalKind;
 
 const MIN_CHUNKS: u64 = 3;
 
+/// Rebuild timeshift files.
+///
+/// This subcommand rebuilds the following files by using an **existing** TS file:
+///
+///   * `config.timeshift[<RECORDER>].ts-file`
+///   * `config.timeshift[<RECORDER>].data-file`
+///
+/// Rebuilding is needed in the following situations:
+///
+///   * `config.timeshift[<RECORDER>].chunk-size` changes
+///   * `config.timeshift[<RECORDER>].num-chunks` changes
+///   * `config.timeshift[<RECORDER>].num-reserves` changes
+///   * `config.timeshift[<RECORDER>].data-file` has been broken
+///
+/// Rebuilding copies TS packets in <TS_FILE>.  This will take time depending on the size of
+/// <TS_FILE>.
 #[derive(Args)]
+#[clap(verbatim_doc_comment)]
 pub struct Opt {
     /// Stop after the scan phase.
     #[arg(long)]
@@ -106,11 +123,21 @@ fn validate(config: &config::Config, opt: &Opt) {
         .data_file
         .as_path();
     if data_file.exists() {
-        tracing::error!(
-            "{} exists, run agein after removing the data-file",
-            data_file.display()
+        fn backup_filepath(original: &Path, n: u32) -> PathBuf {
+            PathBuf::from(format!("{}.backup{n}", original.display()))
+        }
+        let mut n = 0u32;
+        let mut backup = backup_filepath(data_file, n);
+        while backup.exists() {
+            n += 1;
+            backup = backup_filepath(data_file, n);
+        }
+        std::fs::rename(data_file, &backup).unwrap();
+        tracing::info!(
+            "{} exists, it's moved to {} for backup",
+            data_file.display(),
+            backup.display()
         );
-        std::process::exit(1);
     }
 
     if !opt.ts_file.exists() {
@@ -589,5 +616,79 @@ impl Segment {
         if !range.is_empty() {
             self.0.push(range);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_matches::assert_matches;
+    use tempfile::TempDir;
+    use test_log::test;
+
+    #[test]
+    fn test_validate_data_file_exists() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let ts_file = temp_dir.as_ref().join("test.timeshift.m2ts");
+        std::fs::write(&ts_file, b"").unwrap();
+
+        let data_file = temp_dir.as_ref().join("test.timeshift.json");
+        std::fs::write(&data_file, b"0").unwrap();
+
+        let config: config::Config = serde_yaml::from_str(&format!(
+            r#"
+            timeshift:
+              recorders:
+                test:
+                  service-id: 1
+                  ts-file: {}
+                  data-file: {}
+                  num-chunks: 10
+                  uses:
+                    tuner: tuner
+                    channel-type: GR
+                    channel: ch
+            "#,
+            ts_file.display(),
+            data_file.display(),
+        ))
+        .unwrap();
+
+        let ts_file = temp_dir.as_ref().join("new.timeshift.m2ts");
+        std::fs::write(&ts_file, b"").unwrap();
+
+        let opt = Opt {
+            scan_only: true,
+            chunk_size: 154009600,
+            mirakc_arib: "true".into(),
+            recorder: "test".to_string(),
+            ts_file,
+        };
+
+        validate(&config, &opt);
+
+        let backup_file = temp_dir.as_ref().join("test.timeshift.json.backup0");
+        assert!(backup_file.exists());
+        assert_matches!(std::fs::read_to_string(&backup_file), Ok(content) => {
+            assert_eq!(content, "0");
+        });
+
+        let data_file = temp_dir.as_ref().join("test.timeshift.json");
+        std::fs::write(&data_file, b"1").unwrap();
+
+        validate(&config, &opt);
+
+        let backup_file = temp_dir.as_ref().join("test.timeshift.json.backup0");
+        assert!(backup_file.exists());
+        assert_matches!(std::fs::read_to_string(&backup_file), Ok(content) => {
+            assert_eq!(content, "0");
+        });
+
+        let backup_file = temp_dir.as_ref().join("test.timeshift.json.backup1");
+        assert!(backup_file.exists());
+        assert_matches!(std::fs::read_to_string(&backup_file), Ok(content) => {
+            assert_eq!(content, "1");
+        });
     }
 }
