@@ -39,7 +39,6 @@ enum LogFormat {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Rebuild timeshift files.
     RebuildTimeshift(rebuild_timeshift::Opt),
 }
 

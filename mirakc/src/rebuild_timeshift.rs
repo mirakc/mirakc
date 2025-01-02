@@ -25,7 +25,24 @@ use tokio::signal::unix::SignalKind;
 
 const MIN_CHUNKS: u64 = 3;
 
+/// Rebuild timeshift files.
+///
+/// This subcommand rebuilds the following files by using an **existing** TS file:
+///
+///   * `config.timeshift[<RECORDER>].ts-file`
+///   * `config.timeshift[<RECORDER>].data-file`
+///
+/// Rebuilding is needed in the following situations:
+///
+///   * `config.timeshift[<RECORDER>].chunk-size` changes
+///   * `config.timeshift[<RECORDER>].num-chunks` changes
+///   * `config.timeshift[<RECORDER>].num-reserves` changes
+///   * `config.timeshift[<RECORDER>].data-file` has been broken
+///
+/// Rebuilding copies TS packets in <TS_FILE>.  This will take time depending on the size of
+/// <TS_FILE>.
 #[derive(Args)]
+#[clap(verbatim_doc_comment)]
 pub struct Opt {
     /// Stop after the scan phase.
     #[arg(long)]
