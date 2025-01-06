@@ -97,9 +97,16 @@ impl Call<CreateTimeshiftLiveStreamSource> for TimeshiftManagerStub {
         msg: CreateTimeshiftLiveStreamSource,
     ) -> actlet::Result<<CreateTimeshiftLiveStreamSource as Message>::Reply> {
         match msg.recorder {
-            TimeshiftRecorderQuery::ByName(ref name) if name == "test" => {
-                Ok(Ok(TimeshiftLiveStreamSource::new_for_test(name)))
-            }
+            TimeshiftRecorderQuery::ByName(ref name) if name == "test" => match msg.record_id {
+                None => Ok(Ok(TimeshiftLiveStreamSource::new_for_test(name))),
+                Some(record_id) if record_id.value() == 0 => {
+                    Ok(Ok(TimeshiftLiveStreamSource::new_for_test(name)))
+                }
+                Some(record_id) if record_id.value() == 1 => {
+                    Ok(Ok(TimeshiftLiveStreamSource::new_for_test(name)))
+                }
+                Some(_) => Ok(Err(Error::ProgramNotFound)),
+            },
             _ => Ok(Err(Error::NoContent)),
         }
     }

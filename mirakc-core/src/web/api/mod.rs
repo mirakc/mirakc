@@ -94,28 +94,28 @@ where
         .route("/version", routing::get(version::get))
         .route("/status", routing::get(status::get))
         .route("/tuners", routing::get(tuners::list))
-        .route("/tuners/:index", routing::get(tuners::get))
+        .route("/tuners/{index}", routing::get(tuners::get))
         .route("/channels", routing::get(channels::list))
         .route(
-            "/channels/:channel_type/:channel/stream",
+            "/channels/{channel_type}/{channel}/stream",
             routing::get(channels::stream::get).head(channels::stream::head),
         )
         .route(
-            "/channels/:channel_type/:channel/services/:sid/stream",
+            "/channels/{channel_type}/{channel}/services/{sid}/stream",
             routing::get(channels::services::stream::get).head(channels::services::stream::head),
         )
         .route("/services", routing::get(services::list))
-        .route("/services/:id", routing::get(services::get))
-        .route("/services/:id/logo", routing::get(services::logo))
-        .route("/services/:id/programs", routing::get(services::programs))
+        .route("/services/{id}", routing::get(services::get))
+        .route("/services/{id}/logo", routing::get(services::logo))
+        .route("/services/{id}/programs", routing::get(services::programs))
         .route(
-            "/services/:id/stream",
+            "/services/{id}/stream",
             routing::get(services::stream::get).head(services::stream::head),
         )
         .route("/programs", routing::get(programs::list))
-        .route("/programs/:id", routing::get(programs::get))
+        .route("/programs/{id}", routing::get(programs::get))
         .route(
-            "/programs/:id/stream",
+            "/programs/{id}/stream",
             routing::get(programs::stream::get).head(programs::stream::head),
         )
         .route("/iptv/playlist", routing::get(iptv::playlist))
@@ -125,7 +125,7 @@ where
         // For compatibility with Mirakurun
         .route("/iptv/xmltv", routing::get(iptv::xmltv))
         .route("/onair", routing::get(onair::list))
-        .route("/onair/:service_id", routing::get(onair::get));
+        .route("/onair/{service_id}", routing::get(onair::get));
 
     if config.recording.is_enabled() {
         tracing::info!("Enable endpoints for recording");
@@ -143,11 +143,11 @@ where
                 routing::delete(recording::schedules::clear),
             )
             .route(
-                "/recording/schedules/:id",
+                "/recording/schedules/{id}",
                 routing::get(recording::schedules::get),
             )
             .route(
-                "/recording/schedules/:id",
+                "/recording/schedules/{id}",
                 routing::delete(recording::schedules::delete),
             )
             .route(
@@ -159,11 +159,11 @@ where
                 routing::post(recording::recorders::create),
             )
             .route(
-                "/recording/recorders/:id",
+                "/recording/recorders/{id}",
                 routing::get(recording::recorders::get),
             )
             .route(
-                "/recording/recorders/:id",
+                "/recording/recorders/{id}",
                 routing::delete(recording::recorders::delete),
             );
     };
@@ -173,20 +173,20 @@ where
         router = router
             .route("/recording/records", routing::get(recording::records::list))
             .route(
-                "/recording/records/:id",
+                "/recording/records/{id}",
                 routing::get(recording::records::get),
             )
             .route(
-                "/recording/records/:id",
+                "/recording/records/{id}",
                 routing::delete(recording::records::delete),
             )
             // The following endpoints won't allocate any tuner.
             .route(
-                "/recording/records/:id/stream",
+                "/recording/records/{id}/stream",
                 routing::get(recording::records::stream::get),
             )
             .route(
-                "/recording/records/:id/stream",
+                "/recording/records/{id}/stream",
                 routing::head(recording::records::stream::head),
             );
     }
@@ -195,22 +195,22 @@ where
         tracing::info!("Enable endpoints for timeshift recording");
         router = router
             .route("/timeshift", routing::get(timeshift::list))
-            .route("/timeshift/:recorder", routing::get(timeshift::get))
+            .route("/timeshift/{recorder}", routing::get(timeshift::get))
             .route(
-                "/timeshift/:recorder/records",
+                "/timeshift/{recorder}/records",
                 routing::get(timeshift::records::list),
             )
             .route(
-                "/timeshift/:recorder/records/:id",
+                "/timeshift/{recorder}/records/{id}",
                 routing::get(timeshift::records::get),
             )
             // The following two endpoints won't allocate any tuner.
             .route(
-                "/timeshift/:recorder/stream",
+                "/timeshift/{recorder}/stream",
                 routing::get(timeshift::stream),
             )
             .route(
-                "/timeshift/:recorder/records/:id/stream",
+                "/timeshift/{recorder}/records/{id}/stream",
                 routing::get(timeshift::records::stream),
             );
     }

@@ -9,9 +9,9 @@ publish = false
 [dependencies]
 actlet = { path = "../actlet" }
 anyhow = "1.0.95"
-async-trait = "0.1.83"
-axum = { version = "0.7.9", features = ["http2"] }
-axum-extra = { version = "0.9.6", features = ["typed-header"] }
+async-trait = "0.1.84"
+axum = { version = "0.8.1", features = ["http2"] }
+axum-extra = { version = "0.10.0", features = ["typed-header"] }
 bytes = "1.9.0"
 chrono = { version = "0.4.39", default-features = false, features = ["clock", "serde"] }
 chrono-jst = { path = "../chrono-jst" }
@@ -51,8 +51,8 @@ tower-http = { version = "0.6.2", features = ["fs", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 url = { version = "2.5.4", features = ["serde"] }
-utoipa = { version = "5.3.0", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "8.1.0", features = ["axum"] }
+utoipa = { version = "5.3.1", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "8.1.1", features = ["axum"] }
 walkdir = "2.5.0"
 
 [dev-dependencies]
