@@ -3,7 +3,6 @@ pub(super) mod records;
 use super::*;
 
 use crate::filter::FilterPipelineBuilder;
-use crate::models::TimeshiftRecordId;
 use crate::models::TunerUser;
 use crate::timeshift;
 use crate::timeshift::TimeshiftRecorderQuery;
@@ -76,6 +75,7 @@ where
         ("recorder" = String, Path, description = "Timeshift recorder name"),
         ("pre-filters" = Option<[String]>, Query, description = "Pre-filters"),
         ("post-filters" = Option<[String]>, Query, description = "post-filters"),
+        ("record" = Option<u32>, Query, description = "Timeshift record ID"),
     ),
     responses(
         (status = 200, description = "OK"),
@@ -89,9 +89,9 @@ pub(in crate::web::api) async fn stream<S>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
     Path(recorder_id): Path<String>,
-    record_id: Option<Query<TimeshiftRecordId>>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
+    Query(TimeshiftRecordQuery { record: record_id }): Query<TimeshiftRecordQuery>,
 ) -> Result<Response, Error>
 where
     S: Call<timeshift::CreateTimeshiftLiveStreamSource>,
@@ -104,7 +104,7 @@ where
 
     let msg = timeshift::CreateTimeshiftLiveStreamSource {
         recorder: TimeshiftRecorderQuery::ByName(recorder_id.clone()),
-        record_id: record_id.map(|Query(id)| id),
+        record_id,
     };
     let src = timeshift_manager.call(msg).await??;
 

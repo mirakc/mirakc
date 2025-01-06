@@ -6,6 +6,7 @@ use std::future::Future;
 use assert_matches::assert_matches;
 use axum::body::Body;
 use axum::http::header::ACCEPT_RANGES;
+use axum::http::header::CONTENT_LENGTH;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::header::HOST;
 use axum::http::header::LOCATION;
@@ -576,6 +577,22 @@ async fn test_get_timeshift_stream() {
 
     let res = get("/api/timeshift/not_found/stream").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // w/ record query
+
+    let res = get("/api/timeshift/test/stream?record=0").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
+        assert_eq!(v, "none");
+    });
+    assert_matches!(res.headers().get(CONTENT_LENGTH), None);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "video/MP2T");
+    });
+    assert!(res.headers().contains_key(X_MIRAKURUN_TUNER_USER_ID));
+
+    let res = get("/api/timeshift/test/stream?record=2").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
 #[test(tokio::test)]
@@ -795,7 +812,7 @@ async fn test_mount() {
 async fn test_filter_setting() {
     async fn do_test<H, F>(query: &str, handler: H) -> StatusCode
     where
-        H: FnOnce(Qs<FilterSetting>) -> F + Clone + Send + 'static,
+        H: FnOnce(Qs<FilterSetting>) -> F + Clone + Send + Sync + 'static,
         F: Future<Output = ()> + Send,
     {
         let endpoint = format!("/?{}", query);

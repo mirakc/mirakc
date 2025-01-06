@@ -1,4 +1,3 @@
-use axum::async_trait;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use serde::de::DeserializeOwned;
@@ -25,7 +24,6 @@ use crate::error::Error;
 // you can see in code below.
 pub(super) struct Qs<T>(pub T);
 
-#[async_trait]
 impl<S, T> FromRequestParts<S> for Qs<T>
 where
     S: Send + Sync,

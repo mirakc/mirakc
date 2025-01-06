@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 
-use async_trait::async_trait;
 use axum::extract::FromRequestParts;
 use axum::http::header::USER_AGENT;
 use axum::http::request::Parts;
@@ -343,6 +342,14 @@ pub(in crate::web) struct TimeshiftRecordPath {
     pub id: TimeshiftRecordId,
 }
 
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(in crate::web) struct TimeshiftRecordQuery {
+    /// A timeshift record ID.
+    #[param(value_type = Option<u32>)]
+    pub record: Option<TimeshiftRecordId>,
+}
+
 #[derive(Debug, Deserialize, Serialize, IntoParams)]
 #[serde(rename_all = "kebab-case")]
 #[into_params(parameter_in = Query)]
@@ -398,7 +405,6 @@ impl IptvEpgQuery {
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for TunerUser
 where
     S: Send + Sync,
