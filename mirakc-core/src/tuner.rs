@@ -952,6 +952,7 @@ mod tests {
     use crate::command_util::Error as CommandUtilError;
     use assert_matches::assert_matches;
     use test_log::test;
+    use tokio_stream::StreamExt;
 
     #[test]
     fn test_make_filter_command() {
@@ -1655,6 +1656,46 @@ mod tests {
             assert!(result.is_ok());
 
             tokio::task::yield_now().await;
+        }
+        system.stop();
+    }
+
+    #[test(tokio::test)]
+    async fn test_tuner_time_limit() {
+        let system = System::new();
+
+        {
+            let config: Arc<Config> = Arc::new(
+                serde_yaml::from_str(
+                    r#"
+                tuners:
+                  - name: gr
+                    types: [GR]
+                    command: sleep 10 # 10s
+                    time-limit: 10    # 10ms
+                "#,
+                )
+                .unwrap(),
+            );
+
+            let manager = system.spawn_actor(TunerManager::new(config)).await;
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+            let mut stream = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+                stream
+            });
+
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+            let data = stream.next().await;
+            assert_matches!(data, None);
         }
         system.stop();
     }

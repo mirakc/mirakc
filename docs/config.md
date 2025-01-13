@@ -36,13 +36,13 @@ suitable for your environment.
 | [filters.program-filter.command]         | `mirakc-arib filter-program --sid={{{sid}}} --eid={{{eid}}} --clock-pid={{{clock_pid}}} --clock-pcr={{{clock_pcr}}} --clock-time={{{clock_time}}} --end-margin=2000{{#video_tags}} --video-tag={{{.}}}{{/video_tags}}{{#audio_tags}} --audio-tag={{{.}}}{{/audio_tags}}{{#if wait_until}} --wait-until={{{wait_until}}}{{/if}}` |
 | [pre-filters]                            | `{}`                              |
 | [post-filters]                           | `{}`                              |
-| [jobs.scan-services.command]             | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
+| [jobs.scan-services.command]             | `timeout 30 mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` (timeout: 30s) |
 | [jobs.scan-services.schedule]            | `'0 1 8,20 * * * *'` (execute at 08:01 and 20:01 every day) |
 | [jobs.scan-services.disabled]            | `false`                           |
-| [jobs.sync-clocks.command]               | `mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
+| [jobs.sync-clocks.command]               | `timeout 30 mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` (timeout: 30s) |
 | [jobs.sync-clocks.schedule]              | `'0 11 8,20 * * * *'` (execute at 08:11 and 20:11 every day) |
 | [jobs.sync-clocks.disabled]              | `false`                           |
-| [jobs.update-schedules.command]          | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
+| [jobs.update-schedules.command]          | `timeout 600 mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` (timeout: 10m) |
 | [jobs.update-schedules.schedule]         | `'0 21 8,20 * * * *'` (execute at 08:21 and 20:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
 | [recording.basedir]                      | `None`                            |
