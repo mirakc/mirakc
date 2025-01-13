@@ -217,5 +217,25 @@ mod tests {
         let scan = ServiceScanner::new(config, stub.clone());
         let results = scan.scan_services().await;
         assert!(results[0].1.is_none());
+
+        // Timed out
+        let config_yml = format!(
+            r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              scan-services:
+                # timeout: 10ms, sleep: 10s
+                command: timeout 0.01 sleep 10
+        "#
+        );
+
+        let config = Arc::new(serde_yaml::from_str::<Config>(&config_yml).unwrap());
+
+        let scan = ServiceScanner::new(config, stub.clone());
+        let results = scan.scan_services().await;
+        assert!(results[0].1.is_none());
     }
 }
