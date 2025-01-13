@@ -208,5 +208,26 @@ mod tests {
         let results = sync.sync_clocks().await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, None));
+
+        // Timed out
+        let config = Arc::new(
+            serde_yaml::from_str::<Config>(
+                r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              scan-services:
+                # timeout: 10ms, sleep: 10s
+                command: timeout 0.01 sleep 10
+        "#,
+            )
+            .unwrap(),
+        );
+        let sync = ClockSynchronizer::new(config, stub.clone());
+        let results = sync.sync_clocks().await;
+        assert_eq!(results.len(), 1);
+        assert_matches!(&results[0], (_, None));
     }
 }

@@ -767,7 +767,8 @@ pub struct JobsConfig {
 impl JobsConfig {
     fn default_scan_services() -> JobConfig {
         JobConfig {
-            command: "mirakc-arib scan-services\
+            // timeout 30s
+            command: "timeout 30 mirakc-arib scan-services\
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}"
                 .to_string(),
@@ -778,7 +779,8 @@ impl JobsConfig {
 
     fn default_sync_clocks() -> JobConfig {
         JobConfig {
-            command: "mirakc-arib sync-clocks\
+            // timeout 30s
+            command: "timeout 30 mirakc-arib sync-clocks\
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}"
                 .to_string(),
@@ -789,7 +791,8 @@ impl JobsConfig {
 
     fn default_update_schedules() -> JobConfig {
         JobConfig {
-            command: "mirakc-arib collect-eits\
+            // timeout: 10m
+            command: "timeout 600 mirakc-arib collect-eits\
                       {{#sids}} --sids={{{.}}}{{/sids}}\
                       {{#xsids}} --xsids={{{.}}}{{/xsids}}"
                 .to_string(),
