@@ -4,14 +4,24 @@ on:
   workflow_dispatch:
     inputs:
       version:
+        description: Version in format <major>.<minor>
         required: false
         type: string
+      branch:
+        description: Branch to use
+        required: true
+        type: choice
+        options:
+          - main
+          - release
 
 jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v3
       - name: Setup Docker Buildx
