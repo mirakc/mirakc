@@ -39,7 +39,8 @@ jobs:
           RUST_LOG: debug
       - name: Tests for OpenAPI document
         run: |
-          echo <<EOF >config.yml
+          # TODO(ci): enable recording/timeshift features
+          cat <<EOF >config.yml
           resource:
             strings-yaml: resources/strings.yml
           EOF
