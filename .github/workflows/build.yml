@@ -39,7 +39,11 @@ jobs:
           RUST_LOG: debug
       - name: Tests for OpenAPI document
         run: |
-          cargo run -r --bin=mirakc -- openapi openapi.json
+          echo <<EOF >config.yml
+          resource:
+            strings-yaml: resources/strings.yml
+          EOF
+          cargo run -r --bin=mirakc -- -c config.yml openapi openapi.json
           # openapi-generator-cli
           npx @openapitools/openapi-generator-cli generate -i openapi.json \
             -g rust -o mirakc-client --package-name mirakc-client
