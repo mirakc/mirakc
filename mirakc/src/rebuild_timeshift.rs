@@ -43,7 +43,7 @@ const MIN_CHUNKS: u64 = 3;
 /// <TS_FILE>.
 #[derive(Args)]
 #[clap(verbatim_doc_comment)]
-pub struct Opt {
+pub struct CommandLine {
     /// Stop after the scan phase.
     #[arg(long)]
     scan_only: bool,
@@ -57,6 +57,7 @@ pub struct Opt {
     mirakc_arib: PathBuf,
 
     /// Target recorder name defined in config.yml.
+    #[arg(long)]
     recorder: String,
 
     /// Path to a TS file used for rebuilding timeshift files for `<RECORDER>`.
@@ -83,42 +84,42 @@ pub struct Opt {
     ts_file: PathBuf,
 }
 
-pub async fn main(config: Arc<config::Config>, opt: Opt) {
+pub async fn main(config: Arc<config::Config>, cl: &CommandLine) {
     let start_time = Instant::now();
 
-    validate(&config, &opt);
+    validate(&config, cl);
 
     std::env::set_var("MIRAKC_REBUILD_TIMESHIFT", "1");
 
-    let segments = scan(&opt);
+    let segments = scan(cl);
     if segments.is_empty() {
         tracing::warn!("You can simply remove data-file and restart timeshift recording");
         return;
     }
-    if opt.scan_only {
+    if cl.scan_only {
         return;
     }
 
-    rebuild_all(&config, &opt, segments).await;
+    rebuild_all(&config, cl, segments).await;
     let elapsed = start_time.elapsed();
     tracing::info!(elapsed = %humantime::format_duration(elapsed), "Done");
 }
 
-fn validate(config: &config::Config, opt: &Opt) {
-    if opt.chunk_size % 8192 != 0 {
+fn validate(config: &config::Config, cl: &CommandLine) {
+    if cl.chunk_size % 8192 != 0 {
         tracing::error!("<CHUNK_SIZE> must be a multiple of 8192");
         std::process::exit(1);
     }
 
-    if !config.timeshift.recorders.contains_key(&opt.recorder) {
-        tracing::error!("{} is not defined in config.yml", opt.recorder);
+    if !config.timeshift.recorders.contains_key(&cl.recorder) {
+        tracing::error!("{} is not defined in config.yml", cl.recorder);
         std::process::exit(1);
     }
 
     let data_file = config
         .timeshift
         .recorders
-        .get(&opt.recorder)
+        .get(&cl.recorder)
         .unwrap()
         .data_file
         .as_path();
@@ -140,15 +141,15 @@ fn validate(config: &config::Config, opt: &Opt) {
         );
     }
 
-    if !opt.ts_file.exists() {
-        tracing::error!("{} does not exist", opt.ts_file.display());
+    if !cl.ts_file.exists() {
+        tracing::error!("{} does not exist", cl.ts_file.display());
         std::process::exit(1);
     }
 
     let ts_file = config
         .timeshift
         .recorders
-        .get(&opt.recorder)
+        .get(&cl.recorder)
         .unwrap()
         .ts_file
         .as_path();
@@ -156,7 +157,7 @@ fn validate(config: &config::Config, opt: &Opt) {
         tracing::warn!("{} exists, its contents will be lost", ts_file.display());
     }
 
-    if ts_file.is_file() && ts_file.canonicalize().unwrap() == opt.ts_file.canonicalize().unwrap() {
+    if ts_file.is_file() && ts_file.canonicalize().unwrap() == cl.ts_file.canonicalize().unwrap() {
         tracing::error!(
             "<TS_FILE> must be different from `config.timeshift.recorders[<RECORDER>].ts-file`"
         );
@@ -165,27 +166,27 @@ fn validate(config: &config::Config, opt: &Opt) {
 }
 
 #[tracing::instrument(level = "info", skip_all)]
-fn scan(opt: &Opt) -> Vec<Segment> {
+fn scan(cl: &CommandLine) -> Vec<Segment> {
     let start_time = Instant::now();
-    let segments = Scanner::default().scan(opt);
+    let segments = Scanner::default().scan(cl);
     let elapsed = start_time.elapsed();
     tracing::debug!(elapsed = %humantime::format_duration(elapsed));
     segments
 }
 
-async fn rebuild_all(config: &config::Config, opt: &Opt, segments: Vec<Segment>) {
+async fn rebuild_all(config: &config::Config, cl: &CommandLine, segments: Vec<Segment>) {
     for segment in segments.into_iter() {
-        rebuild(config, opt, segment).await;
+        rebuild(config, cl, segment).await;
     }
 }
 
 #[tracing::instrument(level = "info", skip_all, fields(?segment))]
-async fn rebuild(config: &config::Config, opt: &Opt, segment: Segment) {
+async fn rebuild(config: &config::Config, cl: &CommandLine, segment: Segment) {
     tracing::info!("Rebuilding...");
     let start_time = Instant::now();
     let tempdir = TempDir::new().unwrap();
-    let script = create_tuner_script(opt, tempdir.path(), &segment);
-    let config = create_config(config, opt, &script);
+    let script = create_tuner_script(cl, tempdir.path(), &segment);
+    let config = create_config(config, cl, &script);
     let ok = do_recording(config).await;
     if !ok {
         tracing::warn!("Canceled");
@@ -195,7 +196,7 @@ async fn rebuild(config: &config::Config, opt: &Opt, segment: Segment) {
     tracing::debug!(elapsed = %humantime::format_duration(elapsed));
 }
 
-fn create_tuner_script(opt: &Opt, tempdir: &Path, segment: &Segment) -> PathBuf {
+fn create_tuner_script(cl: &CommandLine, tempdir: &Path, segment: &Segment) -> PathBuf {
     let script = tempdir.join("tuner.sh");
     let mut file = File::create(&script).unwrap();
     for range in segment.0.iter() {
@@ -204,8 +205,8 @@ fn create_tuner_script(opt: &Opt, tempdir: &Path, segment: &Segment) -> PathBuf 
         }
         let line = format!(
             "dd if={} bs={} skip={} count={}",
-            &opt.ts_file.display(),
-            opt.chunk_size,
+            cl.ts_file.display(),
+            cl.chunk_size,
             range.start,
             range.end - range.start
         );
@@ -215,13 +216,13 @@ fn create_tuner_script(opt: &Opt, tempdir: &Path, segment: &Segment) -> PathBuf 
     script
 }
 
-fn create_config(config: &config::Config, opt: &Opt, script: &Path) -> Arc<config::Config> {
+fn create_config(config: &config::Config, cl: &CommandLine, script: &Path) -> Arc<config::Config> {
     let mut config = config.clone();
     // Disable EPG cache.
     config.epg.cache_dir = None;
     // Use a virtual tuner which provides TS packets contained in the segment.
     config.tuners = vec![config::TunerConfig {
-        name: opt.recorder.clone(),
+        name: cl.recorder.clone(),
         channel_types: vec![
             models::ChannelType::GR,
             models::ChannelType::BS,
@@ -240,7 +241,7 @@ fn create_config(config: &config::Config, opt: &Opt, script: &Path) -> Arc<confi
     config
         .timeshift
         .recorders
-        .retain(|name, _| name == opt.recorder.as_str());
+        .retain(|name, _| name == cl.recorder.as_str());
     Arc::new(config)
 }
 
@@ -296,14 +297,14 @@ struct Scanner {
 }
 
 impl Scanner {
-    fn scan(&mut self, opt: &Opt) -> Vec<Segment> {
-        let ts_file_size = opt.ts_file.metadata().unwrap().len();
+    fn scan(&mut self, cl: &CommandLine) -> Vec<Segment> {
+        let ts_file_size = cl.ts_file.metadata().unwrap().len();
         if ts_file_size == 0 {
             tracing::info!("No data contained in ts-file");
             return vec![];
         }
 
-        let num_chunks = ts_file_size / opt.chunk_size;
+        let num_chunks = ts_file_size / cl.chunk_size;
         if num_chunks < MIN_CHUNKS {
             tracing::warn!("At least {MIN_CHUNKS} chunks are needed for the rebuild");
             return vec![];
@@ -311,7 +312,7 @@ impl Scanner {
 
         tracing::info!("{num_chunks} chunks contained in ts-file");
 
-        let frac = ts_file_size % opt.chunk_size;
+        let frac = ts_file_size % cl.chunk_size;
         if frac != 0 {
             tracing::warn!("Last {frac} bytes are discarded");
         }
@@ -321,9 +322,9 @@ impl Scanner {
         // ts_file is a ring buffer, and there is a ring boundary in the middle
         // if a wrap-around occurred.
         let last_chunk = num_chunks - 1;
-        let first_timestamp = self.scan_timestamp(opt, 0);
+        let first_timestamp = self.scan_timestamp(cl, 0);
         tracing::debug!(first_timestamp);
-        let last_timestamp = self.scan_timestamp(opt, last_chunk);
+        let last_timestamp = self.scan_timestamp(cl, last_chunk);
         tracing::debug!(last_timestamp);
         let start_chunk = if first_timestamp < last_timestamp {
             tracing::debug!("No wrap-around in ts-file");
@@ -331,7 +332,7 @@ impl Scanner {
         } else {
             tracing::debug!("Find the boundary of the ring buffer");
             let start_time = Instant::now();
-            let start_chunk = self.find_start_chunk(opt, 0, last_chunk);
+            let start_chunk = self.find_start_chunk(cl, 0, last_chunk);
             let elapsed = start_time.elapsed();
             tracing::debug!(find_start_chunk.elapsed = %humantime::format_duration(elapsed));
             start_chunk
@@ -341,7 +342,7 @@ impl Scanner {
         // Collect segments.
         // A segment consists of continuous chunks.
         let start_time = Instant::now();
-        let segments = self.collect_segments(opt, start_chunk, num_chunks);
+        let segments = self.collect_segments(cl, start_chunk, num_chunks);
         let elapsed = start_time.elapsed();
         tracing::debug!(collect_segments.elapsed = %humantime::format_duration(elapsed));
 
@@ -349,7 +350,7 @@ impl Scanner {
         segments
     }
 
-    fn find_start_chunk(&mut self, opt: &Opt, left: u64, right: u64) -> u64 {
+    fn find_start_chunk(&mut self, cl: &CommandLine, left: u64, right: u64) -> u64 {
         tracing::debug!(left, right);
         // binary search
         let delta = right - left;
@@ -357,18 +358,23 @@ impl Scanner {
             return right;
         }
         let mid = left + delta / 2;
-        let left_timestamp = self.scan_timestamp(opt, left);
+        let left_timestamp = self.scan_timestamp(cl, left);
         tracing::debug!(left, left_timestamp);
-        let mid_timestamp = self.scan_timestamp(opt, mid);
+        let mid_timestamp = self.scan_timestamp(cl, mid);
         tracing::debug!(mid, mid_timestamp);
         if left_timestamp < mid_timestamp {
-            self.find_start_chunk(opt, mid, right)
+            self.find_start_chunk(cl, mid, right)
         } else {
-            self.find_start_chunk(opt, left, mid)
+            self.find_start_chunk(cl, left, mid)
         }
     }
 
-    fn collect_segments(&mut self, opt: &Opt, start_chunk: u64, num_chunks: u64) -> Vec<Segment> {
+    fn collect_segments(
+        &mut self,
+        cl: &CommandLine,
+        start_chunk: u64,
+        num_chunks: u64,
+    ) -> Vec<Segment> {
         const DISCONTINUITY_THRESHOLD_MS: i64 = 10 * 1000; // 10s
 
         let mut segments = vec![];
@@ -386,9 +392,9 @@ impl Scanner {
                 seg_start_chunk = 0;
             }
 
-            let last_timestamp = self.scan_last_timestamp(opt, chunk);
+            let last_timestamp = self.scan_last_timestamp(cl, chunk);
             tracing::debug!(chunk, last_timestamp);
-            let next_timestamp = self.scan_timestamp(opt, next_chunk);
+            let next_timestamp = self.scan_timestamp(cl, next_chunk);
             tracing::debug!(next_chunk, next_timestamp);
             let gap = next_timestamp - last_timestamp;
             tracing::debug!(gap, chunk, next_chunk);
@@ -397,7 +403,7 @@ impl Scanner {
                 tracing::info!(
                     "Found a segment boundary between chunk#{chunk} and chunk#{next_chunk}"
                 );
-                self.check_sync_bytes(opt, next_chunk);
+                self.check_sync_bytes(cl, next_chunk);
                 segment.push(seg_start_chunk..next_chunk);
                 if !segment.is_empty() {
                     segments.push(std::mem::take(&mut segment));
@@ -454,16 +460,16 @@ impl Scanner {
         segments
     }
 
-    fn scan_timestamp(&mut self, opt: &Opt, chunk: u64) -> i64 {
+    fn scan_timestamp(&mut self, cl: &CommandLine, chunk: u64) -> i64 {
         match self.timestamp_cache.get(&chunk) {
             Some(&timestamp) => timestamp,
             None => {
                 tracing::debug!(chunk, "Scan timestamp");
-                let mut ts_file = File::open(&opt.ts_file).unwrap();
+                let mut ts_file = File::open(&cl.ts_file).unwrap();
                 ts_file
-                    .seek(SeekFrom::Start(opt.chunk_size * chunk))
+                    .seek(SeekFrom::Start(cl.chunk_size * chunk))
                     .unwrap();
-                let result = Command::new(&opt.mirakc_arib)
+                let result = Command::new(&cl.mirakc_arib)
                     .arg("sync-clocks")
                     .stdin(ts_file)
                     .stderr(Stdio::null())
@@ -477,29 +483,29 @@ impl Scanner {
         }
     }
 
-    fn scan_last_timestamp(&mut self, opt: &Opt, chunk: u64) -> i64 {
+    fn scan_last_timestamp(&mut self, cl: &CommandLine, chunk: u64) -> i64 {
         tracing::debug!(chunk, "Scan last timestamp");
 
         const BLOCK_SIZE: u64 = 4096;
         const LAST_TIMESTAMP_SCAN_BLOCKS: u64 = 1000;
 
         let mut last_timestamp = None;
-        let num_blocks = opt.chunk_size / BLOCK_SIZE;
+        let num_blocks = cl.chunk_size / BLOCK_SIZE;
         let mut scan_blocks = LAST_TIMESTAMP_SCAN_BLOCKS;
         let mut skip_blocks = (chunk + 1) * num_blocks - scan_blocks;
         let mut line = String::with_capacity(4096);
         loop {
             let mut dd = Command::new("dd")
-                .arg(format!("if={}", opt.ts_file.display()))
+                .arg(format!("if={}", cl.ts_file.display()))
                 .arg(format!("bs={BLOCK_SIZE}"))
                 .arg(format!("skip={skip_blocks}"))
                 .arg(format!("count={scan_blocks}"))
-                .stdin(File::open(&opt.ts_file).unwrap())
+                .stdin(File::open(&cl.ts_file).unwrap())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .spawn()
                 .unwrap();
-            let mut print_pes = Command::new(&opt.mirakc_arib)
+            let mut print_pes = Command::new(&cl.mirakc_arib)
                 .arg("print-pes")
                 .stdin(dd.stdout.take().unwrap())
                 .stdout(Stdio::piped())
@@ -544,9 +550,9 @@ impl Scanner {
         // never reach here
     }
 
-    fn check_sync_bytes(&mut self, opt: &Opt, chunk: u64) -> bool {
-        let mut ts_file = File::open(&opt.ts_file).unwrap();
-        let offset = opt.chunk_size * chunk;
+    fn check_sync_bytes(&mut self, cl: &CommandLine, chunk: u64) -> bool {
+        let mut ts_file = File::open(&cl.ts_file).unwrap();
+        let offset = cl.chunk_size * chunk;
         ts_file.seek(SeekFrom::Start(offset)).unwrap();
         let mut buf = [0u8; 1];
         ts_file.read_exact(&mut buf).unwrap();
@@ -658,7 +664,7 @@ mod tests {
         let ts_file = temp_dir.as_ref().join("new.timeshift.m2ts");
         std::fs::write(&ts_file, b"").unwrap();
 
-        let opt = Opt {
+        let cl = CommandLine {
             scan_only: true,
             chunk_size: 154009600,
             mirakc_arib: "true".into(),
@@ -666,7 +672,7 @@ mod tests {
             ts_file,
         };
 
-        validate(&config, &opt);
+        validate(&config, &cl);
 
         let backup_file = temp_dir.as_ref().join("test.timeshift.json.backup0");
         assert!(backup_file.exists());
@@ -677,7 +683,7 @@ mod tests {
         let data_file = temp_dir.as_ref().join("test.timeshift.json");
         std::fs::write(&data_file, b"1").unwrap();
 
-        validate(&config, &opt);
+        validate(&config, &cl);
 
         let backup_file = temp_dir.as_ref().join("test.timeshift.json.backup0");
         assert!(backup_file.exists());

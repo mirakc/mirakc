@@ -2486,6 +2486,7 @@ dependencies = [
  "indexmap",
  "serde",
  "serde_json",
+ "serde_yaml",
  "utoipa-gen",
 ]
 

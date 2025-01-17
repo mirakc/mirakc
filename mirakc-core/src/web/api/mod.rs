@@ -294,13 +294,13 @@ where
         &MirakurunCompatAddon,
     ),
 )]
-pub(super) struct Docs;
+pub struct Docs;
 
 impl Docs {
     // Currently, utoipa doesn't support conditional endpoints.  So, we define
     // all endpoints in the openapi proc macro, and then remove disabled
     // endpoints in this function.
-    pub(super) fn generate(config: &Config) -> utoipa::openapi::OpenApi {
+    pub fn generate(config: &Config) -> utoipa::openapi::OpenApi {
         let mut openapi = Self::openapi();
 
         // Remove endpoints for recording if it's disabled.
