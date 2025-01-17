@@ -1287,12 +1287,12 @@ impl ResourceConfig {
     fn validate(&self) {
         assert!(
             Path::new(&self.strings_yaml).is_file(),
-            "config.resources.strings-yaml: must be a path to an existing YAML file"
+            "config.resource.strings-yaml: must be a path to an existing YAML file"
         );
         for (service_id, image) in self.logos.iter() {
             assert!(
                 Path::new(image).is_file(),
-                "config.resources.logos[{}]: must be a path to an existing file",
+                "config.resource.logos[{}]: must be a path to an existing file",
                 service_id
             );
         }
@@ -3590,7 +3590,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "config.resources.strings-yaml: must be a path to an existing YAML file"
+        expected = "config.resource.strings-yaml: must be a path to an existing YAML file"
     )]
     fn test_resource_config_validate_non_existing_strings_yaml() {
         let mut config = ResourceConfig::default();
@@ -3609,7 +3609,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "config.resources.logos[1]: must be a path to an existing file")]
+    #[should_panic(expected = "config.resource.logos[1]: must be a path to an existing file")]
     fn test_epg_config_validate_non_existing_logos() {
         let mut config = ResourceConfig::default();
         config.strings_yaml = "/bin/sh".to_string();
