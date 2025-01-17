@@ -1,3 +1,4 @@
+mod openapi;
 mod rebuild_timeshift;
 mod serve;
 
@@ -39,6 +40,7 @@ enum LogFormat {
 
 #[derive(Subcommand)]
 enum Command {
+    Openapi(openapi::CommandLine),
     RebuildTimeshift(rebuild_timeshift::CommandLine),
 }
 
@@ -46,14 +48,18 @@ enum Command {
 async fn main() {
     let cl = CommandLine::parse();
 
-    mirakc_core::tracing_ext::init_tracing(match cl.log_format {
-        LogFormat::Text => "text",
-        LogFormat::Json => "json",
-    });
+    // Disable logging in the `openapi` command if the OpenAPI document will be output to STDOUT.
+    if !matches!(cl.command, Some(Command::Openapi(ref cl)) if !cl.has_file()) {
+        mirakc_core::tracing_ext::init_tracing(match cl.log_format {
+            LogFormat::Text => "text",
+            LogFormat::Json => "json",
+        });
+    }
 
     let config = mirakc_core::config::load(&cl.config);
 
     match cl.command {
+        Some(Command::Openapi(ref cl)) => openapi::main(config, cl).await,
         Some(Command::RebuildTimeshift(ref cl)) => rebuild_timeshift::main(config, cl).await,
         None => serve::main(config).await,
     }

@@ -57,6 +57,7 @@ pub struct CommandLine {
     mirakc_arib: PathBuf,
 
     /// Target recorder name defined in config.yml.
+    #[arg(long)]
     recorder: String,
 
     /// Path to a TS file used for rebuilding timeshift files for `<RECORDER>`.
