@@ -11,7 +11,7 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " ", env!("VERGEN_GIT_S
 
 #[derive(Parser)]
 #[command(author, about, version = VERSION)]
-struct Opt {
+struct CommandLine {
     /// Path to a configuration file.
     ///
     /// The MIRAKC_CONFIG environment variable is used if this option is not
@@ -39,22 +39,22 @@ enum LogFormat {
 
 #[derive(Subcommand)]
 enum Command {
-    RebuildTimeshift(rebuild_timeshift::Opt),
+    RebuildTimeshift(rebuild_timeshift::CommandLine),
 }
 
 #[tokio::main]
 async fn main() {
-    let opt = Opt::parse();
+    let cl = CommandLine::parse();
 
-    mirakc_core::tracing_ext::init_tracing(match opt.log_format {
+    mirakc_core::tracing_ext::init_tracing(match cl.log_format {
         LogFormat::Text => "text",
         LogFormat::Json => "json",
     });
 
-    let config = mirakc_core::config::load(&opt.config);
+    let config = mirakc_core::config::load(&cl.config);
 
-    match opt.command {
-        Some(Command::RebuildTimeshift(opt)) => rebuild_timeshift::main(config, opt).await,
+    match cl.command {
+        Some(Command::RebuildTimeshift(ref cl)) => rebuild_timeshift::main(config, cl).await,
         None => serve::main(config).await,
     }
 }
