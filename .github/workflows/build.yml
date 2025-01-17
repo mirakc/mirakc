@@ -37,3 +37,10 @@ jobs:
           cargo nextest run --release --all-features
         env:
           RUST_LOG: debug
+      - name: Tests for OpenAPI document
+        run: |
+          cargo run -r --bin=mirakc -- openapi openapi.json
+          # openapi-generator-cli
+          npx @openapitools/openapi-generator-cli generate -i openapi.json \
+            -g rust -o mirakc-client --package-name mirakc-client
+          # TODO: add more tests if needed
