@@ -150,7 +150,7 @@ where
     E: Clone + Send + Sync + 'static,
     E: Call<QueryServices>,
 {
-    async fn update_onair_programs<C: Spawn>(&mut self, ctx: &mut C) -> bool {
+    async fn update_onair_programs<C: Spawn>(&mut self, ctx: &C) -> bool {
         // Clone the config in order to avoid compile errors caused by the borrow checker.
         let config = self.config.clone();
 
@@ -193,7 +193,7 @@ where
     async fn update_onair_program<C: Spawn>(
         &mut self,
         service: &EpgService,
-        ctx: &mut C,
+        ctx: &C,
     ) -> Result<(), Error> {
         let service_id = service.id;
 
@@ -219,7 +219,8 @@ where
             .insert("sid", &service.sid())?
             .build();
         let cmd = template.render_data_to_string(&data)?;
-        let mut pipeline = crate::command_util::spawn_pipeline(vec![cmd], stream.id(), "onair")?;
+        let mut pipeline =
+            crate::command_util::spawn_pipeline(vec![cmd], stream.id(), "onair", ctx)?;
         let (input, output) = pipeline.take_endpoints();
         let (handle, _) = ctx.spawn_task(stream.pipe(input).in_current_span());
 
@@ -358,7 +359,7 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_update_onair_program() {
-        let mut ctx = actlet::stubs::Context::default();
+        let ctx = actlet::stubs::Context::default();
 
         let script_file = make_script();
         let command = format!("sh {}", script_file.path().display());
@@ -391,9 +392,9 @@ mod tests {
         );
 
         let service01 = service!((0, 1), ChannelType::GR);
-        let result = tracker.update_onair_program(&service01, &mut ctx).await;
+        let result = tracker.update_onair_program(&service01, &ctx).await;
         assert_matches!(result, Ok(()));
-        let result = tracker.update_onair_program(&service01, &mut ctx).await;
+        let result = tracker.update_onair_program(&service01, &ctx).await;
         assert_matches!(result, Ok(()));
     }
 

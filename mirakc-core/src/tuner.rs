@@ -863,7 +863,7 @@ impl TunerSession {
         let id = TunerSessionId::new(tuner_index);
         let mut commands = vec![command];
         commands.append(&mut filters);
-        let mut pipeline = match spawn_pipeline(commands, id, "tuner") {
+        let mut pipeline = match spawn_pipeline(commands, id, "tuner", ctx) {
             Ok(pipeline) => pipeline,
             Err(err) => {
                 tracing::error!(%err, session.id = %id, %channel, "Failed to spawn a tuner pipeline");

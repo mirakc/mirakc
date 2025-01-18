@@ -41,7 +41,7 @@ where
 
     pub async fn sync_clocks<C: Spawn>(
         self,
-        ctx: &mut C,
+        ctx: &C,
     ) -> Vec<(EpgChannel, Option<HashMap<ServiceId, Clock>>)> {
         let command = &self.config.jobs.sync_clocks.command;
         let mut results = Vec::new();
@@ -78,7 +78,7 @@ where
         channel: &ChannelConfig,
         command: &str,
         tuner_manager: &T,
-        ctx: &mut C,
+        ctx: &C,
     ) -> anyhow::Result<Vec<SyncClock>> {
         tracing::debug!(channel.name, "Synchronizing clocks...");
 
@@ -105,7 +105,7 @@ where
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL)?;
+        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL, ctx)?;
 
         let (input, mut output) = pipeline.take_endpoints();
 
@@ -157,7 +157,7 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_sync_clocks_in_channel() {
-        let mut ctx = actlet::stubs::Context::default();
+        let ctx = actlet::stubs::Context::default();
 
         let stub = TunerManagerStub::default();
 
@@ -188,7 +188,7 @@ mod tests {
         let config = Arc::new(serde_yaml::from_str::<Config>(&config_yml).unwrap());
 
         let sync = ClockSynchronizer::new(config, stub.clone());
-        let results = sync.sync_clocks(&mut ctx).await;
+        let results = sync.sync_clocks(&ctx).await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, Some(v)) => {
             let service_id = (1, 3).into();
@@ -217,7 +217,7 @@ mod tests {
             .unwrap(),
         );
         let sync = ClockSynchronizer::new(config, stub.clone());
-        let results = sync.sync_clocks(&mut ctx).await;
+        let results = sync.sync_clocks(&ctx).await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, None));
 
@@ -238,7 +238,7 @@ mod tests {
             .unwrap(),
         );
         let sync = ClockSynchronizer::new(config, stub.clone());
-        let results = sync.sync_clocks(&mut ctx).await;
+        let results = sync.sync_clocks(&ctx).await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, None));
     }

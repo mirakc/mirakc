@@ -41,7 +41,7 @@ where
 
     pub async fn scan_services<C: Spawn>(
         self,
-        ctx: &mut C,
+        ctx: &C,
     ) -> Vec<(EpgChannel, Option<IndexMap<ServiceId, EpgService>>)> {
         let command = &self.config.jobs.scan_services.command;
         let mut results = Vec::new();
@@ -73,7 +73,7 @@ where
         channel: &ChannelConfig,
         command: &str,
         tuner_manager: &T,
-        ctx: &mut C,
+        ctx: &C,
     ) -> anyhow::Result<Vec<EpgService>> {
         tracing::debug!(channel.name, "Scanning services...");
 
@@ -100,7 +100,7 @@ where
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL)?;
+        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL, ctx)?;
 
         let (input, mut output) = pipeline.take_endpoints();
 
@@ -173,7 +173,7 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_scan_services_in_channel() {
-        let mut ctx = actlet::stubs::Context::default();
+        let ctx = actlet::stubs::Context::default();
 
         let stub = TunerManagerStub::default();
 
@@ -203,7 +203,7 @@ mod tests {
         let config = Arc::new(serde_yaml::from_str::<Config>(&config_yml).unwrap());
 
         let scan = ServiceScanner::new(config, stub.clone());
-        let results = scan.scan_services(&mut ctx).await;
+        let results = scan.scan_services(&ctx).await;
         assert!(results[0].1.is_some());
         assert_eq!(results[0].1.as_ref().unwrap().len(), 1);
 
@@ -223,7 +223,7 @@ mod tests {
             .unwrap(),
         );
         let scan = ServiceScanner::new(config, stub.clone());
-        let results = scan.scan_services(&mut ctx).await;
+        let results = scan.scan_services(&ctx).await;
         assert!(results[0].1.is_none());
 
         // Timed out
@@ -244,7 +244,7 @@ mod tests {
         );
 
         let scan = ServiceScanner::new(config, stub.clone());
-        let results = scan.scan_services(&mut ctx).await;
+        let results = scan.scan_services(&ctx).await;
         assert!(results[0].1.is_none());
     }
 }

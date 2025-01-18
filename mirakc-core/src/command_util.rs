@@ -23,6 +23,8 @@ use tokio_stream::StreamExt;
 use tracing::Instrument;
 use tracing::Span;
 
+use actlet::Spawn;
+
 const COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT: Duration = Duration::from_nanos(100_000); // 100us
 
 static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
@@ -45,13 +47,15 @@ static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
 // Spawn processes for input commands and build a pipeline, then returns it.
 // Input and output endpoints can be took from the pipeline only once
 // respectively.
-pub fn spawn_pipeline<T>(
+pub fn spawn_pipeline<T, C>(
     commands: Vec<String>,
     id: T,
     label: &'static str,
+    ctx: &C,
 ) -> Result<CommandPipeline<T>, Error>
 where
     T: fmt::Display + Clone + Unpin,
+    C: Spawn,
 {
     let span = tracing::debug_span!(parent: None, "pipeline", %id, label);
     // We can safely use Span::enter() in non-async functions.
@@ -60,7 +64,7 @@ where
     for command in commands.into_iter() {
         pipeline.spawn(command)?;
     }
-    pipeline.log_to_console();
+    pipeline.log_to_console(ctx);
     Ok(pipeline)
 }
 
@@ -220,7 +224,7 @@ where
         result
     }
 
-    fn log_to_console(&mut self) {
+    fn log_to_console<C: Spawn>(&mut self, ctx: &C) {
         let streams =
             self.commands
                 .iter_mut()
@@ -236,7 +240,8 @@ where
                 tracing::debug!(pid, "{}", log.trim_end());
             }
         };
-        tokio::spawn(fut.instrument(self.span.clone()));
+        let _enter = self.span.enter();
+        ctx.spawn_task(fut);
     }
 }
 
@@ -414,7 +419,7 @@ impl<'a> CommandBuilder<'a> {
             self.inner.stderr(Stdio::null());
         }
 
-        let mut child = self
+        let child = self
             .inner
             .kill_on_drop(true)
             .spawn()
@@ -424,31 +429,16 @@ impl<'a> CommandBuilder<'a> {
 
         // At this point, tracing_subscriber::filter::EnvFilter doesn't support
         // expressions for filtering nested spans.  For example, there are two
-        // spans `parent` and `child` and `parent` contains `child`.  In this
+        // spans `parent` and `child`, and `parent` contains `child`.  In this
         // case, `RUST_LOG='[parent],[child]'` shows logs from the both.
         //
         // See https://github.com/tokio-rs/tracing/issues/722 for more details.
         //
-        // Therefore, we don't stop creating a `cmd` span for each process
-        // spawned in this function.  Instead, put the process metadata to each
-        // event.
+        // Therefore, we don't create a `cmd` span for each process spawned in
+        // this function.  Instead, put the process metadata to each event.
         //
         //let span = tracing::debug_span!("cmd", pid);
         //let _enter = span.enter();
-
-        if self.logging.is_default() {
-            if let Some(stderr) = child.stderr.take() {
-                let fut = async move {
-                    let mut stream = logging::new_stream(stderr, pid);
-                    while let Some(Ok((raw, pid))) = stream.next().await {
-                        // data may contain non-utf8 sequence.
-                        let log = String::from_utf8_lossy(&raw);
-                        tracing::debug!(pid, "{}", log.trim_end());
-                    }
-                };
-                tokio::spawn(fut.in_current_span());
-            }
-        }
 
         tracing::debug!(command = self.command, pid, "Spawned");
         Ok(child)
@@ -466,10 +456,6 @@ impl CommandLogging {
     } else {
         "MIRAKC_DEBUG_CHILD_PROCESS"
     };
-
-    fn is_default(&self) -> bool {
-        matches!(self, Self::Default)
-    }
 
     fn is_enabled(&self) -> bool {
         match self {
@@ -557,7 +543,13 @@ mod tests {
     async fn test_pipeline_io() {
         use futures::task::noop_waker;
 
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
+        let mut pipeline = spawn_pipeline(
+            vec!["cat".to_string()],
+            0u8,
+            "test",
+            &actlet::stubs::Context::default(),
+        )
+        .unwrap();
         let (mut input, mut output) = pipeline.take_endpoints();
 
         let result = input.write_all(b"hello").await;
@@ -596,6 +588,7 @@ mod tests {
             vec!["cat".to_string(), "cat".to_string(), "cat".to_string()],
             0u8,
             "test",
+            &actlet::stubs::Context::default(),
         )
         .unwrap();
         let (mut input, mut output) = pipeline.take_endpoints();
@@ -619,7 +612,13 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_pipeline_write_1mb() {
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
+        let mut pipeline = spawn_pipeline(
+            vec!["cat".to_string()],
+            0u8,
+            "test",
+            &actlet::stubs::Context::default(),
+        )
+        .unwrap();
         let (mut input, mut output) = pipeline.take_endpoints();
 
         let handle = tokio::spawn(async move {
@@ -646,7 +645,13 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_pipeline_input_dropped() {
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
+        let mut pipeline = spawn_pipeline(
+            vec!["cat".to_string()],
+            0u8,
+            "test",
+            &actlet::stubs::Context::default(),
+        )
+        .unwrap();
         let (mut input, mut output) = pipeline.take_endpoints();
 
         let _ = input.write_all(b"hello").await;
@@ -663,7 +668,13 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_pipeline_output_dropped() {
-        let mut pipeline = spawn_pipeline(vec!["cat".to_string()], 0u8, "test").unwrap();
+        let mut pipeline = spawn_pipeline(
+            vec!["cat".to_string()],
+            0u8,
+            "test",
+            &actlet::stubs::Context::default(),
+        )
+        .unwrap();
         let (mut input, output) = pipeline.take_endpoints();
 
         drop(output);
@@ -711,8 +722,13 @@ mod tests {
             }
         }
 
-        let mut pipeline =
-            spawn_pipeline(vec!["sh -c 'exec 0<&-;'".to_string()], 0u8, "test").unwrap();
+        let mut pipeline = spawn_pipeline(
+            vec!["sh -c 'exec 0<&-;'".to_string()],
+            0u8,
+            "test",
+            &actlet::stubs::Context::default(),
+        )
+        .unwrap();
         let (input, _) = pipeline.take_endpoints();
 
         let (tx, rx) = oneshot::channel();

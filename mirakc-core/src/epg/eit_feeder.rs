@@ -39,7 +39,7 @@ where
         }
     }
 
-    async fn feed_eit_sections(&self, ctx: &mut Context<Self>) -> Result<(), Error> {
+    async fn feed_eit_sections(&self, ctx: &Context<Self>) -> Result<(), Error> {
         let services = self.epg.call(QueryServices).await?;
 
         let mut map: HashMap<String, EpgChannel> = HashMap::new();
@@ -154,7 +154,7 @@ where
         }
     }
 
-    pub async fn collect_schedules<C: Spawn>(self, ctx: &mut C) -> Result<(), Error> {
+    pub async fn collect_schedules<C: Spawn>(self, ctx: &C) -> Result<(), Error> {
         for channel in self.channels.iter() {
             Self::collect_eits_in_channel(
                 channel,
@@ -173,7 +173,7 @@ where
         command: &str,
         tuner_manager: &T,
         epg: &E,
-        ctx: &mut C,
+        ctx: &C,
     ) -> Result<(), Error> {
         tracing::debug!(channel.name, "Collecting EIT sections...");
 
@@ -200,7 +200,7 @@ where
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL)?;
+        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL, ctx)?;
 
         let (input, output) = pipeline.take_endpoints();
 

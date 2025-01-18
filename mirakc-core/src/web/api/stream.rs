@@ -119,7 +119,7 @@ where
     } else {
         tracing::debug!(?filters, "Streaming with filters");
 
-        let mut pipeline = spawn_pipeline(filters, stream.id(), "web.stream")?;
+        let mut pipeline = spawn_pipeline(filters, stream.id(), "web.stream", spawner)?;
 
         let (input, output) = pipeline.take_endpoints();
 
