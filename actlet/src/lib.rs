@@ -43,7 +43,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// An actor system.
 pub struct System {
     /// An address of a promoter.
-    addr: Address<promoter::Promoter>,
+    promoter_addr: Address<promoter::Promoter>,
     /// A cancellation token used for gracefully stopping the actor system.
     stop_token: CancellationToken,
     /// A span the actor system belongs to.
@@ -60,9 +60,9 @@ impl System {
     pub fn with_span(span: Span) -> Self {
         tracing::debug!("System started");
         let stop_token = CancellationToken::new();
-        let addr = promoter::spawn(stop_token.child_token(), span.clone());
+        let promoter_addr = promoter::spawn(stop_token.child_token(), span.clone());
         System {
-            addr,
+            promoter_addr,
             stop_token,
             span,
         }
@@ -85,7 +85,7 @@ impl System {
     /// the system getting stopped.
     pub async fn shutdown(self) {
         self.stop();
-        self.addr.wait().await;
+        self.promoter_addr.wait().await;
         tracing::debug!("System stopped");
     }
 }
@@ -102,7 +102,7 @@ impl Spawn for System {
     where
         A: Actor,
     {
-        self.addr
+        self.promoter_addr
             .call(promoter::Spawn(actor))
             .await
             .expect("Promoter died?")
@@ -120,14 +120,16 @@ impl Spawn for System {
                 _ = stop_token.cancelled() => (),
             }
         };
+        // Perform the task inside the actor system's span.
         let handle = tokio::spawn(task.instrument(self.span.clone()));
         (handle, token)
     }
 
     fn spawner(&self) -> Spawner {
         Spawner {
-            promoter_addr: self.addr.clone(),
+            promoter_addr: self.promoter_addr.clone(),
             stop_token: self.stop_token.child_token(),
+            // Perform the task inside the actor system's span.
             span: self.span.clone(),
         }
     }
@@ -221,6 +223,8 @@ impl<A> Spawn for Context<A> {
         Spawner {
             promoter_addr: self.promoter_addr.clone(),
             stop_token: self.stop_token.child_token(),
+            // The context is available only in the message loop which is running
+            // inside the actor system's span.
             span: Span::current(),
         }
     }
