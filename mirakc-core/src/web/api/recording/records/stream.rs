@@ -33,9 +33,10 @@ use crate::web::api::stream::StreamingHeaderParams;
     ),
     operation_id = "getRecordStream",
 )]
-pub(in crate::web::api) async fn get<R>(
+pub(in crate::web::api) async fn get<R, W>(
     State(RecordingManagerExtractor(recording_manager)): State<RecordingManagerExtractor<R>>,
     State(ConfigExtractor(config)): State<ConfigExtractor>,
+    State(SpawnerExtractor(spawner)): State<SpawnerExtractor<W>>,
     Path(id): Path<RecordId>,
     ranges: Option<TypedHeader<axum_extra::headers::Range>>,
     user: TunerUser,
@@ -44,6 +45,7 @@ pub(in crate::web::api) async fn get<R>(
 where
     R: Call<recording::OpenContent>,
     R: Call<recording::QueryRecord>,
+    W: Spawn,
 {
     let (record, content_length) = recording_manager
         .call(recording::QueryRecord { id: id.clone() })
@@ -74,7 +76,7 @@ where
         ))
         .await??;
 
-    streaming(&config, stream, filters, &params, stop_trigger).await
+    streaming(&config, &spawner, stream, filters, &params, stop_trigger).await
 }
 
 #[utoipa::path(

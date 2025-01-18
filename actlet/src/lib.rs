@@ -123,6 +123,14 @@ impl Spawn for System {
         let handle = tokio::spawn(task.instrument(self.span.clone()));
         (handle, token)
     }
+
+    fn spawner(&self) -> Spawner {
+        Spawner {
+            promoter_addr: self.addr.clone(),
+            stop_token: self.stop_token.child_token(),
+            span: self.span.clone(),
+        }
+    }
 }
 
 /// An actor execution context.
@@ -207,6 +215,14 @@ impl<A> Spawn for Context<A> {
         // inside the actor system's span.
         let handle = tokio::spawn(task.in_current_span());
         (handle, token)
+    }
+
+    fn spawner(&self) -> Spawner {
+        Spawner {
+            promoter_addr: self.promoter_addr.clone(),
+            stop_token: self.stop_token.child_token(),
+            span: Span::current(),
+        }
     }
 }
 
@@ -444,6 +460,47 @@ where
 {
     fn trigger(&self, msg: M) -> Trigger<M> {
         Trigger::new(self.clone(), msg)
+    }
+}
+
+#[derive(Clone)]
+pub struct Spawner {
+    promoter_addr: Address<promoter::Promoter>,
+    stop_token: CancellationToken,
+    span: Span,
+}
+
+/// A type that implements [`Spawn`].
+#[async_trait]
+impl Spawn for Spawner {
+    async fn spawn_actor<A>(&self, actor: A) -> Address<A>
+    where
+        A: Actor,
+    {
+        self.promoter_addr
+            .call(promoter::Spawn(actor))
+            .await
+            .expect("Promoter died?")
+    }
+
+    fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let stop_token = self.stop_token.child_token();
+        let token = stop_token.clone();
+        let task = async move {
+            tokio::select! {
+                _ = fut => (),
+                _ = stop_token.cancelled() => (),
+            }
+        };
+        let handle = tokio::spawn(task.instrument(self.span.clone()));
+        (handle, token)
+    }
+
+    fn spawner(&self) -> Spawner {
+        self.clone()
     }
 }
 
@@ -692,6 +749,8 @@ pub trait Spawn: Sized {
     fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
     where
         F: Future<Output = ()> + Send + 'static;
+
+    fn spawner(&self) -> Spawner;
 }
 
 /// A trait that every message must implement.
@@ -1051,6 +1110,7 @@ pub mod prelude {
     pub use crate::Context;
     pub use crate::Emitter;
     pub use crate::EmitterRegistry;
+    pub use crate::Spawner;
     pub use crate::System;
     pub use crate::Trigger;
 
@@ -1076,7 +1136,7 @@ pub mod prelude {
 pub mod stubs {
     use super::*;
 
-    #[derive(Default)]
+    #[derive(Clone, Default)]
     pub struct Context(CancellationToken);
 
     #[async_trait]
@@ -1102,6 +1162,10 @@ pub mod stubs {
             };
             let handle = tokio::spawn(task);
             (handle, token)
+        }
+
+        fn spawner(&self) -> Spawner {
+            unreachable!();
         }
     }
 }

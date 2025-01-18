@@ -87,9 +87,10 @@ where
     ),
     operation_id = "getTimeshiftRecorderStream",
 )]
-pub(in crate::web::api) async fn stream<S>(
+pub(in crate::web::api) async fn stream<S, W>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(TimeshiftManagerExtractor(timeshift_manager)): State<TimeshiftManagerExtractor<S>>,
+    State(SpawnerExtractor(spawner)): State<SpawnerExtractor<W>>,
     Path(recorder_id): Path<String>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -98,6 +99,7 @@ pub(in crate::web::api) async fn stream<S>(
 where
     S: Call<timeshift::CreateTimeshiftLiveStreamSource>,
     S: Call<timeshift::QueryTimeshiftRecorder>,
+    W: Spawn,
 {
     let msg = timeshift::QueryTimeshiftRecorder {
         recorder: TimeshiftRecorderQuery::ByName(recorder_id.clone()),
@@ -122,7 +124,7 @@ where
         user,
     };
 
-    streaming(&config, stream, filters, &params, stop_trigger).await
+    streaming(&config, &spawner, stream, filters, &params, stop_trigger).await
 }
 
 fn build_filters(

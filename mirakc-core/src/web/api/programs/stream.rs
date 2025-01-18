@@ -43,11 +43,12 @@ use crate::web::api::stream::StreamingHeaderParams;
     // mirakurun.Client properly.
     operation_id = "getProgramStream",
 )]
-pub(in crate::web::api) async fn get<T, E, O>(
+pub(in crate::web::api) async fn get<T, E, O, W>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
     State(OnairProgramManagerExtractor(onair_manager)): State<OnairProgramManagerExtractor<O>>,
+    State(SpawnerExtractor(spawner)): State<SpawnerExtractor<W>>,
     user_agent: Option<TypedHeader<UserAgent>>,
     Path(program_id): Path<ProgramId>,
     user: TunerUser,
@@ -63,6 +64,7 @@ where
     E: Call<epg::QueryClock>,
     E: Clone + Send + Sync + 'static,
     O: Call<onair::SpawnTemporalTracker>,
+    W: Spawn,
 {
     let service_id = program_id.into();
     let program = epg.call(epg::QueryProgram { program_id }).await??;
@@ -115,7 +117,7 @@ where
 
     let stop_triggers = vec![stream_stop_trigger];
 
-    let result = streaming(&config, stream, filters, &params, stop_triggers).await;
+    let result = streaming(&config, &spawner, stream, filters, &params, stop_triggers).await;
 
     if let Err(Error::ProgramNotFound) = result {
         tracing::warn!(program.id = %program_id, "No stream for the program, maybe canceled");

@@ -28,10 +28,11 @@ use crate::web::api::stream::StreamingHeaderParams;
     // mirakurun.Client properly.
     operation_id = "getServiceStream",
 )]
-pub(in crate::web::api) async fn get<T, E>(
+pub(in crate::web::api) async fn get<T, E, W>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+    State(SpawnerExtractor(spawner)): State<SpawnerExtractor<W>>,
     Path(service_id): Path<ServiceId>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -41,12 +42,14 @@ where
     T: Call<tuner::StartStreaming>,
     T: TriggerFactory<tuner::StopStreaming>,
     E: Call<epg::QueryService>,
+    W: Spawn,
 {
     let service = epg.call(epg::QueryService { service_id }).await??;
 
     do_get_service_stream(
         &config,
         &tuner_manager,
+        &spawner,
         &service.channel,
         service_id.sid(),
         &user,
@@ -101,9 +104,10 @@ where
     .await
 }
 
-pub(in crate::web::api) async fn do_get_service_stream<T>(
+pub(in crate::web::api) async fn do_get_service_stream<T, W>(
     config: &Config,
     tuner_manager: &T,
+    spawner: &W,
     channel: &EpgChannel,
     sid: Sid,
     user: &TunerUser,
@@ -113,6 +117,7 @@ where
     T: Clone,
     T: Call<tuner::StartStreaming>,
     T: TriggerFactory<tuner::StopStreaming>,
+    W: Spawn,
 {
     let stream = tuner_manager
         .call(tuner::StartStreaming {
@@ -147,7 +152,7 @@ where
         user: user.clone(),
     };
 
-    streaming(config, stream, filters, &params, stop_trigger).await
+    streaming(config, spawner, stream, filters, &params, stop_trigger).await
 }
 
 pub(in crate::web::api) async fn do_head_service_stream(
