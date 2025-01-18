@@ -204,7 +204,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 }
             };
             let emitter = ctx.emitter();
-            let token = ctx.spawn_task(async move {
+            let (_, token) = ctx.spawn_task(async move {
                 tokio::time::sleep(duration).await;
                 emitter.emit(ProcessRecording).await;
             });

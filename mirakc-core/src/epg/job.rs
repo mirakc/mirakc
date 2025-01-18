@@ -66,7 +66,7 @@ where
         self.schedule_scan_services(ctx);
     }
 
-    async fn invoke_scan_services(&mut self, _ctx: &mut Context<Self>) {
+    async fn invoke_scan_services(&mut self, ctx: &mut Context<Self>) {
         if self.scanning_services {
             tracing::warn!(job = "scan-services", "Already running, skip");
             return;
@@ -76,7 +76,7 @@ where
         let now = Instant::now();
         self.scanning_services = true;
         let scanner = ServiceScanner::new(self.config.clone(), self.tuner_manager.clone());
-        let results = scanner.scan_services().await;
+        let results = scanner.scan_services(ctx).await;
         self.epg.emit(UpdateServices { results }).await;
         self.scanning_services = false;
         let elapsed = now.elapsed();
@@ -110,7 +110,7 @@ where
         self.schedule_sync_clocks(ctx);
     }
 
-    async fn invoke_sync_clocks(&mut self, _ctx: &mut Context<Self>) {
+    async fn invoke_sync_clocks(&mut self, ctx: &mut Context<Self>) {
         if self.synchronizing_clocks {
             tracing::warn!(job = "sync-clocks", "Already running, skip");
             return;
@@ -120,7 +120,7 @@ where
         self.synchronizing_clocks = true;
         let now = Instant::now();
         let sync = ClockSynchronizer::new(self.config.clone(), self.tuner_manager.clone());
-        let results = sync.sync_clocks().await;
+        let results = sync.sync_clocks(ctx).await;
         self.epg.emit(UpdateClocks { results }).await;
         self.synchronizing_clocks = false;
         let elapsed = now.elapsed();

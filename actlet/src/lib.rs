@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -107,7 +108,7 @@ impl Spawn for System {
             .expect("Promoter died?")
     }
 
-    fn spawn_task<F>(&self, fut: F) -> CancellationToken
+    fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -119,8 +120,8 @@ impl Spawn for System {
                 _ = stop_token.cancelled() => (),
             }
         };
-        tokio::spawn(task.instrument(self.span.clone()));
-        token
+        let handle = tokio::spawn(task.instrument(self.span.clone()));
+        (handle, token)
     }
 }
 
@@ -190,7 +191,7 @@ impl<A> Spawn for Context<A> {
             .expect("Promoter died?")
     }
 
-    fn spawn_task<F>(&self, fut: F) -> CancellationToken
+    fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -204,8 +205,8 @@ impl<A> Spawn for Context<A> {
         };
         // The context is available only in the message loop which is running
         // inside the actor system's span.
-        tokio::spawn(task.in_current_span());
-        token
+        let handle = tokio::spawn(task.in_current_span());
+        (handle, token)
     }
 }
 
@@ -688,7 +689,7 @@ pub trait Spawn: Sized {
         A: Actor;
 
     /// Spawns a new asynchronous task dedicated for a `Future`.
-    fn spawn_task<F>(&self, fut: F) -> CancellationToken
+    fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
     where
         F: Future<Output = ()> + Send + 'static;
 }
@@ -1069,4 +1070,38 @@ pub mod prelude {
 
     // dependencies
     pub use async_trait::async_trait;
+}
+
+// TODO(feat): add `stubs` feature
+pub mod stubs {
+    use super::*;
+
+    #[derive(Default)]
+    pub struct Context(CancellationToken);
+
+    #[async_trait]
+    impl Spawn for Context {
+        async fn spawn_actor<A>(&self, _actor: A) -> Address<A>
+        where
+            A: Actor,
+        {
+            unreachable!();
+        }
+
+        fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
+        where
+            F: Future<Output = ()> + Send + 'static,
+        {
+            let stop_token = self.0.child_token();
+            let token = stop_token.clone();
+            let task = async move {
+                tokio::select! {
+                    _ = fut => (),
+                    _ = stop_token.cancelled() => (),
+                }
+            };
+            let handle = tokio::spawn(task);
+            (handle, token)
+        }
+    }
 }

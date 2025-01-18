@@ -39,7 +39,7 @@ where
         }
     }
 
-    async fn feed_eit_sections(&self) -> Result<(), Error> {
+    async fn feed_eit_sections(&self, ctx: &mut Context<Self>) -> Result<(), Error> {
         let services = self.epg.call(QueryServices).await?;
 
         let mut map: HashMap<String, EpgChannel> = HashMap::new();
@@ -64,7 +64,7 @@ where
             self.tuner_manager.clone(),
             self.epg.clone(),
         )
-        .collect_schedules()
+        .collect_schedules(ctx)
         .await
     }
 }
@@ -115,10 +115,10 @@ where
     async fn handle(
         &mut self,
         _msg: FeedEitSections,
-        _ctx: &mut Context<Self>,
+        ctx: &mut Context<Self>,
     ) -> <FeedEitSections as Message>::Reply {
         tracing::debug!(msg.name = "FeedEitSections");
-        self.feed_eit_sections().await
+        self.feed_eit_sections(ctx).await
     }
 }
 
@@ -154,19 +154,26 @@ where
         }
     }
 
-    pub async fn collect_schedules(self) -> Result<(), Error> {
+    pub async fn collect_schedules<C: Spawn>(self, ctx: &mut C) -> Result<(), Error> {
         for channel in self.channels.iter() {
-            Self::collect_eits_in_channel(channel, &self.command, &self.tuner_manager, &self.epg)
-                .await?;
+            Self::collect_eits_in_channel(
+                channel,
+                &self.command,
+                &self.tuner_manager,
+                &self.epg,
+                ctx,
+            )
+            .await?;
         }
         Ok(())
     }
 
-    async fn collect_eits_in_channel(
+    async fn collect_eits_in_channel<C: Spawn>(
         channel: &EpgChannel,
         command: &str,
         tuner_manager: &T,
         epg: &E,
+        ctx: &mut C,
     ) -> Result<(), Error> {
         tracing::debug!(channel.name, "Collecting EIT sections...");
 
@@ -197,7 +204,7 @@ where
 
         let (input, output) = pipeline.take_endpoints();
 
-        let handle = tokio::spawn(stream.pipe(input).in_current_span());
+        let (handle, _) = ctx.spawn_task(stream.pipe(input).in_current_span());
 
         let mut reader = BufReader::new(output);
         let mut json = String::new();

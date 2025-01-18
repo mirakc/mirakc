@@ -39,36 +39,46 @@ where
         }
     }
 
-    pub async fn sync_clocks(self) -> Vec<(EpgChannel, Option<HashMap<ServiceId, Clock>>)> {
+    pub async fn sync_clocks<C: Spawn>(
+        self,
+        ctx: &mut C,
+    ) -> Vec<(EpgChannel, Option<HashMap<ServiceId, Clock>>)> {
         let command = &self.config.jobs.sync_clocks.command;
         let mut results = Vec::new();
 
         for channel in self.config.channels.iter() {
-            let result =
-                match Self::sync_clocks_in_channel(channel, command, &self.tuner_manager).await {
-                    Ok(clocks) => {
-                        let mut map = HashMap::new();
-                        for clock in clocks.into_iter() {
-                            let service_id = ServiceId::new(clock.nid, clock.sid);
-                            map.insert(service_id, clock.clock.clone());
-                        }
-                        Some(map)
+            let result = match Self::sync_clocks_in_channel(
+                channel,
+                command,
+                &self.tuner_manager,
+                ctx,
+            )
+            .await
+            {
+                Ok(clocks) => {
+                    let mut map = HashMap::new();
+                    for clock in clocks.into_iter() {
+                        let service_id = ServiceId::new(clock.nid, clock.sid);
+                        map.insert(service_id, clock.clock.clone());
                     }
-                    Err(err) => {
-                        tracing::error!(%err, channel.name, "Failed to synchronize clocks");
-                        None
-                    }
-                };
+                    Some(map)
+                }
+                Err(err) => {
+                    tracing::error!(%err, channel.name, "Failed to synchronize clocks");
+                    None
+                }
+            };
             results.push((channel.clone().into(), result));
         }
 
         results
     }
 
-    async fn sync_clocks_in_channel(
+    async fn sync_clocks_in_channel<C: Spawn>(
         channel: &ChannelConfig,
         command: &str,
         tuner_manager: &T,
+        ctx: &mut C,
     ) -> anyhow::Result<Vec<SyncClock>> {
         tracing::debug!(channel.name, "Synchronizing clocks...");
 
@@ -99,7 +109,7 @@ where
 
         let (input, mut output) = pipeline.take_endpoints();
 
-        let handle = tokio::spawn(stream.pipe(input).in_current_span());
+        let (handle, _) = ctx.spawn_task(stream.pipe(input).in_current_span());
 
         let mut buf = Vec::new();
         output.read_to_end(&mut buf).await?;
@@ -147,6 +157,8 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_sync_clocks_in_channel() {
+        let mut ctx = actlet::stubs::Context::default();
+
         let stub = TunerManagerStub::default();
 
         let expected = vec![SyncClock {
@@ -176,7 +188,7 @@ mod tests {
         let config = Arc::new(serde_yaml::from_str::<Config>(&config_yml).unwrap());
 
         let sync = ClockSynchronizer::new(config, stub.clone());
-        let results = sync.sync_clocks().await;
+        let results = sync.sync_clocks(&mut ctx).await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, Some(v)) => {
             let service_id = (1, 3).into();
@@ -205,7 +217,7 @@ mod tests {
             .unwrap(),
         );
         let sync = ClockSynchronizer::new(config, stub.clone());
-        let results = sync.sync_clocks().await;
+        let results = sync.sync_clocks(&mut ctx).await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, None));
 
@@ -226,7 +238,7 @@ mod tests {
             .unwrap(),
         );
         let sync = ClockSynchronizer::new(config, stub.clone());
-        let results = sync.sync_clocks().await;
+        let results = sync.sync_clocks(&mut ctx).await;
         assert_eq!(results.len(), 1);
         assert_matches!(&results[0], (_, None));
     }
