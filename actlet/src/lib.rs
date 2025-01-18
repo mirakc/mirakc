@@ -220,13 +220,7 @@ impl<A> Spawn for Context<A> {
     }
 
     fn spawner(&self) -> Spawner {
-        Spawner {
-            promoter_addr: self.promoter_addr.clone(),
-            stop_token: self.stop_token.child_token(),
-            // The context is available only in the message loop which is running
-            // inside the actor system's span.
-            span: Span::current(),
-        }
+        unimplemented!("Pass the context directly");
     }
 }
 
