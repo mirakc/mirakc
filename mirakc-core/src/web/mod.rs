@@ -128,7 +128,7 @@ where
             spawner: spawner.clone(),
         }));
 
-    server::serve(config, app, spawner.spawner()).await
+    server::serve(config, app, spawner).await
 }
 
 // headers

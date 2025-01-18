@@ -12,14 +12,16 @@ use tokio::net::UnixListener;
 use tower::Service;
 
 use actlet::Spawn;
-use actlet::Spawner;
 
 use crate::config::Config;
 use crate::error::Error;
 
 use super::peer_info::PeerInfo;
 
-pub(super) async fn serve(config: Arc<Config>, app: Router, spawner: Spawner) -> Result<(), Error> {
+pub(super) async fn serve<W>(config: Arc<Config>, app: Router, spawner: W) -> Result<(), Error>
+where
+    W: Clone + Send + Spawn + 'static,
+{
     let mut handles = vec![];
     for addr in config.server.http_addrs() {
         let (handle, _) = spawner.spawn_task(http(addr, app.clone(), spawner.clone()));
@@ -64,12 +66,18 @@ macro_rules! listen {
     };
 }
 
-async fn http(addr: std::net::SocketAddr, app: Router, spawner: Spawner) {
+async fn http<W>(addr: std::net::SocketAddr, app: Router, spawner: W)
+where
+    W: Clone + Spawn,
+{
     let listener = TcpListener::bind(&addr).await.unwrap();
     listen!(listener, app, spawner);
 }
 
-async fn uds(path: PathBuf, app: Router, spawner: Spawner) {
+async fn uds<W>(path: PathBuf, app: Router, spawner: W)
+where
+    W: Clone + Send + Spawn,
+{
     // Remove the socket if it exists.
     let _ = tokio::fs::remove_file(&path).await;
     tokio::fs::create_dir_all(path.parent().unwrap())

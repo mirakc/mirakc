@@ -88,6 +88,16 @@ impl System {
         self.promoter_addr.wait().await;
         tracing::debug!("System stopped");
     }
+
+    /// Creates a spawner.
+    pub fn spawner(&self) -> Spawner {
+        Spawner {
+            promoter_addr: self.promoter_addr.clone(),
+            stop_token: self.stop_token.child_token(),
+            // Always perform the task inside the actor system's span.
+            span: self.span.clone(),
+        }
+    }
 }
 
 impl Default for System {
@@ -123,15 +133,6 @@ impl Spawn for System {
         // Perform the task inside the actor system's span.
         let handle = tokio::spawn(task.instrument(self.span.clone()));
         (handle, token)
-    }
-
-    fn spawner(&self) -> Spawner {
-        Spawner {
-            promoter_addr: self.promoter_addr.clone(),
-            stop_token: self.stop_token.child_token(),
-            // Perform the task inside the actor system's span.
-            span: self.span.clone(),
-        }
     }
 }
 
@@ -217,10 +218,6 @@ impl<A> Spawn for Context<A> {
         // inside the actor system's span.
         let handle = tokio::spawn(task.in_current_span());
         (handle, token)
-    }
-
-    fn spawner(&self) -> Spawner {
-        unimplemented!("Pass the context directly");
     }
 }
 
@@ -496,10 +493,6 @@ impl Spawn for Spawner {
         let handle = tokio::spawn(task.instrument(self.span.clone()));
         (handle, token)
     }
-
-    fn spawner(&self) -> Spawner {
-        self.clone()
-    }
 }
 
 /// A type that implements [`Call<M>`] for a particular message.
@@ -747,8 +740,6 @@ pub trait Spawn: Sized {
     fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
     where
         F: Future<Output = ()> + Send + 'static;
-
-    fn spawner(&self) -> Spawner;
 }
 
 /// A trait that every message must implement.
@@ -1143,7 +1134,7 @@ pub mod stubs {
         where
             A: Actor,
         {
-            unreachable!();
+            unimplemented!("Use System instead");
         }
 
         fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
@@ -1160,10 +1151,6 @@ pub mod stubs {
             };
             let handle = tokio::spawn(task);
             (handle, token)
-        }
-
-        fn spawner(&self) -> Spawner {
-            unreachable!();
         }
     }
 }
