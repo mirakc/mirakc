@@ -347,18 +347,32 @@ where
             return;
         }
 
-        self.epg
+        if let Err(err) = self
+            .epg
             .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
-            .expect("Failed to register emitter for epg::ServicesUpdated");
-        self.epg
+        {
+            tracing::error!(?err, "Failed to register emitter for epg::ServicesUpdated");
+            return;
+        }
+
+        if let Err(err) = self
+            .epg
             .call(epg::RegisterEmitter::ProgramsUpdated(ctx.emitter()))
             .await
-            .expect("Failed to register emitter for epg::ProgramsUpdated");
-        self.onair_program_tracker
+        {
+            tracing::error!(?err, "Failed to register emitter for epg::ProgramsUpdated");
+            return;
+        }
+
+        if let Err(err) = self
+            .onair_program_tracker
             .call(onair::RegisterEmitter(ctx.emitter()))
             .await
-            .expect("Failed to register emitter for OnairProgramUpdated");
+        {
+            tracing::error!(?err, "Failed to register emitter for OnairProgramUpdated");
+            return;
+        }
 
         self.load_schedules();
         self.rebuild_queue();

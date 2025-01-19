@@ -83,10 +83,14 @@ where
             return;
         }
 
-        self.epg
+        if let Err(err) = self
+            .epg
             .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
-            .expect("Failed to register emitter for epg::ServicesUpdated");
+        {
+            tracing::error!(?err, "Failed to register emitter for epg::ServicesUpdated");
+            return;
+        }
 
         for (name, config) in self.config.onair_program_trackers.iter() {
             let changed = ctx.emitter();

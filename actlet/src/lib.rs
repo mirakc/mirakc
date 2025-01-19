@@ -1080,6 +1080,14 @@ mod promoter {
             let wait_token = CancellationToken::new();
             let (addr, receiver) =
                 Address::pair(actor_id, stop_token.child_token(), wait_token.clone());
+            if self.stopping {
+                tracing::debug!(
+                    actor.id = actor_id.0,
+                    actor.ty = type_name::<A>(),
+                    "Return a dummy address because the system is in the stop sequence"
+                );
+                return addr;
+            }
             let ctx = Context::new(addr.clone(), ctx.address().clone(), stop_token);
             let task = async move {
                 MessageLoop::new(actor, receiver, ctx, wait_token)
