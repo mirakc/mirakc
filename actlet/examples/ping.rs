@@ -32,6 +32,6 @@ async fn main() -> actlet::Result<()> {
     let addr = system.spawn_actor(actor).await;
     let result = addr.call(Ping(10)).await?;
     println!("RESULT: {}", result == 20);
-    system.stop();
+    system.shutdown().await;
     Ok(())
 }

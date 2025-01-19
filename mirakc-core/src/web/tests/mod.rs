@@ -1690,6 +1690,7 @@ async fn get_with_peer_info(endpoint: &str, peer_info: Option<PeerInfo>) -> Resp
             recording_manager: RecordingManagerStub,
             timeshift_manager: TimeshiftManagerStub,
             onair_manager: OnairProgramManagerStub,
+            spawner: actlet::stubs::Context::default(),
         }));
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::get(endpoint)
@@ -1779,6 +1780,7 @@ fn create_app(test_config: &HashMap<&'static str, String>) -> Router {
             recording_manager: RecordingManagerStub,
             timeshift_manager: TimeshiftManagerStub,
             onair_manager: OnairProgramManagerStub,
+            spawner: actlet::stubs::Context::default(),
         }))
 }
 

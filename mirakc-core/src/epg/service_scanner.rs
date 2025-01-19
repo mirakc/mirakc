@@ -39,13 +39,18 @@ where
         }
     }
 
-    pub async fn scan_services(self) -> Vec<(EpgChannel, Option<IndexMap<ServiceId, EpgService>>)> {
+    pub async fn scan_services<C: Spawn>(
+        self,
+        ctx: &C,
+    ) -> Vec<(EpgChannel, Option<IndexMap<ServiceId, EpgService>>)> {
         let command = &self.config.jobs.scan_services.command;
         let mut results = Vec::new();
 
         for channel in self.config.channels.iter() {
             let result =
-                match Self::scan_services_in_channel(channel, command, &self.tuner_manager).await {
+                match Self::scan_services_in_channel(channel, command, &self.tuner_manager, ctx)
+                    .await
+                {
                     Ok(services) => {
                         let mut map = IndexMap::new();
                         for service in services.into_iter() {
@@ -64,10 +69,11 @@ where
         results
     }
 
-    async fn scan_services_in_channel(
+    async fn scan_services_in_channel<C: Spawn>(
         channel: &ChannelConfig,
         command: &str,
         tuner_manager: &T,
+        ctx: &C,
     ) -> anyhow::Result<Vec<EpgService>> {
         tracing::debug!(channel.name, "Scanning services...");
 
@@ -94,11 +100,11 @@ where
             .build();
         let cmd = template.render_data_to_string(&data)?;
 
-        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL)?;
+        let mut pipeline = command_util::spawn_pipeline(vec![cmd], stream.id(), Self::LABEL, ctx)?;
 
         let (input, mut output) = pipeline.take_endpoints();
 
-        let handle = tokio::spawn(stream.pipe(input).in_current_span());
+        let (handle, _) = ctx.spawn_task(stream.pipe(input).in_current_span());
 
         let mut buf = Vec::new();
         output.read_to_end(&mut buf).await?;
@@ -167,6 +173,8 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_scan_services_in_channel() {
+        let ctx = actlet::stubs::Context::default();
+
         let stub = TunerManagerStub::default();
 
         let expected = vec![TsService {
@@ -195,7 +203,7 @@ mod tests {
         let config = Arc::new(serde_yaml::from_str::<Config>(&config_yml).unwrap());
 
         let scan = ServiceScanner::new(config, stub.clone());
-        let results = scan.scan_services().await;
+        let results = scan.scan_services(&ctx).await;
         assert!(results[0].1.is_some());
         assert_eq!(results[0].1.as_ref().unwrap().len(), 1);
 
@@ -215,7 +223,7 @@ mod tests {
             .unwrap(),
         );
         let scan = ServiceScanner::new(config, stub.clone());
-        let results = scan.scan_services().await;
+        let results = scan.scan_services(&ctx).await;
         assert!(results[0].1.is_none());
 
         // Timed out
@@ -236,7 +244,7 @@ mod tests {
         );
 
         let scan = ServiceScanner::new(config, stub.clone());
-        let results = scan.scan_services().await;
+        let results = scan.scan_services(&ctx).await;
         assert!(results[0].1.is_none());
     }
 }

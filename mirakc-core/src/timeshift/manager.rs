@@ -53,10 +53,14 @@ where
             return;
         }
 
-        self.epg
+        if let Err(err) = self
+            .epg
             .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
-            .expect("Failed to register the emitter");
+        {
+            tracing::error!(?err, "Failed to register the emitter");
+            return;
+        }
 
         // Spawn recorders regardless of whether its service is available or not.
         // Records should be accessible even if the service is unavailable.

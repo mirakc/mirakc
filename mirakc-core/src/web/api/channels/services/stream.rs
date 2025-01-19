@@ -28,10 +28,11 @@ use crate::web::api::services::stream::do_head_service_stream;
     // mirakurun.Client properly.
     operation_id = "getServiceStreamByChannel",
 )]
-pub(in crate::web::api) async fn get<T, E>(
+pub(in crate::web::api) async fn get<T, E, W>(
     State(ConfigExtractor(config)): State<ConfigExtractor>,
     State(TunerManagerExtractor(tuner_manager)): State<TunerManagerExtractor<T>>,
     State(EpgExtractor(epg)): State<EpgExtractor<E>>,
+    State(SpawnerExtractor(spawner)): State<SpawnerExtractor<W>>,
     Path(path): Path<ChannelServicePath>,
     user: TunerUser,
     Qs(filter_setting): Qs<FilterSetting>,
@@ -41,6 +42,7 @@ where
     T: Call<tuner::StartStreaming>,
     T: TriggerFactory<tuner::StopStreaming>,
     E: Call<epg::QueryChannel>,
+    W: Spawn,
 {
     let channel = epg
         .call(epg::QueryChannel {
@@ -52,6 +54,7 @@ where
     do_get_service_stream(
         &config,
         &tuner_manager,
+        &spawner,
         &channel,
         path.sid,
         &user,

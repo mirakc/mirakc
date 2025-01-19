@@ -92,14 +92,16 @@ pub(in crate::web::api) fn compute_content_length(
     }
 }
 
-pub(in crate::web::api) async fn streaming<T, S, D>(
+pub(in crate::web::api) async fn streaming<W, T, S, D>(
     config: &Config,
+    spawner: &W,
     stream: MpegTsStream<T, S>,
     filters: Vec<String>,
     params: &StreamingHeaderParams,
     stop_triggers: D,
 ) -> Result<Response, Error>
 where
+    W: Spawn,
     T: fmt::Display + Clone + Send + Unpin + 'static,
     S: Stream<Item = io::Result<Bytes>> + Send + Unpin + 'static,
     D: Send + Unpin + 'static,
@@ -117,12 +119,12 @@ where
     } else {
         tracing::debug!(?filters, "Streaming with filters");
 
-        let mut pipeline = spawn_pipeline(filters, stream.id(), "web.stream")?;
+        let mut pipeline = spawn_pipeline(filters, stream.id(), "web.stream", spawner)?;
 
         let (input, output) = pipeline.take_endpoints();
 
         let stream_id = stream.id();
-        tokio::spawn(async move {
+        spawner.spawn_task(async move {
             let _ = stream.pipe(input).await;
         });
 
@@ -132,7 +134,7 @@ where
         // few seconds.
         let mut stream = ReaderStream::with_capacity(output, config.server.stream_chunk_size);
         let (sender, receiver) = mpsc::channel(config.server.stream_max_chunks);
-        tokio::spawn(async move {
+        spawner.spawn_task(async move {
             while let Some(result) = stream.next().await {
                 if let Ok(chunk) = result {
                     tracing::trace!(

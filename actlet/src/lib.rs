@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -42,7 +43,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// An actor system.
 pub struct System {
     /// An address of a promoter.
-    addr: Address<promoter::Promoter>,
+    promoter_addr: Address<promoter::Promoter>,
     /// A cancellation token used for gracefully stopping the actor system.
     stop_token: CancellationToken,
     /// A span the actor system belongs to.
@@ -59,33 +60,32 @@ impl System {
     pub fn with_span(span: Span) -> Self {
         tracing::debug!("System started");
         let stop_token = CancellationToken::new();
-        let addr = promoter::spawn(stop_token.child_token(), span.clone());
+        let promoter_addr = promoter::spawn(stop_token.child_token(), span.clone());
         System {
-            addr,
+            promoter_addr,
             stop_token,
             span,
         }
     }
 
-    /// Invoke gracefully stopping the actor system.
-    ///
-    /// This function doesn't wait for all tasks spawned by the system getting
-    /// stopped.
-    ///
-    /// Use [`System::shutdown()`].
-    pub fn stop(&self) {
-        tracing::debug!("System stopping...");
-        self.stop_token.cancel();
-    }
-
     /// Gracefully shutdown the actor system.
     ///
-    /// Unlike [`System::stop()`], this function waits for all tasks spawned by
-    /// the system getting stopped.
+    /// This method waits for all actors spawned by the system getting stopped.
     pub async fn shutdown(self) {
-        self.stop();
-        self.addr.wait().await;
+        tracing::debug!("System stopping...");
+        self.promoter_addr.emit(promoter::Shutdown).await;
+        self.promoter_addr.wait().await;
         tracing::debug!("System stopped");
+    }
+
+    /// Creates a spawner.
+    pub fn spawner(&self) -> Spawner {
+        Spawner {
+            promoter_addr: self.promoter_addr.clone(),
+            stop_token: self.stop_token.child_token(),
+            // Always perform the task inside the actor system's span.
+            span: self.span.clone(),
+        }
     }
 }
 
@@ -101,13 +101,13 @@ impl Spawn for System {
     where
         A: Actor,
     {
-        self.addr
+        self.promoter_addr
             .call(promoter::Spawn(actor))
             .await
             .expect("Promoter died?")
     }
 
-    fn spawn_task<F>(&self, fut: F) -> CancellationToken
+    fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -119,8 +119,9 @@ impl Spawn for System {
                 _ = stop_token.cancelled() => (),
             }
         };
-        tokio::spawn(task.instrument(self.span.clone()));
-        token
+        // Perform the task inside the actor system's span.
+        let handle = tokio::spawn(task.instrument(self.span.clone()));
+        (handle, token)
     }
 }
 
@@ -155,7 +156,7 @@ impl<A> Context<A> {
     }
 
     /// Stops the actor.
-    pub fn stop(&mut self) {
+    pub fn stop(&self) {
         self.stop_token.cancel();
     }
 
@@ -176,6 +177,11 @@ impl<A> Context<A> {
         assert!(self.post_process.is_none());
         self.post_process = Some(Box::new(SignalDispatcher::new(msg)));
     }
+
+    /// Returns the actor ID.
+    fn actor_id(&self) -> ActorId {
+        self.own_addr.actor_id
+    }
 }
 
 #[async_trait]
@@ -190,7 +196,7 @@ impl<A> Spawn for Context<A> {
             .expect("Promoter died?")
     }
 
-    fn spawn_task<F>(&self, fut: F) -> CancellationToken
+    fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -204,8 +210,8 @@ impl<A> Spawn for Context<A> {
         };
         // The context is available only in the message loop which is running
         // inside the actor system's span.
-        tokio::spawn(task.in_current_span());
-        token
+        let handle = tokio::spawn(task.in_current_span());
+        (handle, token)
     }
 }
 
@@ -247,6 +253,7 @@ where
 
 /// An address of an actor.
 pub struct Address<A> {
+    actor_id: ActorId,
     sender: mpsc::Sender<Box<dyn Dispatch<A> + Send>>,
     // A child token of the Actor's stop token.
     // This cannot stop the Actor.
@@ -259,6 +266,10 @@ pub struct Address<A> {
 impl<A> Address<A> {
     const MAX_MESSAGES: usize = 256;
 
+    pub fn is_promoter(&self) -> bool {
+        self.actor_id.is_promoter()
+    }
+
     pub fn is_available(&self) -> bool {
         !self.sender.is_closed()
     }
@@ -268,11 +279,13 @@ impl<A> Address<A> {
     }
 
     fn pair(
+        actor_id: ActorId,
         stop_token: CancellationToken,
         wait_token: CancellationToken,
     ) -> (Self, mpsc::Receiver<Box<dyn Dispatch<A> + Send>>) {
         let (sender, receiver) = mpsc::channel(Self::MAX_MESSAGES);
         let addr = Address {
+            actor_id,
             sender,
             stop_token,
             wait_token,
@@ -300,6 +313,7 @@ impl<A: Actor> Address<A> {
 impl<A> Clone for Address<A> {
     fn clone(&self) -> Self {
         Address {
+            actor_id: self.actor_id,
             sender: self.sender.clone(),
             stop_token: self.stop_token.clone(),
             wait_token: self.wait_token.clone(),
@@ -404,6 +418,7 @@ where
             }
             Err(TrySendError::Full(dispatcher)) => {
                 // Need sending using an async task.
+                let actor_id = self.actor_id;
                 let sender = self.sender.clone();
                 let stop_token = self.stop_token.clone();
                 let task = async move {
@@ -411,7 +426,8 @@ where
                         result = sender.send(dispatcher) => {
                             if result.is_err() {
                                 tracing::warn!(
-                                    actor = type_name::<A>(),
+                                    actor.id = actor_id.0,
+                                    actor.ty = type_name::<A>(),
                                     msg = type_name::<M>(),
                                     "Failed to send asynchronously, \
                                      The actor may be stopped, the message is lost"
@@ -425,7 +441,8 @@ where
             }
             Err(TrySendError::Closed(_)) => {
                 tracing::warn!(
-                    actor = type_name::<A>(),
+                    actor.id = self.actor_id.0,
+                    actor.ty = type_name::<A>(),
                     msg = type_name::<M>(),
                     "The channel has been closed, the actor may be stopped, the message is lost"
                 );
@@ -443,6 +460,43 @@ where
 {
     fn trigger(&self, msg: M) -> Trigger<M> {
         Trigger::new(self.clone(), msg)
+    }
+}
+
+#[derive(Clone)]
+pub struct Spawner {
+    promoter_addr: Address<promoter::Promoter>,
+    stop_token: CancellationToken,
+    span: Span,
+}
+
+/// A type that implements [`Spawn`].
+#[async_trait]
+impl Spawn for Spawner {
+    async fn spawn_actor<A>(&self, actor: A) -> Address<A>
+    where
+        A: Actor,
+    {
+        self.promoter_addr
+            .call(promoter::Spawn(actor))
+            .await
+            .expect("Promoter died?")
+    }
+
+    fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let stop_token = self.stop_token.child_token();
+        let token = stop_token.clone();
+        let task = async move {
+            tokio::select! {
+                _ = fut => (),
+                _ = stop_token.cancelled() => (),
+            }
+        };
+        let handle = tokio::spawn(task.instrument(self.span.clone()));
+        (handle, token)
     }
 }
 
@@ -663,19 +717,31 @@ where
     /// Called when the actor gets started running on a dedicated task.
     #[allow(unused_variables)]
     async fn started(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!(actor = type_name::<Self>(), "Started");
+        tracing::debug!(
+            actor.id = ctx.actor_id().0,
+            actor.ty = type_name::<Self>(),
+            "Started"
+        );
     }
 
     /// Called when the actor gets started stopping.
     #[allow(unused_variables)]
     async fn stopping(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!(actor = type_name::<Self>(), "Stopping...");
+        tracing::debug!(
+            actor.id = ctx.actor_id().0,
+            actor.ty = type_name::<Self>(),
+            "Stopping..."
+        );
     }
 
     /// Called when the actor stopped.
     #[allow(unused_variables)]
     async fn stopped(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!(actor = type_name::<Self>(), "Stopped");
+        tracing::debug!(
+            actor.id = ctx.actor_id().0,
+            actor.ty = type_name::<Self>(),
+            "Stopped"
+        );
     }
 }
 
@@ -688,7 +754,7 @@ pub trait Spawn: Sized {
         A: Actor;
 
     /// Spawns a new asynchronous task dedicated for a `Future`.
-    fn spawn_task<F>(&self, fut: F) -> CancellationToken
+    fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
     where
         F: Future<Output = ()> + Send + 'static;
 }
@@ -772,6 +838,17 @@ where
 
 // private types
 
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct ActorId(usize);
+
+impl ActorId {
+    const PROMOTER: Self = ActorId(0);
+
+    fn is_promoter(&self) -> bool {
+        self.0 == 0
+    }
+}
+
 struct MessageLoop<A> {
     actor: A,
     receiver: mpsc::Receiver<Box<dyn Dispatch<A> + Send>>,
@@ -825,6 +902,13 @@ impl<A: Actor> MessageLoop<A> {
 
         self.receiver.close();
         self.actor.stopped(&mut self.context).await;
+
+        if !self.context.own_addr.is_promoter() {
+            self.context
+                .promoter_addr
+                .emit(promoter::ActorStopped(self.context.own_addr.actor_id))
+                .await;
+        }
         self.wait_token.cancel();
     }
 }
@@ -947,12 +1031,23 @@ mod promoter {
 
     pub(crate) struct Promoter {
         system_span: Span,
-        wait_tokens: Vec<CancellationToken>,
+        actors: HashMap<ActorId, ActorData>,
+        next_actor_id: usize,
+        stopping: bool,
+    }
+
+    struct ActorData {
+        actor_ty: &'static str,
+        stop_emitter: Emitter<Stop>,
     }
 
     pub(crate) fn spawn(stop_token: CancellationToken, system_span: Span) -> Address<Promoter> {
         let wait_token = CancellationToken::new();
-        let (addr, receiver) = Address::pair(stop_token.child_token(), wait_token.clone());
+        let (addr, receiver) = Address::pair(
+            ActorId::PROMOTER,
+            stop_token.child_token(),
+            wait_token.clone(),
+        );
         let context = Context::new(addr.clone(), addr.clone(), stop_token);
         let task = {
             let span = system_span.clone();
@@ -970,7 +1065,9 @@ mod promoter {
         fn new(system_span: Span) -> Self {
             Promoter {
                 system_span,
-                wait_tokens: vec![],
+                actors: Default::default(),
+                next_actor_id: 1, // 0 is reserved for the promoter.
+                stopping: false,
             }
         }
 
@@ -978,9 +1075,19 @@ mod promoter {
         where
             A: Actor,
         {
+            let actor_id = self.get_next_actor_id();
             let stop_token = ctx.stop_token.child_token();
-            let wait_token = self.create_wait_token();
-            let (addr, receiver) = Address::pair(stop_token.child_token(), wait_token.clone());
+            let wait_token = CancellationToken::new();
+            let (addr, receiver) =
+                Address::pair(actor_id, stop_token.child_token(), wait_token.clone());
+            if self.stopping {
+                tracing::debug!(
+                    actor.id = actor_id.0,
+                    actor.ty = type_name::<A>(),
+                    "Return a dummy address because the system is in the stop sequence"
+                );
+                return addr;
+            }
             let ctx = Context::new(addr.clone(), ctx.address().clone(), stop_token);
             let task = async move {
                 MessageLoop::new(actor, receiver, ctx, wait_token)
@@ -992,13 +1099,54 @@ mod promoter {
             // However, every actor lives in the actor system.  So, the
             // main loop should be executed in the system span.
             tokio::spawn(task.instrument(self.system_span.clone()));
+            self.actors.insert(
+                actor_id,
+                ActorData {
+                    actor_ty: type_name::<A>(),
+                    stop_emitter: addr.emitter(),
+                },
+            );
+            tracing::debug!(
+                actor.id = actor_id.0,
+                actor.ty = type_name::<A>(),
+                "Spawned"
+            );
             addr
         }
 
-        fn create_wait_token(&mut self) -> CancellationToken {
-            let wait_token = CancellationToken::new();
-            self.wait_tokens.push(wait_token.clone());
-            wait_token
+        async fn shutdown(&mut self, ctx: &Context<Self>) {
+            tracing::debug!("Stopping...");
+            for (id, data) in self.actors.iter() {
+                tracing::debug!(actor.id = id.0, actor.ty = data.actor_ty, "Stop actor");
+                data.stop_emitter.emit(Stop).await;
+            }
+            self.stopping = true;
+            if self.actors.is_empty() {
+                ctx.stop();
+            }
+        }
+
+        fn actor_stopped(&mut self, actor_id: ActorId, ctx: &Context<Self>) {
+            match self.actors.remove(&actor_id) {
+                Some(data) => {
+                    tracing::debug!(
+                        actor.id = actor_id.0,
+                        actor.ty = data.actor_ty,
+                        "Actor stopped"
+                    );
+                }
+                None => tracing::error!(actor.id = actor_id.0, "No such actor alive"),
+            }
+            if self.stopping && self.actors.is_empty() {
+                ctx.stop();
+            }
+        }
+
+        fn get_next_actor_id(&mut self) -> ActorId {
+            // TODO
+            let actor_id = ActorId(self.next_actor_id);
+            self.next_actor_id += 1;
+            actor_id
         }
     }
 
@@ -1009,12 +1157,7 @@ mod promoter {
         }
 
         async fn stopping(&mut self, _ctx: &mut Context<Self>) {
-            tracing::debug!("Waiting for actors to stop...");
-            let wait_tokens = std::mem::take(&mut self.wait_tokens);
-            for wait_token in wait_tokens.into_iter() {
-                // TODO: introduce id for each actor.
-                wait_token.cancelled().await;
-            }
+            // The stop sequence is triggered by a `Shutdown` message.
         }
 
         async fn stopped(&mut self, _ctx: &mut Context<Self>) {
@@ -1041,6 +1184,40 @@ mod promoter {
             self.spawn(msg.0, ctx)
         }
     }
+
+    pub(crate) struct Shutdown;
+    impl Message for Shutdown {
+        type Reply = ();
+    }
+    impl Signal for Shutdown {}
+
+    #[async_trait]
+    impl Handler<Shutdown> for Promoter {
+        async fn handle(
+            &mut self,
+            _msg: Shutdown,
+            ctx: &mut Context<Self>,
+        ) -> <Shutdown as Message>::Reply {
+            self.shutdown(ctx).await;
+        }
+    }
+
+    pub(crate) struct ActorStopped(pub(crate) ActorId);
+    impl Message for ActorStopped {
+        type Reply = ();
+    }
+    impl Signal for ActorStopped {}
+
+    #[async_trait]
+    impl Handler<ActorStopped> for Promoter {
+        async fn handle(
+            &mut self,
+            msg: ActorStopped,
+            ctx: &mut Context<Self>,
+        ) -> <Shutdown as Message>::Reply {
+            self.actor_stopped(msg.0, ctx);
+        }
+    }
 }
 
 pub mod prelude {
@@ -1050,6 +1227,7 @@ pub mod prelude {
     pub use crate::Context;
     pub use crate::Emitter;
     pub use crate::EmitterRegistry;
+    pub use crate::Spawner;
     pub use crate::System;
     pub use crate::Trigger;
 
@@ -1069,4 +1247,38 @@ pub mod prelude {
 
     // dependencies
     pub use async_trait::async_trait;
+}
+
+// TODO(feat): add `stubs` feature
+pub mod stubs {
+    use super::*;
+
+    #[derive(Clone, Default)]
+    pub struct Context(CancellationToken);
+
+    #[async_trait]
+    impl Spawn for Context {
+        async fn spawn_actor<A>(&self, _actor: A) -> Address<A>
+        where
+            A: Actor,
+        {
+            unimplemented!("Use System instead");
+        }
+
+        fn spawn_task<F>(&self, fut: F) -> (JoinHandle<F::Output>, CancellationToken)
+        where
+            F: Future<Output = ()> + Send + 'static,
+        {
+            let stop_token = self.0.child_token();
+            let token = stop_token.clone();
+            let task = async move {
+                tokio::select! {
+                    _ = fut => (),
+                    _ = stop_token.cancelled() => (),
+                }
+            };
+            let handle = tokio::spawn(task);
+            (handle, token)
+        }
+    }
 }

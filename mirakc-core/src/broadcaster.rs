@@ -618,7 +618,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -683,7 +683,7 @@ mod tests {
             // `Unsubscribe` message stops the broadcaster.
             broadcaster.wait().await;
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]

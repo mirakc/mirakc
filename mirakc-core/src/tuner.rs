@@ -863,7 +863,7 @@ impl TunerSession {
         let id = TunerSessionId::new(tuner_index);
         let mut commands = vec![command];
         commands.append(&mut filters);
-        let mut pipeline = match spawn_pipeline(commands, id, "tuner") {
+        let mut pipeline = match spawn_pipeline(commands, id, "tuner", ctx) {
             Ok(pipeline) => pipeline,
             Err(err) => {
                 tracing::error!(%err, session.id = %id, %channel, "Failed to spawn a tuner pipeline");
@@ -1098,7 +1098,7 @@ mod tests {
                 assert_ne!(stream.id().session_id, stream1.id().session_id);
             });
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1141,7 +1141,7 @@ mod tests {
                 assert_eq!(stream.id().session_id.tuner_index, 0);
             });
         }
-        system.stop();
+        system.shutdown().await;
 
         let system = System::new();
         {
@@ -1156,7 +1156,7 @@ mod tests {
                 .await;
             assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1200,7 +1200,7 @@ mod tests {
                 assert_eq!(stream.id().session_id.tuner_index, 0);
             });
         }
-        system.stop();
+        system.shutdown().await;
 
         let system = System::new();
         {
@@ -1215,7 +1215,7 @@ mod tests {
                 .await;
             assert_matches!(result, Ok(Err(Error::TunerUnavailable)));
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1277,7 +1277,7 @@ mod tests {
                 assert_eq!(stream.id().session_id.tuner_index, 1);
             });
         }
-        system.stop();
+        system.shutdown().await;
 
         let system = System::new();
         {
@@ -1319,7 +1319,7 @@ mod tests {
                 assert_eq!(stream.id().session_id.tuner_index, 0);
             });
         }
-        system.stop();
+        system.shutdown().await;
 
         // same priority
         let system = System::new();
@@ -1374,7 +1374,7 @@ mod tests {
                 assert_eq!(stream.id().session_id.tuner_index, 1);
             });
         }
-        system.stop();
+        system.shutdown().await;
 
         // same priority and same number of users
         let system = System::new();
@@ -1417,7 +1417,7 @@ mod tests {
                 assert_eq!(stream.id().session_id.tuner_index, 0);
             });
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1472,7 +1472,7 @@ mod tests {
                 .await;
             assert_matches!(result, Ok(Ok(_)));
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1503,7 +1503,7 @@ mod tests {
             assert!(result.is_ok());
             assert!(!tuner.is_subscribed(&subscription.id));
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1519,7 +1519,7 @@ mod tests {
             assert!(result.is_ok());
             assert!(tuner.is_active());
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1554,7 +1554,7 @@ mod tests {
             );
             tokio::task::yield_now().await;
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1586,7 +1586,7 @@ mod tests {
 
             tokio::task::yield_now().await;
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1624,7 +1624,7 @@ mod tests {
 
             tokio::task::yield_now().await;
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1658,7 +1658,7 @@ mod tests {
                 assert_eq!(prio.num_users, 3);
             });
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1680,7 +1680,7 @@ mod tests {
 
             tokio::task::yield_now().await;
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1720,7 +1720,7 @@ mod tests {
             let data = stream.next().await;
             assert_matches!(data, None);
         }
-        system.stop();
+        system.shutdown().await;
     }
 
     fn create_config(command: String) -> TunerConfig {

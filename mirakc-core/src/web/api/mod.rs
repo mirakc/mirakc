@@ -43,7 +43,9 @@ pub(crate) mod models;
 use models::*;
 
 #[allow(clippy::type_complexity)]
-pub(super) fn build_api<T, E, R, S, O>(config: &Config) -> Router<Arc<AppState<T, E, R, S, O>>>
+pub(super) fn build_api<T, E, R, S, O, W>(
+    config: &Config,
+) -> Router<Arc<AppState<T, E, R, S, O, W>>>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<crate::tuner::QueryTuner>,
@@ -83,6 +85,8 @@ where
     O: Call<crate::onair::QueryOnairProgram>,
     O: Call<crate::onair::QueryOnairPrograms>,
     O: Call<crate::onair::SpawnTemporalTracker>,
+    W: Clone + Send + Sync + 'static,
+    W: Spawn,
 {
     // As described in the `axum` documentation, a request handler registered
     // by `routing::get()` can be also used for HEAD requests.

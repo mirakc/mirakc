@@ -382,7 +382,7 @@ where
         let template = mustache::compile_str(&self.config.timeshift.command)?;
         cmds.push(template.render_data_to_string(&data)?);
 
-        let mut pipeline = spawn_pipeline(cmds, stream.id(), "timeshift")?;
+        let mut pipeline = spawn_pipeline(cmds, stream.id(), "timeshift", ctx)?;
 
         let (input, output) = pipeline.take_endpoints();
 
@@ -1140,7 +1140,7 @@ mod tests {
             assert!(model.recording);
         });
 
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1176,7 +1176,7 @@ mod tests {
         recorder.emit(actlet::Stop).await;
         recorder.wait().await;
 
-        system.stop();
+        system.shutdown().await;
     }
 
     fn create_config<P: AsRef<Path>>(dir: P) -> Arc<Config> {

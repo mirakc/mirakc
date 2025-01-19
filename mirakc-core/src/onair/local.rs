@@ -126,7 +126,7 @@ where
     async fn handle(&mut self, _msg: UpdateOnairPrograms, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "UpdateOnairPrograms");
         let now = std::time::Instant::now();
-        if self.update_onair_programs().await {
+        if self.update_onair_programs(ctx).await {
             let elapsed = now.elapsed();
             if elapsed >= std::time::Duration::from_secs(60) {
                 tracing::warn!(
@@ -150,7 +150,7 @@ where
     E: Clone + Send + Sync + 'static,
     E: Call<QueryServices>,
 {
-    async fn update_onair_programs(&mut self) -> bool {
+    async fn update_onair_programs<C: Spawn>(&mut self, ctx: &C) -> bool {
         // Clone the config in order to avoid compile errors caused by the borrow checker.
         let config = self.config.clone();
 
@@ -166,7 +166,7 @@ where
             .iter()
             .filter(|(_, service)| config.matches(service));
         for (service_id, service) in iter {
-            let result = self.update_onair_program(service).await;
+            let result = self.update_onair_program(service, ctx).await;
             match (result, self.config.stream_id.is_some()) {
                 (Ok(_), _) => {
                     // Finished successfully, process next.
@@ -190,7 +190,11 @@ where
         true // continue
     }
 
-    async fn update_onair_program(&mut self, service: &EpgService) -> Result<(), Error> {
+    async fn update_onair_program<C: Spawn>(
+        &mut self,
+        service: &EpgService,
+        ctx: &C,
+    ) -> Result<(), Error> {
         let service_id = service.id;
 
         let user = TunerUser {
@@ -215,9 +219,10 @@ where
             .insert("sid", &service.sid())?
             .build();
         let cmd = template.render_data_to_string(&data)?;
-        let mut pipeline = crate::command_util::spawn_pipeline(vec![cmd], stream.id(), "onair")?;
+        let mut pipeline =
+            crate::command_util::spawn_pipeline(vec![cmd], stream.id(), "onair", ctx)?;
         let (input, output) = pipeline.take_endpoints();
-        let handle = tokio::spawn(stream.pipe(input).in_current_span());
+        let (handle, _) = ctx.spawn_task(stream.pipe(input).in_current_span());
 
         let mut changed = false;
         let mut reader = BufReader::new(output);
@@ -354,6 +359,8 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_update_onair_program() {
+        let ctx = actlet::stubs::Context::default();
+
         let script_file = make_script();
         let command = format!("sh {}", script_file.path().display());
         let config = Arc::new(LocalOnairProgramTrackerConfig {
@@ -385,9 +392,9 @@ mod tests {
         );
 
         let service01 = service!((0, 1), ChannelType::GR);
-        let result = tracker.update_onair_program(&service01).await;
+        let result = tracker.update_onair_program(&service01, &ctx).await;
         assert_matches!(result, Ok(()));
-        let result = tracker.update_onair_program(&service01).await;
+        let result = tracker.update_onair_program(&service01, &ctx).await;
         assert_matches!(result, Ok(()));
     }
 

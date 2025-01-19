@@ -204,7 +204,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 }
             };
             let emitter = ctx.emitter();
-            let token = ctx.spawn_task(async move {
+            let (_, token) = ctx.spawn_task(async move {
                 tokio::time::sleep(duration).await;
                 emitter.emit(ProcessRecording).await;
             });
@@ -347,18 +347,32 @@ where
             return;
         }
 
-        self.epg
+        if let Err(err) = self
+            .epg
             .call(epg::RegisterEmitter::ServicesUpdated(ctx.emitter()))
             .await
-            .expect("Failed to register emitter for epg::ServicesUpdated");
-        self.epg
+        {
+            tracing::error!(?err, "Failed to register emitter for epg::ServicesUpdated");
+            return;
+        }
+
+        if let Err(err) = self
+            .epg
             .call(epg::RegisterEmitter::ProgramsUpdated(ctx.emitter()))
             .await
-            .expect("Failed to register emitter for epg::ProgramsUpdated");
-        self.onair_program_tracker
+        {
+            tracing::error!(?err, "Failed to register emitter for epg::ProgramsUpdated");
+            return;
+        }
+
+        if let Err(err) = self
+            .onair_program_tracker
             .call(onair::RegisterEmitter(ctx.emitter()))
             .await
-            .expect("Failed to register emitter for OnairProgramUpdated");
+        {
+            tracing::error!(?err, "Failed to register emitter for OnairProgramUpdated");
+            return;
+        }
 
         self.load_schedules();
         self.rebuild_queue();
@@ -1134,7 +1148,7 @@ where
             tokio::fs::create_dir_all(dir).await?;
         }
 
-        let mut pipeline = spawn_pipeline(filters, stream.id(), "recording")?;
+        let mut pipeline = spawn_pipeline(filters, stream.id(), "recording", ctx)?;
         let (input, mut output) = pipeline.take_endpoints();
 
         let fut = async move {
@@ -1429,7 +1443,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         id: &RecordId,
         range: Option<&ContentRange>,
         time_limit: u64,
-        ctx: &mut Context<Self>,
+        ctx: &Context<Self>,
     ) -> Result<(ContentStream, Option<StopTrigger>), Error> {
         let record_path = match make_record_path(&self.config, id) {
             Some(record_path) => record_path,
@@ -1442,7 +1456,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             _ => return Err(Error::NoContent),
         };
 
-        let mut content_source = ContentSource::new(&self.config, &record, range)?;
+        let mut content_source = ContentSource::new(&self.config, &record, range, ctx)?;
         let stream = content_source.create_stream(time_limit);
 
         let addr = ctx.spawn_actor(content_source).await;
@@ -2202,7 +2216,12 @@ struct ContentSource {
 }
 
 impl ContentSource {
-    fn new(config: &Config, record: &Record, range: Option<&ContentRange>) -> Result<Self, Error> {
+    fn new<C: Spawn>(
+        config: &Config,
+        record: &Record,
+        range: Option<&ContentRange>,
+        ctx: &C,
+    ) -> Result<Self, Error> {
         let content_path = make_content_path(config, record).unwrap();
         if !content_path.exists() {
             tracing::warn!(?content_path, "No such file, maybe it has been removed");
@@ -2229,7 +2248,7 @@ impl ContentSource {
             _ => format!("cat '{content_path_str}'"),
         };
 
-        let pipeline = spawn_pipeline(vec![cmd], record.id.clone(), "content")?;
+        let pipeline = spawn_pipeline(vec![cmd], record.id.clone(), "content", ctx)?;
 
         Ok(Self { pipeline })
     }
@@ -3906,6 +3925,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
+        let ctx = actlet::stubs::Context::default();
+
         let id = RecordId("1".to_string());
         let record = record!(recording: id.value());
 
@@ -3916,7 +3937,7 @@ mod tests {
             .unwrap();
 
         // recording, w/o range
-        let mut source = ContentSource::new(&config, &record, None).unwrap();
+        let mut source = ContentSource::new(&config, &record, None, &ctx).unwrap();
         let models = source.pipeline.get_model();
         assert_eq!(models.len(), 1);
         assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
@@ -3933,7 +3954,7 @@ mod tests {
 
         // recording, w/ range
         let range = Some(ContentRange::without_size(1, 3).unwrap());
-        let mut source = ContentSource::new(&config, &record, range.as_ref()).unwrap();
+        let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx).unwrap();
         let models = source.pipeline.get_model();
         assert_eq!(models.len(), 1);
         assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
@@ -3951,7 +3972,7 @@ mod tests {
         let record = record!(finished: id.value());
 
         // finished, w/o range
-        let mut source = ContentSource::new(&config, &record, None).unwrap();
+        let mut source = ContentSource::new(&config, &record, None, &ctx).unwrap();
         let models = source.pipeline.get_model();
         assert_eq!(models.len(), 1);
         assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
@@ -3968,7 +3989,7 @@ mod tests {
 
         // finished, w/ range
         let range = Some(ContentRange::with_size(1, 3, 10).unwrap());
-        let mut source = ContentSource::new(&config, &record, range.as_ref()).unwrap();
+        let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx).unwrap();
         let models = source.pipeline.get_model();
         assert_eq!(models.len(), 1);
         assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
