@@ -1140,7 +1140,7 @@ mod tests {
             assert!(model.recording);
         });
 
-        system.stop();
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
@@ -1176,7 +1176,7 @@ mod tests {
         recorder.emit(actlet::Stop).await;
         recorder.wait().await;
 
-        system.stop();
+        system.shutdown().await;
     }
 
     fn create_config<P: AsRef<Path>>(dir: P) -> Arc<Config> {

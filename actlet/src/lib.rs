@@ -68,23 +68,12 @@ impl System {
         }
     }
 
-    /// Invoke gracefully stopping the actor system.
-    ///
-    /// This function doesn't wait for all tasks spawned by the system getting
-    /// stopped.
-    ///
-    /// Use [`System::shutdown()`].
-    pub fn stop(&self) {
-        tracing::debug!("System stopping...");
-        self.stop_token.cancel();
-    }
-
     /// Gracefully shutdown the actor system.
     ///
-    /// Unlike [`System::stop()`], this function waits for all tasks spawned by
-    /// the system getting stopped.
+    /// This method waits for all actors spawned by the system getting stopped.
     pub async fn shutdown(self) {
-        self.stop();
+        tracing::debug!("System stopping...");
+        self.promoter_addr.emit(promoter::Shutdown).await;
         self.promoter_addr.wait().await;
         tracing::debug!("System stopped");
     }
@@ -167,7 +156,7 @@ impl<A> Context<A> {
     }
 
     /// Stops the actor.
-    pub fn stop(&mut self) {
+    pub fn stop(&self) {
         self.stop_token.cancel();
     }
 
@@ -187,6 +176,11 @@ impl<A> Context<A> {
     {
         assert!(self.post_process.is_none());
         self.post_process = Some(Box::new(SignalDispatcher::new(msg)));
+    }
+
+    /// Returns the actor ID.
+    fn actor_id(&self) -> ActorId {
+        self.own_addr.actor_id
     }
 }
 
@@ -271,6 +265,10 @@ pub struct Address<A> {
 
 impl<A> Address<A> {
     const MAX_MESSAGES: usize = 256;
+
+    pub fn is_promoter(&self) -> bool {
+        self.actor_id.is_promoter()
+    }
 
     pub fn is_available(&self) -> bool {
         !self.sender.is_closed()
@@ -719,19 +717,31 @@ where
     /// Called when the actor gets started running on a dedicated task.
     #[allow(unused_variables)]
     async fn started(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!(actor = type_name::<Self>(), "Started");
+        tracing::debug!(
+            actor.id = ctx.actor_id().0,
+            actor.ty = type_name::<Self>(),
+            "Started"
+        );
     }
 
     /// Called when the actor gets started stopping.
     #[allow(unused_variables)]
     async fn stopping(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!(actor = type_name::<Self>(), "Stopping...");
+        tracing::debug!(
+            actor.id = ctx.actor_id().0,
+            actor.ty = type_name::<Self>(),
+            "Stopping..."
+        );
     }
 
     /// Called when the actor stopped.
     #[allow(unused_variables)]
     async fn stopped(&mut self, ctx: &mut Context<Self>) {
-        tracing::debug!(actor = type_name::<Self>(), "Stopped");
+        tracing::debug!(
+            actor.id = ctx.actor_id().0,
+            actor.ty = type_name::<Self>(),
+            "Stopped"
+        );
     }
 }
 
@@ -831,6 +841,14 @@ where
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct ActorId(usize);
 
+impl ActorId {
+    const PROMOTER: Self = ActorId(0);
+
+    fn is_promoter(&self) -> bool {
+        self.0 == 0
+    }
+}
+
 struct MessageLoop<A> {
     actor: A,
     receiver: mpsc::Receiver<Box<dyn Dispatch<A> + Send>>,
@@ -884,6 +902,13 @@ impl<A: Actor> MessageLoop<A> {
 
         self.receiver.close();
         self.actor.stopped(&mut self.context).await;
+
+        if !self.context.own_addr.is_promoter() {
+            self.context
+                .promoter_addr
+                .emit(promoter::ActorStopped(self.context.own_addr.actor_id))
+                .await;
+        }
         self.wait_token.cancel();
     }
 }
@@ -1008,16 +1033,21 @@ mod promoter {
         system_span: Span,
         actors: HashMap<ActorId, ActorData>,
         next_actor_id: usize,
+        stopping: bool,
     }
 
     struct ActorData {
-        wait_tokens: CancellationToken,
+        actor_ty: &'static str,
+        stop_emitter: Emitter<Stop>,
     }
 
     pub(crate) fn spawn(stop_token: CancellationToken, system_span: Span) -> Address<Promoter> {
         let wait_token = CancellationToken::new();
-        let (addr, receiver) =
-            Address::pair(ActorId(0), stop_token.child_token(), wait_token.clone());
+        let (addr, receiver) = Address::pair(
+            ActorId::PROMOTER,
+            stop_token.child_token(),
+            wait_token.clone(),
+        );
         let context = Context::new(addr.clone(), addr.clone(), stop_token);
         let task = {
             let span = system_span.clone();
@@ -1037,6 +1067,7 @@ mod promoter {
                 system_span,
                 actors: Default::default(),
                 next_actor_id: 1, // 0 is reserved for the promoter.
+                stopping: false,
             }
         }
 
@@ -1063,10 +1094,44 @@ mod promoter {
             self.actors.insert(
                 actor_id,
                 ActorData {
-                    wait_tokens: addr.wait_token.clone(),
+                    actor_ty: type_name::<A>(),
+                    stop_emitter: addr.emitter(),
                 },
             );
+            tracing::debug!(
+                actor.id = actor_id.0,
+                actor.ty = type_name::<A>(),
+                "Spawned"
+            );
             addr
+        }
+
+        async fn shutdown(&mut self, ctx: &Context<Self>) {
+            tracing::debug!("Stopping...");
+            for (id, data) in self.actors.iter() {
+                tracing::debug!(actor.id = id.0, actor.ty = data.actor_ty, "Stop actor");
+                data.stop_emitter.emit(Stop).await;
+            }
+            self.stopping = true;
+            if self.actors.is_empty() {
+                ctx.stop();
+            }
+        }
+
+        fn actor_stopped(&mut self, actor_id: ActorId, ctx: &Context<Self>) {
+            match self.actors.remove(&actor_id) {
+                Some(data) => {
+                    tracing::debug!(
+                        actor.id = actor_id.0,
+                        actor.ty = data.actor_ty,
+                        "Actor stopped"
+                    );
+                }
+                None => tracing::error!(actor.id = actor_id.0, "No such actor alive"),
+            }
+            if self.stopping && self.actors.is_empty() {
+                ctx.stop();
+            }
         }
 
         fn get_next_actor_id(&mut self) -> ActorId {
@@ -1084,12 +1149,7 @@ mod promoter {
         }
 
         async fn stopping(&mut self, _ctx: &mut Context<Self>) {
-            tracing::debug!("Stopping...");
-            for (actor_id, data) in self.actors.iter() {
-                tracing::debug!(actor.id = actor_id.0, "Waiting for actor to stop...");
-                data.wait_tokens.cancelled().await;
-            }
-            self.actors.clear();
+            // The stop sequence is triggered by a `Shutdown` message.
         }
 
         async fn stopped(&mut self, _ctx: &mut Context<Self>) {
@@ -1114,6 +1174,40 @@ mod promoter {
             ctx: &mut Context<Self>,
         ) -> <Spawn<A> as Message>::Reply {
             self.spawn(msg.0, ctx)
+        }
+    }
+
+    pub(crate) struct Shutdown;
+    impl Message for Shutdown {
+        type Reply = ();
+    }
+    impl Signal for Shutdown {}
+
+    #[async_trait]
+    impl Handler<Shutdown> for Promoter {
+        async fn handle(
+            &mut self,
+            _msg: Shutdown,
+            ctx: &mut Context<Self>,
+        ) -> <Shutdown as Message>::Reply {
+            self.shutdown(ctx).await;
+        }
+    }
+
+    pub(crate) struct ActorStopped(pub(crate) ActorId);
+    impl Message for ActorStopped {
+        type Reply = ();
+    }
+    impl Signal for ActorStopped {}
+
+    #[async_trait]
+    impl Handler<ActorStopped> for Promoter {
+        async fn handle(
+            &mut self,
+            msg: ActorStopped,
+            ctx: &mut Context<Self>,
+        ) -> <Shutdown as Message>::Reply {
+            self.actor_stopped(msg.0, ctx);
         }
     }
 }
