@@ -131,5 +131,9 @@ Done.
 Run the following commands after confirmation:
 
   git push -u origin $(git rev-parse --abbrev-ref HEAD)
-  git push origin $VERSION
 EOF
+
+if [ "$TAG" = YES ]
+then
+  echo "  git push origin $VERSION"
+fi
