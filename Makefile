@@ -21,11 +21,16 @@ build: OPTIONS ?=
 build:
 	cargo build $(OPTIONS)
 
+# Always run w/ --all-features.
+#
+# Check slower tests:
+#   make test OPTIONS='--status-level=all'.
+#
 .PHONY: test
-test: OPTIONS ?= --all-features
+test: OPTIONS ?=
 test: TESTNAME ?=
 test:
-	cargo nextest run $(OPTIONS) $(TESTNAME)
+	cargo nextest run --all-features $(OPTIONS) $(TESTNAME)
 
 .PHONY: format
 format: format-rust
