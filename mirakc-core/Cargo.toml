@@ -62,4 +62,4 @@ mockall = "0.13.1"
 pretty_assertions = "1.4.1"
 static_assertions = "1.1.0"
 tempfile = "3.15.0"
-test-log = { version = "0.2.16", features = ["trace"] }
+test-log = { version = "0.2.17", features = ["trace"] }
