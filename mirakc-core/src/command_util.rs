@@ -1,6 +1,5 @@
 use std::convert::TryInto;
 use std::env;
-use std::fmt;
 use std::io;
 use std::pin::Pin;
 use std::process::ExitStatus;
@@ -54,18 +53,10 @@ pub fn spawn_pipeline<T, C>(
     ctx: &C,
 ) -> Result<CommandPipeline<T>, Error>
 where
-    T: fmt::Display + Clone + Unpin,
+    T: std::fmt::Display + Clone + Unpin,
     C: Spawn,
 {
-    let span = tracing::debug_span!(parent: None, "pipeline", %id, label);
-    // We can safely use Span::enter() in non-async functions.
-    let _enter = span.enter();
-    let mut pipeline = CommandPipeline::new(id, span.clone());
-    for command in commands.into_iter() {
-        pipeline.spawn(command)?;
-    }
-    pipeline.log_to_console(ctx);
-    Ok(pipeline)
+    CommandPipelineBuilder::new(commands, id, label).build(ctx)
 }
 
 // errors
@@ -81,6 +72,48 @@ pub enum Error {
 }
 
 // pipeline builder
+
+pub struct CommandPipelineBuilder<T>
+where
+    T: std::fmt::Display + Clone + Unpin,
+{
+    commands: Vec<String>,
+    envs: Vec<(&'static str, String)>,
+    id: T,
+    label: &'static str,
+}
+
+impl<T> CommandPipelineBuilder<T>
+where
+    T: std::fmt::Display + Clone + Unpin,
+{
+    pub fn new(commands: Vec<String>, id: T, label: &'static str) -> Self {
+        Self {
+            commands,
+            envs: vec![],
+            id,
+            label,
+        }
+    }
+
+    pub fn set_log_filter(&mut self, log_filter: &str) {
+        self.envs.push(("MIRAKC_ARIB_LOG", log_filter.to_owned()));
+    }
+
+    pub fn build<C: Spawn>(mut self, ctx: &C) -> Result<CommandPipeline<T>, Error> {
+        let span = tracing::debug_span!(parent: None, "pipeline", %self.id, self.label);
+        // We can safely use Span::enter() in non-async functions.
+        let _enter = span.enter();
+        let mut pipeline = CommandPipeline::new(self.id, span.clone());
+        for command in self.commands.into_iter() {
+            pipeline.spawn(command, std::mem::take(&mut self.envs))?;
+        }
+        pipeline.log_to_console(ctx);
+        Ok(pipeline)
+    }
+}
+
+// pipeline
 
 pub struct CommandPipeline<T>
 where
@@ -116,7 +149,7 @@ where
         }
     }
 
-    fn spawn(&mut self, command: String) -> Result<(), Error> {
+    fn spawn(&mut self, command: String, envs: Vec<(&str, String)>) -> Result<(), Error> {
         let input = if self.stdout.is_none() {
             Stdio::piped()
         } else {
@@ -126,6 +159,7 @@ where
         let mut process = CommandBuilder::new(&command)?
             .stdin(input)
             .stdout(Stdio::piped())
+            .envs(envs)
             .spawn()?;
         let pid = process.id().unwrap();
 
@@ -407,6 +441,16 @@ impl<'a> CommandBuilder<'a> {
         self
     }
 
+    pub fn envs<I, K, V>(&mut self, vars: I) -> &mut Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<std::ffi::OsStr>,
+        V: AsRef<std::ffi::OsStr>,
+    {
+        self.inner.envs(vars);
+        self
+    }
+
     pub fn enable_logging(&mut self) -> &mut Self {
         self.logging = CommandLogging::Enabled;
         self
@@ -517,6 +561,43 @@ mod tests {
     use assert_matches::assert_matches;
     use test_log::test;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test(tokio::test)]
+    async fn test_command_pipeline_bilder_defaul_envs() {
+        let mirakc_arib_log = std::env::var("MIRAKC_ARIB_LOG").unwrap_or_default();
+
+        let builder = CommandPipelineBuilder::new(
+            vec![r#"sh -c "echo -n $MIRAKC_ARIB_LOG""#.to_string()],
+            0u8,
+            "test",
+        );
+        let mut pipeline = builder.build(&actlet::stubs::Context::default()).unwrap();
+        let (_, mut output) = pipeline.take_endpoints();
+
+        let mut buf = String::new();
+        let result = output.read_to_string(&mut buf).await;
+        assert!(result.is_ok());
+        assert_eq!(buf, format!("{mirakc_arib_log}"));
+    }
+
+    #[test(tokio::test)]
+    async fn test_command_pipeline_bilder_set_log_filter() {
+        let mirakc_arib_log = "off";
+
+        let mut builder = CommandPipelineBuilder::new(
+            vec![r#"sh -c "echo -n $MIRAKC_ARIB_LOG""#.to_string()],
+            0u8,
+            "test",
+        );
+        builder.set_log_filter(mirakc_arib_log);
+        let mut pipeline = builder.build(&actlet::stubs::Context::default()).unwrap();
+        let (_, mut output) = pipeline.take_endpoints();
+
+        let mut buf = String::new();
+        let result = output.read_to_string(&mut buf).await;
+        assert!(result.is_ok());
+        assert_eq!(buf, mirakc_arib_log);
+    }
 
     #[test(tokio::test)]
     async fn test_command_builder() {

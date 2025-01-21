@@ -29,6 +29,7 @@ use utoipa::ToSchema;
 
 use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipeline;
+use crate::command_util::CommandPipelineBuilder;
 use crate::command_util::CommandPipelineProcessModel;
 use crate::config::Config;
 use crate::epg;
@@ -1148,7 +1149,11 @@ where
             tokio::fs::create_dir_all(dir).await?;
         }
 
-        let mut pipeline = spawn_pipeline(filters, stream.id(), "recording", ctx)?;
+        let mut builder = CommandPipelineBuilder::new(filters, stream.id(), "recording");
+        if let Some(log_filter) = schedule.options.log_filter.as_ref() {
+            builder.set_log_filter(log_filter);
+        }
+        let mut pipeline = builder.build(ctx)?;
         let (input, mut output) = pipeline.take_endpoints();
 
         let fut = async move {
@@ -2408,15 +2413,25 @@ pub struct RecordingOptions {
     #[schema(value_type = Option<String>)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_path: Option<PathBuf>,
+
     /// A priority of tuner usage.
     #[serde(default)]
     pub priority: i32,
+
     /// A list of pre-filters to use.
     #[serde(default)]
     pub pre_filters: Vec<String>,
+
     /// A list of post-filters to use.
     #[serde(default)]
     pub post_filters: Vec<String>,
+
+    /// Log filter for the recording command pipeline.
+    ///
+    /// If this option is specified, the value of the environment variable `MIRAKC_ARIB_LOG` passed
+    /// to the recording command pipeline will be overridden with the specified value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_filter: Option<String>,
 }
 
 struct Recorder {
