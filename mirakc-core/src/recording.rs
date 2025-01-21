@@ -1384,21 +1384,28 @@ impl<T, E, O> RecordingManager<T, E, O> {
         if purge {
             let content_path = make_content_path(&self.config, &record).unwrap();
             if content_path.exists() {
-                match std::fs::remove_file(&content_path) {
+                match tokio::fs::remove_file(&content_path).await {
                     Ok(_) => {
                         content_removed = true;
                         self.emit_content_removed(id.clone()).await;
                     }
-                    Err(err) => tracing::error!(?err, ?content_path),
+                    Err(err) => tracing::error!(?err, ?content_path, "Failed to remove"),
                 }
             } else {
                 tracing::warn!(?record_path, ?content_path, "No content file");
                 content_removed = true;
             }
+
+            let log_path = make_log_path_from_content_path(&content_path);
+            if log_path.exists() {
+                if let Err(err) = tokio::fs::remove_file(&log_path).await {
+                    tracing::error!(?err, ?log_path, "Failed to remove");
+                }
+            }
         }
 
         debug_assert!(record_path.exists());
-        match std::fs::remove_file(&record_path) {
+        match tokio::fs::remove_file(&record_path).await {
             Ok(_) => {
                 record_removed = true;
                 self.emit_record_removed(id.clone()).await;
@@ -3280,70 +3287,6 @@ mod tests {
     }
 
     #[test(tokio::test)]
-    async fn test_start_recording_with_log_filter_info() {
-        let now = Jst::now();
-
-        let temp_dir = TempDir::new().unwrap();
-        let config = config_for_test(temp_dir.path());
-
-        let program_id = ProgramId::from((0, 1, 1));
-        let content_filename = "1.m2ts";
-        let log_filename = "1.m2ts.log";
-
-        let system = System::new();
-        {
-            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
-            let result = manager
-                .call(StartRecording {
-                    schedule: recording_schedule!(
-                        RecordingScheduleState::Scheduled,
-                        program!(program_id, now, "1h"),
-                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
-                        recording_options!(content_filename, 0, "info")
-                    ),
-                })
-                .await;
-            assert_matches!(result, Ok(Ok(())));
-        }
-        system.shutdown().await;
-
-        let log_path = temp_dir.path().join(RECORDING_DIR).join(log_filename);
-        assert!(log_path.is_file());
-    }
-
-    #[test(tokio::test)]
-    async fn test_start_recording_with_log_filter_off() {
-        let now = Jst::now();
-
-        let temp_dir = TempDir::new().unwrap();
-        let config = config_for_test(temp_dir.path());
-
-        let program_id = ProgramId::from((0, 1, 1));
-        let content_filename = "1.m2ts";
-        let log_filename = "1.m2ts.log";
-
-        let system = System::new();
-        {
-            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
-            let result = manager
-                .call(StartRecording {
-                    schedule: recording_schedule!(
-                        RecordingScheduleState::Scheduled,
-                        program!(program_id, now, "1h"),
-                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
-                        recording_options!(content_filename, 0, "off")
-                    ),
-                })
-                .await;
-            assert_matches!(result, Ok(Ok(())));
-        }
-        system.shutdown().await;
-
-        let log_path = temp_dir.path().join(RECORDING_DIR).join(log_filename);
-        assert!(!log_path.exists());
-    }
-
-    #[test(tokio::test)]
     async fn test_stop_recording() {
         let now = Jst::now();
 
@@ -3760,6 +3703,90 @@ mod tests {
         system.shutdown().await;
 
         // TODO(#2057): range request
+    }
+
+    #[test(tokio::test)]
+    async fn test_recording_with_log_filter_info() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let program_id = ProgramId::from((0, 1, 1));
+        let content_filename = "1.m2ts";
+        let log_filename = "1.m2ts.log";
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+            let result = manager
+                .call(StartRecording {
+                    schedule: recording_schedule!(
+                        RecordingScheduleState::Scheduled,
+                        program!(program_id, now, "1h"),
+                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
+                        recording_options!(content_filename, 0, "info")
+                    ),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(())));
+
+            let log_path = temp_dir.path().join(RECORDING_DIR).join(log_filename);
+            assert!(log_path.is_file());
+
+            let result = manager.call(QueryRecords).await;
+            let id = assert_matches!(result, Ok(Ok(tuples)) => {
+                assert_eq!(tuples.len(), 1);
+                tuples[0].0.id.clone()
+            });
+
+            let result = manager.call(RemoveRecord { id, purge: true }).await;
+            assert_matches!(result, Ok(Ok((true, true))));
+
+            assert!(!log_path.exists());
+        }
+        system.shutdown().await;
+    }
+
+    #[test(tokio::test)]
+    async fn test_recording_with_log_filter_off() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let program_id = ProgramId::from((0, 1, 1));
+        let content_filename = "1.m2ts";
+        let log_filename = "1.m2ts.log";
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+            let result = manager
+                .call(StartRecording {
+                    schedule: recording_schedule!(
+                        RecordingScheduleState::Scheduled,
+                        program!(program_id, now, "1h"),
+                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
+                        recording_options!(content_filename, 0, "off")
+                    ),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(())));
+
+            let log_path = temp_dir.path().join(RECORDING_DIR).join(log_filename);
+            assert!(!log_path.exists());
+
+            let result = manager.call(QueryRecords).await;
+            let id = assert_matches!(result, Ok(Ok(tuples)) => {
+                assert_eq!(tuples.len(), 1);
+                tuples[0].0.id.clone()
+            });
+
+            let result = manager.call(RemoveRecord { id, purge: true }).await;
+            assert_matches!(result, Ok(Ok((true, true))));
+        }
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]
