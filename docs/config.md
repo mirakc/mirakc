@@ -40,17 +40,18 @@ suitable for your environment.
 | [post-filters.\*.content-type]           | `None`                            |
 | [post-filters.\*.seekable]               | `false`                           |
 | [jobs.scan-services.command]             | `timeout 30 mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` (timeout: 30s) |
-| [jobs.scan-services.schedule]            | `'0 1 8,20 * * * *'` (execute at 08:01 and 20:01 every day) |
+| [jobs.scan-services.schedule]            | `0 1 8,20 * * * *` (execute at 08:01 and 20:01 every day) |
 | [jobs.scan-services.disabled]            | `false`                           |
 | [jobs.sync-clocks.command]               | `timeout 30 mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` (timeout: 30s) |
-| [jobs.sync-clocks.schedule]              | `'0 11 8,20 * * * *'` (execute at 08:11 and 20:11 every day) |
+| [jobs.sync-clocks.schedule]              | `0 11 8,20 * * * *` (execute at 08:11 and 20:11 every day) |
 | [jobs.sync-clocks.disabled]              | `false`                           |
 | [jobs.update-schedules.command]          | `timeout 600 mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` (timeout: 10m) |
-| [jobs.update-schedules.schedule]         | `'0 21 8,20 * * * *'` (execute at 08:21 and 20:21 every day) |
+| [jobs.update-schedules.schedule]         | `0 21 8,20 * * * *` (execute at 08:21 and 20:21 every day) |
 | [jobs.update-schedules.disabled]         | `false`                           |
 | [recording.basedir]                      | `None`                            |
 | [recording.records-dir]                  | `None`                            |
-| [timeshift.command]                      | `'mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}'` |
+| [recording.log-filter]                   | `None`                            |
+| [timeshift.command]                      | `mirakc-arib record-service --sid={{{sid}}} --file={{{file}}} --chunk-size={{{chunk_size}}} --num-chunks={{{num_chunks}}} --start-pos={{{start_pos}}}` |
 | [timeshift.recorders\[\].service-id]     |                                   |
 | [timeshift.recorders\[\].ts-file]        |                                   |
 | [timeshift.recorders\[\].data-file]      |                                   |
@@ -107,6 +108,7 @@ suitable for your environment.
 [jobs.update-schedules.disabled]: #jobsupdate-schedules
 [recording.basedir]: #recordingbasedir
 [recording.records-dir]: #recordingrecords-dir
+[recording.log-filter]: #recordinglog-filter
 [timeshift.command]: #timeshift
 [timeshift.recorders\[\].service-id]: #timeshiftrecorders
 [timeshift.recorders\[\].ts-file]: #timeshiftrecorders
@@ -1018,6 +1020,15 @@ specified:
 * `DELETE /api/recording/records/{id}`
 * `GET /api/recording/records/{id}/stream`
 * `HEAD /api/recording/records/{id}/stream`
+
+### recording.log-filter
+
+The value of `recording.log-filter` is used as the default value of the
+`RecordingOptions.logFilter` if it's specified.
+
+For backward compatibility with 3.x and older versions, logs coming from the recording command
+pipeline will be output to STDOUT if neither `recording.log-filter` nor
+`RecordingOptions.logFilter` is specified.
 
 ## timeshift
 

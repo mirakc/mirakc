@@ -1,6 +1,8 @@
 use std::convert::TryInto;
 use std::env;
 use std::io;
+use std::path::Path;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::ExitStatus;
 use std::process::Stdio;
@@ -10,8 +12,10 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use once_cell::sync::Lazy;
+use tokio::fs::File;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
+use tokio::io::AsyncWriteExt;
 use tokio::io::ReadBuf;
 use tokio::process::Child;
 use tokio::process::ChildStdin;
@@ -81,6 +85,8 @@ where
     envs: Vec<(&'static str, String)>,
     id: T,
     label: &'static str,
+    log_file: Option<PathBuf>,
+    logging: CommandLogging,
 }
 
 impl<T> CommandPipelineBuilder<T>
@@ -93,22 +99,41 @@ where
             envs: vec![],
             id,
             label,
+            log_file: None,
+            logging: CommandLogging::Default,
         }
     }
 
-    pub fn set_log_filter(&mut self, log_filter: &str) {
-        self.envs.push(("MIRAKC_ARIB_LOG", log_filter.to_owned()));
+    pub fn set_logging(&mut self, logging: bool) {
+        self.logging = if logging {
+            CommandLogging::Enabled
+        } else {
+            CommandLogging::Disabled
+        };
     }
 
-    pub fn build<C: Spawn>(mut self, ctx: &C) -> Result<CommandPipeline<T>, Error> {
+    pub fn set_log_filter(&mut self, log_filter: &str) {
+        self.envs.push(("MIRAKC_ARIB_LOG", log_filter.to_string()));
+    }
+
+    pub fn set_log_file<P: AsRef<Path>>(&mut self, log_file: P) {
+        self.envs
+            .push(("MIRAKC_ARIB_LOG_NO_TIMESTAMP", "0".to_string())); // enable timestamp
+        self.log_file = Some(log_file.as_ref().to_owned());
+    }
+
+    pub fn build<C: Spawn>(self, ctx: &C) -> Result<CommandPipeline<T>, Error> {
         let span = tracing::debug_span!(parent: None, "pipeline", %self.id, self.label);
         // We can safely use Span::enter() in non-async functions.
         let _enter = span.enter();
         let mut pipeline = CommandPipeline::new(self.id, span.clone());
         for command in self.commands.into_iter() {
-            pipeline.spawn(command, std::mem::take(&mut self.envs))?;
+            pipeline.spawn(command, &self.envs, self.logging)?;
         }
-        pipeline.log_to_console(ctx);
+        match self.log_file.as_ref() {
+            Some(log_file) => pipeline.log_to_file(log_file, ctx),
+            None => pipeline.log_to_console(ctx),
+        }
         Ok(pipeline)
     }
 }
@@ -149,7 +174,12 @@ where
         }
     }
 
-    fn spawn(&mut self, command: String, envs: Vec<(&str, String)>) -> Result<(), Error> {
+    fn spawn(
+        &mut self,
+        command: String,
+        envs: &[(&str, String)],
+        logging: CommandLogging,
+    ) -> Result<(), Error> {
         let input = if self.stdout.is_none() {
             Stdio::piped()
         } else {
@@ -159,7 +189,8 @@ where
         let mut process = CommandBuilder::new(&command)?
             .stdin(input)
             .stdout(Stdio::piped())
-            .envs(envs)
+            .envs(envs.iter().cloned())
+            .logging(logging)
             .spawn()?;
         let pid = process.id().unwrap();
 
@@ -272,6 +303,43 @@ where
                 // data may contain non-utf8 sequence.
                 let log = String::from_utf8_lossy(&raw);
                 tracing::debug!(pid, "{}", log.trim_end());
+            }
+        };
+        let _enter = self.span.enter();
+        ctx.spawn_task(fut);
+    }
+
+    fn log_to_file<C: Spawn>(&mut self, log_file: &Path, ctx: &C) {
+        let streams =
+            self.commands
+                .iter_mut()
+                .filter_map(|data| match data.process.stderr.take() {
+                    Some(stderr) => Some(logging::new_stream(stderr, data.pid)),
+                    None => None,
+                });
+        let mut stream = futures::stream::select_all(streams);
+        let log_file = log_file.to_owned();
+        let fut = async move {
+            let mut file = File::create(&log_file).await.ok();
+            if file.is_none() {
+                tracing::error!(?log_file, "Failed to create, logs will be output to STDOUT");
+            }
+            while let Some(Ok((raw, pid))) = stream.next().await {
+                match file {
+                    Some(ref mut file) => {
+                        if let Err(err) = file.write_all(&raw).await {
+                            tracing::error!(?err, ?log_file, "Failed to write, the log is lost");
+                        }
+                        if let Err(err) = file.write_all(b"\n").await {
+                            tracing::error!(?err, ?log_file, "Failed to write, the log is lost");
+                        }
+                    }
+                    None => {
+                        // data may contain non-utf8 sequence.
+                        let log = String::from_utf8_lossy(&raw);
+                        tracing::debug!(pid, "{}", log.trim_end())
+                    }
+                }
             }
         };
         let _enter = self.span.enter();
@@ -451,8 +519,8 @@ impl<'a> CommandBuilder<'a> {
         self
     }
 
-    pub fn enable_logging(&mut self) -> &mut Self {
-        self.logging = CommandLogging::Enabled;
+    pub fn logging(&mut self, logging: CommandLogging) -> &mut Self {
+        self.logging = logging;
         self
     }
 
@@ -489,9 +557,11 @@ impl<'a> CommandBuilder<'a> {
     }
 }
 
-enum CommandLogging {
+#[derive(Clone, Copy)]
+pub enum CommandLogging {
     Default,
     Enabled,
+    Disabled,
 }
 
 impl CommandLogging {
@@ -505,6 +575,7 @@ impl CommandLogging {
         match self {
             Self::Default => env::var_os(Self::ENV_NAME).is_some(),
             Self::Enabled => true,
+            Self::Disabled => false,
         }
     }
 }
@@ -565,9 +636,14 @@ mod tests {
     #[test(tokio::test)]
     async fn test_command_pipeline_bilder_defaul_envs() {
         let mirakc_arib_log = std::env::var("MIRAKC_ARIB_LOG").unwrap_or_default();
+        let mirakc_arib_log_no_timestamp =
+            std::env::var("MIRAKC_ARIB_LOG_NO_TIMESTAMP").unwrap_or_default();
 
         let builder = CommandPipelineBuilder::new(
-            vec![r#"sh -c "echo -n $MIRAKC_ARIB_LOG""#.to_string()],
+            vec!["sh -c \"echo -n \
+                  $MIRAKC_ARIB_LOG \
+                  $MIRAKC_ARIB_LOG_NO_TIMESTAMP\""
+                .to_string()],
             0u8,
             "test",
         );
@@ -577,26 +653,40 @@ mod tests {
         let mut buf = String::new();
         let result = output.read_to_string(&mut buf).await;
         assert!(result.is_ok());
-        assert_eq!(buf, format!("{mirakc_arib_log}"));
+        assert_eq!(
+            buf,
+            format!("{mirakc_arib_log} {mirakc_arib_log_no_timestamp}")
+        );
     }
 
     #[test(tokio::test)]
     async fn test_command_pipeline_bilder_set_log_filter() {
-        let mirakc_arib_log = "off";
-
         let mut builder = CommandPipelineBuilder::new(
-            vec![r#"sh -c "echo -n $MIRAKC_ARIB_LOG""#.to_string()],
+            vec![r#"sh -c 'test "$MIRAKC_ARIB_LOG" = off'"#.to_string()],
             0u8,
             "test",
         );
-        builder.set_log_filter(mirakc_arib_log);
+        builder.set_log_filter("off");
         let mut pipeline = builder.build(&actlet::stubs::Context::default()).unwrap();
-        let (_, mut output) = pipeline.take_endpoints();
+        let status = pipeline.wait().await;
+        assert_matches!(status[0], Ok(status) => {
+            assert!(status.success());
+        });
+    }
 
-        let mut buf = String::new();
-        let result = output.read_to_string(&mut buf).await;
-        assert!(result.is_ok());
-        assert_eq!(buf, mirakc_arib_log);
+    #[test(tokio::test)]
+    async fn test_command_pipeline_bilder_set_log_file() {
+        let mut builder = CommandPipelineBuilder::new(
+            vec![r#"sh -c 'test "$MIRAKC_ARIB_LOG_NO_TIMESTAMP" = 0'"#.to_string()],
+            0u8,
+            "test",
+        );
+        builder.set_log_file("/dev/null");
+        let mut pipeline = builder.build(&actlet::stubs::Context::default()).unwrap();
+        let status = pipeline.wait().await;
+        assert_matches!(status[0], Ok(status) => {
+            assert!(status.success());
+        });
     }
 
     #[test(tokio::test)]
