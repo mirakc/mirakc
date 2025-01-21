@@ -79,7 +79,7 @@ where
 /// stop once the buffered data has been sent.
 ///
 /// The content file of the record is removed together with the record if the `purge` query
-/// parameter is specified.
+/// parameter is specified.  The log file is also removed if it exists.
 ///
 /// A `recording.record-removed` event will be sent if the record is removed successfully.
 ///
