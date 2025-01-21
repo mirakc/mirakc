@@ -1165,8 +1165,7 @@ where
                     }
                     _ => {
                         builder.set_logging(true); // Enable logging
-                        let log_path =
-                            make_log_path_from_schedule(&self.config, &record_id, schedule);
+                        let log_path = make_log_path_from_content_path(&content_path);
                         builder.set_log_file(log_path);
                     }
                 }
@@ -2674,26 +2673,12 @@ fn make_content_path_from_schedule(
     }
 }
 
-// make_content_path_from_schedule() + ".log"
-fn make_log_path_from_schedule(
-    config: &Config,
-    record_id: &RecordId,
-    schedule: &RecordingSchedule,
-) -> PathBuf {
-    let mut content_path = make_content_path_from_schedule(config, record_id, schedule);
+// content_path + ".log"
+fn make_log_path_from_content_path(content_path: &Path) -> PathBuf {
     // TODO(refactor): use PathBuf::add_extension() when it's stabilized.
-    match content_path.extension() {
-        Some(ext) => {
-            let mut ext = ext.to_os_string();
-            ext.push(".log");
-            content_path.set_extension(ext);
-            content_path
-        }
-        None => {
-            content_path.set_extension("log");
-            content_path
-        }
-    }
+    let mut path = content_path.to_owned();
+    path.as_mut_os_string().push(".log");
+    path
 }
 
 async fn load_record(config: &Config, record_path: &Path) -> Result<(Record, Option<u64>), Error> {
