@@ -634,29 +634,28 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test(tokio::test)]
-    async fn test_command_pipeline_bilder_defaul_envs() {
-        let mirakc_arib_log = std::env::var("MIRAKC_ARIB_LOG").unwrap_or_default();
-        let mirakc_arib_log_no_timestamp =
-            std::env::var("MIRAKC_ARIB_LOG_NO_TIMESTAMP").unwrap_or_default();
+    async fn test_command_pipeline_builder_defaul_envs() {
+        let mut commands = vec![];
 
-        let builder = CommandPipelineBuilder::new(
-            vec!["sh -c \"echo -n \
-                  $MIRAKC_ARIB_LOG \
-                  $MIRAKC_ARIB_LOG_NO_TIMESTAMP\""
-                .to_string()],
-            0u8,
-            "test",
-        );
+        let expected = std::env::var("MIRAKC_ARIB_LOG").unwrap_or_default();
+        commands.push(format!(r#"sh -c 'test "$MIRAKC_ARIB_LOG" = "{expected}"'"#));
+
+        let expected = std::env::var("MIRAKC_ARIB_LOG_NO_TIMESTAMP").unwrap_or_default();
+        commands.push(format!(
+            r#"sh -c 'test "$MIRAKC_ARIB_LOG_NO_TIMESTAMP" = "{expected}"'"#
+        ));
+
+        let builder = CommandPipelineBuilder::new(commands, 0u8, "test");
         let mut pipeline = builder.build(&actlet::stubs::Context::default()).unwrap();
-        let (_, mut output) = pipeline.take_endpoints();
 
-        let mut buf = String::new();
-        let result = output.read_to_string(&mut buf).await;
-        assert!(result.is_ok());
-        assert_eq!(
-            buf,
-            format!("{mirakc_arib_log} {mirakc_arib_log_no_timestamp}")
-        );
+        let status = pipeline.wait().await;
+        assert_matches!(status[0], Ok(status) => {
+            assert!(status.success());
+        });
+
+        assert_matches!(status[1], Ok(status) => {
+            assert!(status.success());
+        });
     }
 
     #[test(tokio::test)]
