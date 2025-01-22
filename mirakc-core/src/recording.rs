@@ -3716,9 +3716,25 @@ mod tests {
         let content_filename = "1.m2ts";
         let log_filename = "1.m2ts.log";
 
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+
+        let mut stopped = MockRecordingStoppedValidator::new();
+
+        stopped
+            .expect_emit()
+            .returning(move |_| notify2.notify_one())
+            .once();
+
         let system = System::new();
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::RecordingStopped(Emitter::new(stopped)))
+                .await;
+            assert_matches!(result, Ok(_));
+
             let result = manager
                 .call(StartRecording {
                     schedule: recording_schedule!(
@@ -3730,6 +3746,11 @@ mod tests {
                 })
                 .await;
             assert_matches!(result, Ok(Ok(())));
+
+            let result = manager.call(StopRecording { program_id }).await;
+            assert_matches!(result, Ok(Ok(())));
+
+            notify.notified().await;
 
             let log_path = temp_dir.path().join(RECORDING_DIR).join(log_filename);
             assert!(log_path.is_file());
@@ -3759,9 +3780,25 @@ mod tests {
         let content_filename = "1.m2ts";
         let log_filename = "1.m2ts.log";
 
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+
+        let mut stopped = MockRecordingStoppedValidator::new();
+
+        stopped
+            .expect_emit()
+            .returning(move |_| notify2.notify_one())
+            .once();
+
         let system = System::new();
         {
             let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::RecordingStopped(Emitter::new(stopped)))
+                .await;
+            assert_matches!(result, Ok(_));
+
             let result = manager
                 .call(StartRecording {
                     schedule: recording_schedule!(
@@ -3773,6 +3810,11 @@ mod tests {
                 })
                 .await;
             assert_matches!(result, Ok(Ok(())));
+
+            let result = manager.call(StopRecording { program_id }).await;
+            assert_matches!(result, Ok(Ok(())));
+
+            notify.notified().await;
 
             let log_path = temp_dir.path().join(RECORDING_DIR).join(log_filename);
             assert!(!log_path.exists());
