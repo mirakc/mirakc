@@ -1024,7 +1024,7 @@ specified:
 ### recording.log-filter
 
 The value of `recording.log-filter` is used as the default value of the
-`RecordingOptions.logFilter` if it's specified.
+`RecordingOptions.logFilter`.
 
 For backward compatibility with 3.x and older versions, logs coming from the recording command
 pipeline will be output to STDOUT if neither `recording.log-filter` nor
