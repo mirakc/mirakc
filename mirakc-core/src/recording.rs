@@ -1171,7 +1171,7 @@ where
                 }
             }
             None => {
-                // Compatible with 3.x and older.
+                // logging to STDOUT (compatible with 3.x and older).
             }
         }
         let mut pipeline = builder.build(ctx)?;
