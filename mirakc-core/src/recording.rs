@@ -29,6 +29,7 @@ use utoipa::ToSchema;
 
 use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipeline;
+use crate::command_util::CommandPipelineBuilder;
 use crate::command_util::CommandPipelineProcessModel;
 use crate::config::Config;
 use crate::epg;
@@ -1148,7 +1149,32 @@ where
             tokio::fs::create_dir_all(dir).await?;
         }
 
-        let mut pipeline = spawn_pipeline(filters, stream.id(), "recording", ctx)?;
+        let log_filter = schedule.options.log_filter.as_ref().or(self
+            .config
+            .recording
+            .log_filter
+            .as_ref());
+
+        let mut builder = CommandPipelineBuilder::new(filters, stream.id(), "recording");
+        match log_filter {
+            Some(log_filter) => {
+                builder.set_log_filter(log_filter);
+                match log_filter.as_str() {
+                    "" | "off" => {
+                        builder.set_logging(false); // Disable logging
+                    }
+                    _ => {
+                        builder.set_logging(true); // Enable logging
+                        let log_path = make_log_path_from_content_path(&content_path);
+                        builder.set_log_file(log_path);
+                    }
+                }
+            }
+            None => {
+                // logging to STDOUT (compatible with 3.x and older).
+            }
+        }
+        let mut pipeline = builder.build(ctx)?;
         let (input, mut output) = pipeline.take_endpoints();
 
         let fut = async move {
@@ -1358,21 +1384,28 @@ impl<T, E, O> RecordingManager<T, E, O> {
         if purge {
             let content_path = make_content_path(&self.config, &record).unwrap();
             if content_path.exists() {
-                match std::fs::remove_file(&content_path) {
+                match tokio::fs::remove_file(&content_path).await {
                     Ok(_) => {
                         content_removed = true;
                         self.emit_content_removed(id.clone()).await;
                     }
-                    Err(err) => tracing::error!(?err, ?content_path),
+                    Err(err) => tracing::error!(?err, ?content_path, "Failed to remove"),
                 }
             } else {
                 tracing::warn!(?record_path, ?content_path, "No content file");
                 content_removed = true;
             }
+
+            let log_path = make_log_path_from_content_path(&content_path);
+            if log_path.exists() {
+                if let Err(err) = tokio::fs::remove_file(&log_path).await {
+                    tracing::error!(?err, ?log_path, "Failed to remove");
+                }
+            }
         }
 
         debug_assert!(record_path.exists());
-        match std::fs::remove_file(&record_path) {
+        match tokio::fs::remove_file(&record_path).await {
             Ok(_) => {
                 record_removed = true;
                 self.emit_record_removed(id.clone()).await;
@@ -2408,15 +2441,37 @@ pub struct RecordingOptions {
     #[schema(value_type = Option<String>)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_path: Option<PathBuf>,
+
     /// A priority of tuner usage.
     #[serde(default)]
     pub priority: i32,
+
     /// A list of pre-filters to use.
     #[serde(default)]
     pub pre_filters: Vec<String>,
+
     /// A list of post-filters to use.
     #[serde(default)]
     pub post_filters: Vec<String>,
+
+    /// Log filter of the recording schedule.
+    ///
+    /// If this option is not specified, the value of `config.recording.log-filter` is used when
+    /// the recording starts.  The log filter will be set to the environment variable
+    /// `MIRAKC_ARIB_LOG` passed to the recording command pipeline.
+    ///
+    /// If the log filter is neither empty nor `off`, logs coming from the recording command
+    /// pipeline will be stored into a log file.  The log file will be placed in the same folder as
+    /// the content file and its name is "<content-file>.log".  The environment variable
+    /// `MIRAKC_ARIB_LOG_NO_TIMESTAMP` will be disabled and each log will have a timestamp.
+    ///
+    /// If the log filter is empty or `off`, no log will come from the recording command pipeline.
+    /// And the log file won't be created.
+    ///
+    /// For backward compatibility with 3.x and older versions, the logs will be output to STDOUT
+    /// if neither this option nor `recording.log-filter` is specified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_filter: Option<String>,
 }
 
 struct Recorder {
@@ -2623,6 +2678,14 @@ fn make_content_path_from_schedule(
             basedir.join(make_content_filename(record_id))
         }
     }
+}
+
+// content_path + ".log"
+fn make_log_path_from_content_path(content_path: &Path) -> PathBuf {
+    // TODO(refactor): use PathBuf::add_extension() when it's stabilized.
+    let mut path = content_path.to_owned();
+    path.as_mut_os_string().push(".log");
+    path
 }
 
 async fn load_record(config: &Config, record_path: &Path) -> Result<(Record, Option<u64>), Error> {
@@ -3043,6 +3106,7 @@ mod tests {
 
         let program_id = ProgramId::from((0, 1, 1));
         let content_filename = "1.m2ts";
+        let log_filename = "1.m2ts.log";
 
         let mut seq = mockall::Sequence::new();
         let mut record_saved = MockRecordSavedValidator::new();
@@ -3106,6 +3170,9 @@ mod tests {
 
         let content_path = temp_dir.path().join(RECORDING_DIR).join(content_filename);
         assert!(content_path.is_file());
+
+        let log_path = temp_dir.path().join(RECORDING_DIR).join(log_filename);
+        assert!(!log_path.exists());
 
         let record_pattern = format!(
             "{}/{RECORDS_DIR}/*{:08X}.record.json",
@@ -3197,6 +3264,13 @@ mod tests {
             program_id.value()
         );
         assert_matches!(glob::glob(&content_pattern).unwrap().next(), Some(Ok(_)));
+
+        let log_pattern = format!(
+            "{}/{RECORDING_DIR}/*{:08X}.content.log",
+            temp_dir.path().to_str().unwrap(),
+            program_id.value()
+        );
+        assert_matches!(glob::glob(&log_pattern).unwrap().next(), None);
 
         let record_pattern = format!(
             "{}/{RECORDS_DIR}/*{:08X}.record.json",
@@ -3629,6 +3703,132 @@ mod tests {
         system.shutdown().await;
 
         // TODO(#2057): range request
+    }
+
+    #[test(tokio::test)]
+    async fn test_recording_with_log_filter_info() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let program_id = ProgramId::from((0, 1, 1));
+        let content_filename = "1.m2ts";
+        let log_filename = "1.m2ts.log";
+
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+
+        let mut stopped = MockRecordingStoppedValidator::new();
+
+        stopped
+            .expect_emit()
+            .returning(move |_| notify2.notify_one())
+            .once();
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::RecordingStopped(Emitter::new(stopped)))
+                .await;
+            assert_matches!(result, Ok(_));
+
+            let result = manager
+                .call(StartRecording {
+                    schedule: recording_schedule!(
+                        RecordingScheduleState::Scheduled,
+                        program!(program_id, now, "1h"),
+                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
+                        recording_options!(content_filename, 0, "info")
+                    ),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(())));
+
+            let result = manager.call(StopRecording { program_id }).await;
+            assert_matches!(result, Ok(Ok(())));
+
+            notify.notified().await;
+
+            let log_path = temp_dir.path().join(RECORDING_DIR).join(log_filename);
+            assert!(log_path.is_file());
+
+            let result = manager.call(QueryRecords).await;
+            let id = assert_matches!(result, Ok(Ok(tuples)) => {
+                assert_eq!(tuples.len(), 1);
+                tuples[0].0.id.clone()
+            });
+
+            let result = manager.call(RemoveRecord { id, purge: true }).await;
+            assert_matches!(result, Ok(Ok((true, true))));
+
+            assert!(!log_path.exists());
+        }
+        system.shutdown().await;
+    }
+
+    #[test(tokio::test)]
+    async fn test_recording_with_log_filter_off() {
+        let now = Jst::now();
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let program_id = ProgramId::from((0, 1, 1));
+        let content_filename = "1.m2ts";
+        let log_filename = "1.m2ts.log";
+
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+
+        let mut stopped = MockRecordingStoppedValidator::new();
+
+        stopped
+            .expect_emit()
+            .returning(move |_| notify2.notify_one())
+            .once();
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::RecordingStopped(Emitter::new(stopped)))
+                .await;
+            assert_matches!(result, Ok(_));
+
+            let result = manager
+                .call(StartRecording {
+                    schedule: recording_schedule!(
+                        RecordingScheduleState::Scheduled,
+                        program!(program_id, now, "1h"),
+                        service!((0, 1), "sv", channel_gr!("ch", "ch")),
+                        recording_options!(content_filename, 0, "off")
+                    ),
+                })
+                .await;
+            assert_matches!(result, Ok(Ok(())));
+
+            let result = manager.call(StopRecording { program_id }).await;
+            assert_matches!(result, Ok(Ok(())));
+
+            notify.notified().await;
+
+            let log_path = temp_dir.path().join(RECORDING_DIR).join(log_filename);
+            assert!(!log_path.exists());
+
+            let result = manager.call(QueryRecords).await;
+            let id = assert_matches!(result, Ok(Ok(tuples)) => {
+                assert_eq!(tuples.len(), 1);
+                tuples[0].0.id.clone()
+            });
+
+            let result = manager.call(RemoveRecord { id, purge: true }).await;
+            assert_matches!(result, Ok(Ok((true, true))));
+        }
+        system.shutdown().await;
     }
 
     #[test(tokio::test)]

@@ -885,6 +885,7 @@ impl JobConfig {
 pub struct RecordingConfig {
     pub basedir: Option<PathBuf>,
     pub records_dir: Option<PathBuf>,
+    pub log_filter: Option<String>,
 }
 
 impl RecordingConfig {
@@ -2961,6 +2962,14 @@ mod tests {
             serde_yaml::from_str::<RecordingConfig>("records-dir: /tmp").unwrap(),
             RecordingConfig {
                 records_dir: Some("/tmp".into()),
+                ..Default::default()
+            }
+        );
+
+        assert_eq!(
+            serde_yaml::from_str::<RecordingConfig>("log-filter: off").unwrap(),
+            RecordingConfig {
+                log_filter: Some("off".into()),
                 ..Default::default()
             }
         );
