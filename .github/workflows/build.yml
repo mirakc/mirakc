@@ -20,7 +20,7 @@ jobs:
       - name: Install macfuse (macos)
         if: matrix.runner == 'macos-latest'
         run: |
-          brew install macfuse pkg-config
+          brew install macfuse
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
