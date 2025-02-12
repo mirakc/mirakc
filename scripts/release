@@ -95,16 +95,9 @@ then
   git pull
 fi
 
-for MANIFEST in $(find $PROJDIR -name Cargo.toml)
-do
-  if grep -e '^version = "0.0.0"$' $MANIFEST >/dev/null 2>&1
-  then
-    log "Skip $MANIFEST"
-  else
-    log "Bumping the version in $MANIFEST to $VERSION..."
-    sed -i'.sed.backup' -e "s/^version = .*/version = \"$VERSION\"/" $MANIFEST
-  fi
-done
+MANIFEST="$PROJDIR/Cargo.toml"
+log "Bumping the version in $MANIFEST to $VERSION..."
+sed -i'.sed.backup' -e "s/^version = .*/version = \"$VERSION\"/" $MANIFEST
 
 # We assume that build never fails.
 

@@ -11,6 +11,15 @@ members = ["actlet", "actlet-derive", "chrono-jst", "mirakc", "mirakc-core", "mi
 # * https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
 resolver = "2"
 
+[workspace.package]
+authors = ["Contributors of mirakc"]
+edition = "2021"
+homepage = "https://github.com/mirakc"
+license = "MIT OR Apache-2.0"
+publish = false
+repository = "https://github.com/mirakc/mirakc.git"
+version = "4.0.0-dev.0"
+
 [profile.release]
 lto = true
 strip = true

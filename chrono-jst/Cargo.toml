@@ -1,10 +1,12 @@
 [package]
 name = "chrono-jst"
 version = "0.0.0"
-authors = ["Contributors of mirakc"]
-edition = "2021"
-license = "MIT OR Apache-2.0"
-publish = false
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [dependencies]
 chrono = { version = "0.4.39", default-features = false, features = ["clock", "serde"] }
