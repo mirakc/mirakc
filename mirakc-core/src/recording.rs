@@ -117,15 +117,10 @@ impl<T, E, O> RecordingManager<T, E, O> {
             Ok(serde_json::from_reader(file)?)
         }
 
-        let basedir = match self.config.recording.basedir {
-            Some(ref basedir) => basedir,
-            None => return,
+        let path = match make_schedules_path(&self.config) {
+            Some(path) if path.exists() => path,
+            _ => return,
         };
-
-        let path = basedir.join("schedules.json");
-        if !path.exists() {
-            return;
-        }
 
         match do_load(&path) {
             Ok(schedules) => {
@@ -153,13 +148,13 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 
     fn save_schedules(&self) {
-        let basedir = match self.config.recording.basedir {
-            Some(ref basedir) => basedir,
+        let path = match make_schedules_path(&self.config) {
+            Some(path) => path,
             None => return,
         };
 
         let schedules = self.schedules.values().collect_vec();
-        if file_util::save_json(&schedules, basedir.join("schedules.json")) {
+        if file_util::save_json(&schedules, &path) {
             tracing::info!(schedules.len = schedules.len(), "Saved schedules");
         } else {
             tracing::error!("Failed to save schedules");
@@ -2636,6 +2631,14 @@ fn get_first_error(results: &[std::io::Result<ExitStatus>]) -> Option<i32> {
         .find(|&code| code != 0)
 }
 
+pub fn make_schedules_path(config: &Config) -> Option<PathBuf> {
+    config
+        .recording
+        .basedir
+        .as_ref()
+        .map(|basedir| basedir.join("schedules.v1.json"))
+}
+
 fn make_record_path(config: &Config, record_id: &RecordId) -> Option<PathBuf> {
     config
         .recording
@@ -2785,11 +2788,7 @@ mod tests {
         let num_schedules = manager.schedules.len();
 
         manager.save_schedules();
-        assert!(temp_dir
-            .path()
-            .join(RECORDING_DIR)
-            .join("schedules.json")
-            .is_file());
+        assert!(make_schedules_path(&config).unwrap().is_file());
 
         let mut manager = recording_manager!(config.clone());
         manager.load_schedules();

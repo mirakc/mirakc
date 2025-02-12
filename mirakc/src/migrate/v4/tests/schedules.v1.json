@@ -1,0 +1,39 @@
+[
+  {
+    "state": "scheduled",
+    "program": {
+      "id": 10000100001,
+      "start_at": 0,
+      "duration": 0,
+      "scrambled": false,
+      "name": null,
+      "description": null,
+      "extended": null,
+      "video": null,
+      "audios": null,
+      "genres": null,
+      "series": null,
+      "event_group": null
+    },
+    "service": {
+      "id": 100001,
+      "type": 1,
+      "logoId": -1,
+      "remoteControlKeyId": 0,
+      "name": "test",
+      "channel": {
+        "name": "test",
+        "type": "GR",
+        "channel": "1",
+        "extra_args": "",
+        "services": [],
+        "excluded_services": []
+      }
+    },
+    "options": {
+      "priority": 0,
+      "preFilters": [],
+      "postFilters": []
+    }
+  }
+]

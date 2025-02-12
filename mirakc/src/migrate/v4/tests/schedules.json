@@ -1,0 +1,24 @@
+[
+  {
+    "state": "scheduled",
+    "program": {
+      "id": 10000100001,
+      "start_at": 0,
+      "duration": 0,
+      "scrambled": false,
+      "name": null,
+      "description": null,
+      "extended": null,
+      "video": null,
+      "audios": null,
+      "genres": null,
+      "series": null,
+      "event_group": null
+    },
+    "options": {
+      "priority": 0,
+      "preFilters": [],
+      "postFilters": []
+    }
+  }
+]

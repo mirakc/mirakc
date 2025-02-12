@@ -7,6 +7,7 @@ pub mod command_util;
 pub mod config;
 pub mod epg;
 pub mod error;
+pub mod file_util;
 pub mod filter;
 pub mod models;
 pub mod mpeg_ts_stream;
@@ -19,4 +20,3 @@ pub mod tuner;
 pub mod web;
 
 mod events;
-mod file_util;
