@@ -1,3 +1,4 @@
+mod migrate;
 mod openapi;
 mod rebuild_timeshift;
 mod serve;
@@ -40,6 +41,7 @@ enum LogFormat {
 
 #[derive(Subcommand)]
 enum Command {
+    Migrate(migrate::CommandLine),
     Openapi(openapi::CommandLine),
     RebuildTimeshift(rebuild_timeshift::CommandLine),
 }
@@ -59,8 +61,29 @@ async fn main() {
     let config = mirakc_core::config::load(&cl.config);
 
     match cl.command {
+        Some(Command::Migrate(ref cl)) => migrate::main(&config, cl).await,
         Some(Command::Openapi(ref cl)) => openapi::main(config, cl).await,
         Some(Command::RebuildTimeshift(ref cl)) => rebuild_timeshift::main(config, cl).await,
-        None => serve::main(config).await,
+        None => {
+            if auto_migrate() {
+                tracing::info!("Migrating existing data automatically...");
+                migrate::main(&config, &Default::default()).await;
+            }
+            serve::main(config).await
+        }
+    }
+}
+
+fn auto_migrate() -> bool {
+    // Always perform auto-migration in release versions.
+    let version = semver::Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
+    if version.pre.is_empty() {
+        return true;
+    }
+
+    // DO NOT USE THE FOLLOWING ENVIRONMENT VARIABLE EXCEPT FOR DEBUGGING PURPOSES.
+    match std::env::var_os("MIRAKC_DEBUG_FORCE_MIGRATE") {
+        Some(v) => v == "1",
+        None => false,
     }
 }
