@@ -20,13 +20,13 @@ pub fn migrate_recording_schedules(config: &config::Config, cl: &CommandLine) ->
 
     let old_path = basedir.join("schedules.json");
     if !old_path.is_file() {
-        tracing::info!(file = %old_path.display(), "File not found");
+        tracing::info!(file = ?old_path, "File not found");
         return false;
     }
 
     let new_path = basedir.join("schedules.v1.json");
     if !cl.force && new_path.is_file() {
-        tracing::info!(file = %new_path.display(), "Already migrated");
+        tracing::info!(file = ?new_path, "Already migrated");
         return false;
     }
 
@@ -41,7 +41,7 @@ pub fn migrate_recording_schedules(config: &config::Config, cl: &CommandLine) ->
     let services: Vec<(models::ServiceId, epg::EpgService)> = {
         let path = epg_cache_dir.join("services.json");
         if !path.is_file() {
-            tracing::error!(file = %path.display(), "No EPG data");
+            tracing::error!(needed = ?path, "No EPG data");
             return false;
         }
         let file = std::fs::File::open(path).unwrap();
@@ -56,7 +56,7 @@ pub fn migrate_recording_schedules(config: &config::Config, cl: &CommandLine) ->
     };
 
     tracing::info!(
-        file = %old_path.display(),
+        file = ?old_path,
         reason = "feat(recording)!: add `RecordingSchedule.service`",
         commit = "b4e324db670947dfdd056402faaa7bcedcc2e4dc",
         "Migrating...",
@@ -77,7 +77,7 @@ pub fn migrate_recording_schedules(config: &config::Config, cl: &CommandLine) ->
     }
 
     if file_util::save_json(&schedules, &new_path) {
-        tracing::info!("Migrated successfully");
+        tracing::info!(?old_path, ?new_path, "Migrated successfully");
         true
     } else {
         tracing::error!(?new_path, "Failed to save");
