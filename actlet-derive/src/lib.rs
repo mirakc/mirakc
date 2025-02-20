@@ -20,7 +20,7 @@ pub fn message_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
         })
         .unwrap_or((quote!(()), quote!(actlet::Signal)));
 
-    let gen = quote! {
+    let code = quote! {
         impl #impl_generics actlet::Message for #ty_name #ty_generics #where_clause {
             type Reply = #reply_type;
         }
@@ -28,5 +28,5 @@ pub fn message_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
         impl #impl_generics #message_trait for #ty_name #ty_generics #where_clause {}
     };
 
-    gen.into()
+    code.into()
 }
