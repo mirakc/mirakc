@@ -124,7 +124,7 @@ impl TunerManager {
                     .onair_program_trackers
                     .iter()
                     .filter_map(|(name, config)| match config {
-                        OnairProgramTrackerConfig::Local(ref config) => Some((name, config)),
+                        OnairProgramTrackerConfig::Local(config) => Some((name, config)),
                         _ => None,
                     })
                     .find_map(|(name, tracker)| {
@@ -960,11 +960,8 @@ impl Drop for TunerSession {
 impl ExcludedChannelConfig {
     fn matches(&self, epg: &EpgChannel) -> bool {
         match self {
-            Self::Name(ref name) => epg.name == *name,
-            Self::Params {
-                channel_type,
-                ref channel,
-            } => epg.channel_type == *channel_type && epg.channel == *channel,
+            Self::Name(name) => epg.name == *name,
+            Self::Params { channel_type, channel } => epg.channel_type == *channel_type && epg.channel == *channel,
         }
     }
 }
