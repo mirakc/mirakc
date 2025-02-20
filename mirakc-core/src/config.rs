@@ -142,7 +142,7 @@ impl Config {
             config.validate(i);
             for (j, excluded) in config.excluded_channels.iter().enumerate() {
                 match excluded {
-                    ExcludedChannelConfig::Name(ref name) => {
+                    ExcludedChannelConfig::Name(name) => {
                         let name = name.as_str();
                         let n = self
                             .channels
@@ -188,7 +188,7 @@ impl Config {
             .onair_program_trackers
             .iter()
             .filter_map(|(name, config)| match config {
-                OnairProgramTrackerConfig::Local(ref config) => Some((name, config)),
+                OnairProgramTrackerConfig::Local(config) => Some((name, config)),
                 _ => None,
             })
         {
@@ -613,7 +613,7 @@ impl ExcludedChannelConfig {
                      must be a non-empty string",
                 );
             }
-            Self::Params { ref channel, .. } => {
+            Self::Params { channel, .. } => {
                 assert!(
                     !channel.is_empty(),
                     "config.tuners[{tuner_index}].excluded-channels[{index}].params.channel: \

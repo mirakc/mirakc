@@ -382,8 +382,8 @@ where
 impl OnairProgramTrackerConfig {
     fn matches(&self, service: &EpgService) -> bool {
         match self {
-            Self::Local(ref config) => config.matches(service),
-            Self::Remote(ref config) => config.matches(service.id),
+            Self::Local(config) => config.matches(service),
+            Self::Remote(config) => config.matches(service.id),
         }
     }
 }
