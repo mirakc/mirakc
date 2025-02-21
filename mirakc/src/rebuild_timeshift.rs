@@ -20,8 +20,8 @@ use clap::Args;
 use mirakc_core::epg::SyncClock;
 use mirakc_core::*;
 use tempfile::TempDir;
-use tokio::signal::unix::signal;
 use tokio::signal::unix::SignalKind;
+use tokio::signal::unix::signal;
 
 const MIN_CHUNKS: u64 = 3;
 
@@ -90,7 +90,9 @@ pub async fn main(config: Arc<config::Config>, cl: &CommandLine) {
     validate(&config, cl);
 
     // SAFETY: Set the environment variable before starting actors.
-    unsafe { std::env::set_var("MIRAKC_REBUILD_TIMESHIFT", "1"); }
+    unsafe {
+        std::env::set_var("MIRAKC_REBUILD_TIMESHIFT", "1");
+    }
 
     let segments = scan(cl);
     if segments.is_empty() {

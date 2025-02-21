@@ -3,10 +3,10 @@ use super::*;
 use crate::models::TunerUser;
 use crate::timeshift::TimeshiftRecordModel;
 use crate::timeshift::TimeshiftRecorderModel;
+use crate::web::api::stream::StreamingHeaderParams;
 use crate::web::api::stream::compute_content_length;
 use crate::web::api::stream::compute_content_range;
 use crate::web::api::stream::streaming;
-use crate::web::api::stream::StreamingHeaderParams;
 
 /// Lists timeshift records.
 #[utoipa::path(

@@ -18,10 +18,10 @@ use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
 use crate::tuner::TunerSubscriptionId;
 
-use super::local::LocalTracker;
-use super::remote::RemoteTracker;
 use super::OnairProgramChanged;
 use super::TrackerStopped;
+use super::local::LocalTracker;
+use super::remote::RemoteTracker;
 
 pub struct OnairProgramManager<T, E> {
     config: Arc<Config>,

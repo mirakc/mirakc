@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use tokio::signal::unix::signal;
 use tokio::signal::unix::SignalKind;
+use tokio::signal::unix::signal;
 
 use actlet::prelude::*;
 use mirakc_core::*;
