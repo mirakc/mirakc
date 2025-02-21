@@ -89,7 +89,8 @@ pub async fn main(config: Arc<config::Config>, cl: &CommandLine) {
 
     validate(&config, cl);
 
-    std::env::set_var("MIRAKC_REBUILD_TIMESHIFT", "1");
+    // SAFETY: Set the environment variable before starting actors.
+    unsafe { std::env::set_var("MIRAKC_REBUILD_TIMESHIFT", "1"); }
 
     let segments = scan(cl);
     if segments.is_empty() {
