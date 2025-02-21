@@ -13,11 +13,12 @@ resolver = "2"
 
 [workspace.package]
 authors = ["Contributors of mirakc"]
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/mirakc"
 license = "MIT OR Apache-2.0"
 publish = false
 repository = "https://github.com/mirakc/mirakc.git"
+rust-version = "1.85.0"
 version = "4.0.0-dev.0"
 
 [profile.release]

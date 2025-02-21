@@ -18,10 +18,10 @@ use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
 use crate::tuner::TunerSubscriptionId;
 
-use super::local::LocalTracker;
-use super::remote::RemoteTracker;
 use super::OnairProgramChanged;
 use super::TrackerStopped;
+use super::local::LocalTracker;
+use super::remote::RemoteTracker;
 
 pub struct OnairProgramManager<T, E> {
     config: Arc<Config>,
@@ -382,8 +382,8 @@ where
 impl OnairProgramTrackerConfig {
     fn matches(&self, service: &EpgService) -> bool {
         match self {
-            Self::Local(ref config) => config.matches(service),
-            Self::Remote(ref config) => config.matches(service.id),
+            Self::Local(config) => config.matches(service),
+            Self::Remote(config) => config.matches(service.id),
         }
     }
 }

@@ -1,8 +1,8 @@
 use std::io;
 use std::pin::Pin;
-use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
+use std::task::ready;
 
 use bytes::Bytes;
 use futures::stream::Stream;

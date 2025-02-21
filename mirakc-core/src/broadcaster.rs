@@ -11,8 +11,8 @@ use once_cell::sync::Lazy;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::tuner::TunerSessionId as BroadcasterId;
 use crate::tuner::TunerSubscriptionId as SubscriberId;
@@ -63,6 +63,7 @@ pub struct Broadcaster {
     time_limit: Duration,
     last_received: Instant,
     stream_bound: bool,
+    rebuild_mode: bool,
 }
 
 impl Broadcaster {
@@ -79,6 +80,7 @@ impl Broadcaster {
             time_limit: Duration::from_millis(time_limit),
             last_received: Instant::now(),
             stream_bound: false,
+            rebuild_mode: crate::timeshift::is_rebuild_mode(),
         }
     }
 
@@ -177,7 +179,7 @@ impl Broadcaster {
             .filter(|subscriber| subscriber.sender.is_some())
             .filter_map(|subscriber| {
                 let cap = subscriber.sender.as_ref().unwrap().capacity();
-                if crate::timeshift::is_rebuild_mode() {
+                if self.rebuild_mode {
                     // In the timeshift rebuild mode, the broadcaster stops
                     // feeding chunks while a subscriber's queue is getting
                     // stuck.
@@ -554,12 +556,13 @@ mod tests {
         tokio::time::sleep(max_stuck_time).await;
 
         // In the timeshift rebuild mode, the stuck time is never checked.
-        std::env::set_var("MIRAKC_REBUILD_TIMESHIFT", "1");
+        assert!(!broadcaster.rebuild_mode);
+        broadcaster.rebuild_mode = true;
         assert_eq!(broadcaster.min_capacity(), 0);
+        broadcaster.rebuild_mode = false;
 
         // `max_stuck_time` has already been reached.
         // Start dropping chunks.
-        std::env::remove_var("MIRAKC_REBUILD_TIMESHIFT");
         assert_eq!(broadcaster.min_capacity(), Broadcaster::MAX_CHUNKS);
 
         receiver.recv().await;

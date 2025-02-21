@@ -326,9 +326,9 @@ struct Entry {
 mod tests {
     use super::*;
     use crate::config::LocalOnairProgramTrackerUses;
-    use crate::epg::stub::EpgStub;
     use crate::epg::EitEvent;
     use crate::epg::EpgChannel;
+    use crate::epg::stub::EpgStub;
     use crate::models::ChannelType;
     use crate::tuner::stub::TunerManagerStub;
     use assert_matches::assert_matches;

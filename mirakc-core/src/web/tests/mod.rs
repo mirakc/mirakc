@@ -5,14 +5,14 @@ use std::future::Future;
 
 use assert_matches::assert_matches;
 use axum::body::Body;
+use axum::http::Request;
+use axum::http::StatusCode;
 use axum::http::header::ACCEPT_RANGES;
 use axum::http::header::CONTENT_LENGTH;
 use axum::http::header::CONTENT_RANGE;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::header::HOST;
 use axum::http::header::LOCATION;
-use axum::http::Request;
-use axum::http::StatusCode;
 use axum::response::Response;
 use http_body_util::BodyExt; // for `collect`
 use mime::APPLICATION_JSON;
@@ -23,8 +23,8 @@ use tower::ServiceExt;
 use crate::epg::stub::EpgStub;
 use crate::models::TunerUserPriority;
 use crate::onair::stub::OnairProgramManagerStub;
-use crate::recording::stub::RecordingManagerStub;
 use crate::recording::RecordingOptions;
+use crate::recording::stub::RecordingManagerStub;
 use crate::timeshift::stub::TimeshiftManagerStub;
 use crate::tuner::stub::TunerManagerStub;
 use api::models::*;
