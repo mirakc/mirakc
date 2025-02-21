@@ -58,5 +58,4 @@ where
         .map(|onair_program| (service_id, onair_program))
         .map(WebOnairProgram::from)
         .map(Json::from)
-        .map_err(Error::from)
 }
