@@ -1,9 +1,9 @@
 use super::*;
 
 use crate::epg::EpgChannel;
+use crate::web::api::stream::StreamingHeaderParams;
 use crate::web::api::stream::do_head_stream;
 use crate::web::api::stream::streaming;
-use crate::web::api::stream::StreamingHeaderParams;
 
 /// Gets a media stream of a channel.
 #[utoipa::path(

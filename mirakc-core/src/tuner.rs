@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use actlet::prelude::*;
 
 use crate::broadcaster::*;
-use crate::command_util::spawn_pipeline;
 use crate::command_util::CommandPipeline;
+use crate::command_util::spawn_pipeline;
 use crate::config::Config;
 use crate::config::ExcludedChannelConfig;
 use crate::config::FilterConfig;
@@ -961,7 +961,10 @@ impl ExcludedChannelConfig {
     fn matches(&self, epg: &EpgChannel) -> bool {
         match self {
             Self::Name(name) => epg.name == *name,
-            Self::Params { channel_type, channel } => epg.channel_type == *channel_type && epg.channel == *channel,
+            Self::Params {
+                channel_type,
+                channel,
+            } => epg.channel_type == *channel_type && epg.channel == *channel,
         }
     }
 }

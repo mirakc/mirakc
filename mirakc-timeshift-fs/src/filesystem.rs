@@ -1,5 +1,5 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::File;

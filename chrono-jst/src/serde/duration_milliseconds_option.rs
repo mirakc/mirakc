@@ -89,11 +89,13 @@ mod tests {
             serde_json::from_str::<Data>(JSON).unwrap()
         );
 
-        assert!(serde_json::from_str::<Data>(&format!(
-            r#"{{"duration_some":{},"duration_none":null}}"#,
-            u64::MAX
-        ))
-        .is_err());
+        assert!(
+            serde_json::from_str::<Data>(&format!(
+                r#"{{"duration_some":{},"duration_none":null}}"#,
+                u64::MAX
+            ))
+            .is_err()
+        );
     }
 
     #[test]

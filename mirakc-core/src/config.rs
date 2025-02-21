@@ -2104,14 +2104,16 @@ mod tests {
             config
         );
 
-        assert!(serde_yaml::from_str::<ChannelConfig>(
-            r#"
+        assert!(
+            serde_yaml::from_str::<ChannelConfig>(
+                r#"
                 name: x
                 type: WOWOW
                 channel: y
             "#
-        )
-        .is_err());
+            )
+            .is_err()
+        );
 
         let result = serde_yaml::from_str::<ChannelConfig>(
             r#"
@@ -2425,14 +2427,16 @@ mod tests {
             config
         );
 
-        assert!(serde_yaml::from_str::<TunerConfig>(
-            r#"
+        assert!(
+            serde_yaml::from_str::<TunerConfig>(
+                r#"
                 name: x
                 types: [WOWOW]
                 command: open tuner
             "#
-        )
-        .is_err());
+            )
+            .is_err()
+        );
 
         let result = serde_yaml::from_str::<TunerConfig>(
             r#"
@@ -2895,13 +2899,15 @@ mod tests {
             config
         );
 
-        assert!(serde_yaml::from_str::<JobConfig>(
-            r#"
+        assert!(
+            serde_yaml::from_str::<JobConfig>(
+                r#"
             unknown:
               property: value
         "#
-        )
-        .is_err());
+            )
+            .is_err()
+        );
     }
 
     fn job_config() -> JobConfig {
@@ -2978,17 +2984,21 @@ mod tests {
     #[test]
     fn test_recording_is_enabled() {
         assert!(!RecordingConfig::default().is_enabled());
-        assert!(serde_yaml::from_str::<RecordingConfig>("basedir: /tmp")
-            .unwrap()
-            .is_enabled());
+        assert!(
+            serde_yaml::from_str::<RecordingConfig>("basedir: /tmp")
+                .unwrap()
+                .is_enabled()
+        );
     }
 
     #[test]
     fn test_recording_is_records_api_enabled() {
         assert!(!RecordingConfig::default().is_records_api_enabled());
-        assert!(!serde_yaml::from_str::<RecordingConfig>("basedir: /tmp")
-            .unwrap()
-            .is_records_api_enabled());
+        assert!(
+            !serde_yaml::from_str::<RecordingConfig>("basedir: /tmp")
+                .unwrap()
+                .is_records_api_enabled()
+        );
         assert!(
             !serde_yaml::from_str::<RecordingConfig>("records-dir: /tmp")
                 .unwrap()
@@ -3081,20 +3091,23 @@ mod tests {
             },
         );
 
-        assert!(serde_yaml::from_str::<TimeshiftConfig>(
-            r#"
+        assert!(
+            serde_yaml::from_str::<TimeshiftConfig>(
+                r#"
             unknown: property
         "#
-        )
-        .is_err());
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn test_timeshift_is_enabled() {
         assert!(!TimeshiftConfig::default().is_enabled());
 
-        assert!(serde_yaml::from_str::<TimeshiftConfig>(
-            r#"
+        assert!(
+            serde_yaml::from_str::<TimeshiftConfig>(
+                r#"
                 command: command
                 recorders:
                   test:
@@ -3107,12 +3120,14 @@ mod tests {
                       channel-type: GR
                       channel: ch
             "#
-        )
-        .unwrap()
-        .is_enabled());
+            )
+            .unwrap()
+            .is_enabled()
+        );
 
-        assert!(!serde_yaml::from_str::<TimeshiftConfig>(
-            r#"
+        assert!(
+            !serde_yaml::from_str::<TimeshiftConfig>(
+                r#"
                 command: ''
                 recorders:
                   test:
@@ -3125,9 +3140,10 @@ mod tests {
                       channel-type: GR
                       channel: ch
             "#
-        )
-        .unwrap()
-        .is_enabled());
+            )
+            .unwrap()
+            .is_enabled()
+        );
     }
 
     #[test]
@@ -3165,8 +3181,9 @@ mod tests {
     fn test_timeshift_recorder_config() {
         assert!(serde_yaml::from_str::<TimeshiftRecorderConfig>("{}").is_err());
 
-        assert!(serde_yaml::from_str::<TimeshiftRecorderConfig>(
-            r#"
+        assert!(
+            serde_yaml::from_str::<TimeshiftRecorderConfig>(
+                r#"
             service-id: 1
             ts-file: /path/to/timeshift.m2ts
             data-file: /path/to/timeshift.json
@@ -3177,8 +3194,9 @@ mod tests {
               channel: ch
             unknown: property
         "#
-        )
-        .is_err());
+            )
+            .is_err()
+        );
 
         assert_eq!(
             serde_yaml::from_str::<TimeshiftRecorderConfig>(
