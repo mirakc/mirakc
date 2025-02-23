@@ -588,7 +588,7 @@ struct Ino(u64);
 
 impl Ino {
     fn create_recorder_ino(index: usize) -> Self {
-        (0x0100_0000_0000_0000 | (index as u64) << 32).into()
+        (0x0100_0000_0000_0000 | ((index as u64) << 32)).into()
     }
 
     fn create_record_ino(index: usize, record_id: TimeshiftRecordId) -> Self {
