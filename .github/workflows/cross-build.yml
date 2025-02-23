@@ -13,32 +13,34 @@ jobs:
           - stable
           #- nightly
         target:
-          - i686-unknown-linux-gnu
-          - arm-unknown-linux-gnueabi
-          - armv7-unknown-linux-gnueabihf
-          - aarch64-unknown-linux-gnu
+          # glibc
+          - i686-unknown-linux-gnu         # linux/386
+          - arm-unknown-linux-gnueabi      # linux/arm/v5
+          - armv7-unknown-linux-gnueabihf  # linux/arv/v7
+          - aarch64-unknown-linux-gnu      # linux/arm64/v8
+          # musl
+          - i686-unknown-linux-musl         # linux/386
+          - x86_64-unknown-linux-musl       # linux/amd64
+          - arm-unknown-linux-musleabi      # linux/arm/v6
+          - armv7-unknown-linux-musleabihf  # linux/arm/v7
+          - aarch64-unknown-linux-musl      # linux/arm64/v8
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      # We cannot use Swatinem/rust-cache in this workflow.
-      # A toolchain must be installed before Swatinem/rust-cache,
-      # but it will be installed in the Build step.
-      - name: Cache for Cargo
-        uses: actions/cache@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.target }}-${{ matrix.rust }}-
-      - uses: taiki-e/install-action@cross
+          toolchain: ${{ matrix.rust }}
+          components: 'clippy, rustfmt'
+      - uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+      # TODO(ci): use cache
+      - uses: taiki-e/install-action@nextest
       - name: Build
         run: |
-          cross build -v --release --target=${{ matrix.target }}
+          cargo build -v --release
       - name: Run tests
         run: |
-          cross test -v --release --target=${{ matrix.target }}
+          cargo nextest run --release --all-features
         env:
           RUST_LOG: debug
