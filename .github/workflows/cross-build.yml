@@ -44,3 +44,7 @@ jobs:
           cargo nextest run --release --all-features
         env:
           RUST_LOG: debug
+          # FIXME(ci): The following test randomly fails in the `cross-build` workflow for an
+          # unclear reason.  We have not succeeded reproducing the failure locally, but the command
+          # that doesn't exist can be spawned successfully for some mysterious reason...
+          MIRAKC_CI_CROSS_BUILD_WORKAROUND: ${{ contains(matrix.target, 'gnu') }}
