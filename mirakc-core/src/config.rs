@@ -752,131 +752,146 @@ impl PostFilterConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[serde(deny_unknown_fields)]
 pub struct JobsConfig {
-    #[serde(default = "JobsConfig::default_scan_services")]
-    pub scan_services: JobConfig,
-    #[serde(default = "JobsConfig::default_sync_clocks")]
-    pub sync_clocks: JobConfig,
-    #[serde(default = "JobsConfig::default_update_schedules")]
-    pub update_schedules: JobConfig,
+    #[serde(default)]
+    pub scan_services: ScanServicesJobConfig,
+    #[serde(default)]
+    pub sync_clocks: SyncClocksJobConfig,
+    #[serde(default)]
+    pub update_schedules: UpdateSchedulesJobConfig,
 }
 
 impl JobsConfig {
-    fn default_scan_services() -> JobConfig {
-        JobConfig {
-            // timeout 30s
-            command: "timeout 30 mirakc-arib scan-services\
-                      {{#sids}} --sids={{{.}}}{{/sids}}\
-                      {{#xsids}} --xsids={{{.}}}{{/xsids}}"
-                .to_string(),
-            schedule: "0 1 8,20 * * * *".to_string(),
-            disabled: false,
-        }
-    }
-
-    fn default_sync_clocks() -> JobConfig {
-        JobConfig {
-            // timeout 30s
-            command: "timeout 30 mirakc-arib sync-clocks\
-                      {{#sids}} --sids={{{.}}}{{/sids}}\
-                      {{#xsids}} --xsids={{{.}}}{{/xsids}}"
-                .to_string(),
-            schedule: "0 11 8,20 * * * *".to_string(),
-            disabled: false,
-        }
-    }
-
-    fn default_update_schedules() -> JobConfig {
-        JobConfig {
-            // timeout: 10m
-            command: "timeout 600 mirakc-arib collect-eits\
-                      {{#sids}} --sids={{{.}}}{{/sids}}\
-                      {{#xsids}} --xsids={{{.}}}{{/xsids}}"
-                .to_string(),
-            schedule: "0 21 8,20 * * * *".to_string(),
-            disabled: false,
-        }
-    }
-
     fn normalize(mut self) -> Self {
-        if !self.scan_services.disabled {
-            if self.scan_services.command.is_empty() {
-                self.scan_services.command = Self::default_scan_services().command;
-            }
-            if self.scan_services.schedule.is_empty() {
-                self.scan_services.schedule = Self::default_scan_services().schedule;
-            }
-        }
-        if !self.sync_clocks.disabled {
-            if self.sync_clocks.command.is_empty() {
-                self.sync_clocks.command = Self::default_sync_clocks().command;
-            }
-            if self.sync_clocks.schedule.is_empty() {
-                self.sync_clocks.schedule = Self::default_sync_clocks().schedule;
-            }
-        }
-        if !self.update_schedules.disabled {
-            if self.update_schedules.command.is_empty() {
-                self.update_schedules.command = Self::default_update_schedules().command;
-            }
-            if self.update_schedules.schedule.is_empty() {
-                self.update_schedules.schedule = Self::default_update_schedules().schedule;
-            }
-        }
+        self.scan_services.normalize();
+        self.sync_clocks.normalize();
+        self.update_schedules.normalize();
         self
     }
 
     fn validate(&self) {
-        self.scan_services.validate("scan-services");
-        self.sync_clocks.validate("sync-clocks");
-        self.update_schedules.validate("update-schedules");
+        self.scan_services.validate();
+        self.sync_clocks.validate();
+        self.update_schedules.validate();
     }
 }
 
-impl Default for JobsConfig {
-    fn default() -> Self {
-        JobsConfig {
-            scan_services: Self::default_scan_services(),
-            sync_clocks: Self::default_sync_clocks(),
-            update_schedules: Self::default_update_schedules(),
+// NOTE: We cannot use any macros to generate a constant string such as `concat!()` in
+// `$default_command` and `$default_schedule`.  Because `value` in `#[serde(default = value)]` must
+// be a string literal.
+macro_rules! define_job_config {
+    (
+        $name:ident,
+        $label:literal,
+        $default_command:literal => $default_command_value:literal,
+        $default_schedule:literal => $default_schedule_value:literal,
+    ) => {
+        #[derive(Clone, Debug, Deserialize, PartialEq)]
+        #[serde(rename_all = "kebab-case")]
+        #[serde(deny_unknown_fields)]
+        pub struct $name {
+            #[serde(default = $default_command)]
+            pub command: String,
+            #[serde(default = $default_schedule)]
+            pub schedule: String,
+            #[serde(default)]
+            pub disabled: bool,
         }
-    }
-}
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-#[serde(deny_unknown_fields)]
-pub struct JobConfig {
-    #[serde(default)]
-    pub command: String,
-    #[serde(default)]
-    pub schedule: String,
-    #[serde(default)]
-    pub disabled: bool,
-}
-
-impl JobConfig {
-    fn validate(&self, name: &str) {
-        if self.disabled {
-            if !crate::timeshift::is_rebuild_mode() {
-                tracing::warn!(config = format!("jobs.{}", name), "Disabled");
+        impl $name {
+            fn default_command() -> String {
+                $default_command_value.to_string()
             }
-        } else {
-            assert!(
-                !self.command.is_empty(),
-                "config.jobs[{}].command: must be a non-empty string",
-                name
-            );
-            assert!(
-                cron::Schedule::from_str(&self.schedule).is_ok(),
-                "config.jobs[{}].schedule: not valid",
-                name
-            );
+
+            fn default_schedule() -> String {
+                $default_schedule_value.to_string()
+            }
+
+            fn normalize(&mut self) {
+                if !self.disabled {
+                    if self.command.is_empty() {
+                        self.command = Self::default_command();
+                    }
+                    if self.schedule.is_empty() {
+                        self.schedule = Self::default_schedule();
+                    }
+                }
+            }
+
+            fn validate(&self) {
+                if self.disabled {
+                    if !crate::timeshift::is_rebuild_mode() {
+                        tracing::warn!(config = concat!("config.jobs.", $label), "Disabled");
+                    }
+                } else {
+                    assert!(
+                        !self.command.is_empty(),
+                        concat!(
+                            "config.jobs.",
+                            $label,
+                            ".command: must be a non-empty string"
+                        ),
+                    );
+                    assert!(
+                        cron::Schedule::from_str(&self.schedule).is_ok(),
+                        concat!("config.jobs.", $label, ".schedule: not valid"),
+                    );
+                }
+            }
         }
-    }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    command: Self::default_command(),
+                    schedule: Self::default_schedule(),
+                    disabled: false,
+                }
+            }
+        }
+    };
+}
+
+define_job_config! {
+    ScanServicesJobConfig,
+    "scan-services",
+    // timeout: 30s
+    "ScanServicesJobConfig::default_command" =>
+        "timeout 30 mirakc-arib scan-services\
+         {{#sids}} --sids={{{.}}}{{/sids}}\
+         {{#xsids}} --xsids={{{.}}}{{/xsids}}",
+    // execute at 08:01 and 20:01 every day
+    "ScanServicesJobConfig::default_schedule" =>
+        "0 1 8,20 * * * *",
+}
+
+define_job_config! {
+    SyncClocksJobConfig,
+    "sync-clocks",
+    // timeout: 30s
+    "SyncClocksJobConfig::default_command" =>
+        "timeout 30 mirakc-arib sync-clocks\
+         {{#sids}} --sids={{{.}}}{{/sids}}\
+         {{#xsids}} --xsids={{{.}}}{{/xsids}}",
+    // execute at 08:11 and 20:11 every day
+    "SyncClocksJobConfig::default_schedule" =>
+        "0 11 8,20 * * * *",
+}
+
+define_job_config! {
+    UpdateSchedulesJobConfig,
+    "update-schedules",
+    // timeout: 10m
+    "UpdateSchedulesJobConfig::default_command" =>
+        "timeout 600 mirakc-arib collect-eits\
+         {{#sids}} --sids={{{.}}}{{/sids}}\
+         {{#xsids}} --xsids={{{.}}}{{/xsids}}",
+    // execute at 08:21 and 20:21 every day
+    "UpdateSchedulesJobConfig::default_schedule" =>
+        "0 21 8,20 * * * *",
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -2848,106 +2863,108 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_job_config() {
-        fn job_config() -> JobConfig {
-            JobConfig {
-                command: "".to_string(),
-                schedule: "".to_string(),
-                disabled: false,
-            }
-        }
+    macro_rules! define_test_job_config {
+        ($name:ident, $label:ident) => {
+            paste::paste! {
+                #[test]
+                fn [<test_ $label _job_config>]() {
+                    assert_eq!(
+                        serde_yaml::from_str::<$name>("{}").unwrap(),
+                        $name::default()
+                    );
 
-        assert_eq!(
-            serde_yaml::from_str::<JobConfig>("{}").unwrap(),
-            job_config()
-        );
-
-        let mut config = job_config();
-        config.command = "test".to_string();
-        assert_eq!(
-            serde_yaml::from_str::<JobConfig>(
-                r#"
+                    let mut config = $name::default();
+                    config.command = "test".to_string();
+                    assert_eq!(
+                        serde_yaml::from_str::<$name>(
+                            r#"
                 command: test
             "#
-            )
-            .unwrap(),
-            config
-        );
+                        )
+                            .unwrap(),
+                        config
+                    );
 
-        let mut config = job_config();
-        config.schedule = "*".to_string();
-        assert_eq!(
-            serde_yaml::from_str::<JobConfig>(
-                r#"
+                    let mut config = $name::default();
+                    config.schedule = "*".to_string();
+                    assert_eq!(
+                        serde_yaml::from_str::<$name>(
+                            r#"
                 schedule: '*'
             "#
-            )
-            .unwrap(),
-            config
-        );
+                        )
+                            .unwrap(),
+                        config
+                    );
 
-        let mut config = job_config();
-        config.disabled = true;
-        assert_eq!(
-            serde_yaml::from_str::<JobConfig>(
-                r#"
+                    let mut config = $name::default();
+                    config.disabled = true;
+                    assert_eq!(
+                        serde_yaml::from_str::<$name>(
+                            r#"
                 disabled: true
             "#
-            )
-            .unwrap(),
-            config
-        );
+                        )
+                            .unwrap(),
+                        config
+                    );
 
-        assert!(
-            serde_yaml::from_str::<JobConfig>(
-                r#"
+                    assert!(
+                        serde_yaml::from_str::<$name>(
+                            r#"
             unknown:
               property: value
         "#
-            )
-            .is_err()
-        );
+                        )
+                            .is_err()
+                    );
+                }
+
+                fn [<$label _job_config>]() -> $name {
+                    $name {
+                        command: "test".to_string(),
+                        schedule: "0 30 9,12,15 1,15 May-Aug Mon,Wed,Fri 2018/2".to_string(),
+                        disabled: false,
+                    }
+                }
+
+                #[test]
+                fn [<test_ $label _job_config_validate>]() {
+                    let config = [<$label _job_config>]();
+                    config.validate();
+                }
+
+                #[test]
+                #[should_panic(expected = "command: must be a non-empty string")]
+                fn [<test_ $label _job_config_validate_command>]() {
+                    let mut config = [<$label _job_config>]();
+                    config.command = "".to_string();
+                    config.validate();
+                }
+
+                #[test]
+                #[should_panic(expected = "schedule: not valid")]
+                fn [<test_ $label _job_config_validate_schedule>]() {
+                    let mut config = [<$label _job_config>]();
+                    config.schedule = "".to_string();
+                    config.validate();
+                }
+
+                #[test]
+                fn [<test_ $label _job_config_validate_disabled>]() {
+                    let mut config = [<$label _job_config>]();
+                    config.command = "".to_string();
+                    config.schedule = "".to_string();
+                    config.disabled = true;
+                    config.validate();
+                }
+            }
+        };
     }
 
-    fn job_config() -> JobConfig {
-        JobConfig {
-            command: "test".to_string(),
-            schedule: "0 30 9,12,15 1,15 May-Aug Mon,Wed,Fri 2018/2".to_string(),
-            disabled: false,
-        }
-    }
-
-    #[test]
-    fn test_job_config_validate() {
-        let config = job_config();
-        config.validate("test");
-    }
-
-    #[test]
-    #[should_panic(expected = "config.jobs[test].command: must be a non-empty string")]
-    fn test_job_config_validate_command() {
-        let mut config = job_config();
-        config.command = "".to_string();
-        config.validate("test");
-    }
-
-    #[test]
-    #[should_panic(expected = "config.jobs[test].schedule: not valid")]
-    fn test_job_config_validate_schedule() {
-        let mut config = job_config();
-        config.schedule = "".to_string();
-        config.validate("test");
-    }
-
-    #[test]
-    fn test_job_config_validate_disabled() {
-        let mut config = job_config();
-        config.command = "".to_string();
-        config.schedule = "".to_string();
-        config.disabled = true;
-        config.validate("test");
-    }
+    define_test_job_config! {ScanServicesJobConfig, scan_services}
+    define_test_job_config! {SyncClocksJobConfig, sync_clocks}
+    define_test_job_config! {UpdateSchedulesJobConfig, update_schedules}
 
     #[test]
     fn test_recording_config() {
