@@ -104,7 +104,7 @@ where
 }
 
 fn is_epgstation(user_agent: &Option<TypedHeader<UserAgent>>) -> bool {
-    if let Some(TypedHeader(ref user_agent)) = user_agent {
+    if let Some(TypedHeader(user_agent)) = user_agent {
         user_agent.as_str().starts_with("EPGStation/")
     } else {
         false

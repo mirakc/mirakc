@@ -1,17 +1,17 @@
 use super::*;
 
+use axum::Json;
 use axum::extract::Path;
 use axum::extract::Query;
-use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
+use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
 use axum::response::Response;
-use axum::Json;
 use axum_extra::TypedHeader;
 use chrono::Duration;
 use itertools::Itertools;
-use utoipa::openapi::Server;
 use utoipa::OpenApi;
+use utoipa::openapi::Server;
 
 use crate::epg;
 use crate::filter::FilterPipelineBuilder;
@@ -21,11 +21,11 @@ use crate::recording::RecordingOptions;
 use crate::recording::RecordingScheduleState;
 use crate::tuner;
 
+use super::AppState;
+use super::X_MIRAKURUN_TUNER_USER_ID;
 use super::body::StaticFileBody;
 use super::qs::Qs;
 use super::server_name;
-use super::AppState;
-use super::X_MIRAKURUN_TUNER_USER_ID;
 
 mod channels;
 mod iptv;

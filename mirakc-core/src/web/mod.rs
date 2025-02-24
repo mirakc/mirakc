@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
 use actlet::prelude::*;
+use axum::Router;
 use axum::extract::FromRef;
 use axum::extract::State;
+use axum::http::HeaderMap;
+use axum::http::HeaderValue;
 use axum::http::header::CACHE_CONTROL;
 use axum::http::header::CONNECTION;
 use axum::http::header::SERVER;
-use axum::http::HeaderMap;
-use axum::http::HeaderValue;
 use axum::routing;
-use axum::Router;
 use tower_http::trace::TraceLayer;
 use utoipa_swagger_ui::SwaggerUi;
 
