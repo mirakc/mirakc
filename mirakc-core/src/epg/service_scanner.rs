@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use actlet::prelude::*;
 use indexmap::IndexMap;
@@ -47,22 +48,27 @@ where
         let mut results = Vec::new();
 
         for channel in self.config.channels.iter() {
-            let result =
-                match Self::scan_services_in_channel(channel, command, &self.tuner_manager, ctx)
-                    .await
-                {
-                    Ok(services) => {
-                        let mut map = IndexMap::new();
-                        for service in services.into_iter() {
-                            map.insert(service.id, service.clone());
-                        }
-                        Some(map)
+            let result = match Self::scan_services_in_channel(
+                channel,
+                command,
+                self.config.jobs.scan_services.timeout,
+                &self.tuner_manager,
+                ctx,
+            )
+            .await
+            {
+                Ok(services) => {
+                    let mut map = IndexMap::new();
+                    for service in services.into_iter() {
+                        map.insert(service.id, service.clone());
                     }
-                    Err(err) => {
-                        tracing::error!(%err, channel.name, "Failed to scan services");
-                        None
-                    }
-                };
+                    Some(map)
+                }
+                Err(err) => {
+                    tracing::error!(%err, channel.name, "Failed to scan services");
+                    None
+                }
+            };
             results.push((channel.clone().into(), result));
         }
 
@@ -72,6 +78,7 @@ where
     async fn scan_services_in_channel<C: Spawn>(
         channel: &ChannelConfig,
         command: &str,
+        timeout: Duration,
         tuner_manager: &T,
         ctx: &C,
     ) -> anyhow::Result<Vec<EpgService>> {
@@ -107,7 +114,7 @@ where
         let (handle, _) = ctx.spawn_task(stream.pipe(input).in_current_span());
 
         let mut buf = Vec::new();
-        output.read_to_end(&mut buf).await?;
+        tokio::time::timeout(timeout, output.read_to_end(&mut buf)).await??;
 
         drop(stop_trigger);
 
@@ -169,6 +176,7 @@ impl From<(&ChannelConfig, &TsService)> for EpgService {
 mod tests {
     use super::*;
     use crate::tuner::stub::TunerManagerStub;
+    use assert_matches::assert_matches;
     use test_log::test;
 
     #[test(tokio::test)]
@@ -186,7 +194,6 @@ mod tests {
             remote_control_key_id: 1,
             name: "service".to_string(),
         }];
-
         let config_yml = format!(
             r#"
             channels:
@@ -199,13 +206,18 @@ mod tests {
         "#,
             serde_json::to_string(&expected).unwrap()
         );
-
         let config = Arc::new(serde_yaml::from_str::<Config>(&config_yml).unwrap());
-
-        let scan = ServiceScanner::new(config, stub.clone());
-        let results = scan.scan_services(&ctx).await;
-        assert!(results[0].1.is_some());
-        assert_eq!(results[0].1.as_ref().unwrap().len(), 1);
+        let result = ServiceScanner::scan_services_in_channel(
+            &config.channels[0],
+            &config.jobs.scan_services.command,
+            config.jobs.scan_services.timeout,
+            &stub,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Ok(services) => {
+            assert_eq!(services.len(), 1);
+        });
 
         // Emulate out of services by using `false`
         let config = Arc::new(
@@ -222,9 +234,17 @@ mod tests {
             )
             .unwrap(),
         );
-        let scan = ServiceScanner::new(config, stub.clone());
-        let results = scan.scan_services(&ctx).await;
-        assert!(results[0].1.is_none());
+        let result = ServiceScanner::scan_services_in_channel(
+            &config.channels[0],
+            &config.jobs.scan_services.command,
+            config.jobs.scan_services.timeout,
+            &stub,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Err(err) => {
+            assert_eq!(format!("{err}"), "No service, maybe out of service");
+        });
 
         // Timed out
         let config = Arc::new(
@@ -236,15 +256,22 @@ mod tests {
                 channel: '0'
             jobs:
               scan-services:
-                # timeout: 10ms, sleep: 10s
-                command: timeout 0.01 sleep 10
+                command: sleep 10
+                timeout: 10ms
         "#,
             )
             .unwrap(),
         );
-
-        let scan = ServiceScanner::new(config, stub.clone());
-        let results = scan.scan_services(&ctx).await;
-        assert!(results[0].1.is_none());
+        let result = ServiceScanner::scan_services_in_channel(
+            &config.channels[0],
+            &config.jobs.scan_services.command,
+            config.jobs.scan_services.timeout,
+            &stub,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Err(err) => {
+            assert!(err.is::<tokio::time::error::Elapsed>());
+        });
     }
 }

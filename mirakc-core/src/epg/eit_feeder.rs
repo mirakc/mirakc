@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use actlet::prelude::*;
 use tokio::io::AsyncBufReadExt;
@@ -60,6 +61,7 @@ where
 
         EitCollector::new(
             self.config.jobs.update_schedules.command.clone(),
+            self.config.jobs.update_schedules.timeout,
             channels,
             self.tuner_manager.clone(),
             self.epg.clone(),
@@ -126,6 +128,7 @@ where
 
 pub struct EitCollector<T, E> {
     command: String,
+    timeout: Duration,
     channels: Vec<EpgChannel>,
     tuner_manager: T,
     epg: E,
@@ -145,9 +148,16 @@ where
 {
     const LABEL: &'static str = "epg.update-schedules";
 
-    pub fn new(command: String, channels: Vec<EpgChannel>, tuner_manager: T, epg: E) -> Self {
+    pub fn new(
+        command: String,
+        timeout: Duration,
+        channels: Vec<EpgChannel>,
+        tuner_manager: T,
+        epg: E,
+    ) -> Self {
         EitCollector {
             command,
+            timeout,
             channels,
             tuner_manager,
             epg,
@@ -159,6 +169,7 @@ where
             Self::collect_eits_in_channel(
                 channel,
                 &self.command,
+                self.timeout,
                 &self.tuner_manager,
                 &self.epg,
                 ctx,
@@ -171,6 +182,7 @@ where
     async fn collect_eits_in_channel<C: Spawn>(
         channel: &EpgChannel,
         command: &str,
+        timeout: Duration,
         tuner_manager: &T,
         epg: &E,
         ctx: &C,
@@ -210,43 +222,58 @@ where
         let mut json = String::new();
         let mut num_sections = 0;
         let mut service_ids = HashSet::new();
-        while reader.read_line(&mut json).await? > 0 {
-            let section = match serde_json::from_str::<EitSection>(&json) {
-                Ok(mut section) => {
-                    // We assume that events in EIT[schedule] always have
-                    // non-null values of the `start_time` and `duration`
-                    // properties.
-                    section.events.retain(|event| {
-                        if event.start_time.is_none() {
-                            tracing::warn!(%channel, %event.event_id,
-                                           "Ignore event which has no start_time");
-                            return false;
+
+        let timeout = tokio::time::sleep(timeout);
+        tokio::pin!(timeout);
+
+        loop {
+            tokio::select! {
+                result = reader.read_line(&mut json) => {
+                    if result? == 0 {
+                        break;
+                    }
+                    let section = match serde_json::from_str::<EitSection>(&json) {
+                        Ok(mut section) => {
+                            // We assume that events in EIT[schedule] always have
+                            // non-null values of the `start_time` and `duration`
+                            // properties.
+                            section.events.retain(|event| {
+                                if event.start_time.is_none() {
+                                    tracing::warn!(%channel, %event.event_id,
+                                                   "Ignore event which has no start_time");
+                                    return false;
+                                }
+                                if event.duration.is_none() {
+                                    tracing::warn!(%channel, %event.event_id,
+                                                   "Ignore event which has no duration");
+                                    return false;
+                                }
+                                true
+                            });
+                            section
                         }
-                        if event.duration.is_none() {
-                            tracing::warn!(%channel, %event.event_id,
-                                           "Ignore event which has no duration");
-                            return false;
+                        Err(err) => {
+                            tracing::warn!(%err, %channel, "Ignore broken EIT section");
+                            continue;
                         }
-                        true
-                    });
-                    section
+                    };
+                    if section.is_valid() {
+                        let service_id = section.service_id();
+                        if !service_ids.contains(&service_id) {
+                            service_ids.insert(service_id);
+                            epg.emit(PrepareSchedule { service_id }).await;
+                        }
+                        epg.emit(UpdateSchedule { section }).await;
+                        json.clear();
+                        num_sections += 1;
+                    } else {
+                        tracing::warn!(%channel, section.table_id, "Invalid table_id");
+                    }
                 }
-                Err(err) => {
-                    tracing::warn!(%err, %channel, "Ignore broken EIT section");
-                    continue;
+                _ = &mut timeout => {
+                    tracing::warn!(err = "Timed out", %channel);
+                    break;
                 }
-            };
-            if section.is_valid() {
-                let service_id = section.service_id();
-                if !service_ids.contains(&service_id) {
-                    service_ids.insert(service_id);
-                    epg.emit(PrepareSchedule { service_id }).await;
-                }
-                epg.emit(UpdateSchedule { section }).await;
-                json.clear();
-                num_sections += 1;
-            } else {
-                tracing::warn!(%channel, section.table_id, "Invalid table_id");
             }
         }
 
@@ -271,5 +298,145 @@ where
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tuner::stub::TunerManagerStub;
+    use assert_matches::assert_matches;
+    use test_log::test;
+
+    #[test(tokio::test)]
+    async fn test_collect_eits_in_channel() {
+        let ctx = actlet::stubs::Context::default();
+
+        let tuner_stub = TunerManagerStub::default();
+
+        // TODO: add tests
+
+        // Emulate out of services by using `false`
+        let config = Arc::new(
+            serde_yaml::from_str::<Config>(
+                r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              update-schedules:
+                command: false
+        "#,
+            )
+            .unwrap(),
+        );
+        let mut epg_mock = MockEpg::new();
+        epg_mock.0.expect_emit_prepare_schedule().never();
+        epg_mock.0.expect_emit_update_schedule().never();
+        epg_mock.0.expect_emit_flush_schedule().never();
+        let result = EitCollector::collect_eits_in_channel(
+            &channel_gr!("channel", "0"),
+            &config.jobs.scan_services.command,
+            config.jobs.scan_services.timeout,
+            &tuner_stub,
+            &epg_mock,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Ok(()));
+
+        // Timed out
+        let config = Arc::new(
+            serde_yaml::from_str::<Config>(
+                r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              update-schedules:
+                command: sleep 10
+                timeout: 10ms
+        "#,
+            )
+            .unwrap(),
+        );
+        let mut epg_mock = MockEpg::new();
+        epg_mock.0.expect_emit_prepare_schedule().never();
+        epg_mock.0.expect_emit_update_schedule().never();
+        epg_mock.0.expect_emit_flush_schedule().never();
+        let result = EitCollector::collect_eits_in_channel(
+            &channel_gr!("channel", "0"),
+            &config.jobs.scan_services.command,
+            config.jobs.scan_services.timeout,
+            &tuner_stub,
+            &epg_mock,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Ok(()));
+    }
+
+    // NOTE: The following code is not compilable:
+    //
+    // ```
+    // mockall::mock! {
+    //     Epg {}
+    //
+    //     #[async_trait]
+    //     impl Emit<PrepareSchedule> for Epg {
+    //         async fn emit(&self, msg: PrepareSchedule);
+    //     }
+    //
+    //     #[async_trait]
+    //     impl Emit<UpdateSchedule> for Epg {
+    //         async fn emit(&self, msg: UpdateSchedule);
+    //     }
+    //
+    //     #[async_trait]
+    //     impl Emit<FlushSchedule> for Epg {
+    //         async fn emit(&self, msg: FlushSchedule);
+    //     }
+    // }
+    // ```
+    //
+    // See https://github.com/asomers/mockall/issues/271#issuecomment-825710521.
+
+    mockall::mock! {
+        pub EpgInner {
+            fn emit_prepare_schedule(&self, msg: PrepareSchedule);
+            fn emit_update_schedule(&self, msg: UpdateSchedule);
+            fn emit_flush_schedule(&self, msg: FlushSchedule);
+        }
+    }
+
+    struct MockEpg(MockEpgInner);
+
+    impl MockEpg {
+        fn new() -> Self {
+            Self(MockEpgInner::new())
+        }
+    }
+
+    #[async_trait]
+    impl Emit<PrepareSchedule> for MockEpg {
+        async fn emit(&self, msg: PrepareSchedule) {
+            self.0.emit_prepare_schedule(msg);
+        }
+    }
+
+    #[async_trait]
+    impl Emit<UpdateSchedule> for MockEpg {
+        async fn emit(&self, msg: UpdateSchedule) {
+            self.0.emit_update_schedule(msg);
+        }
+    }
+
+    #[async_trait]
+    impl Emit<FlushSchedule> for MockEpg {
+        async fn emit(&self, msg: FlushSchedule) {
+            self.0.emit_flush_schedule(msg);
+        }
     }
 }
