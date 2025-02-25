@@ -788,6 +788,7 @@ macro_rules! define_job_config {
         $label:literal,
         $default_command:literal => $default_command_value:literal,
         $default_schedule:literal => $default_schedule_value:literal,
+        $default_timeout:literal => $default_timeout_value:expr,
     ) => {
         #[derive(Clone, Debug, Deserialize, PartialEq)]
         #[serde(rename_all = "kebab-case")]
@@ -797,6 +798,8 @@ macro_rules! define_job_config {
             pub command: String,
             #[serde(default = $default_schedule)]
             pub schedule: String,
+            #[serde(default = $default_timeout, with = "humantime_serde")]
+            pub timeout: Duration,
             #[serde(default)]
             pub disabled: bool,
         }
@@ -808,6 +811,10 @@ macro_rules! define_job_config {
 
             fn default_schedule() -> String {
                 $default_schedule_value.to_string()
+            }
+
+            fn default_timeout() -> Duration {
+                $default_timeout_value
             }
 
             fn normalize(&mut self) {
@@ -848,6 +855,7 @@ macro_rules! define_job_config {
                 Self {
                     command: Self::default_command(),
                     schedule: Self::default_schedule(),
+                    timeout: Self::default_timeout(),
                     disabled: false,
                 }
             }
@@ -858,40 +866,44 @@ macro_rules! define_job_config {
 define_job_config! {
     ScanServicesJobConfig,
     "scan-services",
-    // timeout: 30s
     "ScanServicesJobConfig::default_command" =>
-        "timeout 30 mirakc-arib scan-services\
+        "mirakc-arib scan-services\
          {{#sids}} --sids={{{.}}}{{/sids}}\
          {{#xsids}} --xsids={{{.}}}{{/xsids}}",
     // execute at 08:01 and 20:01 every day
     "ScanServicesJobConfig::default_schedule" =>
         "0 1 8,20 * * * *",
+    "ScanServicesJobConfig::default_timeout" =>
+        Duration::from_secs(30),
 }
 
 define_job_config! {
     SyncClocksJobConfig,
     "sync-clocks",
-    // timeout: 30s
     "SyncClocksJobConfig::default_command" =>
-        "timeout 30 mirakc-arib sync-clocks\
+        "mirakc-arib sync-clocks\
          {{#sids}} --sids={{{.}}}{{/sids}}\
          {{#xsids}} --xsids={{{.}}}{{/xsids}}",
     // execute at 08:11 and 20:11 every day
     "SyncClocksJobConfig::default_schedule" =>
         "0 11 8,20 * * * *",
+    "SyncClocksJobConfig::default_timeout" =>
+        Duration::from_secs(30),
 }
 
 define_job_config! {
     UpdateSchedulesJobConfig,
     "update-schedules",
-    // timeout: 10m
     "UpdateSchedulesJobConfig::default_command" =>
-        "timeout 600 mirakc-arib collect-eits\
+        "mirakc-arib collect-eits\
          {{#sids}} --sids={{{.}}}{{/sids}}\
          {{#xsids}} --xsids={{{.}}}{{/xsids}}",
     // execute at 08:21 and 20:21 every day
     "UpdateSchedulesJobConfig::default_schedule" =>
         "0 21 8,20 * * * *",
+    // TODO(refactor): use Duration::from_mins(1) once it's stabilized.
+    "UpdateSchedulesJobConfig::default_timeout" =>
+        Duration::from_secs(600), // 10m
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -2876,47 +2888,35 @@ mod tests {
                     let mut config = $name::default();
                     config.command = "test".to_string();
                     assert_eq!(
-                        serde_yaml::from_str::<$name>(
-                            r#"
-                command: test
-            "#
-                        )
-                            .unwrap(),
+                        serde_yaml::from_str::<$name>("command: test").unwrap(),
                         config
                     );
 
                     let mut config = $name::default();
                     config.schedule = "*".to_string();
                     assert_eq!(
-                        serde_yaml::from_str::<$name>(
-                            r#"
-                schedule: '*'
-            "#
-                        )
-                            .unwrap(),
+                        serde_yaml::from_str::<$name>("schedule: '*'").unwrap(),
+                        config
+                    );
+
+                    let mut config = $name::default();
+                    config.timeout = Duration::from_secs(45);
+                    assert_eq!(
+                        serde_yaml::from_str::<$name>("timeout: 45s").unwrap(),
                         config
                     );
 
                     let mut config = $name::default();
                     config.disabled = true;
                     assert_eq!(
-                        serde_yaml::from_str::<$name>(
-                            r#"
-                disabled: true
-            "#
-                        )
-                            .unwrap(),
+                        serde_yaml::from_str::<$name>("disabled: true").unwrap(),
                         config
                     );
 
                     assert!(
                         serde_yaml::from_str::<$name>(
-                            r#"
-            unknown:
-              property: value
-        "#
-                        )
-                            .is_err()
+                            "unknown:\n  property: value"
+                        ).is_err()
                     );
                 }
 
@@ -2924,6 +2924,7 @@ mod tests {
                     $name {
                         command: "test".to_string(),
                         schedule: "0 30 9,12,15 1,15 May-Aug Mon,Wed,Fri 2018/2".to_string(),
+                        timeout: Duration::from_secs(10),
                         disabled: false,
                     }
                 }

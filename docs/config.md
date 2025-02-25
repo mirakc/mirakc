@@ -39,14 +39,17 @@ suitable for your environment.
 | [post-filters.\*.command]                | `''`                              |
 | [post-filters.\*.content-type]           | `None`                            |
 | [post-filters.\*.seekable]               | `false`                           |
-| [jobs.scan-services.command]             | `timeout 30 mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` (timeout: 30s) |
+| [jobs.scan-services.command]             | `mirakc-arib scan-services{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.scan-services.schedule]            | `0 1 8,20 * * * *` (execute at 08:01 and 20:01 every day) |
+| [jobs.scan-services.timeout]             | `30s`                             |
 | [jobs.scan-services.disabled]            | `false`                           |
-| [jobs.sync-clocks.command]               | `timeout 30 mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` (timeout: 30s) |
+| [jobs.sync-clocks.command]               | `mirakc-arib sync-clocks{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.sync-clocks.schedule]              | `0 11 8,20 * * * *` (execute at 08:11 and 20:11 every day) |
+| [jobs.sync-clocks.timeout]               | `30s`                             |
 | [jobs.sync-clocks.disabled]              | `false`                           |
-| [jobs.update-schedules.command]          | `timeout 600 mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` (timeout: 10m) |
+| [jobs.update-schedules.command]          | `mirakc-arib collect-eits{{#sids}} --sids={{{.}}}{{/sids}}{{#xsids}} --xsids={{{.}}}{{/xsids}}` |
 | [jobs.update-schedules.schedule]         | `0 21 8,20 * * * *` (execute at 08:21 and 20:21 every day) |
+| [jobs.update-schedules.timeout]          | `10m`                             |
 | [jobs.update-schedules.disabled]         | `false`                           |
 | [recording.basedir]                      | `None`                            |
 | [recording.records-dir]                  | `None`                            |
@@ -99,12 +102,15 @@ suitable for your environment.
 [post-filters.\*.seekable]: #post-filters
 [jobs.scan-services.command]: #jobsscan-services
 [jobs.scan-services.schedule]: #jobsscan-services
+[jobs.scan-services.timeout]: #jobsscan-services
 [jobs.scan-services.disabled]: #jobsscan-services
 [jobs.sync-clocks.command]: #jobssync-clocks
 [jobs.sync-clocks.schedule]: #jobssync-clocks
+[jobs.sync-clocks.timeout]: #jobssync-clocks
 [jobs.sync-clocks.disabled]: #jobssync-clocks
 [jobs.update-schedules.command]: #jobsupdate-schedules
 [jobs.update-schedules.schedule]: #jobsupdate-schedules
+[jobs.update-schedules.timeout]: #jobsupdate-schedules
 [jobs.update-schedules.disabled]: #jobsupdate-schedules
 [recording.basedir]: #recordingbasedir
 [recording.records-dir]: #recordingrecords-dir

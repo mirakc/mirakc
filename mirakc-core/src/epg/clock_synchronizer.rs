@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use actlet::prelude::*;
 use serde::Deserialize;
@@ -50,6 +51,7 @@ where
             let result = match Self::sync_clocks_in_channel(
                 channel,
                 command,
+                self.config.jobs.sync_clocks.timeout,
                 &self.tuner_manager,
                 ctx,
             )
@@ -77,6 +79,7 @@ where
     async fn sync_clocks_in_channel<C: Spawn>(
         channel: &ChannelConfig,
         command: &str,
+        timeout: Duration,
         tuner_manager: &T,
         ctx: &C,
     ) -> anyhow::Result<Vec<SyncClock>> {
@@ -112,7 +115,7 @@ where
         let (handle, _) = ctx.spawn_task(stream.pipe(input).in_current_span());
 
         let mut buf = Vec::new();
-        output.read_to_end(&mut buf).await?;
+        tokio::time::timeout(timeout, output.read_to_end(&mut buf)).await??;
 
         drop(stop_trigger);
 
@@ -138,7 +141,7 @@ where
 }
 
 #[derive(Clone, Deserialize)]
-#[cfg_attr(test, derive(Serialize))]
+#[cfg_attr(test, derive(Debug, Serialize))]
 #[serde(rename_all = "camelCase")]
 pub struct SyncClock {
     pub nid: Nid,
@@ -171,7 +174,6 @@ mod tests {
                 time: 3,
             },
         }];
-
         let config_yml = format!(
             r#"
             channels:
@@ -184,21 +186,17 @@ mod tests {
         "#,
             serde_json::to_string(&expected).unwrap()
         );
-
         let config = Arc::new(serde_yaml::from_str::<Config>(&config_yml).unwrap());
-
-        let sync = ClockSynchronizer::new(config, stub.clone());
-        let results = sync.sync_clocks(&ctx).await;
-        assert_eq!(results.len(), 1);
-        assert_matches!(&results[0], (_, Some(v)) => {
-            let service_id = (1, 3).into();
-            assert_eq!(v.len(), 1);
-            assert!(v.contains_key(&service_id));
-            assert_matches!(v[&service_id], Clock { pid, pcr, time } => {
-                assert_eq!(pid, 1);
-                assert_eq!(pcr, 2);
-                assert_eq!(time, 3);
-            });
+        let result = ClockSynchronizer::sync_clocks_in_channel(
+            &config.channels[0],
+            &config.jobs.sync_clocks.command,
+            config.jobs.sync_clocks.timeout,
+            &stub,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Ok(clocks) => {
+            assert_eq!(clocks.len(), 1);
         });
 
         // Emulate out of services by using `false`
@@ -210,16 +208,23 @@ mod tests {
                 type: GR
                 channel: '0'
             jobs:
-              scan-services:
+              sync-clocks:
                 command: false
         "#,
             )
             .unwrap(),
         );
-        let sync = ClockSynchronizer::new(config, stub.clone());
-        let results = sync.sync_clocks(&ctx).await;
-        assert_eq!(results.len(), 1);
-        assert_matches!(&results[0], (_, None));
+        let result = ClockSynchronizer::sync_clocks_in_channel(
+            &config.channels[0],
+            &config.jobs.sync_clocks.command,
+            config.jobs.sync_clocks.timeout,
+            &stub,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Err(err) => {
+            assert_eq!(format!("{err}"), "No clock, maybe out of service");
+        });
 
         // Timed out
         let config = Arc::new(
@@ -230,16 +235,23 @@ mod tests {
                 type: GR
                 channel: '0'
             jobs:
-              scan-services:
-                # timeout: 10ms, sleep: 10s
-                command: timeout 0.01 sleep 10
+              sync-clocks:
+                command: sleep 10
+                timeout: 10ms
         "#,
             )
             .unwrap(),
         );
-        let sync = ClockSynchronizer::new(config, stub.clone());
-        let results = sync.sync_clocks(&ctx).await;
-        assert_eq!(results.len(), 1);
-        assert_matches!(&results[0], (_, None));
+        let result = ClockSynchronizer::sync_clocks_in_channel(
+            &config.channels[0],
+            &config.jobs.sync_clocks.command,
+            config.jobs.sync_clocks.timeout,
+            &stub,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Err(err) => {
+            assert!(err.is::<tokio::time::error::Elapsed>());
+        });
     }
 }
