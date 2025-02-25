@@ -337,8 +337,8 @@ mod tests {
         epg_mock.0.expect_emit_flush_schedule().never();
         let result = EitCollector::collect_eits_in_channel(
             &channel_gr!("channel", "0"),
-            &config.jobs.scan_services.command,
-            config.jobs.scan_services.timeout,
+            &config.jobs.update_schedules.command,
+            config.jobs.update_schedules.timeout,
             &tuner_stub,
             &epg_mock,
             &ctx,
@@ -368,8 +368,8 @@ mod tests {
         epg_mock.0.expect_emit_flush_schedule().never();
         let result = EitCollector::collect_eits_in_channel(
             &channel_gr!("channel", "0"),
-            &config.jobs.scan_services.command,
-            config.jobs.scan_services.timeout,
+            &config.jobs.update_schedules.command,
+            config.jobs.update_schedules.timeout,
             &tuner_stub,
             &epg_mock,
             &ctx,
