@@ -207,7 +207,7 @@ impl TimeshiftRecord {
         let content_size = self.get_size(file_size);
         let (start, size) = match range {
             Some(range) => ((self.start.pos + range.first()) % file_size, range.bytes()),
-            None => (0, content_size),
+            None => (self.start.pos, content_size),
         };
         Ok(TimeshiftRecordStreamSource {
             recorder_name,
