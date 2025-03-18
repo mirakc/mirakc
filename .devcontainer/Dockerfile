@@ -41,5 +41,5 @@ RUN set -eux \
 #
 # The only way to solve this issue is providing the values for the environment
 # variables from somewhere outside the system.
-ENV MIRAKC_DEV_RUSTC_COMMIT_HASH="90b35a6239c3d8bdabc530a6a0816f7ff89a0aaf"
-ENV MIRAKC_DEV_RUST_TOOLCHAIN_PATH="/usr/local/rustup/toolchains/1.83.0-x86_64-unknown-linux-gnu"
+ENV MIRAKC_DEV_RUSTC_COMMIT_HASH="4d91de4e48198da2e33413efdcd9cd2cc0c46688"
+ENV MIRAKC_DEV_RUST_TOOLCHAIN_PATH=""
