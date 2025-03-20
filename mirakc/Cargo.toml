@@ -19,7 +19,7 @@ humantime = "2.2.0"
 mirakc-core = { path = "../mirakc-core" }
 semver = "1.0.26"
 serde_json = { version = "1.0.140", features = ["preserve_order"] }
-tempfile = "3.19.0"
+tempfile = "3.19.1"
 tokio = { version = "1.44.1", features = ["full"] }
 tracing = "0.1.41"
 
