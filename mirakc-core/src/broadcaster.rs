@@ -1,13 +1,13 @@
 use std::env;
 use std::io;
 use std::pin::Pin;
+use std::sync::LazyLock;
 use std::time::Duration;
 use std::time::Instant;
 
 use actlet::prelude::*;
 use bytes::Bytes;
 use bytes::BytesMut;
-use once_cell::sync::Lazy;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
@@ -19,7 +19,7 @@ use crate::tuner::TunerSubscriptionId as SubscriberId;
 
 const SLEEP_MS_DEFAULT: Duration = Duration::from_millis(100); // 100ms
 
-static SLEEP_MS: Lazy<Duration> = Lazy::new(|| {
+static SLEEP_MS: LazyLock<Duration> = LazyLock::new(|| {
     let ms = env::var("MIRAKC_BROADCASTER_SLEEP_MS")
         .ok()
         .map(|s| {

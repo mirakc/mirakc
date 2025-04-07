@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use tracing::Span;
 
-static RECV_TIME_LIMIT_FOR_SHUTDOWN: Lazy<u64> = Lazy::new(|| {
+static RECV_TIME_LIMIT_FOR_SHUTDOWN: LazyLock<u64> = LazyLock::new(|| {
     let time_limit = std::env::var("ACTLET_RECV_TIME_LIMIT_FOR_SHUTDOWN")
         .ok()
         .map(|s| {

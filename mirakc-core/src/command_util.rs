@@ -6,12 +6,12 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::ExitStatus;
 use std::process::Stdio;
+use std::sync::LazyLock;
 use std::task::Context;
 use std::task::Poll;
 use std::thread::sleep;
 use std::time::Duration;
 
-use once_cell::sync::Lazy;
 use tokio::fs::File;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
@@ -30,7 +30,7 @@ use actlet::Spawn;
 
 const COMMAND_PIPELINE_TERMINATION_WAIT_NANOS_DEFAULT: Duration = Duration::from_nanos(100_000); // 100us
 
-static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: Lazy<Duration> = Lazy::new(|| {
+static COMMAND_PIPELINE_TERMINATION_WAIT_NANOS: LazyLock<Duration> = LazyLock::new(|| {
     let nanos = env::var("MIRAKC_COMMAND_PIPELINE_TERMINATION_WAIT_NANOS")
         .ok()
         .map(|s| {

@@ -1,12 +1,12 @@
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::Instant;
 
 use actlet::prelude::*;
 use chrono::DateTime;
 use chrono_jst::Jst;
-use once_cell::sync::Lazy;
 
 use crate::config::Config;
 use crate::epg::clock_synchronizer::ClockSynchronizer;
@@ -391,7 +391,7 @@ where
 
 // used for debugging purposes
 
-static EPG_FRESH_PERIOD: Lazy<Option<std::time::Duration>> = Lazy::new(|| {
+static EPG_FRESH_PERIOD: LazyLock<Option<std::time::Duration>> = LazyLock::new(|| {
     let period = std::env::var("MIRAKC_EPG_FRESH_PERIOD")
         .ok()
         .and_then(|s| humantime::parse_duration(&s).ok());
