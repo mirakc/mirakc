@@ -431,7 +431,7 @@ where
             .headers
             .get_all(USER_AGENT)
             .iter()
-            .last()
+            .next_back()
             .map(|value| value.to_str().ok().map_or(String::new(), |s| s.to_string()));
 
         let info = TunerUserInfo::Web { id, agent };
