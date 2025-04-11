@@ -188,7 +188,7 @@ impl From<recording::RecorderModel> for WebRecordingRecorder {
 #[cfg_attr(test, derive(Deserialize))]
 pub(in crate::web) struct WebRecord {
     /// The record ID.
-    #[schema(value_type = u64)]
+    #[schema(value_type = String)]
     pub id: RecordId,
 
     /// Metadata of the TV program.
