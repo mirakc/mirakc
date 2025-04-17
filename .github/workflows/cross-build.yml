@@ -25,6 +25,8 @@ jobs:
           - armv7-unknown-linux-musleabihf  # linux/arm/v7
           - aarch64-unknown-linux-musl      # linux/arm64/v8
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

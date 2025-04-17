@@ -7,6 +7,9 @@ on:
 
 jobs:
   docker:
+    permissions:
+      contents: read
+      actions: write
     uses: ./.github/workflows/docker.yml
     with:
       ref-name: ${{ github.ref_name }}  # tag name

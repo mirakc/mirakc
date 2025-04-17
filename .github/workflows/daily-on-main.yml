@@ -6,6 +6,8 @@ on:
 
 jobs:
   update:
+    permissions:
+      contents: write
     uses: ./.github/workflows/update.yml
     with:
       ref-name: main
@@ -16,6 +18,9 @@ jobs:
     if: needs.update.outputs.num-commits > 0
     needs:
       - update
+    permissions:
+      contents: read
+      actions: write
     uses: ./.github/workflows/docker.yml
     with:
       ref-name: main

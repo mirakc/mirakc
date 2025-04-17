@@ -24,6 +24,8 @@ jobs:
     needs: check
     if: needs.check.outputs.needs-updating == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: Setup QEMU user-mode emulation

@@ -59,6 +59,8 @@ jobs:
               linux/arm/v7,
               linux/arm64/v8,
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -191,6 +193,8 @@ jobs:
     needs:
       - docker
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     steps:
       # Use the `mirakc-ci` bot account in order to trigger the docker workflow
       # on mirakc/docker-timeshift-x.
