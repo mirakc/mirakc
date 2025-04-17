@@ -11,6 +11,8 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: none
     outputs:
       needs-updating: ${{ steps.check.outputs.needs-updating }}
     steps:
