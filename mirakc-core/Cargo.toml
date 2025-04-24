@@ -44,7 +44,7 @@ smallstr = { version = "0.3.0", features = ["serde"] }
 thiserror = "2.0.12"
 tokio = { version = "1.44.2", features = ["full"] }
 tokio-stream = { version = "0.1.17", features = ["io-util"] }
-tokio-util = { version = "0.7.14", features = ["codec", "io"] }
+tokio-util = { version = "0.7.15", features = ["codec", "io"] }
 toml = "0.8.20"
 tower = { version = "0.5.2", default-features = false, features = ["util", "make"] }
 tower-http = { version = "0.6.2", features = ["fs", "trace"] }
