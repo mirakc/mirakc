@@ -222,6 +222,7 @@ where
                 }
                 Err(err) => {
                     tracing::warn!(%err, %channel, "Ignore broken EIT section");
+                    json.clear();
                     continue;
                 }
             };
@@ -236,6 +237,7 @@ where
                 num_sections += 1;
             } else {
                 tracing::warn!(%channel, section.table_id, "Invalid table_id");
+                json.clear();
             }
         }
 
