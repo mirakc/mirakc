@@ -434,12 +434,18 @@ mod tests {
             .unwrap(),
         );
         let mut epg_mock = MockEpg::new();
-        epg_mock.0.expect_emit_prepare_schedule().return_once(|msg| {
-            assert_eq!(msg.service_id, 0.into());
-        });
-        epg_mock.0.expect_emit_update_schedule().return_once(move |msg| {
-            assert_eq!(msg.section, valid_section);
-        });
+        epg_mock
+            .0
+            .expect_emit_prepare_schedule()
+            .return_once(|msg| {
+                assert_eq!(msg.service_id, 0.into());
+            });
+        epg_mock
+            .0
+            .expect_emit_update_schedule()
+            .return_once(move |msg| {
+                assert_eq!(msg.section, valid_section);
+            });
         epg_mock.0.expect_emit_flush_schedule().return_once(|msg| {
             assert_eq!(msg.service_id, 0.into());
         });
@@ -490,12 +496,18 @@ mod tests {
             .unwrap(),
         );
         let mut epg_mock = MockEpg::new();
-        epg_mock.0.expect_emit_prepare_schedule().return_once(|msg| {
-            assert_eq!(msg.service_id, 0.into());
-        });
-        epg_mock.0.expect_emit_update_schedule().return_once(move |msg| {
-            assert_eq!(msg.section, valid_section);
-        });
+        epg_mock
+            .0
+            .expect_emit_prepare_schedule()
+            .return_once(|msg| {
+                assert_eq!(msg.service_id, 0.into());
+            });
+        epg_mock
+            .0
+            .expect_emit_update_schedule()
+            .return_once(move |msg| {
+                assert_eq!(msg.section, valid_section);
+            });
         epg_mock.0.expect_emit_flush_schedule().return_once(|msg| {
             assert_eq!(msg.service_id, 0.into());
         });
@@ -571,9 +583,12 @@ mod tests {
             .unwrap(),
         );
         let mut epg_mock = MockEpg::new();
-        epg_mock.0.expect_emit_prepare_schedule().return_once(|msg| {
-            assert_eq!(msg.service_id, 0.into());
-        });
+        epg_mock
+            .0
+            .expect_emit_prepare_schedule()
+            .return_once(|msg| {
+                assert_eq!(msg.service_id, 0.into());
+            });
         epg_mock.0.expect_emit_update_schedule().return_once(|msg| {
             assert_eq!(msg.section.events.len(), 1);
             assert_eq!(msg.section.events[0].event_id, 0.into());
