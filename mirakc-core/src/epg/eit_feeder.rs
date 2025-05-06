@@ -228,29 +228,19 @@ where
 
         loop {
             tokio::select! {
-                result = reader.read_line(&mut json) => {
+                result = {
+                    assert!(json.is_empty());
+                    reader.read_line(&mut json)
+                }=> {
                     if result? == 0 {
                         break;
                     }
-                    let section = match serde_json::from_str::<EitSection>(&json) {
-                        Ok(mut section) => {
-                            // We assume that events in EIT[schedule] always have
-                            // non-null values of the `start_time` and `duration`
-                            // properties.
-                            section.events.retain(|event| {
-                                if event.start_time.is_none() {
-                                    tracing::warn!(%channel, %event.event_id,
-                                                   "Ignore event which has no start_time");
-                                    return false;
-                                }
-                                if event.duration.is_none() {
-                                    tracing::warn!(%channel, %event.event_id,
-                                                   "Ignore event which has no duration");
-                                    return false;
-                                }
-                                true
-                            });
-                            section
+                    let mut section = match serde_json::from_str::<EitSection>(&json) {
+                        Ok(section) if section.is_valid() => section,
+                        Ok(section) => {
+                            tracing::warn!(%channel, section.table_id, "Invalid table_id");
+                            json.clear();
+                            continue;
                         }
                         Err(err) => {
                             tracing::warn!(%err, %channel, "Ignore broken EIT section");
@@ -258,19 +248,30 @@ where
                             continue;
                         }
                     };
-                    if section.is_valid() {
-                        let service_id = section.service_id();
-                        if !service_ids.contains(&service_id) {
-                            service_ids.insert(service_id);
-                            epg.emit(PrepareSchedule { service_id }).await;
+                    // We assume that events in EIT[schedule] always have
+                    // non-null values of the `start_time` and `duration`
+                    // properties.
+                    section.events.retain(|event| {
+                        if event.start_time.is_none() {
+                            tracing::warn!(%channel, %event.event_id,
+                                           "Ignore event which has no start_time");
+                            return false;
                         }
-                        epg.emit(UpdateSchedule { section }).await;
-                        json.clear();
-                        num_sections += 1;
-                    } else {
-                        tracing::warn!(%channel, section.table_id, "Invalid table_id");
-                        json.clear();
+                        if event.duration.is_none() {
+                            tracing::warn!(%channel, %event.event_id,
+                                           "Ignore event which has no duration");
+                            return false;
+                        }
+                        true
+                    });
+                    let service_id = section.service_id();
+                    if !service_ids.contains(&service_id) {
+                        service_ids.insert(service_id);
+                        epg.emit(PrepareSchedule { service_id }).await;
                     }
+                    epg.emit(UpdateSchedule { section }).await;
+                    num_sections += 1;
+                    json.clear();
                 }
                 _ = &mut timeout => {
                     tracing::warn!(err = "Timed out", %channel);
