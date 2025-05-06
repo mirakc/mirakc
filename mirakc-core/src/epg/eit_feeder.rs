@@ -312,12 +312,10 @@ mod tests {
     use test_log::test;
 
     #[test(tokio::test)]
-    async fn test_collect_eits_in_channel() {
+    async fn test_collect_eits_in_channel_out_of_services() {
         let ctx = actlet::stubs::Context::default();
 
         let tuner_stub = TunerManagerStub::default();
-
-        // TODO: add tests
 
         // Emulate out of services by using `false`
         let config = Arc::new(
@@ -348,6 +346,13 @@ mod tests {
         )
         .await;
         assert_matches!(result, Ok(()));
+    }
+
+    #[test(tokio::test)]
+    async fn test_collect_eits_in_channel_timed_out() {
+        let ctx = actlet::stubs::Context::default();
+
+        let tuner_stub = TunerManagerStub::default();
 
         // Timed out
         let config = Arc::new(
@@ -369,6 +374,213 @@ mod tests {
         epg_mock.0.expect_emit_prepare_schedule().never();
         epg_mock.0.expect_emit_update_schedule().never();
         epg_mock.0.expect_emit_flush_schedule().never();
+        let result = EitCollector::collect_eits_in_channel(
+            &channel_gr!("channel", "0"),
+            &config.jobs.update_schedules.command,
+            config.jobs.update_schedules.timeout,
+            &tuner_stub,
+            &epg_mock,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Ok(()));
+    }
+
+    #[test(tokio::test)]
+    async fn test_collect_eits_in_channel_invalid_table_id() {
+        let invalid_section = EitSection {
+            original_network_id: 0.into(),
+            transport_stream_id: 0.into(),
+            service_id: 0.into(),
+            table_id: 0,
+            section_number: 0,
+            last_section_number: 0,
+            segment_last_section_number: 0,
+            version_number: 0,
+            events: vec![],
+        };
+        let invalid_json = serde_json::to_string(&invalid_section).unwrap();
+
+        let valid_section = EitSection {
+            original_network_id: 0.into(),
+            transport_stream_id: 0.into(),
+            service_id: 0.into(),
+            table_id: 0x50,
+            section_number: 0,
+            last_section_number: 0,
+            segment_last_section_number: 0,
+            version_number: 0,
+            events: vec![],
+        };
+        let valid_json = serde_json::to_string(&valid_section).unwrap();
+
+        let ctx = actlet::stubs::Context::default();
+
+        let tuner_stub = TunerManagerStub::default();
+
+        let config = Arc::new(
+            serde_yaml::from_str::<Config>(&format!(
+                r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              update-schedules:
+                command: >-
+                  echo -e '{invalid_json}'\\n'{valid_json}'
+        "#,
+            ))
+            .unwrap(),
+        );
+        let mut epg_mock = MockEpg::new();
+        epg_mock.0.expect_emit_prepare_schedule().return_once(|msg| {
+            assert_eq!(msg.service_id, 0.into());
+        });
+        epg_mock.0.expect_emit_update_schedule().return_once(move |msg| {
+            assert_eq!(msg.section, valid_section);
+        });
+        epg_mock.0.expect_emit_flush_schedule().return_once(|msg| {
+            assert_eq!(msg.service_id, 0.into());
+        });
+        let result = EitCollector::collect_eits_in_channel(
+            &channel_gr!("channel", "0"),
+            &config.jobs.update_schedules.command,
+            config.jobs.update_schedules.timeout,
+            &tuner_stub,
+            &epg_mock,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Ok(()));
+    }
+
+    #[test(tokio::test)]
+    async fn test_collect_eits_in_channel_broken_eit_section() {
+        let valid_section = EitSection {
+            original_network_id: 0.into(),
+            transport_stream_id: 0.into(),
+            service_id: 0.into(),
+            table_id: 0x50,
+            section_number: 0,
+            last_section_number: 0,
+            segment_last_section_number: 0,
+            version_number: 0,
+            events: vec![],
+        };
+        let valid_json = serde_json::to_string(&valid_section).unwrap();
+
+        let ctx = actlet::stubs::Context::default();
+
+        let tuner_stub = TunerManagerStub::default();
+
+        let config = Arc::new(
+            serde_yaml::from_str::<Config>(&format!(
+                r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              update-schedules:
+                command: >-
+                  echo -e 1\\n'{valid_json}'
+        "#,
+            ))
+            .unwrap(),
+        );
+        let mut epg_mock = MockEpg::new();
+        epg_mock.0.expect_emit_prepare_schedule().return_once(|msg| {
+            assert_eq!(msg.service_id, 0.into());
+        });
+        epg_mock.0.expect_emit_update_schedule().return_once(move |msg| {
+            assert_eq!(msg.section, valid_section);
+        });
+        epg_mock.0.expect_emit_flush_schedule().return_once(|msg| {
+            assert_eq!(msg.service_id, 0.into());
+        });
+        let result = EitCollector::collect_eits_in_channel(
+            &channel_gr!("channel", "0"),
+            &config.jobs.update_schedules.command,
+            config.jobs.update_schedules.timeout,
+            &tuner_stub,
+            &epg_mock,
+            &ctx,
+        )
+        .await;
+        assert_matches!(result, Ok(()));
+    }
+
+    #[test(tokio::test)]
+    async fn test_collect_eits_in_channel_retain_events() {
+        let valid_section = EitSection {
+            original_network_id: 0.into(),
+            transport_stream_id: 0.into(),
+            service_id: 0.into(),
+            table_id: 0x50,
+            section_number: 0,
+            last_section_number: 0,
+            segment_last_section_number: 0,
+            version_number: 0,
+            events: vec![
+                // valid
+                EitEvent {
+                    event_id: 0.into(),
+                    start_time: Some(0),
+                    duration: Some(1),
+                    scrambled: false,
+                    descriptors: vec![],
+                },
+                // no start_time
+                EitEvent {
+                    event_id: 1.into(),
+                    start_time: None,
+                    duration: Some(1),
+                    scrambled: false,
+                    descriptors: vec![],
+                },
+                // no duration
+                EitEvent {
+                    event_id: 2.into(),
+                    start_time: Some(0),
+                    duration: None,
+                    scrambled: false,
+                    descriptors: vec![],
+                },
+            ],
+        };
+        let valid_json = serde_json::to_string(&valid_section).unwrap();
+
+        let ctx = actlet::stubs::Context::default();
+
+        let tuner_stub = TunerManagerStub::default();
+
+        let config = Arc::new(
+            serde_yaml::from_str::<Config>(&format!(
+                r#"
+            channels:
+              - name: channel
+                type: GR
+                channel: '0'
+            jobs:
+              update-schedules:
+                command: >-
+                  echo '{valid_json}'
+        "#,
+            ))
+            .unwrap(),
+        );
+        let mut epg_mock = MockEpg::new();
+        epg_mock.0.expect_emit_prepare_schedule().return_once(|msg| {
+            assert_eq!(msg.service_id, 0.into());
+        });
+        epg_mock.0.expect_emit_update_schedule().return_once(|msg| {
+            assert_eq!(msg.section.events.len(), 1);
+            assert_eq!(msg.section.events[0].event_id, 0.into());
+        });
+        epg_mock.0.expect_emit_flush_schedule().return_once(|msg| {
+            assert_eq!(msg.service_id, 0.into());
+        });
         let result = EitCollector::collect_eits_in_channel(
             &channel_gr!("channel", "0"),
             &config.jobs.update_schedules.command,
