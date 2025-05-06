@@ -556,7 +556,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 }
             }
 
-            buf.reset();
+            buf.clear();
         } else {
             unreachable!();
         }
@@ -713,8 +713,8 @@ impl RecordBuffer {
         Ok(())
     }
 
-    fn reset(&mut self) {
-        self.buf.truncate(0);
+    fn clear(&mut self) {
+        self.buf.clear();
     }
 }
 
@@ -790,15 +790,15 @@ mod tests {
         assert_matches!(buf.fill((None, None)), Ok(_) => {
             assert!(buf.data().is_empty());
         });
-        buf.reset();
+        buf.clear();
         assert_matches!(buf.fill((Some(10..50), None)), Ok(_) => {
             assert_eq!(buf.data().len(), 40);
         });
-        buf.reset();
+        buf.clear();
         assert_matches!(buf.fill((Some(100..200), Some(0..10))), Ok(_) => {
             assert_eq!(buf.data().len(), 110);
         });
-        buf.reset();
+        buf.clear();
     }
 
     #[test]

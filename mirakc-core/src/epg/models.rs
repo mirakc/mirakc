@@ -10,7 +10,7 @@ use crate::models::ServiceId;
 use crate::models::Sid;
 use crate::models::Tsid;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EitSection {
     pub original_network_id: Nid,
@@ -58,7 +58,7 @@ impl EitSection {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EitEvent {
     pub event_id: Eid,
@@ -91,7 +91,7 @@ impl EitEvent {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "$type")]
 pub enum EitDescriptor {
     #[serde(rename_all = "camelCase")]
@@ -115,7 +115,7 @@ pub enum EitDescriptor {
     },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComponentDescriptor {
     pub stream_content: u8,
@@ -126,7 +126,7 @@ pub struct ComponentDescriptor {
     pub text: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioComponentDescriptor {
     pub stream_content: u8,
@@ -144,7 +144,7 @@ pub struct AudioComponentDescriptor {
     pub text: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SeriesDescriptor {
     pub series_id: u16,
@@ -158,14 +158,14 @@ pub struct SeriesDescriptor {
     pub series_name: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventGroupDescriptor {
     pub group_type: u8,
     pub events: Vec<EventGroupEvent>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventGroupEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
