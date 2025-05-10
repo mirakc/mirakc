@@ -17,10 +17,6 @@ targets = [
 [advisories]
 yanked = "deny"
 
-[[advisories.ignore]]
-id = "RUSTSEC-2024-0436"
-reason = "the `paste` crate has been finished development and no other replacement at this point"
-
 [bans]
 allow-wildcard-paths = true
 wildcards = "warn" # TODO: "deny"
