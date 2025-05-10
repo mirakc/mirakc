@@ -636,7 +636,7 @@ mod tests {
         let data_file = temp_dir.as_ref().join("test.timeshift.json");
         std::fs::write(&data_file, b"0").unwrap();
 
-        let config: config::Config = serde_yaml::from_str(&format!(
+        let config: config::Config = serde_norway::from_str(&format!(
             r#"
             timeshift:
               recorders:
