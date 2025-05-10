@@ -25,4 +25,4 @@ vergen-gitcl = { version = "1.0.8", features = ["build"] }
 [dev-dependencies]
 assert_matches = "1.5.0"
 serde_yaml = "0.9.34"
-test-log = { version = "0.2.17", features = ["trace"] }
+test-log = { version = "0.2.17", default-features = false, features = ["trace"] }
