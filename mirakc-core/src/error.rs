@@ -55,7 +55,7 @@ pub enum Error {
     #[error("JSON error: {0}")]
     JsonError(serde_json::Error),
     #[error("YAML error: {0}")]
-    YamlError(serde_yaml::Error),
+    YamlError(serde_norway::Error),
     #[error("Querystring error: {0}")]
     QuerystringError(serde_qs::Error),
     #[error("Mustache error: {0}")]
@@ -104,8 +104,8 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-impl From<serde_yaml::Error> for Error {
-    fn from(err: serde_yaml::Error) -> Self {
+impl From<serde_norway::Error> for Error {
+    fn from(err: serde_norway::Error) -> Self {
         Self::YamlError(err)
     }
 }

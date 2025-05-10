@@ -319,7 +319,7 @@ mod tests {
 
         // Emulate out of services by using `false`
         let config = Arc::new(
-            serde_yaml::from_str::<Config>(
+            serde_norway::from_str::<Config>(
                 r#"
             channels:
               - name: channel
@@ -356,7 +356,7 @@ mod tests {
 
         // Timed out
         let config = Arc::new(
-            serde_yaml::from_str::<Config>(
+            serde_norway::from_str::<Config>(
                 r#"
             channels:
               - name: channel
@@ -419,7 +419,7 @@ mod tests {
         let tuner_stub = TunerManagerStub::default();
 
         let config = Arc::new(
-            serde_yaml::from_str::<Config>(&format!(
+            serde_norway::from_str::<Config>(&format!(
                 r#"
             channels:
               - name: channel
@@ -481,7 +481,7 @@ mod tests {
         let tuner_stub = TunerManagerStub::default();
 
         let config = Arc::new(
-            serde_yaml::from_str::<Config>(&format!(
+            serde_norway::from_str::<Config>(&format!(
                 r#"
             channels:
               - name: channel
@@ -568,7 +568,7 @@ mod tests {
         let tuner_stub = TunerManagerStub::default();
 
         let config = Arc::new(
-            serde_yaml::from_str::<Config>(&format!(
+            serde_norway::from_str::<Config>(&format!(
                 r#"
             channels:
               - name: channel
