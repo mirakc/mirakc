@@ -14,7 +14,7 @@ version.workspace = true
 [dependencies]
 chrono = { version = "0.4.41", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4.5.37", features = ["derive", "env"] }
-fuser = { version = "0.15.1", default-features = false, features = ["abi-7-31"] }
+fuser = { version = "0.15.1", features = ["abi-7-31"] }
 indexmap = { version = "2.9.0", features = ["serde"] }
 libc = "0.2.172"
 mirakc-core = { path = "../mirakc-core" }
@@ -29,7 +29,3 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 
 [build-dependencies]
 vergen-gitcl = { version = "1.0.8", features = ["build"] }
-
-# We don't specify versions because Dependabot cannot update crates in this section.
-[target.'cfg(target_os = "macos")'.dependencies]
-fuser = "*"  # There is no fusermount.
