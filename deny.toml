@@ -1,0 +1,45 @@
+[graph]
+all-features = true
+# Windows platforms are not supported.
+targets = [
+    # tier-1
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "i686-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    # tier-2
+    "arm-unknown-linux-gnueabi",
+    "arm-unknown-linux-gnueabihf",
+    "armv7-unknown-linux-gnueabihf",
+]
+
+[advisories]
+yanked = "deny"
+
+[[advisories.ignore]]
+id = "RUSTSEC-2024-0436"
+reason = "the `paste` crate has been finished development and no other replacement at this point"
+
+[bans]
+allow-wildcard-paths = true
+wildcards = "warn" # TODO: "deny"
+
+[bans.build]
+executables = "deny"
+
+[[bans.deny]]
+name = "serde-yml"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "MIT",
+    "Unicode-3.0",
+]
+unused-allowed-license = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -11,6 +11,7 @@ check:
 	cargo fmt --all --check
 	cargo check --workspace --all-targets --all-features
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
+	cargo deny check -s
 
 .PHONY: build
 build:
