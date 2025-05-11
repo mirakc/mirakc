@@ -23,7 +23,7 @@ reason = "the `paste` crate has been finished development and no other replaceme
 
 [bans]
 allow-wildcard-paths = true
-wildcards = "warn" # TODO: "deny"
+wildcards = "deny"
 
 [bans.build]
 executables = "deny"
