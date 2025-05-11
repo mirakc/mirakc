@@ -10,6 +10,7 @@ list-targets:
 .PHONY: check
 check: check-rust
 
+# `cargo deny check -s` will fail if a crate having a build script is added.
 .PHONY: check-rust
 check-rust:
 	cargo fmt --all --check

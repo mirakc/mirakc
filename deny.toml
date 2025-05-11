@@ -23,13 +23,164 @@ reason = "the `paste` crate has been finished development and no other replaceme
 
 [bans]
 allow-wildcard-paths = true
+deny = [
+    # author = "Sebastian Rousseau <sebastian.rousseau@gmail.com"
+    #
+    # NOTE: `cargo search` cannot search crates by authors.
+    # NOTE: `cargo-deny` does not support checking authors.
+    "cclm",
+    "cjwt",
+    "cmn",
+    "dtt",
+    "frontmatter-gen",
+    "hsh",
+    "html-generator",
+    "http-handle",
+    "idk",
+    "kyberlib",
+    "langweave",
+    "libmake",
+    "libyml",
+    "mdg",
+    "mdx-gen",
+    "metadata-gen",
+    "mini-functions",
+    "nucleusflow",
+    "pain",
+    "psph",
+    "qrc",
+    "rlg",
+    "rss-gen",
+    "serde-yml",
+    "sitemap-gen",
+    "ssg",
+    "staticdatagen",
+    "staticweaver",
+    "vrd",
+    "wiserone",
+    "xmlschema",
+    "xtasks",
+]
 wildcards = "deny"
 
 [bans.build]
-executables = "deny"
+# List crates using build scripts.
+#
+# The list does NOT guarantee compile-time safety, but indicates which crate has potential risks.
+#
+# TODO(build): We've cheched build scripts in the listed crates at some point.  But cargo-deny has
+# no way to detect changes from that point.  The `build-script` property cannot be used for this
+# purpose.
+allow-build-scripts = [
+    "anyhow",
+    "crossbeam",
+    "crossbeam-utils",
+    "fuser",
+    "generic-array",
+    "getrandom",
+    "httparse",
+    # NOTE: The environment variable `ICU4X_DATA_DIR` is used for replacing data.
+    "icu_normalizer_data",
+    # NOTE: The environment variable `ICU4X_DATA_DIR` is used for replacing data.
+    "icu_properties_data",
+    "libc",
+    "lock_api",
+    "mime_guess",
+    "mirakc",
+    "mirakc-timeshift-fs",
+    "mockall_derive",
+    "nix",
+    "num-traits",
+    "parking_lot_core",
+    "paste",
+    "proc-macro2",
+    "rustix",
+    "rustversion",
+    "semver",
+    "serde",
+    "serde_json",
+    "slab",
+    "thiserror",
+    "typenum",
+    "utoipa-swagger-ui",
+    "vergen",
+    "vergen-gitcl",
+    "vergen-lib",
+    "zerocopy",
+    "zip",
+]
+include-dependencies = true
+include-workspace= true
+interpreted = "warn"
 
-[[bans.deny]]
-name = "serde-yml"
+[[bans.build.bypass]]
+crate = "autocfg"
+allow = [
+    { path = "tests/wrap_ignored" },
+]
+
+[[bans.build.bypass]]
+crate = "bytes"
+allow-globs = ["ci/*.sh"]
+
+[[bans.build.bypass]]
+crate = "displaydoc"
+allow = [
+    { path = "update-readme.sh" },
+]
+
+[[bans.build.bypass]]
+crate = "fuser"
+allow = [
+    { path = "mount_tests.sh" },
+    { path = "osx_mount_tests.sh" },
+    { path = "pjdfs.sh" },
+    { path = "simplefs_tests.sh" },
+    { path = "xfstests.sh" },
+]
+
+[[bans.build.bypass]]
+crate = "regex"
+allow = [
+    { path = "test" },
+]
+
+[[bans.build.bypass]]
+crate = "regex-automata@0.1.10"
+allow = [
+    { path = "data/tests/fowler/fowler-to-toml" },
+]
+
+[[bans.build.bypass]]
+crate = "regex-automata:>0.1"
+allow = [
+    { path = "test" },
+]
+
+[[bans.build.bypass]]
+crate = "regex-syntax"
+allow = [
+    { path = "test" },
+]
+
+[[bans.build.bypass]]
+crate = "smallvec"
+allow = [
+    { path = "scripts/run_miri.sh" },
+]
+
+[[bans.build.bypass]]
+crate = "sharded-slab"
+allow = [
+    { path = "bin/loom.sh" },
+]
+
+[[bans.build.bypass]]
+crate = "zerocopy"
+allow-globs = ["ci/*.sh"]
+allow = [
+    { path = "githooks/pre-push" },
+]
 
 [licenses]
 allow = [
