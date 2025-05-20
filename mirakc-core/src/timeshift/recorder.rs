@@ -509,12 +509,10 @@ where
         msg: QueryTimeshiftRecord,
         _ctx: &mut Context<Self>,
     ) -> <QueryTimeshiftRecord as Message>::Reply {
-        let result = self
-            .records
+        self.records
             .get(&msg.record_id)
             .map(|record| record.get_model(self.config()))
-            .ok_or(Error::RecordNotFound);
-        result
+            .ok_or(Error::RecordNotFound)
     }
 }
 
