@@ -711,7 +711,7 @@ impl PartialOrd for TunerPriority {
 
 enum TunerActivity {
     Inactive,
-    Active(TunerSession),
+    Active(Box<TunerSession>),
 }
 
 impl TunerActivity {
@@ -732,7 +732,7 @@ impl TunerActivity {
                 let session =
                     TunerSession::new(tuner_index, channel, command, filters, time_limit, ctx)
                         .await?;
-                *self = Self::Active(session);
+                *self = Self::Active(Box::new(session));
                 Ok(())
             }
             Self::Active(_) => panic!("Must be deactivated before activating"),
