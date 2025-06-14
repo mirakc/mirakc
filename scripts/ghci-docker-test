@@ -35,3 +35,30 @@ do
   test_images $REGISTRY/mirakc/mirakc:$VERSION-alpine \
               $REGISTRY/mirakc/timeshift-fs:$VERSION-alpine
 done
+
+# Check libraries actually loaded in containers created from alpine images.
+
+ld_debug() {
+  docker run --rm --platform=$3 -e LD_DEBUG=files $1 --version
+  docker run --rm --platform=$3 -e LD_DEBUG=files --entrypoint=recdvb $1 --version
+  docker run --rm --platform=$3 -e LD_DEBUG=files --entrypoint=recpt1 $1 --version
+  docker run --rm --platform=$3 -e LD_DEBUG=files --entrypoint=mirakc-arib $1 --version
+  docker run --rm --platform=$3 -e LD_DEBUG=files --entrypoint=mirakc-timeshift-fs $2 --version
+}
+
+for REGISTRY in $REGISTRIES
+do
+  for PLATFORM in $PLATFORMS
+  do
+    echo "Checking libraries for $PLATFORM..."
+    EXPECTED=$(ld_debug $REGISTRY/mirakc/mirakc:$VERSION-debian \
+                        $REGISTRY/mirakc/timeshift-fs:$VERSION-debian 2>&1 1>/dev/null | \
+               grep 'calling init:' | awk '{print $4}' | sort | uniq | tr '\n' ' ')
+    echo "  EXPECTED: $EXPECTED"
+    ACTUAL=$(ld_debug $REGISTRY/mirakc/mirakc:$VERSION-alpine \
+                        $REGISTRY/mirakc/timeshift-fs:$VERSION-alpine 2>&1 1>/dev/null | \
+             grep 'calling init:' | awk '{print $4}' | sort | uniq | tr '\n' ' ')
+    echo "  ACTUAL: $ACTUAL"
+    test "$ACTUAL" = "$EXPECTED"
+  done
+done
