@@ -13,7 +13,6 @@ VERSION="$1"
 test_images() {
   MIRAKC_IMAGE=$1
   TIMESHIFT_FS_IMAGE=$2
-  PLATFORMS="$3"
 
   for PLATFORM in $PLATFORMS
   do
@@ -32,9 +31,7 @@ test_images() {
 for REGISTRY in $REGISTRIES
 do
   test_images $REGISTRY/mirakc/mirakc:$VERSION-debian \
-              $REGISTRY/mirakc/timeshift-fs:$VERSION-debian \
-              "$DEBIAN_PLATFORMS"
+              $REGISTRY/mirakc/timeshift-fs:$VERSION-debian
   test_images $REGISTRY/mirakc/mirakc:$VERSION-alpine \
-              $REGISTRY/mirakc/timeshift-fs:$VERSION-alpine \
-              "$ALPINE_PLATFORMS"
+              $REGISTRY/mirakc/timeshift-fs:$VERSION-alpine
 done

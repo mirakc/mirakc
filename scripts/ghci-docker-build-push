@@ -72,7 +72,6 @@ TOOLS_TAG=
 prepare_build() {
   BASE=$1
   DISTRO=$2
-  PLATFORMS=$3
 
   VERSION="$REF_NAME"
   MAIN_TAG="$BASE:$VERSION-$DISTRO"
@@ -114,7 +113,7 @@ do
   do
     TARGET=$(echo $IMAGE | cut -d / -f 2)
 
-    prepare_build $REGISTRY/$IMAGE debian "$DEBIAN_PLATFORMS"
+    prepare_build $REGISTRY/$IMAGE debian
     echo "Building $REGISTRY/$IMAGE:$MAIN_TAG..."
     docker build --push $CACHE_OPTIONS $OPTIONS --target="$TARGET" "$PROJDIR"
 
@@ -125,7 +124,7 @@ do
       $REGISTRY/$IMAGE:$MAIN_TAG \
       /archive.sh >$ARCHIVE
 
-    prepare_build $REGISTRY/$IMAGE alpine "$ALPINE_PLATFORMS"
+    prepare_build $REGISTRY/$IMAGE alpine
     echo "Building $REGISTRY/$IMAGE:$MAIN_TAG..."
     docker build --push $CACHE_OPTIONS $OPTIONS --target="$TARGET" "$PROJDIR"
 
