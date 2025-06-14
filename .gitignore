@@ -1,5 +1,6 @@
 /.devcontainer/config.yml
 /.devcontainer/epg/
+/archive.tar.gz
 /target
 *.pyc
 **/*.sed.backup

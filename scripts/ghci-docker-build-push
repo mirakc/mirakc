@@ -1,0 +1,134 @@
+#!/bin/sh
+
+set -eu
+
+PROGNAME=$(basename $0)
+BASEDIR=$(cd $(dirname $0); pwd)
+PROJDIR=$(cd $BASEDIR/..; pwd)
+
+. $BASEDIR/ghci.vars
+
+IMAGES="mirakc/mirakc mirakc/timeshift-fs"
+ARCHIVE="$PROJDIR/archive.tar.gz"
+
+help() {
+  cat <<EOF >&2
+Build Docker images on GitHub CI.
+
+USAGE:
+  $PROGNAME [options]
+  $PROGNAME -h | --help
+
+OPTIONS:
+  -h, --help
+    Show help.
+
+  --ref-type (branch|tag)
+
+  --ref-name <ref-name>
+
+  --cache-from <cache-from>
+
+  --cache-to <cache-to>
+EOF
+  exit 0
+}
+
+CACHE_OPTIONS=
+
+while [ $# -gt 0 ]
+do
+  case "$1" in
+    '-h' | '--help')
+      help
+      ;;
+    '--ref-type')
+      REF_TYPE="$2"
+      shift 2
+      ;;
+    '--ref-name')
+      REF_NAME="$2"
+      shift 2
+      ;;
+    '--cache-from')
+      CACHE_OPTIONS="$CACHE_OPTIONS --cache-from='$2'"
+      shift 2
+      ;;
+    '--cache-to')
+      CACHE_OPTIONS="$CACHE_OPTIONS --cache-to='$2'"
+      shift 2
+      ;;
+    *)
+      help
+      ;;
+  esac
+done
+
+# The following variables are reset in 'prepare_build'.
+OPTIONS=
+MAIN_TAG=
+TOOLS_TAG=
+
+prepare_build() {
+  BASE=$1
+  DISTRO=$2
+  PLATFORMS=$3
+
+  VERSION="$REF_NAME"
+  MAIN_TAG="$BASE:$VERSION-$DISTRO"
+  OPTIONS="--tag=$MAIN_TAG"
+
+  if [ "$DISTRO" = debian ]
+  then
+    OPTIONS="$OPTIONS --tag=$BASE:$VERSION"
+  fi
+  case "$REF_TYPE" in
+    branch)
+      # Assumed that the branch created from the "main" branch.
+      TOOLS_TAG="$DISTRO"
+      ;;
+    tag)
+      # Always update latest image tags when a new git tag is created.
+      OPTIONS="$OPTIONS --tag=$BASE:$DISTRO"
+      if [ "$DISTRO" = debian ]
+      then
+        OPTIONS="$OPTIONS --tag=$BASE:latest"
+      fi
+      MAJOR=$(echo "$VERSION" | cut -d '.' -f 1)
+      MINOR=$(echo "$VERSION" | cut -d '.' -f 2)
+      TOOLS_TAG="$DISTRO-${MAJOR}.${MINOR}"
+      ;;
+    *)
+      ;;
+  esac
+
+  OPTIONS="$OPTIONS --file=$PROJDIR/docker/Dockerfile.$DISTRO"
+  OPTIONS="$OPTIONS --platform=$(echo $PLATFORMS | tr ' ' ',')"
+  OPTIONS="$OPTIONS --build-arg=DEBIAN_CODENAME=$DEBIAN_CODENAME"
+  OPTIONS="$OPTIONS --build-arg=TOOLS_TAG=$TOOLS_TAG"
+}
+
+for REGISTRY in $REGISTRIES
+do
+  for IMAGE in $IMAGES
+  do
+    TARGET=$(echo $IMAGE | cut -d / -f 2)
+
+    prepare_build $REGISTRY/$IMAGE debian "$DEBIAN_PLATFORMS"
+    echo "Building $REGISTRY/$IMAGE:$MAIN_TAG..."
+    docker build --push $CACHE_OPTIONS $OPTIONS --target="$TARGET" "$PROJDIR"
+
+    echo "Creating archive.tar.gz..."
+    docker run --rm \
+      --mount="type=bind,src=$PROJDIR/docker/build-scripts/archive.sh,dst=/archive.sh"
+      --entrypoint=sh \
+      $REGISTRY/$IMAGE:$MAIN_TAG \
+      /archive.sh >$ARCHIVE
+
+    prepare_build $REGISTRY/$IMAGE alpine "$ALPINE_PLATFORMS"
+    echo "Building $REGISTRY/$IMAGE:$MAIN_TAG..."
+    docker build --push $CACHE_OPTIONS $OPTIONS --target="$TARGET" "$PROJDIR"
+
+    rm -f $ARCHIVE
+  done
+done

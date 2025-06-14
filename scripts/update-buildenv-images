@@ -8,7 +8,8 @@ PROJDIR=$(cd $BASEDIR/..; pwd)
 
 REGS='docker.io'  #REGS='docker.io ghcr.io'
 IMAGE=mirakc/buildenv
-DISTROS='alpine debian'
+# Binaries built on mirakc/buildenv:debian will be reuse for Alpine-based images.
+DISTROS='debian'
 PLATFORMS='linux/386 linux/amd64 linux/arm/v5 linux/arm/v6 linux/arm/v7 linux/arm64/v8'
 
 if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then

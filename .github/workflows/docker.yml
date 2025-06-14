@@ -32,32 +32,8 @@ on:
           - branch
           - tag
 
-env:
-  MAIN_DISTRO: debian
-  DEBIAN_CODENAME: bookworm
-
 jobs:
   docker:
-    strategy:
-      matrix:
-        distro:
-          - alpine
-          - debian
-        include:
-          - distro: alpine
-            platforms: >-
-              linux/386,
-              linux/amd64,
-              linux/arm/v6,
-              linux/arm/v7,
-              linux/arm64/v8,
-          - distro: debian
-            # docker/setup-*-action has not supported linux/arm/v5.
-            platforms: >-
-              linux/386,
-              linux/amd64,
-              linux/arm/v7,
-              linux/arm64/v8,
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -65,43 +41,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref-name }}
-      - name: Docker tags
-        id: docker-tags
-        run: |
-          IMAGE="{0}"  # placeholder
-          VERSION="${{ inputs.ref-name }}"
-          MAIN_TAG="$IMAGE:$VERSION-${{ matrix.distro }}"
-          TAGS="$MAIN_TAG"
-          if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]
-          then
-            TAGS="$TAGS,$IMAGE:$VERSION"
-          fi
-          case "${{ inputs.ref-type }}" in
-            branch)
-              # Assumed that the branch created from the "main" branch.
-              TOOLS_TAG=${{ matrix.distro }}
-              ;;
-            tag)
-              # Always update latest image tags when a new git tag is created.
-              TAGS="$TAGS,$IMAGE:${{ matrix.distro }}"
-              if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
-                TAGS="$TAGS,$IMAGE:latest"
-              fi
-              MAJOR=$(echo "$VERSION" | cut -d '.' -f 1)
-              MINOR=$(echo "$VERSION" | cut -d '.' -f 2)
-              TOOLS_TAG="${{ matrix.distro }}-${MAJOR}.${MINOR}"
-              ;;
-            *)
-              ;;
-          esac
-          echo "Version: $VERSION"
-          echo "Main tag: $MAIN_TAG"
-          echo "Tags: $TAGS"
-          echo "Tools tag: $TOOLS_TAG"
-          echo "version=$VERSION" >>$GITHUB_OUTPUT
-          echo "main-tag=$MAIN_TAG" >>$GITHUB_OUTPUT
-          echo "tags=$TAGS" >>$GITHUB_OUTPUT
-          echo "tools-tag=$TOOLS_TAG" >>$GITHUB_OUTPUT
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v3
       - name: Setup Docker Buildx
@@ -124,71 +63,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push (mirakc/mirakc)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.${{ matrix.distro }}
-          build-args: |
-            DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
-            TOOLS_TAG=${{ steps.docker-tags.outputs.tools-tag }}
-          target: mirakc
-          platforms: ${{ matrix.platforms }}
-          tags: >-
-            ${{ format(steps.docker-tags.outputs.tags, 'docker.io/mirakc/mirakc') }},
-          cache-from: |
-            type=local,src=/tmp/.docker-cache
-          cache-to: |
-            type=local,dest=/tmp/.docker-cache
-          push: true
-      - name: Build and push (mirakc/timeshift-fs)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.${{ matrix.distro }}
-          build-args: |
-            DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
-            TOOLS_TAG=${{ steps.docker-tags.outputs.tools-tag }}
-          target: timeshift-fs
-          platforms: ${{ matrix.platforms }}
-          tags: >-
-            ${{ format(steps.docker-tags.outputs.tags, 'docker.io/mirakc/timeshift-fs') }},
-          cache-from: |
-            type=local,src=/tmp/.docker-cache
-          cache-to: |
-            type=local,dest=/tmp/.docker-cache
-          push: true
-      - name: Test (mirakc/mirakc)
-        run: |
-          set -eux
-
-          IMG="${{ format(steps.docker-tags.outputs.main-tag, 'mirakc/mirakc') }}"
-          for PLATFORM in $(echo ${{ matrix.platforms }} | tr ',' ' ')
-          do
-            for REG in docker.io
-            do
-              echo "Testing $REG/$IMG for $PLATFORM..."
-              docker run --rm --platform=$PLATFORM $REG/$IMG --version
-              docker run --rm --platform=$PLATFORM --entrypoint=recdvb $REG/$IMG --version
-              docker run --rm --platform=$PLATFORM --entrypoint=recpt1 $REG/$IMG --version
-              docker run --rm --platform=$PLATFORM --entrypoint=mirakc-arib $REG/$IMG --version
-              docker run --rm --platform=$PLATFORM --entrypoint=mirakc $REG/$IMG --version
-              docker run --rm --platform=$PLATFORM --entrypoint=dvbv5-zap $REG/$IMG --version
-            done
-          done
-      - name: Test (mirakc/timeshift-fs)
-        run: |
-          set -eux
-
-          IMG="${{ format(steps.docker-tags.outputs.main-tag, 'mirakc/timeshift-fs') }}"
-          for PLATFORM in $(echo ${{ matrix.platforms }} | tr ',' ' ')
-          do
-            for REG in docker.io
-            do
-              echo "Testing $REG/$IMG for $PLATFORM..."
-              docker run --rm --platform=$PLATFORM --entrypoint=mirakc-timeshift-fs $REG/$IMG --version
-            done
-          done
+      - name: Build and push
+        run: >-
+          ./scripts/ghci-docker-build-push
+          --ref-type ${{ inputs.ref-type }}
+          --ref-name ${{ inputs.ref-name }}
+          --cache-from 'type=local,src=/tmp/.docker-cache'
+          --cache-to 'type=local,dest=/tmp/.docker-cache'
+      - name: Test
+        run: >-
+          ./scripts/ghci-docker-test ${{ inputs.ref-name }}
   trigger:
     needs:
       - docker

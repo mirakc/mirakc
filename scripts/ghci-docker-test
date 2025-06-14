@@ -1,0 +1,40 @@
+#!/bin/sh
+
+set -eu
+
+PROGNAME=$(basename $0)
+BASEDIR=$(cd $(dirname $0); pwd)
+PROJDIR=$(cd $BASEDIR/..; pwd)
+
+. $BASEDIR/ghci.vars
+
+VERSION="$1"
+
+test_images() {
+  MIRAKC_IMAGE=$1
+  TIMESHIFT_FS_IMAGE=$2
+  PLATFORMS="$3"
+
+  for PLATFORM in $PLATFORMS
+  do
+    echo "Testing $MIRAKC_IMAGE for $PLATFORM..."
+    docker run --rm --platform=$PLATFORM $MIRAKC_IMAGE --version
+    docker run --rm --platform=$PLATFORM --entrypoint=recdvb $MIRAKC_IMAGE --version
+    docker run --rm --platform=$PLATFORM --entrypoint=recpt1 $MIRAKC_IMAGE --version
+    docker run --rm --platform=$PLATFORM --entrypoint=mirakc-arib $MIRAKC_IMAGE --version
+    docker run --rm --platform=$PLATFORM --entrypoint=dvbv5-zap $MIRAKC_IMAGE --version
+
+    echo "Testing $TIMESHIFT_FS_IMAGE for $PLATFORM..."
+    docker run --rm --platform=$PLATFORM --entrypoint=mirakc-timeshift-fs $TIMESHIFT_FS_IMAGE --version
+  done
+}
+
+for REGISTRY in $REGISTRIES
+do
+  test_images $REGISTRY/mirakc/mirakc:$VERSION-debian \
+              $REGISTRY/mirakc/timeshift-fs:$VERSION-debian \
+              "$DEBIAN_PLATFORMS"
+  test_images $REGISTRY/mirakc/mirakc:$VERSION-alpine \
+              $REGISTRY/mirakc/timeshift-fs:$VERSION-alpine \
+              "$ALPINE_PLATFORMS"
+done
