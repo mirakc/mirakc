@@ -31,6 +31,10 @@ on:
         options:
           - branch
           - tag
+      push:
+        description: 'Push images to registries'
+        default: false
+        type: boolean
 
 jobs:
   docker:
@@ -66,14 +70,16 @@ jobs:
       - name: Build and push
         run: >-
           ./scripts/ghci-docker-build-push
+          --push ${{ inputs.push }}
           --ref-type ${{ inputs.ref-type }}
           --ref-name ${{ inputs.ref-name }}
-          --cache-from 'type=local,src=/tmp/.docker-cache'
-          --cache-to 'type=local,dest=/tmp/.docker-cache'
+          --cache-from type=local,src=/tmp/.docker-cache
+          --cache-to type=local,dest=/tmp/.docker-cache
       - name: Test
         run: >-
           ./scripts/ghci-docker-test ${{ inputs.ref-name }}
   trigger:
+    if: ${{ inputs.push }}
     needs:
       - docker
     runs-on: ubuntu-latest

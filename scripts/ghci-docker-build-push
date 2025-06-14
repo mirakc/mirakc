@@ -23,6 +23,8 @@ OPTIONS:
   -h, --help
     Show help.
 
+  --push (true|false)
+
   --ref-type (branch|tag)
 
   --ref-name <ref-name>
@@ -34,6 +36,7 @@ EOF
   exit 0
 }
 
+PUSH_OPTION=
 CACHE_OPTIONS=
 
 while [ $# -gt 0 ]
@@ -41,6 +44,15 @@ do
   case "$1" in
     '-h' | '--help')
       help
+      ;;
+    '--push')
+      if [ "$2" = 'true' ]
+      then
+        PUSH_OPTION='--push'
+      else
+        PUSH_OPTION=
+      fi
+      shift 2
       ;;
     '--ref-type')
       REF_TYPE="$2"
@@ -51,11 +63,11 @@ do
       shift 2
       ;;
     '--cache-from')
-      CACHE_OPTIONS="$CACHE_OPTIONS --cache-from='$2'"
+      CACHE_OPTIONS="$CACHE_OPTIONS --cache-from=$2"
       shift 2
       ;;
     '--cache-to')
-      CACHE_OPTIONS="$CACHE_OPTIONS --cache-to='$2'"
+      CACHE_OPTIONS="$CACHE_OPTIONS --cache-to=$2"
       shift 2
       ;;
     *)
@@ -115,7 +127,7 @@ do
 
     prepare_build $REGISTRY/$IMAGE debian
     echo "Building $REGISTRY/$IMAGE:$MAIN_TAG..."
-    docker build --push $CACHE_OPTIONS $OPTIONS --target="$TARGET" "$PROJDIR"
+    docker build $PUSH_OPTION $CACHE_OPTIONS $OPTIONS --target="$TARGET" "$PROJDIR"
 
     echo "Creating archive.tar.gz..."
     docker run --rm \
@@ -126,7 +138,7 @@ do
 
     prepare_build $REGISTRY/$IMAGE alpine
     echo "Building $REGISTRY/$IMAGE:$MAIN_TAG..."
-    docker build --push $CACHE_OPTIONS $OPTIONS --target="$TARGET" "$PROJDIR"
+    docker build $PUSH_OPTION $CACHE_OPTIONS $OPTIONS --target="$TARGET" "$PROJDIR"
 
     rm -f $ARCHIVE
   done
