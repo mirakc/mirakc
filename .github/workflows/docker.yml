@@ -36,6 +36,14 @@ on:
         default: false
         type: boolean
 
+env:
+  DEBIAN_CODENAME: bookworm
+  PLATFORMS: >-
+    linux/386,
+    linux/amd64,
+    linux/arm/v7,
+    linux/arm64/v8,
+
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -67,14 +75,82 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push
+      - name: Prepare tags (debian)
+        id: debian-tags
         run: >-
-          ./scripts/ghci-docker-build-push
-          --push ${{ inputs.push }}
-          --ref-type ${{ inputs.ref-type }}
-          --ref-name ${{ inputs.ref-name }}
-          --cache-from type=local,src=/tmp/.docker-cache
-          --cache-to type=local,dest=/tmp/.docker-cache
+          ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
+      - name: Build and push (mirakc/mirakc:debian*)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
+            TOOLS_TAG=${{ steps.debian-tags.outputs.tools-tag }}
+          target: mirakc-debian
+          platforms: ${{ env.PLATFORMS }}
+          tags: >-
+            ${{ format(steps.debian-tags.outputs.tags, 'docker.io/mirakc/mirakc') }},
+          cache-from: |
+            type=local,src=/tmp/.docker-cache
+          cache-to: |
+            type=local,dest=/tmp/.docker-cache
+          push: ${{ inputs.push }}
+      - name: Build and push (mirakc/timeshift-fs:debian*)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
+            TOOLS_TAG=${{ steps.debian-tags.outputs.tools-tag }}
+          target: timeshift-fs-debian
+          platforms: ${{ env.PLATFORMSS }}
+          tags: >-
+            ${{ format(steps.debian-tags.outputs.tags, 'docker.io/mirakc/timeshift-fs') }},
+          cache-from: |
+            type=local,src=/tmp/.docker-cache
+          cache-to: |
+            type=local,dest=/tmp/.docker-cache
+          push: ${{ inputs.push }}
+      - name: Prepare tags (alpine)
+        id: alpine-tags
+        run: >-
+          ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
+      - name: Build and push (mirakc/mirakc:alpine*)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
+            TOOLS_TAG=${{ steps.alpine-tags.outputs.tools-tag }}
+          target: mirakc-alpine
+          platforms: ${{ env.PLATFORMS }}
+          tags: >-
+            ${{ format(steps.alpine-tags.outputs.tags, 'docker.io/mirakc/mirakc') }},
+          cache-from: |
+            type=local,src=/tmp/.docker-cache
+          cache-to: |
+            type=local,dest=/tmp/.docker-cache
+          push: ${{ inputs.push }}
+      - name: Build and push (mirakc/timeshift-fs:alpine*)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          build-args: |
+            DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
+            TOOLS_TAG=${{ steps.alpine-tags.outputs.tools-tag }}
+          target: timeshift-fs-alpine
+          platforms: ${{ env.PLATFORMSS }}
+          tags: >-
+            ${{ format(steps.alpine-tags.outputs.tags, 'docker.io/mirakc/timeshift-fs') }},
+          cache-from: |
+            type=local,src=/tmp/.docker-cache
+          cache-to: |
+            type=local,dest=/tmp/.docker-cache
+          push: ${{ inputs.push }}
       - name: Test
         run: >-
           ./scripts/ghci-docker-test ${{ inputs.ref-name }}

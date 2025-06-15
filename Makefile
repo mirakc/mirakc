@@ -102,17 +102,13 @@ debian-image: PLATFORM ?= linux/amd64
 debian-image: TARGET ?= mirakc
 debian-image: DEBIAN ?= bookworm
 debian-image:
-	docker build -t mirakc/$(TARGET):$(PREFIX)-debian -f docker/Dockerfile.debian --load \
-	  --target $(TARGET) --platform=$(PLATFORM) --build-arg DEBIAN_CODENAME=$(DEBIAN) .
+	docker build -t mirakc/$(TARGET):$(PREFIX)-debian -f docker/Dockerfile --load \
+	  --target $(TARGET)-debian --platform=$(PLATFORM) --build-arg DEBIAN_CODENAME=$(DEBIAN) .
 
 .PHONE: alpine-image
 alpine-image: PREFIX ?= dev
 alpine-image: PLATFORM ?= linux/amd64
 alpine-image: TARGET ?= mirakc
 alpine-image:
-	docker run --rm --platform=$(PLATFORM) \
-	  --mount="type=bind,src=$(shell pwd)/docker/build-scripts/archive.sh,dst=/archive.sh" \
-	  --entrypoint=sh mirakc/$(TARGET):$(PREFIX)-debian /archive.sh >archive.tar.gz
-	docker build -t mirakc/$(TARGET):$(PREFIX)-alpine -f docker/Dockerfile.alpine --load \
-	  --target $(TARGET) --platform=$(PLATFORM) .
-	rm -f archive.tar.gz
+	docker build -t mirakc/$(TARGET):$(PREFIX)-alpine -f docker/Dockerfile --load \
+	  --target $(TARGET)-alpine --platform=$(PLATFORM) .

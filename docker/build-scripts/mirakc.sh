@@ -27,7 +27,7 @@ cargo build -v --profile=$PROFILE --target $RUST_TARGET_TRIPLE --bin mirakc-time
 cp ./target/$RUST_TARGET_TRIPLE/$PROFILE/mirakc-timeshift-fs /usr/local/bin/
 cat <<EOF >/usr/local/bin/run-mirakc-timeshift-fs
 #!/bin/sh
-trap 'umount /mnt' EXIT
+trap 'umount /mnt' EXIT INT TERM
 /usr/local/bin/mirakc-timeshift-fs /mnt
 EOF
 chmod +x /usr/local/bin/run-mirakc-timeshift-fs
