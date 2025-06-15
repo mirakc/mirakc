@@ -104,7 +104,7 @@ jobs:
             DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
             TOOLS_TAG=${{ steps.debian-tags.outputs.tools-tag }}
           target: timeshift-fs-debian
-          platforms: ${{ env.PLATFORMSS }}
+          platforms: ${{ env.PLATFORMS }}
           tags: >-
             ${{ format(steps.debian-tags.outputs.tags, 'docker.io/mirakc/timeshift-fs') }},
           cache-from: |
@@ -142,7 +142,7 @@ jobs:
             DEBIAN_CODENAME=${{ env.DEBIAN_CODENAME }}
             TOOLS_TAG=${{ steps.alpine-tags.outputs.tools-tag }}
           target: timeshift-fs-alpine
-          platforms: ${{ env.PLATFORMSS }}
+          platforms: ${{ env.PLATFORMS }}
           tags: >-
             ${{ format(steps.alpine-tags.outputs.tags, 'docker.io/mirakc/timeshift-fs') }},
           cache-from: |
