@@ -7,13 +7,13 @@ This folder contains files for Docker support.
 Using [compose.yaml](./compose.yaml):
 
 ```shell
-docker buildx bake --load
+docker bake --load
 ```
 
-Using `Dockerfile.*`:
+Using `Dockerfile`:
 
 ```shell
-docker buildx build -t mirakc-sample -f Dockerfile.debian --target mirakc \
+docker build -t mirakc-sample -f Dockerfile --target mirakc-debian \
   --build-arg DEBIAN_CODENAME=bookworm ..
 ```
 
@@ -21,7 +21,7 @@ Use `--platform` option if you want to build a multi-arch image or cross-build
 a image for a target:
 
 ```shell
-docker buildx build -t mirakc-sample -f Dockerfile.debian --target mirakc \
+docker build -t mirakc-sample -f Dockerfile --target mirakc-debian \
   --build-arg DEBIAN_CODENAME=bookworm \
   --platform=linux/amd64,linux/arm/v7,linux/arm64/v8 ..
 ```
@@ -32,15 +32,16 @@ in docker/buildx#59.
 
 ## mirakc/buildenv
 
+> NOTE: mirakc/buildenv:alpine-* images are no longer updated.  See #2420 for the reason.
+
 A [mirakc/buildenv] image is used as a build environment for each target platform.
 
 [mirakc/buildenv] images on Docker Hub can be updated by running
 [//scripts/update-buildenv-images](../scripts/update-buildenv-images).
 
-[mirakc/buildenv] images were introduced in order to reduce network traffic to
-[musl.cc].  See https://github.com/orgs/community/discussions/27906 for details.
-
 ## mirakc/tools
+
+> NOTE: mirakc/tools:alpine image is no longer updated.  See #2420 for the reason.
 
 [mirakc/tools] is a multi-arch image which contains the following commands:
 
@@ -56,4 +57,3 @@ A [mirakc/buildenv] image is used as a build environment for each target platfor
 
 [mirakc/buildenv]: https://hub.docker.com/r/mirakc/buildenv
 [mirakc/tools]: https://hub.docker.com/r/mirakc/tools
-[musl.cc]: https://musl.cc/
