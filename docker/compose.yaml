@@ -7,8 +7,8 @@ services:
     image: mirakc-sample
     build:
       context: ../
-      dockerfile: ./docker/Dockerfile.debian
-      target: mirakc
+      dockerfile: ./docker/Dockerfile
+      target: mirakc-debian
       args:
         DEBIAN_CODENAME: bookworm
     container_name: mirakc-sample
