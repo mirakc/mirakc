@@ -8,7 +8,8 @@ PROJDIR=$(cd $BASEDIR/..; pwd)
 
 REGS='docker.io'  #REGS='docker.io ghcr.io'
 IMAGE=mirakc/buildenv
-DISTROS='alpine debian'
+# Binaries built on mirakc/buildenv:debian will be reuse for Alpine-based images.
+DISTROS='debian'
 PLATFORMS='linux/386 linux/amd64 linux/arm/v5 linux/arm/v6 linux/arm/v7 linux/arm64/v8'
 
 if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
@@ -33,7 +34,7 @@ OPTIONS:
     Show help.
 
   --no-cache
-    Don't use the Docker buildx cache.
+    Don't use the Docker build cache.
 
   --push
     Push images.
@@ -95,7 +96,7 @@ tag_name() {
       echo "$1-linux-armv7"
       ;;
     linux/arm64/v8)
-      # `docker buildx build` doesn't define TARGETVARIANT
+      # `docker build` doesn't define TARGETVARIANT
       echo "$1-linux-arm64"
       ;;
   esac
@@ -133,7 +134,7 @@ do
       for REG in $REGS
       do
         log "Updating $REG/$IMG..."
-        $DOCKER buildx build \
+        $DOCKER build \
           -t $REG/$IMG \
           -f $PROJDIR/docker/Dockerfile.buildenv \
           --build-arg="DEBIAN_CODENAME=$DEBIAN_CODENAME" \

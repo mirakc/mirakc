@@ -21,14 +21,14 @@ Where:
 * DISTRO
   * alpine
     * Based on docker.io/alpine:latest
+    * Contains binaries built for Debian images and required shared libraries
   * debian (main platform)
-    * Based on docker.io/debian:buster-slim
+    * Based on docker.io/debian:$DEBIAN_CODENAME-slim
 
 Platforms listed below are supported:
 
 * linux/386 (SSP disabled)
 * linux/amd64
-* linux/arm/v6 (only for alpine)
 * linux/arm/v7
 * linux/arm64/v8
 
@@ -52,7 +52,7 @@ Specify one of pre-built images in the `FROM` directive in `Dockerfile`.  And
 then install additional software like below:
 
 ```Dockerfile
-FROM docker.io/mirakc/mirakc:alpine
+FROM docker.io/mirakc/mirakc:debian
 
 RUN apk add --no-cache ffmpeg
 ...
@@ -64,9 +64,9 @@ If you want to create a cleaner image, you can copy only necessary files from a
 pre-built image like below:
 
 ```Dockerfile
-FROM docker.io/mirakc/mirakc:alpine AS mirakc-image
+FROM docker.io/mirakc/mirakc:debian AS mirakc-image
 
-FROM docker.io/alpine
+FROM docker.io/debian:bookworm
 
 COPY --from=mirakc-image /usr/local/bin/mirakc /usr/local/bin/
 
@@ -79,23 +79,25 @@ ENTRYPOINT ["mirakc"]
 CMD []
 ```
 
-Don't copy binary files from a musl-based image (like alpine) into a glibc-based
-image (like debian) and vice versa.  Some of binary files in the musl-based
-image are dynamic-linked against `musl`.
+Make sure that the destination image has ABI-compatible libraries required for
+binaries to be copied.
+
+If you want to copy binaries into an image such as an Alpine image which uses
+libc other than `glibc`, copy the binaries together with required libraries.
+See [`archive.sh`](../../docker/build-scripts/archive.sh) for details.
 
 Use an architecture-specific image if you like to cross-build a custom image.
 
 ## Build an image from source
 
-This repository contains the following two Dockerfile files for `docker buildx`:
+This repository contains the following Dockerfile file for `docker build`:
 
-* [Dockerfile.alpine](../docker/Dockerfile.alpine) for alpine-based images
-* [Dockerfile.debian](../docker/Dockerfile.debian) for debian-based images
+* [Dockerfile](../docker/Dockerfile)
 
 Use the `--platform` option for specifying your target platforms like blow:
 
 ```shell
-docker buildx build -t $(id -un)/mirakc:arm32v7 -f docker/Dockerfile.debian \
+docker build -t $(id -un)/mirakc:arm32v7 -f docker/Dockerfile -t mirakc-debian \
   --platform=linux/arm/v7 .
 ```
 
@@ -108,7 +110,7 @@ docker save $(id -un)/mirakc:arm32v7 | docker -H ssh://remote load
 
 ### Support new architectures
 
-`Dockerfile.*` uses scripts in [docker/build-scripts](../docker/build-scripts) for
+`Dockerfile` uses scripts in [docker/build-scripts](../docker/build-scripts) for
 cross-compiling tools like `recpt1`.  If you want to create Docker images which
 have not been supported at this point, you need to modify those scripts.
 

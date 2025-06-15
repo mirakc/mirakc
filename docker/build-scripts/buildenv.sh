@@ -13,17 +13,6 @@ apt-get install -y --no-install-recommends $BUILD_DEPS
 
 rustup target add $RUST_TARGET_TRIPLE
 
-if [ "$DISTRO" = alpine ]; then
-  ARCHIVE="https://more.musl.cc/x86_64-linux-musl/${GCC_HOST_TRIPLE}-cross.tgz"
-
-  apt-get install -y --no-install-recommends ca-certificates curl rsync
-  curl -fsSL $ARCHIVE | tar -xz -C /tmp
-  rm -f $(find /tmp/${GCC_HOST_TRIPLE}-cross -name "ld-musl-*.so.1")
-  rm /tmp/${GCC_HOST_TRIPLE}-cross/usr
-  rsync --ignore-errors -rLaq /tmp/${GCC_HOST_TRIPLE}-cross/ /usr/
-  rm -rf /tmp/${GCC_HOST_TRIPLE}-cross
-fi
-
 # cleanup
 apt-get clean
 rm -rf /var/lib/apt/lists/*
