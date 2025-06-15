@@ -6,9 +6,9 @@ PROGNAME=$(basename $0)
 BASEDIR=$(cd $(dirname $0); pwd)
 PROJDIR=$(cd $BASEDIR/..; pwd)
 
-. $BASEDIR/ghci.vars
-
 VERSION="$1"
+REGISTRIES="$2"
+PLATFORMS="$3"
 
 test_images() {
   MIRAKC_IMAGE=$1

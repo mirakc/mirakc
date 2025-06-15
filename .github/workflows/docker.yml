@@ -38,11 +38,10 @@ on:
 
 env:
   DEBIAN_CODENAME: bookworm
+  REGISTRIES: >-
+    docker.io
   PLATFORMS: >-
-    linux/386,
-    linux/amd64,
-    linux/arm/v7,
-    linux/arm64/v8,
+    linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8
 
 jobs:
   docker:
@@ -96,7 +95,6 @@ jobs:
           cache-to: |
             type=local,dest=/tmp/.docker-cache
           push: ${{ inputs.push }}
-          load: true  # for steps.test
       - name: Build and push (mirakc/timeshift-fs:debian*)
         uses: docker/build-push-action@v6
         with:
@@ -114,7 +112,6 @@ jobs:
           cache-to: |
             type=local,dest=/tmp/.docker-cache
           push: ${{ inputs.push }}
-          load: true  # for steps.test
       - name: Prepare tags (alpine)
         id: alpine-tags
         run: >-
@@ -136,7 +133,6 @@ jobs:
           cache-to: |
             type=local,dest=/tmp/.docker-cache
           push: ${{ inputs.push }}
-          load: true  # for steps.test
       - name: Build and push (mirakc/timeshift-fs:alpine*)
         uses: docker/build-push-action@v6
         with:
@@ -154,39 +150,11 @@ jobs:
           cache-to: |
             type=local,dest=/tmp/.docker-cache
           push: ${{ inputs.push }}
-          load: true  # for steps.test
       - name: Test
-        id: test
+        if: ${{ inputs.push }}
         run: >-
-          ./scripts/ghci-docker-test ${{ inputs.ref-name }}
-
-  # Pull and test images.
-  test:
-    if: ${{ inputs.push }}
-    needs:
-      - docker
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref-name }}
-      - name: Setup QEMU user-mode emulation
-        uses: docker/setup-qemu-action@v3
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Test
-        run: >-
-          ./scripts/ghci-docker-test ${{ inputs.ref-name }}
+          ./scripts/ghci-docker-test
+          ${{ inputs.ref-name }} "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
 
   trigger:
     if: ${{ inputs.push }}
