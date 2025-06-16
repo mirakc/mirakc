@@ -10,6 +10,10 @@ on:
         required: true
         # choice: branch | tag
         type: string
+      push:
+        default: true
+        required: false
+        type: boolean
     secrets:
       CI_BOT_APP_ID:
         required: true
