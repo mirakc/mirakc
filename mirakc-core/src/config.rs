@@ -692,9 +692,7 @@ impl FilterConfig {
     fn validate(&self, group: &str, name: &str) {
         assert!(
             !self.command.is_empty(),
-            "config.{}[{}].command: must be a non-empty string",
-            group,
-            name
+            "config.{group}[{name}].command: must be a non-empty string"
         );
     }
 }
@@ -713,14 +711,12 @@ impl PostFilterConfig {
     fn validate(&self, name: &str) {
         assert!(
             !self.command.is_empty(),
-            "config.post-filters[{}].command: must be a non-empty string",
-            name
+            "config.post-filters[{name}].command: must be a non-empty string"
         );
         if let Some(content_type) = self.content_type.as_ref() {
             assert!(
                 !content_type.is_empty(),
-                "config.post-filters[{}].content-type: must be a non-empty string",
-                name
+                "config.post-filters[{name}].content-type: must be a non-empty string"
             );
         }
     }
@@ -836,18 +832,16 @@ impl JobConfig {
     fn validate(&self, name: &str) {
         if self.disabled {
             if !crate::timeshift::is_rebuild_mode() {
-                tracing::warn!(config = format!("jobs.{}", name), "Disabled");
+                tracing::warn!(config = format!("jobs.{name}"), "Disabled");
             }
         } else {
             assert!(
                 !self.command.is_empty(),
-                "config.jobs[{}].command: must be a non-empty string",
-                name
+                "config.jobs[{name}].command: must be a non-empty string"
             );
             assert!(
                 cron::Schedule::from_str(&self.schedule).is_ok(),
-                "config.jobs[{}].schedule: not valid",
-                name
+                "config.jobs[{name}].schedule: not valid"
             );
         }
     }

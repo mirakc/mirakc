@@ -908,7 +908,7 @@ where
                     "Failed to start recording",
                 );
                 let reason = RecordingFailedReason::StartRecordingFailed {
-                    message: format!("{}", err),
+                    message: format!("{err}"),
                 };
                 if let Some(schedule) = self.schedules.get_mut(&program_id) {
                     schedule.state = RecordingScheduleState::Failed;
@@ -1032,7 +1032,7 @@ where
                     addr.emit(RecordingFailed {
                         program_id,
                         reason: RecordingFailedReason::IoError {
-                            message: format!("{}", err),
+                            message: format!("{err}"),
                             os_error: err.raw_os_error(),
                         },
                     })
