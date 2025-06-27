@@ -161,8 +161,7 @@ async fn test_get_channel_stream() {
     let valid_pairs = ["GR", "BS", "CS", "SKY"].iter().zip(&decode_values);
     for (channel_type, decode) in valid_pairs {
         let res =
-            get(format!("/api/channels/{}/ch/stream?decode={}", channel_type, decode).as_str())
-                .await;
+            get(format!("/api/channels/{channel_type}/ch/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::OK);
         assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
             assert_eq!(v, "none");
@@ -170,7 +169,7 @@ async fn test_get_channel_stream() {
     }
 
     for decode in &decode_values {
-        let res = get(format!("/api/channels/WOWOW/ch/stream?decode={}", decode).as_str()).await;
+        let res = get(format!("/api/channels/WOWOW/ch/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -206,11 +205,9 @@ async fn test_get_channel_service_stream() {
 
     let valid_pairs = ["GR", "BS", "CS", "SKY"].iter().zip(&decode_values);
     for (channel_type, decode) in valid_pairs {
-        let res = get(format!(
-            "/api/channels/{}/ch/services/1/stream?decode={}",
-            channel_type, decode
+        let res = get(
+            format!("/api/channels/{channel_type}/ch/services/1/stream?decode={decode}").as_str(),
         )
-        .as_str())
         .await;
         assert_eq!(res.status(), StatusCode::OK);
         assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
@@ -220,15 +217,13 @@ async fn test_get_channel_service_stream() {
 
     for decode in &decode_values {
         let res =
-            get(format!("/api/channels/WOWOW/ch/services/1/stream?decode={}", decode).as_str())
-                .await;
+            get(format!("/api/channels/WOWOW/ch/services/1/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
     for decode in &decode_values {
         let res =
-            get(format!("/api/channels/WOWOW/ch/services/2/stream?decode={}", decode).as_str())
-                .await;
+            get(format!("/api/channels/WOWOW/ch/services/2/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -260,7 +255,7 @@ async fn test_get_service_stream() {
     let decode_values = [0, 1];
 
     for decode in &decode_values {
-        let res = get(format!("/api/services/1/stream?decode={}", decode).as_str()).await;
+        let res = get(format!("/api/services/1/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::OK);
         assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
                 assert_eq!(v, "none");
@@ -268,12 +263,12 @@ async fn test_get_service_stream() {
     }
 
     for decode in &decode_values {
-        let res = get(format!("/api/services/0/stream?decode={}", decode).as_str()).await;
+        let res = get(format!("/api/services/0/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 
     for decode in &decode_values {
-        let res = get(format!("/api/services/2/stream?decode={}", decode).as_str()).await;
+        let res = get(format!("/api/services/2/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 
@@ -336,7 +331,7 @@ async fn test_get_program_stream() {
     let decode_values = [0, 1];
 
     for decode in &decode_values {
-        let res = get(format!("/api/programs/100001/stream?decode={}", decode).as_str()).await;
+        let res = get(format!("/api/programs/100001/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::OK);
         assert_matches!(res.headers().get(ACCEPT_RANGES), Some(v) => {
             assert_eq!(v, "none");
@@ -344,12 +339,12 @@ async fn test_get_program_stream() {
     }
 
     for decode in &decode_values {
-        let res = get(format!("/api/programs/0/stream?decode={}", decode).as_str()).await;
+        let res = get(format!("/api/programs/0/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 
     for decode in &decode_values {
-        let res = get(format!("/api/programs/200001/stream?decode={}", decode).as_str()).await;
+        let res = get(format!("/api/programs/200001/stream?decode={decode}").as_str()).await;
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 
@@ -647,7 +642,7 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
     let playlist = into_text(res).await;
     assert!(playlist.contains("#KODIPROP:mimetype=video/mp2t\n"));
 
-    let res = get(&format!("{}?post-filters[]=mp4", endpoint)).await;
+    let res = get(&format!("{endpoint}?post-filters[]=mp4")).await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_matches!(res.headers().get("content-type"), Some(v) => {
         assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
@@ -815,7 +810,7 @@ async fn test_filter_setting() {
         H: FnOnce(Qs<FilterSetting>) -> F + Clone + Send + Sync + 'static,
         F: Future<Output = ()> + Send,
     {
-        let endpoint = format!("/?{}", query);
+        let endpoint = format!("/?{query}");
         let app = Router::new().route("/", routing::get(handler));
         let req = Request::get(endpoint).body(Body::empty()).unwrap();
         app.oneshot(req).await.unwrap().status()

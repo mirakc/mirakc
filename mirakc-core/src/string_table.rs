@@ -4,9 +4,9 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 pub fn load(path: &str) -> Arc<StringTable> {
-    let reader = File::open(path).unwrap_or_else(|err| panic!("Failed to open {}: {}", path, err));
+    let reader = File::open(path).unwrap_or_else(|err| panic!("Failed to open {path}: {err}"));
     let string_table: StringTable = serde_norway::from_reader(reader)
-        .unwrap_or_else(|err| panic!("Failed to parse {}: {}", path, err));
+        .unwrap_or_else(|err| panic!("Failed to parse {path}: {err}"));
     Arc::new(string_table)
 }
 
