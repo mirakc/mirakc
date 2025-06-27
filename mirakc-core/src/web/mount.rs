@@ -218,9 +218,9 @@ async fn render_folder_view<P: AsRef<Path>>(
                             // This is a dirty hack...
                             // ServeDir doesn't work properly if a URL of a directory
                             // doesn't end with '/'.
-                            builder.insert_str("url", format!("{}/{}/", base_url, name))
+                            builder.insert_str("url", format!("{base_url}/{name}/"))
                         } else {
-                            builder.insert_str("url", format!("{}/{}", base_url, name))
+                            builder.insert_str("url", format!("{base_url}/{name}"))
                         };
                         if let Ok(created) = metadata.created() {
                             if let Ok(unix_time) = created.duration_since(UNIX_EPOCH) {

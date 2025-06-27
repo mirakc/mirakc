@@ -329,8 +329,8 @@ impl ServerConfig {
 
         assert!(
             self.stream_time_limit >= SERVER_STREAM_TIME_LIMIT_MIN,
-            "config.server.stream-time-limit: must be larger than or equal to {}",
-            SERVER_STREAM_TIME_LIMIT_MIN
+            "config.server.stream-time-limit: must be larger than or equal to \
+             {SERVER_STREAM_TIME_LIMIT_MIN}"
         );
 
         if let Some(max_start_delay) = self.program_stream_max_start_delay {
@@ -419,29 +419,25 @@ impl MountConfig {
         }
         assert!(
             mount_point.starts_with('/'),
-            "config.server.mounts[{}]: \
-             a mount point must starts with '/'",
-            mount_point
+            "config.server.mounts[{mount_point}]: \
+             a mount point must starts with '/'"
         );
         assert!(
             !mount_point.ends_with('/'),
-            "config.server.mounts[{}]: \
-             a mount point must not ends with '/'",
-            mount_point
+            "config.server.mounts[{mount_point}]: \
+             a mount point must not ends with '/'"
         );
         assert!(
             self.path.exists(),
-            "config.server.mounts[{}].path: \
-             must be a path to an existing entry",
-            mount_point
+            "config.server.mounts[{mount_point}].path: \
+             must be a path to an existing entry"
         );
         if let Some(index) = self.index.as_ref() {
             let path = self.path.join(index);
             assert!(
                 path.is_file(),
-                "config.server.mounts[{}].index: \
-                 must be an existing file if it exists",
-                mount_point
+                "config.server.mounts[{mount_point}].index: \
+                 must be an existing file if it exists"
             );
         }
     }
@@ -510,13 +506,11 @@ impl ChannelConfig {
         debug_assert!(!self.disabled);
         assert!(
             !self.name.is_empty(),
-            "config.channels[{}].name: must be a non-empty string",
-            index
+            "config.channels[{index}].name: must be a non-empty string"
         );
         assert!(
             !self.channel.is_empty(),
-            "config.channels[{}].channel: must be a non-empty string",
-            index
+            "config.channels[{index}].channel: must be a non-empty string"
         );
     }
 }
@@ -557,18 +551,15 @@ impl TunerConfig {
         }
         assert!(
             !self.name.is_empty(),
-            "config.tuners[{}].name: must be a non-empty string",
-            index
+            "config.tuners[{index}].name: must be a non-empty string"
         );
         assert!(
             !self.channel_types.is_empty(),
-            "config.tuners[{}].types: must be a non-empty list",
-            index
+            "config.tuners[{index}].types: must be a non-empty list"
         );
         assert!(
             !self.command.is_empty(),
-            "config.tuners[{}].command: must be a non-empty string",
-            index
+            "config.tuners[{index}].command: must be a non-empty string"
         );
         for (i, excluded) in self.excluded_channels.iter().enumerate() {
             excluded.validate(index, i);
@@ -1320,8 +1311,7 @@ impl ResourceConfig {
         for (service_id, image) in self.logos.iter() {
             assert!(
                 Path::new(image).is_file(),
-                "config.resource.logos[{}]: must be a path to an existing file",
-                service_id
+                "config.resource.logos[{service_id}]: must be a path to an existing file"
             );
         }
     }

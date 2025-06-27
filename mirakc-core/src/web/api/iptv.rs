@@ -84,7 +84,7 @@ where
                 }
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
                 if config.resource.logos.contains_key(&id) {
-                    write!(buf, r#" tvg-logo="{}""#, logo_url)?;
+                    write!(buf, r#" tvg-logo="{logo_url}""#)?;
                 }
                 write!(
                     buf,
@@ -96,7 +96,7 @@ where
                 // audio
                 write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
                 if config.resource.logos.contains_key(&id) {
-                    write!(buf, r#" tvg-logo="{}""#, logo_url)?;
+                    write!(buf, r#" tvg-logo="{logo_url}""#)?;
                 }
                 write!(
                     buf,
@@ -209,7 +209,7 @@ where
             escape(&sv.name)
         )?;
         if config.resource.logos.contains_key(&id) {
-            write!(buf, r#"<icon src="{}" />"#, logo_url)?;
+            write!(buf, r#"<icon src="{logo_url}" />"#)?;
         }
         write!(buf, r#"</channel>"#)?;
     }

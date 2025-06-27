@@ -32,8 +32,8 @@ fn from_str(s: &str) -> MountOption {
 #[cfg(test)]
 fn option_to_string(option: &MountOption) -> String {
     match option {
-        MountOption::FSName(name) => format!("fsname={}", name),
-        MountOption::Subtype(subtype) => format!("subtype={}", subtype),
+        MountOption::FSName(name) => format!("fsname={name}"),
+        MountOption::Subtype(subtype) => format!("subtype={subtype}"),
         MountOption::CUSTOM(value) => value.to_string(),
         MountOption::AutoUnmount => "auto_unmount".to_string(),
         MountOption::AllowOther => "allow_other".to_string(),
