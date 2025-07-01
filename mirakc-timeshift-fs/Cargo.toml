@@ -23,7 +23,7 @@ tracing = "0.1.41"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
-test-log = { version = "0.2.17", default-features = false, features = ["trace"] }
+test-log = { version = "0.2.18", default-features = false, features = ["trace"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 
 [build-dependencies]
