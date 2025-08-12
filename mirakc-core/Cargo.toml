@@ -11,7 +11,7 @@ version.workspace = true
 
 [dependencies]
 actlet = { path = "../actlet" }
-anyhow = "1.0.98"
+anyhow = "1.0.99"
 async-trait = "0.1.88"
 axum = { version = "0.8.4", features = ["http2"] }
 axum-extra = { version = "0.10.1", features = ["typed-header"] }
