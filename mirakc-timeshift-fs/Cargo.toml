@@ -15,7 +15,7 @@ version.workspace = true
 chrono = { version = "0.4.41", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4.5.44", features = ["derive", "env"] }
 indexmap = { version = "2.10.0", features = ["serde"] }
-libc = "0.2.174"
+libc = "0.2.175"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.6.0"
 serde_json = { version = "1.0.142", features = ["preserve_order"] }
