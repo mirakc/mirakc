@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  DEBIAN_CODENAME: bookworm
+  DEBIAN_CODENAME: trixie
 
 jobs:
   check:

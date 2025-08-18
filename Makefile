@@ -44,7 +44,7 @@ format-rust:
 
 .PHONE: check-all-images
 check-all-images: PREFIX ?= dev
-check-all-images: DEBIAN ?= bookworm
+check-all-images: DEBIAN ?= trixie
 check-all-images:
 	$(MAKE) -s check-images PREFIX=$(PREFIX) DEBIAN=$(DEBIAN) PLATFORM=linux/386
 	$(MAKE) -s check-images PREFIX=$(PREFIX) DEBIAN=$(DEBIAN) PLATFORM=linux/amd64
@@ -53,7 +53,7 @@ check-all-images:
 
 .PHONE: check-images
 check-images: PREFIX ?= dev
-check-images: DEBIAN ?= bookworm
+check-images: DEBIAN ?= trixie
 check-images: PLATFORM ?= linux/amd64
 check-images:
 	$(MAKE) -s debian-images PREFIX=$(PREFIX) DEBIAN=$(DEBIAN) PLATFORM=$(PLATFORM)
@@ -84,7 +84,7 @@ check-timeshift-fs-image:
 .PHONE: debian-images
 debian-images: PREFIX ?= dev
 debian-images: PLATFORM ?= linux/amd64
-debian-images: DEBIAN ?= bookworm
+debian-images: DEBIAN ?= trixie
 debian-images:
 	$(MAKE) -s debian-image PREFIX=$(PREFIX) PLATFORM=$(PLATFORM) DEBIAN=$(DEBIAN) TARGET=mirakc
 	$(MAKE) -s debian-image PREFIX=$(PREFIX) PLATFORM=$(PLATFORM) DEBIAN=$(DEBIAN) TARGET=timeshift-fs
@@ -100,7 +100,7 @@ alpine-images:
 debian-image: PREFIX ?= dev
 debian-image: PLATFORM ?= linux/amd64
 debian-image: TARGET ?= mirakc
-debian-image: DEBIAN ?= bookworm
+debian-image: DEBIAN ?= trixie
 debian-image:
 	docker build -t mirakc/$(TARGET):$(PREFIX)-debian -f docker/Dockerfile --load \
 	  --target $(TARGET)-debian --platform=$(PLATFORM) --build-arg DEBIAN_CODENAME=$(DEBIAN) .

@@ -10,7 +10,7 @@ services:
       dockerfile: ./docker/Dockerfile
       target: mirakc-debian
       args:
-        DEBIAN_CODENAME: bookworm
+        DEBIAN_CODENAME: trixie
     container_name: mirakc-sample
     hostname: mirakc-sample
     init: true
