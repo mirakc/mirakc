@@ -41,7 +41,7 @@ serde_norway = "0.9.42"
 serde_qs = "0.15.0"
 shell-words = "1.1.0"
 smallstr = { version = "0.3.1", features = ["serde"] }
-thiserror = "2.0.15"
+thiserror = "2.0.16"
 tokio = { version = "1.47.1", features = ["full"] }
 tokio-stream = { version = "0.1.17", features = ["io-util"] }
 tokio-util = { version = "0.7.16", features = ["codec", "io"] }
