@@ -8,10 +8,10 @@ PROJDIR=$(cd $BASEDIR/..; pwd)
 
 REGS='docker.io'  #REGS='docker.io ghcr.io'
 IMAGE=mirakc/tools
-# Binaries built on mirakc/buildenv:debian will be reuse for Alpine-based images.
-DISTROS='debian'
+PLATFORMS='linux/386,linux/amd64,linux/arm/v5,linux/arm/v7,linux/arm64/v8'
 
-if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker
+then
   DOCKER='docker'
 else
   DOCKER='sudo docker'
@@ -26,7 +26,7 @@ help() {
 Update $IMAGE images.
 
 USAGE:
-  $PROGNAME [options] [<version>]
+  $PROGNAME [options] <debian-codename> [<version>]
   $PROGNAME -h | --help
 
 OPTIONS:
@@ -40,6 +40,9 @@ OPTIONS:
     Push images.
 
 ARGUMENTS:
+  <debian-codename>
+    Debian codename such as trixie.
+
   <version>
     Optional version number.
 
@@ -49,8 +52,8 @@ DESCRIPTION:
   The base image of each $IMAGE:debian will be determined automatically from the
   debian version of the mirakc/buildenv image specified in Dockerfile.tools.
 
-  You have to login to the registries by \`docker login\` before running this
-  script with \`--push\`.
+  You have to login to the registries by 'docker login' before running this
+  script with '--push'.
 EOF
   exit 0
 }
@@ -62,35 +65,6 @@ log() {
 error() {
   log "ERROR: $1"
   exit 1
-}
-
-platforms() {
-  case $1 in
-    alpine)
-      echo 'linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8'
-      ;;
-    debian)
-      echo 'linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8'
-      ;;
-  esac
-}
-
-debian_codename() {
-  $DOCKER run --rm mirakc/buildenv:debian-linux-amd64 cat /etc/os-release | \
-    grep VERSION_CODENAME | cut -d '=' -f 2
-}
-
-# Use a base image other than `scratch` in order to make it possible to run
-# commands with `docker run mirakc/tools:<tag> <command>`.
-base_image() {
-  case $1 in
-    alpine)
-      echo 'busybox'
-      ;;
-    debian)
-      echo "debian:$(debian_codename)-slim"
-      ;;
-  esac
 }
 
 while [ $# -gt 0 ]
@@ -113,29 +87,36 @@ do
   esac
 done
 
-if [ $# -gt 0 ]
+if [ $# -eq 0 ]
 then
-  VERSION="$1"
+  error '<debian-codename> is requried'
 fi
 
-for DISTRO in $DISTROS
+DEBIAN_CODENAME="$1"
+
+if [ $# -gt 1 ]
+then
+  VERSION="$2"
+fi
+
+# Use a base image other than `scratch` in order to make it possible to run
+# commands with `docker run mirakc/tools:<tag> <command>`.
+BASE_IMAGE="debian:$DEBIAN_CODENAME-slim"
+
+IMG="$IMAGE:debian-$DEBIAN_CODENAME"
+if [ -n "$VERSION" ]
+then
+  IMG="$IMG-$VERSION"
+fi
+
+for REG in $REGS
 do
-  PLATFORMS=$(platforms $DISTRO)
-  BASE_IMAGE=$(base_image $DISTRO)
-  IMG="$IMAGE:$DISTRO"
-  if [ -n "$VERSION" ]
-  then
-    IMG="$IMG-$VERSION"
-  fi
-  for REG in $REGS
-  do
-    log "Updating $REG/$IMG..."
-    $DOCKER buildx build \
-      -t $REG/$IMG \
-      -f $PROJDIR/docker/Dockerfile.tools \
-      --platform="$PLATFORMS" \
-      --build-arg="DISTRO=$DISTRO" \
-      --build-arg="BASE_IMAGE=$BASE_IMAGE" \
-      $NO_CACHE $PUSH_OPT $PROJDIR
-  done
+  log "Updating $REG/$IMG..."
+  $DOCKER buildx build \
+    -t $REG/$IMG \
+    -f $PROJDIR/docker/Dockerfile.tools \
+    --platform="$PLATFORMS" \
+    --build-arg="DEBIAN_CODENAME=$DEBIAN_CODENAME" \
+    --build-arg="BASE_IMAGE=$BASE_IMAGE" \
+    $NO_CACHE $PUSH_OPT $PROJDIR
 done

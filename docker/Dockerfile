@@ -10,7 +10,6 @@
 #   TARGETARCH
 #   TARGETVARIANT
 
-ARG TOOLS_TAG=debian
 # We set `sid` here in order to avoid the `InvalidDefaultArgInFrom` warning,
 # but this argument is always specified in build commands.  As a result, `sid`
 # is never used.
@@ -18,14 +17,14 @@ ARG DEBIAN_CODENAME=sid
 
 # Debian image stages
 
-FROM mirakc/tools:$TOOLS_TAG AS mirakc-tools
+FROM mirakc/tools:debian-$DEBIAN_CODENAME AS mirakc-tools
 
-FROM --platform=$BUILDPLATFORM mirakc/buildenv:debian-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
+FROM --platform=$BUILDPLATFORM mirakc/buildenv:debian-$DEBIAN_CODENAME-$TARGETOS-$TARGETARCH$TARGETVARIANT AS mirakc-build
 COPY . ./
 ARG BUILDPLATFORM
 ARG TARGETPLATFORM
 ARG PROFILE=release
-RUN sh ./docker/build-scripts/mirakc.sh debian $BUILDPLATFORM $TARGETPLATFORM $PROFILE
+RUN sh ./docker/build-scripts/mirakc.sh $BUILDPLATFORM $TARGETPLATFORM $PROFILE
 
 FROM debian:$DEBIAN_CODENAME-slim AS mirakc-debian
 LABEL maintainer="Contributors of mirakc"

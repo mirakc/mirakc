@@ -8,11 +8,10 @@ PROJDIR=$(cd $BASEDIR/..; pwd)
 
 REGS='docker.io'  #REGS='docker.io ghcr.io'
 IMAGE=mirakc/buildenv
-# Binaries built on mirakc/buildenv:debian will be reuse for Alpine-based images.
-DISTROS='debian'
-PLATFORMS='linux/386 linux/amd64 linux/arm/v5 linux/arm/v6 linux/arm/v7 linux/arm64/v8'
+PLATFORMS='linux/386 linux/amd64 linux/arm/v5 linux/arm/v7 linux/arm64/v8'
 
-if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker
+then
   DOCKER='docker'
 else
   DOCKER='sudo docker'
@@ -42,8 +41,8 @@ OPTIONS:
 DESCRIPTION:
   This script build $IMAGE images and optionally push them to Docker registries.
 
-  You have to login to the registries by \`docker login\` before running this
-  script with \`--push\`.
+  You have to login to the registries by 'docker login' before running this
+  script with '--push'.
 EOF
   exit 0
 }
@@ -57,47 +56,23 @@ error() {
   exit 1
 }
 
-is_supported() {
-  case $1 in
-    alpine)
-      if [ "$2" = linux/arm/v5 ]
-      then
-        false
-      else
-        true
-      fi
-      ;;
-    debian)
-      if [ "$2" = linux/arm/v6 ]
-      then
-        false
-      else
-        true
-      fi
-      ;;
-  esac
-}
-
 tag_name() {
   case "$2" in
     linux/386)
-      echo "$1-linux-386"
+      echo "debian-$1-linux-386"
       ;;
     linux/amd64)
-      echo "$1-linux-amd64"
+      echo "debian-$1-linux-amd64"
       ;;
     linux/arm/v5)
-      echo "$1-linux-armv5"
-      ;;
-    linux/arm/v6)
-      echo "$1-linux-armv6"
+      echo "debian-$1-linux-armv5"
       ;;
     linux/arm/v7)
-      echo "$1-linux-armv7"
+      echo "debian-$1-linux-armv7"
       ;;
     linux/arm64/v8)
       # `docker build` doesn't define TARGETVARIANT
-      echo "$1-linux-arm64"
+      echo "debian-$1-linux-arm64"
       ;;
   esac
 }
@@ -124,24 +99,17 @@ done
 
 DEBIAN_CODENAME=$1
 
-for DISTRO in $DISTROS
+for PLATFORM in $PLATFORMS
 do
-  for PLATFORM in $PLATFORMS
+  IMG="$IMAGE:$(tag_name $DEBIAN_CODENAME $PLATFORM)"
+  for REG in $REGS
   do
-    if is_supported $DISTRO $PLATFORM
-    then
-      IMG="$IMAGE:$(tag_name $DISTRO $PLATFORM)"
-      for REG in $REGS
-      do
-        log "Updating $REG/$IMG..."
-        $DOCKER build \
-          -t $REG/$IMG \
-          -f $PROJDIR/docker/Dockerfile.buildenv \
-          --build-arg="DEBIAN_CODENAME=$DEBIAN_CODENAME" \
-          --build-arg="DISTRO=$DISTRO" \
-          --build-arg="TARGETPLATFORM=$PLATFORM" \
-          $NO_CACHE $PUSH_OPT $PROJDIR
-      done
-    fi
+    log "Updating $REG/$IMG..."
+    $DOCKER build \
+      -t $REG/$IMG \
+      -f $PROJDIR/docker/Dockerfile.buildenv \
+      --build-arg="DEBIAN_CODENAME=$DEBIAN_CODENAME" \
+      --build-arg="TARGETPLATFORM=$PLATFORM" \
+      $NO_CACHE $PUSH_OPT $PROJDIR
   done
 done
