@@ -1,9 +1,8 @@
 set -eu
 
 BASEDIR=$(cd $(dirname $0); pwd)
-DISTRO=$1
-BUILDPLATFORM=$2
-TARGETPLATFORM=$3
+BUILDPLATFORM=$1
+TARGETPLATFORM=$2
 
 . $BASEDIR/vars.sh
 
@@ -15,9 +14,6 @@ cd recpt1
 ./autogen.sh
 ./configure --prefix=/usr/local --host=$GCC_HOST_TRIPLE  # without `--enable-b25`
 curl $PATCH_URL -fsSL | patch -p1  # remove CR in log messages
-if [ "$DISTRO" = alpine ]; then
-  sed -i -e 's/^LDFLAGS  =$/LDFLAGS = -static -no-pie/' Makefile
-fi
 make -j $(nproc)
 make install
 $STRIP /usr/local/bin/recpt1

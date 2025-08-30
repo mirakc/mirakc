@@ -41,7 +41,7 @@ on:
         type: boolean
 
 env:
-  DEBIAN_CODENAME: bookworm
+  DEBIAN_CODENAME: trixie
   REGISTRIES: >-
     docker.io
   PLATFORMS: >-

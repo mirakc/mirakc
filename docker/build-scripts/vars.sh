@@ -78,7 +78,7 @@ EOF
 )
 
 # Import distribution-specific variables
-. $BASEDIR/vars.$DISTRO.sh
+. $BASEDIR/vars.debian.sh
 
 cat <<EOF
 BUILD_DEPS

@@ -66,7 +66,7 @@ pre-built image like below:
 ```Dockerfile
 FROM docker.io/mirakc/mirakc:debian AS mirakc-image
 
-FROM docker.io/debian:bookworm
+FROM docker.io/debian:trixie
 
 COPY --from=mirakc-image /usr/local/bin/mirakc /usr/local/bin/
 
