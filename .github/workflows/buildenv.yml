@@ -21,7 +21,7 @@ jobs:
         uses: lucacome/docker-image-update-checker@v2
         with:
           base-image: rust:slim-${{ env.DEBIAN_CODENAME }}
-          image: mirakc/buildenv:debian-linux-amd64
+          image: mirakc/buildenv:debian-${{ env.DEBIAN_CODENAME }}-linux-amd64
   docker:
     needs: check
     if: needs.check.outputs.needs-updating == 'true'

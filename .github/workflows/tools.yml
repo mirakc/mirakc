@@ -15,6 +15,9 @@ on:
           - main
           - release
 
+env:
+  DEBIAN_CODENAME: trixie
+
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -48,4 +51,4 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
         run: |
-          ./scripts/update-tools-images --no-cache --push ${{ inputs.version }}
+          ./scripts/update-tools-images --no-cache --push ${{ env.DEBIAN_CODENAME }} ${{ inputs.version }}

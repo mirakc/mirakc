@@ -1,5 +1,7 @@
 SHELL := $(shell which bash) -eu -o pipefail -c
 
+DEBIAN ?= trixie
+
 .PHONY: all
 all: build
 
@@ -42,30 +44,48 @@ format-rust:
 	@echo 'Formatting *.rs...'
 	@cargo fmt --all
 
+.PHONE: images
+images: PREFIX ?= dev
+images: DISTRO ?= debian
+images: PLATFORM ?= linux/amd64
+images:
+	$(MAKE) -s image PREFIX=$(PREFIX) DISTRO=$(DISTRO) PLATFORM=$(PLATFORM) TARGET=mirakc
+	$(MAKE) -s image PREFIX=$(PREFIX) DISTRO=$(DISTRO) PLATFORM=$(PLATFORM) TARGET=timeshift-fs
+
+.PHONE: image
+image: PREFIX ?= dev
+image: DISTRO ?= debian
+image: PLATFORM ?= linux/amd64
+image: TARGET ?= mirakc
+image:
+	docker build -t mirakc/$(TARGET):$(PREFIX)-$(DISTRO) -f docker/Dockerfile --load \
+	  --target $(TARGET)-$(DISTRO) --platform=$(PLATFORM) --build-arg DEBIAN_CODENAME=$(DEBIAN) .
+
 .PHONE: check-all-images
 check-all-images: PREFIX ?= dev
-check-all-images: DEBIAN ?= trixie
 check-all-images:
-	$(MAKE) -s check-images PREFIX=$(PREFIX) DEBIAN=$(DEBIAN) PLATFORM=linux/386
-	$(MAKE) -s check-images PREFIX=$(PREFIX) DEBIAN=$(DEBIAN) PLATFORM=linux/amd64
-	$(MAKE) -s check-images PREFIX=$(PREFIX) DEBIAN=$(DEBIAN) PLATFORM=linux/arm/v7
-	$(MAKE) -s check-images PREFIX=$(PREFIX) DEBIAN=$(DEBIAN) PLATFORM=linux/arm64
+	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=debian PLATFORM=linux/386
+	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=debian PLATFORM=linux/amd64
+	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=debian PLATFORM=linux/arm/v5
+	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=debian PLATFORM=linux/arm/v7
+	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=debian PLATFORM=linux/arm64
+	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=linux/386
+	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=linux/amd64
+	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=linux/arm/v7
+	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=linux/arm64
 
 .PHONE: check-images
 check-images: PREFIX ?= dev
-check-images: DEBIAN ?= trixie
+check-images: DISTRO ?= debian
 check-images: PLATFORM ?= linux/amd64
 check-images:
-	$(MAKE) -s debian-images PREFIX=$(PREFIX) DEBIAN=$(DEBIAN) PLATFORM=$(PLATFORM)
-	$(MAKE) -s check-mirakc-image PREFIX=$(PREFIX) DISTRO=debian PLATFORM=$(PLATFORM)
-	$(MAKE) -s check-timeshift-fs-image PREFIX=$(PREFIX) DISTRO=debian PLATFORM=$(PLATFORM)
-	$(MAKE) -s alpine-images PREFIX=$(PREFIX) PLATFORM=$(PLATFORM)
-	$(MAKE) -s check-mirakc-image PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=$(PLATFORM)
-	$(MAKE) -s check-timeshift-fs-image PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=$(PLATFORM)
+	$(MAKE) -s images PREFIX=$(PREFIX) DISTRO=$(DISTRO) PLATFORM=$(PLATFORM)
+	$(MAKE) -s check-mirakc-image PREFIX=$(PREFIX) DISTRO=$(DISTRO) PLATFORM=$(PLATFORM)
+	$(MAKE) -s check-timeshift-fs-image PREFIX=$(PREFIX) DISTRO=$(DISTRO) PLATFORM=$(PLATFORM)
 
 .PHONE: check-mirakc-image
 check-mirakc-image: PREFIX ?= dev
-check-mirakc-image: DISTRO ?= debian
+check-mirakc-iamge: DISTRO ?= debian
 check-mirakc-image: PLATFORM ?= linux/amd64
 check-mirakc-image:
 	docker run --rm --platform=$(PLATFORM) mirakc/mirakc:$(PREFIX)-$(DISTRO) --version
@@ -84,31 +104,25 @@ check-timeshift-fs-image:
 .PHONE: debian-images
 debian-images: PREFIX ?= dev
 debian-images: PLATFORM ?= linux/amd64
-debian-images: DEBIAN ?= trixie
 debian-images:
-	$(MAKE) -s debian-image PREFIX=$(PREFIX) PLATFORM=$(PLATFORM) DEBIAN=$(DEBIAN) TARGET=mirakc
-	$(MAKE) -s debian-image PREFIX=$(PREFIX) PLATFORM=$(PLATFORM) DEBIAN=$(DEBIAN) TARGET=timeshift-fs
+	$(MAKE) -s images PREFIX=$(PREFIX) DISTRO=debian PLATFORM=$(PLATFORM)
 
 .PHONE: alpine-images
 alpine-images: PREFIX ?= dev
 alpine-images: PLATFORM ?= linux/amd64
 alpine-images:
-	$(MAKE) -s alpine-image PREFIX=$(PREFIX) PLATFORM=$(PLATFORM) TARGET=mirakc
-	$(MAKE) -s alpine-image PREFIX=$(PREFIX) PLATFORM=$(PLATFORM) TARGET=timeshift-fs
+	$(MAKE) -s images PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=$(PLATFORM)
 
 .PHONE: debian-image
 debian-image: PREFIX ?= dev
 debian-image: PLATFORM ?= linux/amd64
 debian-image: TARGET ?= mirakc
-debian-image: DEBIAN ?= trixie
 debian-image:
-	docker build -t mirakc/$(TARGET):$(PREFIX)-debian -f docker/Dockerfile --load \
-	  --target $(TARGET)-debian --platform=$(PLATFORM) --build-arg DEBIAN_CODENAME=$(DEBIAN) .
+	$(MAKE) -s image PREFIX=$(PREFIX) DISTRO=debian PLATFORM=$(PLATFORM) TARGET=$(TARGET)
 
 .PHONE: alpine-image
 alpine-image: PREFIX ?= dev
 alpine-image: PLATFORM ?= linux/amd64
 alpine-image: TARGET ?= mirakc
 alpine-image:
-	docker build -t mirakc/$(TARGET):$(PREFIX)-alpine -f docker/Dockerfile --load \
-	  --target $(TARGET)-alpine --platform=$(PLATFORM) .
+	$(MAKE) -s image PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=$(PLATFORM) TARGET=$(TARGET)

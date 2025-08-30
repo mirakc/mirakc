@@ -1,9 +1,8 @@
 set -eu
 
 BASEDIR=$(cd $(dirname $0); pwd)
-DISTRO=$1
-BUILDPLATFORM=$2
-TARGETPLATFORM=$3
+BUILDPLATFORM=$1
+TARGETPLATFORM=$2
 
 . $BASEDIR/vars.sh
 
