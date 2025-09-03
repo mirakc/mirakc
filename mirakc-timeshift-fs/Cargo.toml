@@ -13,7 +13,7 @@ version.workspace = true
 
 [dependencies]
 chrono = { version = "0.4.41", default-features = false, features = ["clock", "serde"] }
-clap = { version = "4.5.46", features = ["derive", "env"] }
+clap = { version = "4.5.47", features = ["derive", "env"] }
 indexmap = { version = "2.11.0", features = ["serde"] }
 libc = "0.2.175"
 mirakc-core = { path = "../mirakc-core" }
