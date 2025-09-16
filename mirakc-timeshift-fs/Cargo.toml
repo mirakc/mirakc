@@ -35,9 +35,9 @@ vergen-gitcl = { version = "1.0.8", features = ["build"] }
 # have to create the sysroot for cross-compilation.
 #
 # Of course, we can do it but it takes a time.  And we don't have time for that.
-fuser = { version = "0.16.0", default-features = false, features = ["abi-7-31"] }
+fuser = { version = "0.16.0", features = ["abi-7-31"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # NOTE: Enable the default features of the `fuser` crate.  Because the `fuser` crate always
 # requires libfuse* for the macos target.
-fuser = { version = "0.16.0", features = ["abi-7-31"] }
+fuser = { version = "0.16.0", features = ["libfuse", "abi-7-31"] }
