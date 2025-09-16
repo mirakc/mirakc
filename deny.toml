@@ -73,6 +73,7 @@ wildcards = "deny"
 # purpose.
 allow-build-scripts = [
     "anyhow",
+    "crc32fast",
     "crossbeam",
     "crossbeam-utils",
     "fuser",
@@ -98,6 +99,7 @@ allow-build-scripts = [
     "rustversion",
     "semver",
     "serde",
+    "serde_core",
     "serde_json",
     "slab",
     "thiserror",
@@ -143,12 +145,6 @@ allow = [
 crate = "regex"
 allow = [
     { path = "test" },
-]
-
-[[bans.build.bypass]]
-crate = "regex-automata@0.1.10"
-allow = [
-    { path = "data/tests/fowler/fowler-to-toml" },
 ]
 
 [[bans.build.bypass]]
