@@ -30,14 +30,6 @@ tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
 vergen-gitcl = { version = "1.0.8", features = ["build"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# NOTE: Disable default features in order to avoid preparing a sysroot containing libfuse* for each
-# target platform.
-#
-# We perform cross-compilation while building Docker image for each target platform in order to
-# improve compilation times.  The default features of the `fuser` crate requires libfuse* and we
-# have to create the sysroot for cross-compilation.
-#
-# Of course, we can do it but it takes a time.  And we don't have time for that.
 fuser = { version = "0.16.0", features = ["abi-7-31"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
