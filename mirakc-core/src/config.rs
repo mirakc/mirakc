@@ -997,7 +997,7 @@ impl TimeshiftRecorderConfig {
              `chunk-size` must be larger than 0"
         );
         assert!(
-            self.chunk_size % (Self::BUFSIZE) == 0,
+            self.chunk_size.is_multiple_of(Self::BUFSIZE),
             "config.timeshift.recorders[{name}]: \
              `chunk-size` must be a multiple of {}",
             Self::BUFSIZE,

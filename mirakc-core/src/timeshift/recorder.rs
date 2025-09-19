@@ -630,10 +630,6 @@ enum PipelineMessage {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TimeshiftRecorderStartMessage;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct TimeshiftRecorderStopMessage {
     reset: bool,
 }
@@ -886,7 +882,7 @@ impl<T> TimeshiftRecorder<T> {
 
     fn append_point(&mut self, point: &TimeshiftPoint) {
         let index = point.pos / (self.config().chunk_size as u64);
-        assert!(point.pos % (self.config().chunk_size as u64) == 0);
+        assert!(point.pos.is_multiple_of(self.config().chunk_size as u64));
         tracing::debug!(recorder.name = self.name, chunk = index, %point, "Chunk started");
         self.points.push_back(point.clone());
         assert!(self.points.len() <= self.config().max_chunks());
