@@ -109,7 +109,7 @@ pub async fn main(config: Arc<config::Config>, cl: &CommandLine) {
 }
 
 fn validate(config: &config::Config, cl: &CommandLine) {
-    if cl.chunk_size % 8192 != 0 {
+    if !cl.chunk_size.is_multiple_of(8192) {
         tracing::error!("<CHUNK_SIZE> must be a multiple of 8192");
         std::process::exit(1);
     }
