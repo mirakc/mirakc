@@ -10,7 +10,7 @@ build = "build.rs"
 
 [dependencies]
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde"] }
-clap = { version = "4.5.47", features = ["derive", "env"] }
+clap = { version = "4.5.48", features = ["derive", "env"] }
 indexmap = { version = "2.11.1", features = ["serde"] }
 libc = "0.2.175"
 mirakc-core = { path = "../mirakc-core" }
