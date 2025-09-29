@@ -126,3 +126,13 @@ alpine-image: PLATFORM ?= linux/amd64
 alpine-image: TARGET ?= mirakc
 alpine-image:
 	$(MAKE) -s image PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=$(PLATFORM) TARGET=$(TARGET)
+
+.PHONY: update-deps
+update-deps: update-deps-crates update-deps-deno
+
+# Specify `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=git` if `make update-deps-crates` gets stuck.
+# Perform `cargo update` after `cargo upgrade` in order to update `Cargo.lock`.
+.PHONY: update-deps-crates
+update-deps-crates:
+	cargo upgrade -i allow
+	cargo update

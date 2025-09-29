@@ -95,6 +95,7 @@ allow-build-scripts = [
     "parking_lot_core",
     "paste",
     "proc-macro2",
+    "quote",
     "rustix",
     "rustversion",
     "semver",
