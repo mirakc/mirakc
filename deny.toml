@@ -89,6 +89,7 @@ allow-build-scripts = [
     "mime_guess",
     "mirakc",
     "mirakc-timeshift-fs",
+    "mockall",
     "mockall_derive",
     "nix",
     "num-traits",
