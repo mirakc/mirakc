@@ -16,7 +16,7 @@ libc = "0.2.177"
 mirakc-core = { path = "../mirakc-core" }
 sanitize-filename = "0.6.0"
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
-tracing = "0.1.41"
+tracing = "0.1.43"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
