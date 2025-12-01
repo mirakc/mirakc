@@ -21,7 +21,7 @@ semver = "1.0.27"
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
 tempfile = "3.23.0"
 tokio = { version = "1.48.0", features = ["full"] }
-tracing = "0.1.41"
+tracing = "0.1.43"
 
 [build-dependencies]
 vergen-gitcl = { version = "1.0.8", features = ["build"] }
