@@ -50,7 +50,7 @@ tokio-util = { version = "0.7.17", features = ["codec", "io"] }
 toml = "0.9.9"
 tower = { version = "0.5.2", default-features = false, features = ["util", "make"] }
 tower-http = { version = "0.6.8", features = ["fs", "trace"] }
-tracing = "0.1.43"
+tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 url = { version = "2.5.7", features = ["serde"] }
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
