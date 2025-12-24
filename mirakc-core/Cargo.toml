@@ -63,5 +63,5 @@ mockall = "0.14.0"
 paste = "1.0.15"
 pretty_assertions = "1.4.1"
 static_assertions = "1.1.0"
-tempfile = "3.23.0"
+tempfile = "3.24.0"
 test-log = { version = "0.2.19", default-features = false, features = ["trace"] }
