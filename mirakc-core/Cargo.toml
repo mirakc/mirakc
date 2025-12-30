@@ -14,7 +14,7 @@ actlet = { path = "../actlet" }
 anyhow = "1.0.100"
 async-trait = "0.1.89"
 axum = { version = "0.8.8", features = ["http2"] }
-axum-extra = { version = "0.12.3", features = ["typed-header"] }
+axum-extra = { version = "0.12.5", features = ["typed-header"] }
 axum-extract = { path = "../axum-extract" }
 bytes = "1.11.0"
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde"] }
@@ -39,7 +39,7 @@ path-dedot = "3.1.1"
 reqwest = { version = "0.12.28", default-features = false, features = ["json"] }
 reqwest-eventsource = "0.6.0"
 serde = { version = "1.0.228", features = ["derive", "rc"] }
-serde_json = { version = "1.0.147", features = ["preserve_order"] }
+serde_json = { version = "1.0.148", features = ["preserve_order"] }
 serde_norway = "0.9.42"
 serde_qs = "0.15.0"
 shell-words = "1.1.1"
