@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
-use axum_extra::extract::Host;
+use axum_extract::Host;
 use chrono_jst::Jst;
 
 use crate::string_table::StringTable;
