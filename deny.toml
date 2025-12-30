@@ -112,6 +112,7 @@ allow-build-scripts = [
     "vergen-lib",
     "zerocopy",
     "zip",
+    "zmij",
 ]
 include-dependencies = true
 include-workspace= true
