@@ -1298,7 +1298,14 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
         assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
     });
     let playlist = into_text(res).await;
-    assert!(playlist.contains("#KODIPROP:mimetype=video/mp2t\n"));
+    assert_eq!(
+        playlist,
+        r#"#EXTM3U
+#KODIPROP:mimetype=video/mp2t
+#EXTINF:-1 tvg-id="1" tvg-logo="http://mirakc.test/api/services/1/logo" group-title="GR", test
+http://mirakc.test/api/services/1/stream?decode=true
+"#
+    );
 
     let res = get(&format!("{endpoint}?post-filters[]=mp4")).await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -1306,19 +1313,41 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
         assert_eq!(v, "application/x-mpegurl; charset=UTF-8");
     });
     let playlist = into_text(res).await;
-    assert!(playlist.contains("#KODIPROP:mimetype=video/mp4\n"));
+    assert_eq!(
+        playlist,
+        r#"#EXTM3U
+#KODIPROP:mimetype=video/mp4
+#EXTINF:-1 tvg-id="1" tvg-logo="http://mirakc.test/api/services/1/logo" group-title="GR", test
+http://mirakc.test/api/services/1/stream?decode=true&post-filters[0]=mp4
+"#
+    );
 }
 
 #[test(tokio::test)]
 async fn test_get_iptv_epg() {
-    let res = get("/api/iptv/epg").await;
-    assert_eq!(res.status(), StatusCode::OK);
+    test_get_iptv_xmltv_("/api/iptv/epg").await;
 }
 
 #[test(tokio::test)]
 async fn test_get_iptv_xmltv() {
-    let res = get("/api/iptv/xmltv").await;
+    test_get_iptv_xmltv_("/api/iptv/xmltv").await;
+}
+
+async fn test_get_iptv_xmltv_(endpoint: &str) {
+    let version = env!("CARGO_PKG_VERSION");
+
+    let res = get(endpoint).await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(CONTENT_TYPE), Some(v) => {
+        assert_eq!(v, "application/xml; charset=UTF-8");
+    });
+    let xmltv = into_text(res).await;
+    assert_eq!(
+        xmltv,
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8" ?><!DOCTYPE tv SYSTEM "xmltv.dtd"><tv generator-info-name="mirakc/{version}"><channel id="1"><display-name lang="ja">test</display-name><icon src="http://mirakc.test/api/services/1/logo" /></channel></tv>"#
+        )
+    );
 }
 
 #[test(tokio::test)]

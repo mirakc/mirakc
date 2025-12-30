@@ -56,7 +56,7 @@ where
     writeln!(buf, "#EXTM3U")?;
     for sv in services.values() {
         let id = sv.id;
-        let logo_url = format!("http://{host}/api/services/{}/logo", id.value());
+        let logo_url = format!("http://{host}/api/services/{id}/logo");
         // The following format is compatible with EPGStation.
         // See API docs for the `/api/channel.m3u8` endpoint.
         //
@@ -82,37 +82,31 @@ where
                         writeln!(buf, "#KODIPROP:mimetype={mimetype}")?;
                     }
                 }
-                write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
+                write!(buf, r#"#EXTINF:-1 tvg-id="{id}""#)?;
                 if config.resource.logos.contains_key(&id) {
                     write!(buf, r#" tvg-logo="{logo_url}""#)?;
                 }
                 write!(
                     buf,
-                    r#" group-title="{}", {}　"#,
+                    r#" group-title="{}", {}"#,
                     sv.channel.channel_type, sv.name
                 )?;
             }
             0x02 | 0xA2 | 0xA6 => {
                 // audio
-                write!(buf, r#"#EXTINF:-1 tvg-id="{}""#, id.value())?;
+                write!(buf, r#"#EXTINF:-1 tvg-id="{id}""#)?;
                 if config.resource.logos.contains_key(&id) {
                     write!(buf, r#" tvg-logo="{logo_url}""#)?;
                 }
                 write!(
                     buf,
-                    r#" group-title="{}-Radio" radio=true, {}　"#,
+                    r#" group-title="{}-Radio" radio=true, {}"#,
                     sv.channel.channel_type, sv.name
                 )?;
             }
             _ => unreachable!(),
         }
-        write!(
-            buf,
-            "\nhttp://{}/api/services/{}/stream?{}\n",
-            host,
-            id.value(),
-            query
-        )?;
+        write!(buf, "\nhttp://{host}/api/services/{id}/stream?{query}\n")?;
     }
 
     Ok(Response::builder()
@@ -201,8 +195,8 @@ where
     )?;
     for sv in services.values() {
         let id = sv.id;
-        let logo_url = format!("http://{}/api/services/{}/logo", host, id.value());
-        write!(buf, r#"<channel id="{}">"#, id.value())?;
+        let logo_url = format!("http://{host}/api/services/{id}/logo");
+        write!(buf, r#"<channel id="{id}">"#)?;
         write!(
             buf,
             r#"<display-name lang="ja">{}</display-name>"#,
@@ -222,10 +216,9 @@ where
         {
             write!(
                 buf,
-                r#"<programme start="{}" stop="{}" channel="{}">"#,
+                r#"<programme start="{}" stop="{}" channel="{service_id}">"#,
                 pg.start_at.unwrap().format(DATETIME_FORMAT),
                 pg.end_at().unwrap().format(DATETIME_FORMAT),
-                service_id.value()
             )?;
             if let Some(name) = pg.name.as_ref() {
                 write!(buf, r#"<title lang="ja">{}</title>"#, escape(name))?;
