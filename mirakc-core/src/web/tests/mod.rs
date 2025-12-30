@@ -50,6 +50,12 @@ async fn test_get_unknown() {
 async fn test_get_version() {
     let res = get("/api/version").await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(CONNECTION), Some(v) => {
+        assert_eq!(v, "close");
+    });
+    assert_matches!(res.headers().get(CACHE_CONTROL), Some(v) => {
+        assert_eq!(v, "no-store");
+    });
 }
 
 #[test(tokio::test)]
@@ -1375,6 +1381,12 @@ async fn test_get_docs() {
 async fn test_get_events() {
     let res = get("/events").await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(CONNECTION), Some(v) => {
+        assert_eq!(v, "close");
+    });
+    assert_matches!(res.headers().get(CACHE_CONTROL), Some(v) => {
+        assert_eq!(v, "no-store");
+    });
 }
 
 #[test(tokio::test)]
@@ -1475,6 +1487,8 @@ async fn test_mount() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
     let res = get("/src/Cargo.toml").await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(CONNECTION), None);
+    assert_matches!(res.headers().get(CACHE_CONTROL), None);
     let res = get("/src/no-such-file").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
@@ -1485,18 +1499,26 @@ async fn test_mount() {
     });
     let res = get("/src-with-index/Cargo.toml").await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(CONNECTION), None);
+    assert_matches!(res.headers().get(CACHE_CONTROL), None);
     let res = get("/src-with-index/no-such-file").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
     let res = get("/src-with-listing").await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(CONNECTION), None);
+    assert_matches!(res.headers().get(CACHE_CONTROL), None);
     let res = get("/src-with-listing/Cargo.toml").await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(CONNECTION), None);
+    assert_matches!(res.headers().get(CACHE_CONTROL), None);
     let res = get("/src-with-listing/no-such-file").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
     let res = get("/Cargo.toml").await;
     assert_eq!(res.status(), StatusCode::OK);
+    assert_matches!(res.headers().get(CONNECTION), None);
+    assert_matches!(res.headers().get(CACHE_CONTROL), None);
 }
 
 #[test(tokio::test)]

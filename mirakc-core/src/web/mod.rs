@@ -111,22 +111,16 @@ where
     W: Clone + Send + Sync + 'static,
     W: Spawn,
 {
-    // Disable caching.
-    let mut default_headers = HeaderMap::new();
-    default_headers.append(CACHE_CONTROL, header_value!("no-store"));
-
-    let app = build_app(&config)
-        .layer(DefaultHeadersLayer::new(default_headers))
-        .with_state(Arc::new(AppState {
-            config: config.clone(),
-            string_table,
-            tuner_manager,
-            epg,
-            recording_manager,
-            timeshift_manager,
-            onair_manager,
-            spawner: spawner.clone(),
-        }));
+    let app = build_app(&config).with_state(Arc::new(AppState {
+        config: config.clone(),
+        string_table,
+        tuner_manager,
+        epg,
+        recording_manager,
+        timeshift_manager,
+        onair_manager,
+        spawner: spawner.clone(),
+    }));
 
     server::serve(config, app, spawner).await
 }
@@ -197,19 +191,32 @@ where
         .merge(SwaggerUi::new("/api/debug").url("/api/docs", api::Docs::generate(config)));
 
     router = router.route("/events", routing::get(sse::events));
+
+    // Disable caching and the HTTP request pipelining for the /api/* and /events endpoints.
+    router = router.layer(DefaultHeadersLayer::new({
+        let mut headers = HeaderMap::new();
+        headers.append(CACHE_CONTROL, header_value!("no-store"));
+        headers.append(CONNECTION, header_value!("close"));
+        headers
+    }));
+
+    // Static files can be cached.
+    // Connections may be reused if clients support the HTTP pipelining.
     router = mount::mount_entries(config, router);
 
-    let mut default_headers = HeaderMap::new();
-    default_headers.append(SERVER, header_value!(server_name()));
-    // Disable HTTP keep-alive.
-    default_headers.append(CONNECTION, header_value!("close"));
-
+    // Layers applied to all requests and responses.
     router = router
+        // Append the default headers.
+        .layer(DefaultHeadersLayer::new({
+            let mut headers = HeaderMap::new();
+            headers.append(SERVER, header_value!(server_name()));
+            // Add other default headers here.
+            headers
+        }))
         // Allow access only from local addresses.
         .layer(AccessControlLayer)
-        // Append the default headers.
-        .layer(DefaultHeadersLayer::new(default_headers))
         // Output tracing logs.
+        // Must be inserted at the last in order to output logs for all requests.
         .layer(TraceLayer::new_for_http());
 
     router
