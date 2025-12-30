@@ -4,6 +4,7 @@ use axum::extract::connect_info::Connected;
 use tokio::net::TcpStream;
 use tokio::net::UnixStream;
 
+#[allow(unused)]
 #[derive(Clone, Debug)]
 pub(crate) enum PeerInfo {
     Tcp {

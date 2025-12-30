@@ -1475,7 +1475,7 @@ async fn test_access_control_uds() {
 #[test(tokio::test)]
 async fn test_access_control_no_peer_info() {
     let res = get_with_peer_info("/api/version", None).await;
-    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[test(tokio::test)]

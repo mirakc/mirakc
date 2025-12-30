@@ -1,3 +1,29 @@
+// macros
+
+macro_rules! header_value {
+    ($v:literal) => {
+        HeaderValue::from_static($v)
+    };
+    ($v:expr) => {
+        HeaderValue::from_str(&$v).unwrap()
+    };
+}
+
+pub mod api;
+mod body;
+mod default_headers;
+mod error;
+mod escape;
+mod middleware;
+mod mount;
+mod peer_info;
+mod qs;
+mod server;
+mod sse;
+
+#[cfg(test)]
+mod tests;
+
 use std::sync::Arc;
 
 use actlet::prelude::*;
@@ -17,34 +43,7 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::string_table::StringTable;
 
-use access_control::AccessControlLayer;
 use default_headers::DefaultHeadersLayer;
-
-// macros
-
-macro_rules! header_value {
-    ($v:literal) => {
-        HeaderValue::from_static($v)
-    };
-    ($v:expr) => {
-        HeaderValue::from_str(&$v).unwrap()
-    };
-}
-
-mod access_control;
-pub mod api;
-mod body;
-mod default_headers;
-mod error;
-mod escape;
-mod mount;
-mod peer_info;
-mod qs;
-mod server;
-mod sse;
-
-#[cfg(test)]
-mod tests;
 
 pub(crate) use api::models::WebOnairProgram;
 
@@ -213,8 +212,8 @@ where
             // Add other default headers here.
             headers
         }))
-        // Allow access only from local addresses.
-        .layer(AccessControlLayer)
+        // Allow access only from clients in private networks.
+        .layer(axum::middleware::from_fn(middleware::access_control))
         // Output tracing logs.
         // Must be inserted at the last in order to output logs for all requests.
         .layer(TraceLayer::new_for_http());

@@ -1,76 +1,39 @@
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
-use std::task::Context;
-use std::task::Poll;
 
-use axum::body::Body;
 use axum::extract::ConnectInfo;
-use axum::http::Request;
+use axum::extract::Request;
+use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::response::Response;
-use futures::future::BoxFuture;
-use tower::Layer;
-use tower::Service;
 
+use super::Error;
 use super::peer_info::PeerInfo;
-use crate::error::Error;
 
-#[derive(Clone)]
-pub(super) struct AccessControlLayer;
-
-impl<S> Layer<S> for AccessControlLayer {
-    type Service = AccessControlService<S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        AccessControlService(inner)
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct AccessControlService<S>(S);
-
-impl<S> Service<Request<Body>> for AccessControlService<S>
-where
-    S: Service<Request<Body>, Response = Response> + Send + 'static,
-    S::Future: Send + 'static,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    // `BoxFuture` is a type alias for `Pin<Box<dyn Future + Send + 'a>>`
-    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.0.poll_ready(cx)
-    }
-
-    fn call(&mut self, req: Request<Body>) -> Self::Future {
-        let info = req.extensions().get::<ConnectInfo<PeerInfo>>();
-
-        let allowed = match info {
-            Some(ConnectInfo(PeerInfo::Tcp { addr })) => {
-                let allowed = is_private_ip_addr(addr.ip());
-                tracing::debug!(tcp.addr = ?addr, allowed);
-                allowed
-            }
-            Some(ConnectInfo(PeerInfo::Unix { addr, cred })) => {
-                tracing::debug!(unix.addr = ?addr, unix.cred = ?cred, allowed = true);
-                true
-            }
-            #[cfg(test)]
-            Some(ConnectInfo(PeerInfo::Test)) => true,
-            _ => {
-                tracing::warn!("No peer addr available, disconnect");
-                false
-            }
-        };
-
-        if allowed {
-            Box::pin(self.0.call(req))
-        } else {
-            Box::pin(async { Ok(Error::AccessDenied.into_response()) })
+pub async fn access_control(
+    ConnectInfo(info): ConnectInfo<PeerInfo>,
+    request: Request,
+    next: Next,
+) -> Response {
+    match info {
+        PeerInfo::Tcp { addr } if !is_private_ip_addr(addr.ip()) => {
+            tracing::error!(tcp.addr = ?addr, "Non-private IP addr, disconnect");
+            return Error::AccessDenied.into_response();
+        }
+        PeerInfo::Tcp { .. } => {
+            // TCP connections from remote clients in private networks are allowed.
+        }
+        PeerInfo::Unix { .. } => {
+            // Connections via UNIX sockets are always allowed.
+        }
+        #[cfg(test)]
+        PeerInfo::Test => {
+            // Always allowed.
         }
     }
+
+    next.run(request).await
 }
 
 fn is_private_ip_addr(ip: IpAddr) -> bool {
