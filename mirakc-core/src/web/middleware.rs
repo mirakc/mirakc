@@ -1,28 +1,66 @@
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
+use std::str::FromStr;
+use std::sync::Arc;
 
 use axum::extract::ConnectInfo;
 use axum::extract::Request;
+use axum::extract::State;
+use axum::http::HeaderMap;
+use axum::http::header::FORWARDED;
+use axum::http::header::HOST;
+use axum::http::uri::Authority;
 use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::response::Response;
+use axum_extract::Host;
 
+use super::Config;
 use super::Error;
 use super::peer_info::PeerInfo;
 
 pub async fn access_control(
+    State(config): State<Arc<Config>>,
     ConnectInfo(info): ConnectInfo<PeerInfo>,
+    headers: HeaderMap,
+    Host(host): Host,
     request: Request,
     next: Next,
 ) -> Response {
+    if headers.get_all(FORWARDED).iter().count() > 1 {
+        tracing::error!(
+            "Multiple 'Forwarded' headers are not allowed for security reasons, disconnect"
+        );
+        return Error::AccessDenied.into_response();
+    }
+
+    if headers.get_all("X-Forwarded-Host").iter().count() > 1 {
+        tracing::error!(
+            "Multiple 'X-Forwarded-Host' headers are not allowed for security reasons, disconnect"
+        );
+        return Error::AccessDenied.into_response();
+    }
+
+    if headers.get_all(HOST).iter().count() > 1 {
+        tracing::error!("Multiple 'Host' headers are not allowed for security reasons, disconnect");
+        return Error::AccessDenied.into_response();
+    }
+
     match info {
-        PeerInfo::Tcp { addr } if !is_private_ip_addr(addr.ip()) => {
-            tracing::error!(tcp.addr = ?addr, "Non-private IP addr, disconnect");
-            return Error::AccessDenied.into_response();
-        }
-        PeerInfo::Tcp { .. } => {
-            // TCP connections from remote clients in private networks are allowed.
+        PeerInfo::Tcp { addr } => {
+            if !is_private_ip_addr(addr.ip()) {
+                tracing::error!(tcp.addr = ?addr, "Non-private IP addr, disconnect");
+                return Error::AccessDenied.into_response();
+            }
+            if let Some(allowed_hosts) = config.server.allowed_hosts.as_ref() {
+                if !is_allowed_host(&host, allowed_hosts) {
+                    tracing::error!(host, "Host not allowed, disconnect");
+                    return Error::AccessDenied.into_response();
+                }
+            } else {
+                // Always allowed for backward compatibility if allowed_hosts is not specified.
+            }
         }
         PeerInfo::Unix { .. } => {
             // Connections via UNIX sockets are always allowed.
@@ -56,6 +94,15 @@ fn is_private_ipv6_addr(ip: Ipv6Addr) -> bool {
             Some(ip) => is_private_ipv4_addr(ip),
             None => false,
         }
+}
+
+fn is_allowed_host(host: &str, allowed_hosts: &[String]) -> bool {
+    const LOCAL_HOSTS: [&str; 4] = ["localhost", "127.0.0.1", "::1", "[::1]"];
+    let authority = Authority::from_str(host).unwrap();
+    LOCAL_HOSTS.contains(&authority.host())
+        || allowed_hosts
+            .iter()
+            .any(|allowed_host| allowed_host == host)
 }
 
 #[cfg(test)]

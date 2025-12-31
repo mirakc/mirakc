@@ -10,6 +10,7 @@ server:
       index: Cargo.toml
     /Cargo.toml:
       path: {manifest_dir}/Cargo.toml
+  allowed-hosts: {allowed_hosts}
 
 # Disable service and program filters
 filters:

@@ -286,6 +286,8 @@ pub struct ServerConfig {
     pub mounts: IndexMap<String, MountConfig>, // keeps the insertion order
     #[serde(default)]
     pub folder_view_template_path: Option<PathBuf>,
+    #[serde(default)]
+    pub allowed_hosts: Option<Vec<String>>,
 }
 
 impl ServerConfig {
@@ -355,6 +357,14 @@ impl ServerConfig {
                 "config.server.folder-view-template-path: must be a path to an existing file"
             );
         }
+
+        if let Some(ref allowed_hosts) = self.allowed_hosts {
+            if allowed_hosts.is_empty() {
+                tracing::warn!("config.server.allowed-hosts is specified but it's an empty list");
+            } else {
+                tracing::debug!(?allowed_hosts);
+            }
+        }
     }
 }
 
@@ -368,6 +378,7 @@ impl Default for ServerConfig {
             program_stream_max_start_delay: None,
             mounts: Default::default(),
             folder_view_template_path: None,
+            allowed_hosts: None,
         }
     }
 }
@@ -1882,6 +1893,19 @@ mod tests {
             serde_norway::from_str::<ServerConfig>(
                 r#"
                 folder-view-template-path: /path/to/listing.html.mustache
+            "#
+            )
+            .unwrap(),
+            config
+        );
+
+        let mut config = ServerConfig::default();
+        config.allowed_hosts = Some(vec!["mirakc:40772".to_string()]);
+        assert_eq!(
+            serde_norway::from_str::<ServerConfig>(
+                r#"
+                allowed-hosts:
+                  - mirakc:40772
             "#
             )
             .unwrap(),

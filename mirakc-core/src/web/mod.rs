@@ -110,7 +110,7 @@ where
     W: Clone + Send + Sync + 'static,
     W: Spawn,
 {
-    let app = build_app(&config).with_state(Arc::new(AppState {
+    let app = build_app(config.clone()).with_state(Arc::new(AppState {
         config: config.clone(),
         string_table,
         tuner_manager,
@@ -132,7 +132,7 @@ const X_MIRAKURUN_PRIORITY: &str = "x-mirakurun-priority";
 // endpoints
 
 #[allow(clippy::type_complexity)]
-fn build_app<T, E, R, S, O, W>(config: &Config) -> Router<Arc<AppState<T, E, R, S, O, W>>>
+fn build_app<T, E, R, S, O, W>(config: Arc<Config>) -> Router<Arc<AppState<T, E, R, S, O, W>>>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<crate::tuner::QueryTuner>,
@@ -186,8 +186,8 @@ where
     W: Spawn,
 {
     let mut router = Router::new()
-        .nest("/api", api::build_api(config))
-        .merge(SwaggerUi::new("/api/debug").url("/api/docs", api::Docs::generate(config)));
+        .nest("/api", api::build_api(&config))
+        .merge(SwaggerUi::new("/api/debug").url("/api/docs", api::Docs::generate(&config)));
 
     router = router.route("/events", routing::get(sse::events));
 
@@ -201,7 +201,7 @@ where
 
     // Static files can be cached.
     // Connections may be reused if clients support the HTTP pipelining.
-    router = mount::mount_entries(config, router);
+    router = mount::mount_entries(&config, router);
 
     // Layers applied to all requests and responses.
     router = router
@@ -213,7 +213,10 @@ where
             headers
         }))
         // Allow access only from clients in private networks.
-        .layer(axum::middleware::from_fn(middleware::access_control))
+        .layer(axum::middleware::from_fn_with_state(
+            config.clone(),
+            middleware::access_control,
+        ))
         // Output tracing logs.
         // Must be inserted at the last in order to output logs for all requests.
         .layer(TraceLayer::new_for_http());

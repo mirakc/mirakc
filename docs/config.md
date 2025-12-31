@@ -16,6 +16,7 @@ suitable for your environment.
 | [server.program-stream-max-start-delay]  | `None`                            |
 | [server.mounts]                          | `{}`                              |
 | [server.folder-view-template-path]       | `None`                            |
+| [server.allowed-hosts]                   | `None`                            |
 | [channels\[\].name]                      |                                   |
 | [channels\[\].type]                      |                                   |
 | [channels\[\].channel]                   |                                   |
@@ -77,6 +78,7 @@ suitable for your environment.
 [server.program-stream-max-start-delay]: #serverprogram-stream-max-start-delay
 [server.mounts]: #servermounts
 [server.folder-view-template-path]: #serverfolder-view-template-path
+[server.allowed-hosts]: #serverallowed-hosts
 [channels\[\].name]: #channels
 [channels\[\].type]: #channels
 [channels\[\].channel]: #channels
@@ -385,6 +387,34 @@ Example:
 ```
 
 The built-in template is used by default.
+
+## server.allowed-hosts
+
+An optional list of hosts that are allowed to access from remote clients.
+
+If a list is given, mirakc checks whether the list includes a host that a client is accessing.
+mirakc denies the access if the host is not included in the list.
+
+Any hosts are allowed by default for the backward compatibility.
+
+```yaml
+# YAML
+server:
+  allowed-hosts:
+    - mirakc:40772
+```
+
+```toml
+# TOML
+[server]
+allowed-hosts = ["mirakc:40772"]
+```
+
+The following host names are always allowed regardless of this setting:
+
+* `localhost`
+* `127.0.0.1`
+* `::1` (and `[::1]`)
 
 ## channels
 

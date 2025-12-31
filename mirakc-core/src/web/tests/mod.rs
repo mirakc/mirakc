@@ -1308,8 +1308,8 @@ async fn test_get_iptv_playlist_(endpoint: &str) {
         playlist,
         r#"#EXTM3U
 #KODIPROP:mimetype=video/mp2t
-#EXTINF:-1 tvg-id="1" tvg-logo="http://mirakc.test/api/services/1/logo" group-title="GR", test
-http://mirakc.test/api/services/1/stream?decode=true
+#EXTINF:-1 tvg-id="1" tvg-logo="http://mirakc:40772/api/services/1/logo" group-title="GR", test
+http://mirakc:40772/api/services/1/stream?decode=true
 "#
     );
 
@@ -1323,8 +1323,8 @@ http://mirakc.test/api/services/1/stream?decode=true
         playlist,
         r#"#EXTM3U
 #KODIPROP:mimetype=video/mp4
-#EXTINF:-1 tvg-id="1" tvg-logo="http://mirakc.test/api/services/1/logo" group-title="GR", test
-http://mirakc.test/api/services/1/stream?decode=true&post-filters[0]=mp4
+#EXTINF:-1 tvg-id="1" tvg-logo="http://mirakc:40772/api/services/1/logo" group-title="GR", test
+http://mirakc:40772/api/services/1/stream?decode=true&post-filters[0]=mp4
 "#
     );
 }
@@ -1351,7 +1351,7 @@ async fn test_get_iptv_xmltv_(endpoint: &str) {
     assert_eq!(
         xmltv,
         format!(
-            r#"<?xml version="1.0" encoding="UTF-8" ?><!DOCTYPE tv SYSTEM "xmltv.dtd"><tv generator-info-name="mirakc/{version}"><channel id="1"><display-name lang="ja">test</display-name><icon src="http://mirakc.test/api/services/1/logo" /></channel></tv>"#
+            r#"<?xml version="1.0" encoding="UTF-8" ?><!DOCTYPE tv SYSTEM "xmltv.dtd"><tv generator-info-name="mirakc/{version}"><channel id="1"><display-name lang="ja">test</display-name><icon src="http://mirakc:40772/api/services/1/logo" /></channel></tv>"#
         )
     );
 }
@@ -1450,32 +1450,158 @@ async fn test_x_mirakurun_priority() {
 }
 
 #[test(tokio::test)]
-async fn test_access_control_localhost() {
-    let peer_info = PeerInfo::Tcp {
-        addr: "127.0.0.1:10000".parse().unwrap(),
-    };
-    let res = get_with_peer_info("/api/version", Some(peer_info)).await;
+async fn test_access_control_private_addr() {
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "peer_info" => "192.168.0.1:10000".to_string(),
+        },
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
 }
 
 #[test(tokio::test)]
 async fn test_access_control_public_addr() {
-    let peer_info = PeerInfo::Tcp {
-        addr: "8.8.8.8:10000".parse().unwrap(),
-    };
-    let res = get_with_peer_info("/api/version", Some(peer_info)).await;
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "peer_info" => "8.8.8.8:10000".to_string(),
+        },
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
 }
 
 #[test(tokio::test)]
 async fn test_access_control_uds() {
-    // TODO: no way to create tokio::net::unix::SocketAddr.
+    // TODO: no way to create tokio::net::unix::UCred.
 }
 
 #[test(tokio::test)]
 async fn test_access_control_no_peer_info() {
-    let res = get_with_peer_info("/api/version", None).await;
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "peer_info" => "".to_string(),
+        },
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[test(tokio::test)]
+async fn test_access_control_multiple_forwarded_headers() {
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "request_headers" => to_json!([
+                ("Forwarded", "for=192.0.2.43, for=198.51.100.17"),
+                ("Forwarded", "for=192.0.2.60;proto=http;by=203.0.113.43"),
+            ]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[test(tokio::test)]
+async fn test_access_control_multiple_x_forwarded_host_headers() {
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "request_headers" => to_json!([
+                ("X-Forwarded-Host", "a.example"),
+                ("X-Forwarded-Host", "b.example"),
+            ]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[test(tokio::test)]
+async fn test_access_control_multiple_host_headers() {
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "request_headers" => to_json!([
+                ("Host", "a.example"),
+                ("Host", "b.example"),
+            ]),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[test(tokio::test)]
+async fn test_access_control_allowed_host() {
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "allowed_hosts" => "['mirakc:40772']".to_string(),
+            "peer_info" => "127.0.0.1:10000".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[test(tokio::test)]
+async fn test_access_control_not_allowed_host() {
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "allowed_hosts" => "['mirakc:40772']".to_string(),
+            "host" => "a.example:40772".to_string(),
+            "peer_info" => "127.0.0.1:10000".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[test(tokio::test)]
+async fn test_access_control_localhost() {
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "allowed_hosts" => "['mirakc:40772']".to_string(),
+            "host" => "localhost:40772".to_string(),
+            "peer_info" => "127.0.0.1:10000".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[test(tokio::test)]
+async fn test_access_control_ipv4_loopback() {
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "allowed_hosts" => "[allowed.host]".to_string(),
+            "host" => "127.0.0.1:40772".to_string(),
+            "peer_info" => "127.0.0.1:10000".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[test(tokio::test)]
+async fn test_access_control_ipv6_loopback() {
+    let res = get_with_test_config(
+        "/api/version",
+        maplit::hashmap! {
+            "allowed_hosts" => "[allowed.host]".to_string(),
+            "host" => "[::1]:40772".to_string(),
+            "peer_info" => "[::1]:10000".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
 }
 
 #[test(tokio::test)]
@@ -1718,29 +1844,7 @@ async fn get(endpoint: &str) -> Response {
     let app = create_app(&Default::default());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::get(endpoint)
-        .header(HOST, "mirakc.test")
-        .body(Body::empty())
-        .unwrap();
-    app.oneshot(req).await.unwrap()
-}
-
-async fn get_with_peer_info(endpoint: &str, peer_info: Option<PeerInfo>) -> Response {
-    let config = config_for_test();
-    let app = build_app(&config)
-        .layer(helper::ReplaceConnectInfoLayer::new(peer_info))
-        .with_state(Arc::new(AppState {
-            config,
-            string_table: string_table_for_test(),
-            tuner_manager: TunerManagerStub::default(),
-            epg: EpgStub,
-            recording_manager: RecordingManagerStub,
-            timeshift_manager: TimeshiftManagerStub,
-            onair_manager: OnairProgramManagerStub,
-            spawner: actlet::stubs::Context::default(),
-        }));
-    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
-    let req = Request::get(endpoint)
-        .header(HOST, "mirakc.test")
+        .header(HOST, "mirakc:40772")
         .body(Body::empty())
         .unwrap();
     app.oneshot(req).await.unwrap()
@@ -1751,8 +1855,15 @@ async fn get_with_test_config(
     test_config: HashMap<&'static str, String>,
 ) -> Response {
     let app = create_app(&test_config);
-    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
-    let mut builder = Request::get(endpoint).header(HOST, "mirakc.test");
+    // The axum_extract::Host requires an HTTP Host request header for tests to work properly.
+    let mut builder = Request::get(endpoint).header(
+        HOST,
+        if let Some(host) = test_config.get("host") {
+            host
+        } else {
+            "mirakc:40772"
+        },
+    );
     if let Some(json) = test_config.get("request_headers") {
         let headers: Vec<(String, String)> = serde_json::from_str(json).unwrap();
         for (name, value) in headers.iter() {
@@ -1767,7 +1878,7 @@ async fn head(endpoint: &str) -> Response {
     let app = create_app(&Default::default());
     // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::head(endpoint)
-        .header(HOST, "mirakc.test")
+        .header(HOST, "mirakc:40772")
         .body(Body::empty())
         .unwrap();
     app.oneshot(req).await.unwrap()
@@ -1778,8 +1889,15 @@ async fn head_with_test_config(
     test_config: HashMap<&'static str, String>,
 ) -> Response {
     let app = create_app(&test_config);
-    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
-    let mut builder = Request::head(endpoint).header(HOST, "mirakc.test");
+    // The axum_extract::Host requires an HTTP Host request header for tests to work properly.
+    let mut builder = Request::get(endpoint).header(
+        HOST,
+        if let Some(host) = test_config.get("host") {
+            host
+        } else {
+            "mirakc:40772"
+        },
+    );
     if let Some(json) = test_config.get("request_headers") {
         let headers: Vec<(String, String)> = serde_json::from_str(json).unwrap();
         for (name, value) in headers.iter() {
@@ -1795,9 +1913,9 @@ where
     T: serde::Serialize,
 {
     let app = create_app(&Default::default());
-    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
+    // The axum_extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::post(endpoint)
-        .header(HOST, "mirakc.test")
+        .header(HOST, "mirakc:40772")
         .header(CONTENT_TYPE, APPLICATION_JSON.as_ref())
         .body(Body::from(serde_json::to_vec(&json!(data)).unwrap()))
         .unwrap();
@@ -1806,18 +1924,25 @@ where
 
 async fn delete(endpoint: &str) -> Response {
     let app = create_app(&Default::default());
-    // The axum::extract::Host requires an HTTP Host request header for tests to work properly.
+    // The axum_extract::Host requires an HTTP Host request header for tests to work properly.
     let req = Request::delete(endpoint)
-        .header(HOST, "mirakc.test")
+        .header(HOST, "mirakc:40772")
         .body(Body::empty())
         .unwrap();
     app.oneshot(req).await.unwrap()
 }
 
 fn create_app(test_config: &HashMap<&'static str, String>) -> Router {
-    let config = config_for_test();
-    build_app(&config)
-        .layer(helper::ReplaceConnectInfoLayer::new(Some(PeerInfo::Test)))
+    let peer_info = match test_config.get("peer_info") {
+        Some(addr) if addr.is_empty() => None,
+        Some(addr) => Some(PeerInfo::Tcp {
+            addr: addr.parse().unwrap(),
+        }),
+        None => Some(PeerInfo::Test),
+    };
+    let config = config_for_test(test_config);
+    build_app(config.clone())
+        .layer(helper::ReplaceConnectInfoLayer::new(peer_info))
         .with_state(Arc::new(AppState {
             config,
             string_table: string_table_for_test(),
@@ -1830,10 +1955,11 @@ fn create_app(test_config: &HashMap<&'static str, String>) -> Router {
         }))
 }
 
-fn config_for_test() -> Arc<Config> {
+fn config_for_test(test_config: &HashMap<&'static str, String>) -> Arc<Config> {
     let config_yaml = format!(
         include_str!("config.yml"),
         manifest_dir = env!("CARGO_MANIFEST_DIR"),
+        allowed_hosts = test_config.get("allowed_hosts").map_or("", |s| s.as_str()),
     );
 
     Arc::new(
