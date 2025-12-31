@@ -164,7 +164,7 @@ dependencies = [
  "mime",
  "percent-encoding",
  "pin-project-lite",
- "reqwest",
+ "reqwest 0.12.28",
  "serde_core",
  "serde_json",
  "serde_path_to_error",
@@ -1305,7 +1305,7 @@ dependencies = [
  "once_cell",
  "path-dedot",
  "pretty_assertions",
- "reqwest",
+ "reqwest 0.13.1",
  "reqwest-eventsource",
  "serde",
  "serde_json",
@@ -1669,6 +1669,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "reqwest"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04e9018c9d814e5f30cc16a0f03271aeab3571e609612d9fe78c1aa8d11c2f62"
+dependencies = [
+ "base64",
+ "bytes",
+ "futures-core",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "js-sys",
+ "log 0.4.28",
+ "percent-encoding",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "sync_wrapper",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "reqwest-eventsource"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1680,7 +1711,7 @@ dependencies = [
  "mime",
  "nom",
  "pin-project-lite",
- "reqwest",
+ "reqwest 0.12.28",
  "thiserror 1.0.69",
 ]
 
