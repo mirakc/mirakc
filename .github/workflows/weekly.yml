@@ -34,8 +34,8 @@ jobs:
           # Fetch all history for all tags and branches so that `git describe`
           # works properly.
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable  # required for scripts/bump-version
-      - uses: denoland/setup-deno@v2  # required for scripts/release
+      - uses: dtolnay/rust-toolchain@stable  # required for scripts/release.sh
+      - uses: denoland/setup-deno@v2  # required for scripts/release.sh
         with:
           deno-version: v2.x
       - name: git config
@@ -48,7 +48,7 @@ jobs:
           then
             echo "Not changed, skip to create new release"
           else
-            ./scripts/release patch
+            sh ./scripts/release.sh patch
             git push
             git push --tags
           fi

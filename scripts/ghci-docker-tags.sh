@@ -1,5 +1,4 @@
-#!/bin/sh
-
+# GITHUB_OUTPUT must be defined as an environment variable.
 set -e
 
 REF_TYPE=$1

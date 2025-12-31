@@ -60,15 +60,15 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Update .devcontainer/Dockerfile
         run: |
-          ./scripts/update-devcontainer-dockerfile
+          sh ./scripts/update-devcontainer-dockerfile.sh
       - name: Update mirakc-arib
         if: inputs.ref-name == 'main'
         run: |
           LAST_COMMIT=$(git rev-parse HEAD)
-          ./scripts/update-mirakc-arib
+          sh ./scripts/update-mirakc-arib.sh
           if [ "$(git rev-parse HEAD)" != "$LAST_COMMIT" ]
           then
-            ./scripts/update-tools-images --no-cache --push ${{ env.DEBIAN_CODENAME }}
+            sh ./scripts/update-tools-images.sh --no-cache --push ${{ env.DEBIAN_CODENAME }}
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

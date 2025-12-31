@@ -1,4 +1,4 @@
-#!/bin/sh -eu
+set -eu
 
 PROGNAME="$(basename $0)"
 BASEDIR="$(cd $(dirname $0); pwd)"
@@ -6,7 +6,8 @@ PROJDIR="$(cd $BASEDIR/..; pwd)"
 CURRENT=$(cargo metadata --no-deps --format-version=1 | \
             jq -r '.packages[] | select(.name == "mirakc") | .version')
 
-if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker
+then
   DOCKER='docker'
 else
   DOCKER='sudo docker'
@@ -17,7 +18,7 @@ TAG=YES
 PREID=
 
 help() {
-    cat <<EOF >&2
+  cat <<EOF >&2
 USAGE:
   $PROGNAME [--no-commit] [--no-tag] [--preid <preid>] (major|minor|patch)
   $PROGNAME -h | --help
@@ -35,7 +36,7 @@ ARGUMENTS:
   patch
     Update the patch version.
 EOF
-    exit 0
+  exit 0
 }
 
 log() {

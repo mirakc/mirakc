@@ -1,12 +1,20 @@
-#!/bin/sh -eu
+set -eu
 
 PROJDIR=$(cd $(dirname $0)/..; pwd)
 TARGET_FILE=docker/build-scripts/mirakc-arib.sh
 
+log() {
+  echo "$1" >&2
+}
+
+error() {
+  log "ERROR: $1"
+  exit 1
+}
+
 if [ "$(pwd)" != "$PROJDIR" ]
 then
-  echo "ERROR: must run in the project root"
-  exit 1
+  error "must run in the project root"
 fi
 
 CURRENT=$(grep 'MIRAKC_ARIB_VERSION=' $TARGET_FILE | cut -d '=' -f 2 | tr -d '"')
@@ -23,9 +31,9 @@ mv -f $TEMP_FILE $TARGET_FILE
 
 if git diff --quiet -- $TARGET_FILE
 then
-  echo "Not changed"
+  log "Not changed"
 else
-  echo "Updated from $CURRENT to $VERSION"
+  log "Updated from $CURRENT to $VERSION"
   git add $TARGET_FILE
   git commit -m "build(deps): bump mirakc-arib from $CURRENT to $VERSION"
 fi

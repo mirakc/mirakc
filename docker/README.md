@@ -4,7 +4,7 @@ This folder contains files for Docker support.
 
 ## How to build images from source
 
-Using [compose.yaml](./compose.yaml):
+Using [`compose.yaml`](./compose.yaml):
 
 ```shell
 docker bake --load
@@ -32,28 +32,28 @@ in docker/buildx#59.
 
 ## mirakc/buildenv
 
-> NOTE: mirakc/buildenv:alpine-* images are no longer updated.  See #2420 for the reason.
+> NOTE: `mirakc/buildenv:alpine-*` images are no longer updated.  See #2420 for the reason.
 
-A [mirakc/buildenv] image is used as a build environment for each target platform.
+A [`mirakc/buildenv`] image is used as a build environment for each target platform.
 
-[mirakc/buildenv] images on Docker Hub can be updated by running
-[//scripts/update-buildenv-images](../scripts/update-buildenv-images).
+[`mirakc/buildenv`] images on Docker Hub can be updated by running
+[`//scripts/update-buildenv-images.sh`](../scripts/update-buildenv-images.sh).
 
 ## mirakc/tools
 
-> NOTE: mirakc/tools:alpine image is no longer updated.  See #2420 for the reason.
+> NOTE: `mirakc/tools:alpine` image is no longer updated.  See #2420 for the reason.
 
-[mirakc/tools] is a multi-arch image which contains the following commands:
+[`mirakc/tools`] is a multi-arch image which contains the following commands:
 
 * mirakc-arib
 * recdvb
 * recpt1
 
-[mirakc/tools] images on Docker Hub can be updated by running
-[//scripts/update-tools-images](../scripts/update-tools-images).
+[`mirakc/tools`] images on Docker Hub can be updated by running
+[`//scripts/update-tools-images.sh`](../scripts/update-tools-images.sh).
 
 [mirakc/tools] images were introduced in order to solve timeout issues in
 `docker` jobs of GitHub Actions workflows.
 
-[mirakc/buildenv]: https://hub.docker.com/r/mirakc/buildenv
-[mirakc/tools]: https://hub.docker.com/r/mirakc/tools
+[`mirakc/buildenv`]: https://hub.docker.com/r/mirakc/buildenv
+[`mirakc/tools`]: https://hub.docker.com/r/mirakc/tools

@@ -1,11 +1,12 @@
-#!/bin/sh -eu
+set -eu
 
 PROGNAME=$(basename $0)
 BASEDIR=$(cd $(dirname $0); pwd)
 IMAGE='docker.io/chinachu/mirakurun'
 WAIT=5
 
-if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker
+then
   DOCKER='docker'
 else
   DOCKER='sudo docker'
@@ -44,7 +45,7 @@ DESCRIPTION:
   container.
 
 TYPICAL USAGE:
-  mirakurun-openapi-json -c | fixup-openapi-json >mirakurun.openapi.json
+  sh $PROGNAME -c | fixup-openapi-json >mirakurun.openapi.json
 EOF
   exit 0
 }
@@ -60,11 +61,13 @@ error() {
 
 clean() {
   sleep 1
-  if [ -n "$CONTAINER" ]; then
+  if [ -n "$CONTAINER" ]
+  then
     $DOCKER container rm -f "$CONTAINER" >/dev/null
     log "Removed $CONTAINER"
   fi
-  if [ "$CLEAN" = yes ]; then
+  if [ "$CLEAN" = yes ]
+  then
     $DOCKER image rm -f $IMAGE:$VERSION >/dev/null
     log "Removed $IMAGE:$VERSION"
   fi
@@ -90,7 +93,8 @@ do
   esac
 done
 
-if [ $# -gt 0 ]; then
+if [ $# -gt 0 ]
+then
   VERSION="$1"
 fi
 

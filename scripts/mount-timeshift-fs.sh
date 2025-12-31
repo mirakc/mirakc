@@ -1,4 +1,4 @@
-#!/bin/sh -eu
+set -eu
 
 MOUNT_POINT="$1"
 

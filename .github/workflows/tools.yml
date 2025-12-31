@@ -51,4 +51,4 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
         run: |
-          ./scripts/update-tools-images --no-cache --push ${{ env.DEBIAN_CODENAME }} ${{ inputs.version }}
+          sh ./scripts/update-tools-images.sh --no-cache --push ${{ env.DEBIAN_CODENAME }} ${{ inputs.version }}

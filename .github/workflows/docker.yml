@@ -81,7 +81,7 @@ jobs:
       - name: Prepare tags (debian)
         id: debian-tags
         run: >-
-          ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
+          sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
       - name: Build and push (mirakc/mirakc:debian*)
         uses: docker/build-push-action@v6
         with:
@@ -119,7 +119,7 @@ jobs:
       - name: Prepare tags (alpine)
         id: alpine-tags
         run: >-
-          ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
+          sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
       - name: Build and push (mirakc/mirakc:alpine*)
         uses: docker/build-push-action@v6
         with:
@@ -157,7 +157,7 @@ jobs:
       - name: Test
         if: ${{ inputs.push }}
         run: >-
-          ./scripts/ghci-docker-test
+          sh ./scripts/ghci-docker-test.sh
           ${{ inputs.ref-name }} "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
 
   trigger:

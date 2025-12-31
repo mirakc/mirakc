@@ -1,11 +1,12 @@
-#!/bin/sh -eu
+set -eu
 
 PROGNAME=$(basename $0)
 BASEDIR=$(cd $(dirname $0); pwd)
 PROJDIR=$(cd $BASEDIR/..; pwd)
 TARGET_FILE=.devcontainer/Dockerfile
 
-if [ "$(uname)" != Linux ] || id -nG | grep -q docker; then
+if [ "$(uname)" != Linux ] || id -nG | grep -q docker
+then
   DOCKER='docker'
 else
   DOCKER='sudo docker'
@@ -32,11 +33,21 @@ EOF
   exit 0
 }
 
+log() {
+  echo "$1" >&2
+}
+
+error() {
+  log "ERROR: $1"
+  exit 1
+}
+
 clean() {
   sleep 1
-  if [ "$CLEAN" = yes ]; then
+  if [ "$CLEAN" = yes ]
+  then
     $DOCKER image rm -f $IMAGE >/dev/null
-    echo "Removed $IMAGE"
+    log "Removed $IMAGE"
   fi
   rm -f $TEMP_FILE
 }
@@ -59,20 +70,19 @@ done
 
 if [ "$(pwd)" != "$PROJDIR" ]
 then
-  echo "ERROR: must run in the project root"
-  exit 1
+  error "must run in the project root"
 fi
 
 TEMP_FILE=$(mktemp)
 trap "clean" EXIT INT TERM
 
-echo "Downloading $IMAGE..."
+log "Downloading $IMAGE..."
 $DOCKER image pull $IMAGE
 
-echo "Getting the commit hash of rustc contained in $IMAGE..." >&2
+log "Getting the commit hash of rustc contained in $IMAGE..."
 COMMIT_HASH=$($DOCKER run --rm $IMAGE rustc -vV | grep 'commit-hash' | cut -d ' ' -f 2)
 
-echo "Getting the path of the default toolchain contained in $IMAGE..." >&2
+log "Getting the path of the default toolchain contained in $IMAGE..."
 TOOLCHAIN_PATH=$($DOCKER run --rm $IMAGE rustup toolchain list -v | grep '(default)' | cut -f 2)
 
 cat <<EOF
@@ -82,7 +92,7 @@ TOOLCHAIN_PATH: $TOOLCHAIN_PATH
 --------------------------------------------------------------------------------
 EOF
 
-echo "Updating sourcemap variables in $TARGET_FILE..." >&2
+log "Updating sourcemap variables in $TARGET_FILE..."
 # Don't use the -i option of `sed`.
 # The incompatibility between macOS and GNU will cause troubles.
 #
@@ -94,9 +104,9 @@ mv -f $TEMP_FILE $TARGET_FILE
 
 if git diff --quiet -- $TARGET_FILE
 then
-  echo "Not changed"
+  log "Not changed"
 else
-  echo "Updated"
+  log "Updated"
   git add $TARGET_FILE
   git commit -m "build: update $TARGET_FILE"
 fi
