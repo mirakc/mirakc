@@ -1,5 +1,6 @@
 # Check preconditions
-if [ "$BUILDPLATFORM" != 'linux/amd64' ]; then
+if [ "$BUILDPLATFORM" != 'linux/amd64' ]
+then
   echo "Unsupported BUILDPLATFORM: $BUILDPLATFORM" >&2
   exit 1
 fi
