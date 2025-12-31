@@ -48,7 +48,12 @@ jobs:
           then
             echo "Not changed, skip to create new release"
           else
-            sh ./scripts/release.sh patch
+            if [ -e ./scripts/release.sh ]
+            then
+              sh ./scripts/release.sh patch
+            else
+              ./scripts/release patch
+            fi
             git push
             git push --tags
           fi

@@ -80,8 +80,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Prepare tags (debian)
         id: debian-tags
-        run: >-
-          sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
+        run: |
+          if [ -e ./scripts/ghci-docker-tags.sh ]
+          then
+            sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
+          else
+            ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
+          fi
       - name: Build and push (mirakc/mirakc:debian*)
         uses: docker/build-push-action@v6
         with:
@@ -118,8 +123,13 @@ jobs:
           push: ${{ inputs.push }}
       - name: Prepare tags (alpine)
         id: alpine-tags
-        run: >-
-          sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
+        run: |
+          if [ -e ./scripts/ghci-docker-tags.sh ]
+          then
+            sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
+          else
+            ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
+          fi
       - name: Build and push (mirakc/mirakc:alpine*)
         uses: docker/build-push-action@v6
         with:
@@ -156,9 +166,13 @@ jobs:
           push: ${{ inputs.push }}
       - name: Test
         if: ${{ inputs.push }}
-        run: >-
-          sh ./scripts/ghci-docker-test.sh
-          ${{ inputs.ref-name }} "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
+        run: |
+          if [ -e ./scripts/ghci-docker-test.sh ]
+          then
+            sh ./scripts/ghci-docker-test.sh ${{ inputs.ref-name }} "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
+          else
+            ./scripts/ghci-docker-test ${{ inputs.ref-name }} "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
+          fi
 
   trigger:
     if: ${{ inputs.push }}
