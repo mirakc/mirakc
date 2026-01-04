@@ -25,8 +25,8 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # mirakc-arib is required for tests
-      - run: |
+      - name: mirakc-arib is required for tests
+        run: |
           ln -sf $(which true) /usr/local/bin/mirakc-arib
           test $(which mirakc-arib) = /usr/local/bin/mirakc-arib
       - uses: actions/checkout@v4

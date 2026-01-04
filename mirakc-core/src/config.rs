@@ -1221,7 +1221,11 @@ pub struct LocalOnairProgramTrackerConfig {
 
 impl LocalOnairProgramTrackerConfig {
     pub fn default_command() -> String {
-        "timeout 5s mirakc-arib collect-eitpf --sids={{{sid}}}".to_string()
+        if cfg!(target_os = "macos") {
+            "gtimeout 5s mirakc-arib collect-eitpf --sids={{{sid}}}".to_string()
+        } else {
+            "timeout 5s mirakc-arib collect-eitpf --sids={{{sid}}}".to_string()
+        }
     }
 
     fn validate(&self, name: &str) {

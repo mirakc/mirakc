@@ -18,15 +18,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      # mirakc-arib is required for tests
-      - run: |
+      - name: mirakc-arib is required for tests
+        run: |
           ln -sf $(which true) /usr/local/bin/mirakc-arib
           test $(which mirakc-arib) = /usr/local/bin/mirakc-arib
       - uses: actions/checkout@v4
-      - name: Install macfuse (macos)
+      - name: Install gtimeout and macfuse (macos)
         if: matrix.runner == 'macos-latest'
         run: |
-          brew install macfuse
+          brew install coreutils macfuse
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
