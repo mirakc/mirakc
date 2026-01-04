@@ -1513,10 +1513,10 @@ mod tests {
             tuners:
               - name: test
                 types: [GR]
-                command: test
+                command: cat /dev/null
               - name: test
                 types: [GR]
-                command: test
+                command: cat /dev/null
             resource:
               strings-yaml: /bin/sh
         "#,
@@ -1544,7 +1544,7 @@ mod tests {
             tuners:
               - name: test
                 types: [GR]
-                command: test
+                command: cat /dev/null
                 excluded-channels:
                   - name: a
                   - name: b
@@ -1567,7 +1567,7 @@ mod tests {
             tuners:
               - name: test
                 types: [GR]
-                command: test
+                command: cat /dev/null
             onair-program-trackers:
               tracker:
                 local:
@@ -1590,7 +1590,7 @@ mod tests {
             tuners:
               - name: test
                 types: [GR,BS]
-                command: test
+                command: cat /dev/null
             onair-program-trackers:
               tracker1:
                 local:
@@ -1617,7 +1617,7 @@ mod tests {
             tuners:
               - name: test
                 types: [GR]
-                command: test
+                command: cat /dev/null
             onair-program-trackers:
               tracker:
                 local:
@@ -1652,7 +1652,7 @@ mod tests {
             tuners:
               - name: test
                 types: [GR]
-                command: test
+                command: cat /dev/null
             timeshift:
               recorders:
                 recorder:
@@ -1696,7 +1696,7 @@ mod tests {
             tuners:
               - name: test
                 types: [GR]
-                command: test
+                command: cat /dev/null
             timeshift:
               recorders:
                 recorder:
@@ -1742,7 +1742,7 @@ mod tests {
             tuners:
               - name: test
                 types: [BS]
-                command: test
+                command: cat /dev/null
             timeshift:
               recorders:
                 recorder:
@@ -2405,13 +2405,13 @@ mod tests {
         let mut config = TunerConfig::default();
         config.name = "x".to_string();
         config.channel_types = vec![ChannelType::GR];
-        config.command = "open tuner".to_string();
+        config.command = "cat /dev/null".to_string();
         assert_eq!(
             serde_norway::from_str::<TunerConfig>(
                 r#"
                 name: x
                 types: [GR]
-                command: open tuner
+                command: cat /dev/null
             "#
             )
             .unwrap(),
@@ -2421,14 +2421,14 @@ mod tests {
         let mut config = TunerConfig::default();
         config.name = "x".to_string();
         config.channel_types = vec![ChannelType::GR];
-        config.command = "open tuner".to_string();
+        config.command = "cat /dev/null".to_string();
         config.time_limit = 1;
         assert_eq!(
             serde_norway::from_str::<TunerConfig>(
                 r#"
                 name: x
                 types: [GR]
-                command: open tuner
+                command: cat /dev/null
                 time-limit: 1
             "#
             )
@@ -2439,14 +2439,14 @@ mod tests {
         let mut config = TunerConfig::default();
         config.name = "x".to_string();
         config.channel_types = vec![ChannelType::GR];
-        config.command = "open tuner".to_string();
+        config.command = "cat /dev/null".to_string();
         config.disabled = true;
         assert_eq!(
             serde_norway::from_str::<TunerConfig>(
                 r#"
                 name: x
                 types: [GR]
-                command: open tuner
+                command: cat /dev/null
                 disabled: true
             "#
             )
@@ -2457,14 +2457,14 @@ mod tests {
         let mut config = TunerConfig::default();
         config.name = "x".to_string();
         config.channel_types = vec![ChannelType::GR];
-        config.command = "open tuner".to_string();
+        config.command = "cat /dev/null".to_string();
         config.decoded = true;
         assert_eq!(
             serde_norway::from_str::<TunerConfig>(
                 r#"
                 name: x
                 types: [GR]
-                command: open tuner
+                command: cat /dev/null
                 decoded: true
             "#
             )
@@ -2481,13 +2481,13 @@ mod tests {
             ChannelType::SKY,
             ChannelType::BS4K,
         ];
-        config.command = "open tuner".to_string();
+        config.command = "cat /dev/null".to_string();
         assert_eq!(
             serde_norway::from_str::<TunerConfig>(
                 r#"
                 name: x
                 types: [GR, BS, CS, SKY, BS4K]
-                command: open tuner
+                command: cat /dev/null
             "#
             )
             .unwrap(),
@@ -2497,7 +2497,7 @@ mod tests {
         let mut config = TunerConfig::default();
         config.name = "x".to_string();
         config.channel_types = vec![ChannelType::GR];
-        config.command = "open tuner".to_string();
+        config.command = "cat /dev/null".to_string();
         config.excluded_channels = vec![
             ExcludedChannelConfig::Name("channel".to_string()),
             ExcludedChannelConfig::Params {
@@ -2510,7 +2510,7 @@ mod tests {
                 r#"
                 name: x
                 types: [GR]
-                command: open tuner
+                command: cat /dev/null
                 excluded-channels:
                   - name: channel
                   - params:
@@ -2527,7 +2527,7 @@ mod tests {
                 r#"
                 name: x
                 types: [WOWOW]
-                command: open tuner
+                command: cat /dev/null
             "#
             )
             .is_err()
@@ -2546,7 +2546,7 @@ mod tests {
         TunerConfig {
             name: "test".to_string(),
             channel_types: vec![ChannelType::GR],
-            command: "test".to_string(),
+            command: "cat /dev/null".to_string(),
             ..Default::default()
         }
     }
@@ -2578,6 +2578,14 @@ mod tests {
     fn test_tuner_config_validate_empty_command() {
         let mut config = tuner_config();
         config.command = "".to_string();
+        config.validate(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "config.tuners[0].command: must be a valid command")]
+    fn test_tuner_config_validate_command() {
+        let mut config = tuner_config();
+        config.command = "no-such-command".to_string();
         config.validate(0);
     }
 
@@ -2622,12 +2630,12 @@ mod tests {
         );
 
         let mut config = FiltersConfig::default();
-        config.tuner_filter.command = "filter".to_string();
+        config.tuner_filter.command = "cat /dev/null".to_string();
         assert_eq!(
             serde_norway::from_str::<FiltersConfig>(
                 r#"
                 tuner-filter:
-                  command: filter
+                  command: cat /dev/null
             "#
             )
             .unwrap(),
@@ -2635,12 +2643,12 @@ mod tests {
         );
 
         let mut config = FiltersConfig::default();
-        config.service_filter.command = "filter".to_string();
+        config.service_filter.command = "cat /dev/null".to_string();
         assert_eq!(
             serde_norway::from_str::<FiltersConfig>(
                 r#"
                 service-filter:
-                  command: filter
+                  command: cat /dev/null
             "#
             )
             .unwrap(),
@@ -2648,12 +2656,12 @@ mod tests {
         );
 
         let mut config = FiltersConfig::default();
-        config.decode_filter.command = "filter".to_string();
+        config.decode_filter.command = "cat /dev/null".to_string();
         assert_eq!(
             serde_norway::from_str::<FiltersConfig>(
                 r#"
                 decode-filter:
-                  command: filter
+                  command: cat /dev/null
             "#
             )
             .unwrap(),
@@ -2661,12 +2669,12 @@ mod tests {
         );
 
         let mut config = FiltersConfig::default();
-        config.program_filter.command = "filter".to_string();
+        config.program_filter.command = "cat /dev/null".to_string();
         assert_eq!(
             serde_norway::from_str::<FiltersConfig>(
                 r#"
                 program-filter:
-                  command: filter
+                  command: cat /dev/null
             "#
             )
             .unwrap(),
@@ -2690,11 +2698,11 @@ mod tests {
         );
 
         let mut config = FilterConfig::default();
-        config.command = "filter".to_string();
+        config.command = "cat /dev/null".to_string();
         assert_eq!(
             serde_norway::from_str::<FilterConfig>(
                 r#"
-                command: filter
+                command: cat /dev/null
             "#
             )
             .unwrap(),
@@ -2713,8 +2721,8 @@ mod tests {
     #[test]
     fn test_filter_config_validate() {
         let mut config = FilterConfig::default();
-        config.command = "true".to_string();
-        config.validate("filters", "test", true);
+        config.command = "cat /dev/null".to_string();
+        config.validate("filters", "", true);
     }
 
     #[test]
@@ -2739,11 +2747,11 @@ mod tests {
         );
 
         let mut config = PreFilterConfig::default();
-        config.command = "filter".to_string();
+        config.command = "cat /dev/null".to_string();
         assert_eq!(
             serde_norway::from_str::<PreFilterConfig>(
                 r#"
-                command: filter
+                command: cat /dev/null
             "#
             )
             .unwrap(),
@@ -2751,12 +2759,12 @@ mod tests {
         );
 
         let mut config = PreFilterConfig::default();
-        config.command = "filter".to_string();
+        config.command = "cat /dev/null".to_string();
         config.seekable = true;
         assert_eq!(
             serde_norway::from_str::<PreFilterConfig>(
                 r#"
-                command: filter
+                command: cat /dev/null
                 seekable: true
             "#
             )
@@ -2776,7 +2784,7 @@ mod tests {
     #[test]
     fn test_pre_filter_config_validate() {
         let mut config = PreFilterConfig::default();
-        config.command = "test".to_string();
+        config.command = "cat /dev/null".to_string();
         config.validate("test");
     }
 
@@ -2804,11 +2812,11 @@ mod tests {
         );
 
         let mut config = PostFilterConfig::default();
-        config.command = "filter".to_string();
+        config.command = "cat /dev/null".to_string();
         assert_eq!(
             serde_norway::from_str::<PostFilterConfig>(
                 r#"
-                command: filter
+                command: cat /dev/null
             "#
             )
             .unwrap(),
@@ -2816,12 +2824,12 @@ mod tests {
         );
 
         let mut config = PostFilterConfig::default();
-        config.command = "filter".to_string();
+        config.command = "cat /dev/null".to_string();
         config.content_type = Some("video/mp4".to_string());
         assert_eq!(
             serde_norway::from_str::<PostFilterConfig>(
                 r#"
-                command: filter
+                command: cat /dev/null
                 content-type: video/mp4
             "#
             )
@@ -2830,12 +2838,12 @@ mod tests {
         );
 
         let mut config = PostFilterConfig::default();
-        config.command = "filter".to_string();
+        config.command = "cat /dev/null".to_string();
         config.seekable = true;
         assert_eq!(
             serde_norway::from_str::<PostFilterConfig>(
                 r#"
-                command: filter
+                command: cat /dev/null
                 seekable: true
             "#
             )
@@ -2855,7 +2863,7 @@ mod tests {
     #[test]
     fn test_post_filter_config_validate() {
         let mut config = PostFilterConfig::default();
-        config.command = "test".to_string();
+        config.command = "cat /dev/null".to_string();
         config.validate("test");
     }
 
@@ -2879,7 +2887,7 @@ mod tests {
     #[should_panic(expected = "config.post-filters.test.content-type: must be a non-empty string")]
     fn test_post_filter_config_validate_empty_content_type() {
         let mut config = PostFilterConfig::default();
-        config.command = "test".to_string();
+        config.command = "cat /dev/null".to_string();
         config.content_type = Some("".to_string());
         config.validate("test");
     }
@@ -2892,13 +2900,13 @@ mod tests {
         );
 
         let mut config = JobsConfig::default();
-        config.scan_services.command = "job".to_string();
+        config.scan_services.command = "true".to_string();
         config.scan_services.schedule = "*".to_string();
         assert_eq!(
             serde_norway::from_str::<JobsConfig>(
                 r#"
                 scan-services:
-                  command: job
+                  command: 'true'
                   schedule: '*'
             "#
             )
@@ -2907,13 +2915,13 @@ mod tests {
         );
 
         let mut config = JobsConfig::default();
-        config.sync_clocks.command = "job".to_string();
+        config.sync_clocks.command = "true".to_string();
         config.sync_clocks.schedule = "*".to_string();
         assert_eq!(
             serde_norway::from_str::<JobsConfig>(
                 r#"
                 sync-clocks:
-                  command: job
+                  command: 'true'
                   schedule: '*'
             "#
             )
@@ -2922,13 +2930,13 @@ mod tests {
         );
 
         let mut config = JobsConfig::default();
-        config.update_schedules.command = "job".to_string();
+        config.update_schedules.command = "true".to_string();
         config.update_schedules.schedule = "*".to_string();
         assert_eq!(
             serde_norway::from_str::<JobsConfig>(
                 r#"
                 update-schedules:
-                  command: job
+                  command: 'true'
                   schedule: '*'
             "#
             )
@@ -2978,9 +2986,9 @@ mod tests {
                     );
 
                     let mut config = $name::default();
-                    config.command = "test".to_string();
+                    config.command = "true".to_string();
                     assert_eq!(
-                        serde_norway::from_str::<$name>("command: test").unwrap(),
+                        serde_norway::from_str::<$name>("command: 'true'").unwrap(),
                         config
                     );
 
@@ -3014,7 +3022,7 @@ mod tests {
 
                 fn [<$label _job_config>]() -> $name {
                     $name {
-                        command: "test".to_string(),
+                        command: "true".to_string(),
                         schedule: "0 30 9,12,15 1,15 May-Aug Mon,Wed,Fri 2018/2".to_string(),
                         timeout: Duration::from_secs(10),
                         disabled: false,
@@ -3187,7 +3195,7 @@ mod tests {
         assert_eq!(
             serde_norway::from_str::<TimeshiftConfig>(
                 r#"
-                command: command
+                command: "true"
                 recorders:
                   test:
                     service-id: 1
@@ -3202,7 +3210,7 @@ mod tests {
             )
             .unwrap(),
             TimeshiftConfig {
-                command: "command".to_string(),
+                command: "true".to_string(),
                 recorders: indexmap! {
                     "test".to_string() => timeshift_recorder_config(),
                 },
@@ -3226,7 +3234,7 @@ mod tests {
         assert!(
             serde_norway::from_str::<TimeshiftConfig>(
                 r#"
-                command: command
+                command: "true"
                 recorders:
                   test:
                     service-id: 1
@@ -3603,7 +3611,7 @@ mod tests {
                 channel-types: [GR]
                 services: [1]
                 excluded-services: [2]
-                command: "true"
+                command: 'true'
                 uses:
                   tuner: tuner
             "#
