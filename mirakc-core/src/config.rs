@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use indexmap::IndexMap;
+use is_executable::IsExecutable;
 use itertools::Itertools;
 use serde::Deserialize;
 use url::Url;
@@ -572,6 +573,10 @@ impl TunerConfig {
             !self.command.is_empty(),
             "config.tuners[{index}].command: must be a non-empty string"
         );
+        assert!(
+            is_valid_command(&self.command),
+            "config.tuners[{index}].command: must be a valid command"
+        );
         for (i, excluded) in self.excluded_channels.iter().enumerate() {
             excluded.validate(index, i);
         }
@@ -673,10 +678,13 @@ impl FiltersConfig {
     }
 
     fn validate(&self) {
-        // self.tuner_filter.command may be an empty string.
-        self.service_filter.validate("filters", "service-filter");
-        self.program_filter.validate("filters", "program-filter");
-        // self.decode_filter.command may be an empty string.
+        self.tuner_filter.validate("filters", "tuner-filter", false);
+        self.service_filter
+            .validate("filters", "service-filter", true);
+        self.program_filter
+            .validate("filters", "program-filter", true);
+        self.decode_filter
+            .validate("filters", "decode-filter", false);
     }
 }
 
@@ -700,11 +708,18 @@ pub struct FilterConfig {
 }
 
 impl FilterConfig {
-    fn validate(&self, group: &str, name: &str) {
-        assert!(
-            !self.command.is_empty(),
-            "config.{group}[{name}].command: must be a non-empty string"
-        );
+    fn validate(&self, group: &str, name: &str, required: bool) {
+        if self.command.is_empty() {
+            assert!(
+                !required,
+                "config.{group}.{name}.command: must be a non-empty string"
+            );
+        } else {
+            assert!(
+                is_valid_command(&self.command),
+                "config.{group}.{name}.command: must be a valid command"
+            );
+        }
     }
 }
 
@@ -722,7 +737,11 @@ impl PreFilterConfig {
     fn validate(&self, name: &str) {
         assert!(
             !self.command.is_empty(),
-            "config.pre-filters[{name}].command: must be a non-empty string"
+            "config.pre-filters.{name}.command: must be a non-empty string"
+        );
+        assert!(
+            is_valid_command(&self.command),
+            "config.pre-filters.{name}.command: must be a valid command"
         );
     }
 }
@@ -743,12 +762,16 @@ impl PostFilterConfig {
     fn validate(&self, name: &str) {
         assert!(
             !self.command.is_empty(),
-            "config.post-filters[{name}].command: must be a non-empty string"
+            "config.post-filters.{name}.command: must be a non-empty string"
+        );
+        assert!(
+            is_valid_command(&self.command),
+            "config.post-filters.{name}.command: must be a valid command"
         );
         if let Some(content_type) = self.content_type.as_ref() {
             assert!(
                 !content_type.is_empty(),
-                "config.post-filters[{name}].content-type: must be a non-empty string"
+                "config.post-filters.{name}.content-type: must be a non-empty string"
             );
         }
     }
@@ -843,6 +866,10 @@ macro_rules! define_job_config {
                             $label,
                             ".command: must be a non-empty string"
                         ),
+                    );
+                    assert!(
+                        is_valid_command(&self.command),
+                        concat!("config.jobs.", $label, ".command: must be a valid command"),
                     );
                     assert!(
                         cron::Schedule::from_str(&self.schedule).is_ok(),
@@ -977,6 +1004,10 @@ impl TimeshiftConfig {
         assert!(
             !self.command.is_empty(),
             "config.timeshift.command: must be a non-empty string"
+        );
+        assert!(
+            is_valid_command(&self.command),
+            "config.timeshift.command: must be a valid command"
         );
         self.recorders
             .iter()
@@ -1196,13 +1227,18 @@ impl LocalOnairProgramTrackerConfig {
     fn validate(&self, name: &str) {
         assert!(
             !self.channel_types.is_empty(),
-            "config.onair-program-trackers[{name}].channel-types: \
+            "config.onair-program-trackers.{name}.channel-types: \
              must be a non-empty list"
         );
         assert!(
             !self.command.is_empty(),
-            "config.onair-program-trackers[{name}]command: \
+            "config.onair-program-trackers.{name}.command: \
              must be a non-empty string"
+        );
+        assert!(
+            is_valid_command(&self.command),
+            "config.onair-program-trackers.{name}.command: \
+             must be a valid command"
         );
         self.uses.validate(name);
     }
@@ -1220,7 +1256,7 @@ impl LocalOnairProgramTrackerUses {
     fn validate(&self, name: &str) {
         assert!(
             !self.tuner.is_empty(),
-            "config.onair-program-trackers[{name}].uses.tuner: \
+            "config.onair-program-trackers.{name}.uses.tuner: \
              must be a non-empty string"
         );
     }
@@ -1347,6 +1383,24 @@ impl Default for ResourceConfig {
             logos: Default::default(),
         }
     }
+}
+
+fn is_valid_command(command: &str) -> bool {
+    let words = match shell_words::split(command) {
+        Ok(words) => words,
+        Err(_) => return false,
+    };
+
+    let prog = match words.split_first() {
+        Some((prog, _)) => prog,
+        _ => return false,
+    };
+
+    if Path::new(prog).is_executable() {
+        return true;
+    }
+
+    which::which(prog).is_ok()
 }
 
 #[allow(clippy::field_reassign_with_default)]
@@ -2659,14 +2713,22 @@ mod tests {
     #[test]
     fn test_filter_config_validate() {
         let mut config = FilterConfig::default();
-        config.command = "test".to_string();
-        config.validate("filters", "test");
+        config.command = "true".to_string();
+        config.validate("filters", "test", true);
     }
 
     #[test]
-    #[should_panic(expected = "config.filters[test].command: must be a non-empty string")]
+    #[should_panic(expected = "config.filters.test.command: must be a non-empty string")]
     fn test_filter_config_validate_empty_command() {
-        FilterConfig::default().validate("filters", "test");
+        FilterConfig::default().validate("filters", "test", true);
+    }
+
+    #[test]
+    #[should_panic(expected = "config.filters.test.command: must be a valid command")]
+    fn test_filter_config_validate_command() {
+        let mut config = FilterConfig::default();
+        config.command = "no-such-command".to_string();
+        config.validate("filters", "test", true);
     }
 
     #[test]
@@ -2719,10 +2781,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "config.pre-filters[test].command: must be a non-empty string")]
+    #[should_panic(expected = "config.pre-filters.test.command: must be a non-empty string")]
     fn test_pre_filter_config_validate_empty_command() {
         let mut config = PreFilterConfig::default();
         config.command = "".to_string();
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic(expected = "config.pre-filters.test.command: must be a valid command")]
+    fn test_pre_filter_config_validate_command() {
+        let mut config = PreFilterConfig::default();
+        config.command = "no-such-command".to_string();
         config.validate("test");
     }
 
@@ -2790,7 +2860,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "config.post-filters[test].command: must be a non-empty string")]
+    #[should_panic(expected = "config.post-filters.test.command: must be a non-empty string")]
     fn test_post_filter_config_validate_empty_command() {
         let mut config = PostFilterConfig::default();
         config.command = "".to_string();
@@ -2798,7 +2868,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "config.post-filters[test].content-type: must be a non-empty string")]
+    #[should_panic(expected = "config.post-filters.test.command: must be a valid command")]
+    fn test_post_filter_config_validate_command() {
+        let mut config = PostFilterConfig::default();
+        config.command = "no-such-command".to_string();
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic(expected = "config.post-filters.test.content-type: must be a non-empty string")]
     fn test_post_filter_config_validate_empty_content_type() {
         let mut config = PostFilterConfig::default();
         config.command = "test".to_string();
@@ -2951,9 +3029,17 @@ mod tests {
 
                 #[test]
                 #[should_panic(expected = "command: must be a non-empty string")]
-                fn [<test_ $label _job_config_validate_command>]() {
+                fn [<test_ $label _job_config_validate_empty_command>]() {
                     let mut config = [<$label _job_config>]();
                     config.command = "".to_string();
+                    config.validate();
+                }
+
+                #[test]
+                #[should_panic(expected = "command: must be a valid command")]
+                fn [<test_ $label _job_config_validate_command>]() {
+                    let mut config = [<$label _job_config>]();
+                    config.command = "no-such-command".to_string();
                     config.validate();
                 }
 
@@ -3189,6 +3275,14 @@ mod tests {
     fn test_timeshift_config_validate_empty_command() {
         let mut config = TimeshiftConfig::default();
         config.command = "".to_string();
+        config.validate();
+    }
+
+    #[test]
+    #[should_panic(expected = "config.timeshift.command: must be a valid command")]
+    fn test_timeshift_config_validate_command() {
+        let mut config = TimeshiftConfig::default();
+        config.command = "no-such-command".to_string();
         config.validate();
     }
 
@@ -3533,7 +3627,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "config.onair-program-trackers[test].channel-types: must be a non-empty list"
+        expected = "config.onair-program-trackers.test.channel-types: must be a non-empty list"
     )]
     fn test_local_onair_program_tracker_config_validate_channel_types() {
         let mut config = local_onair_program_tracker_config();
@@ -3543,9 +3637,9 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "config.onair-program-trackers[test]command: must be a non-empty string"
+        expected = "config.onair-program-trackers.test.command: must be a non-empty string"
     )]
-    fn test_local_onair_program_tracker_config_validate_command() {
+    fn test_local_onair_program_tracker_config_validate_empty_command() {
         let mut config = local_onair_program_tracker_config();
         config.command = "".to_string();
         config.validate("test");
@@ -3553,7 +3647,17 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "config.onair-program-trackers[test].uses.tuner: must be a non-empty string"
+        expected = "config.onair-program-trackers.test.command: must be a valid command"
+    )]
+    fn test_local_onair_program_tracker_config_validate_command() {
+        let mut config = local_onair_program_tracker_config();
+        config.command = "no-such-command".to_string();
+        config.validate("test");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "config.onair-program-trackers.test.uses.tuner: must be a non-empty string"
     )]
     fn test_local_onair_program_tracker_config_validate_uses() {
         let mut config = local_onair_program_tracker_config();
@@ -3676,5 +3780,14 @@ mod tests {
             1.into() => "/path/to/non-existing".to_string(),
         };
         config.validate();
+    }
+
+    #[test]
+    fn test_is_valid_command() {
+        assert!(is_valid_command("sh"));
+        assert!(is_valid_command("sh script.sh"));
+        assert!(is_valid_command("/bin/sh"));
+        assert!(!is_valid_command("no-such-command"));
+        assert!(!is_valid_command("/bin/no-such-command"));
     }
 }

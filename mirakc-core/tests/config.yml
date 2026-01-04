@@ -20,31 +20,19 @@ channels:
     services: [101]
 
 tuners:
-  - name: upstream
+  - name: tuner
     types: [GR, BS]
     command: >-
-      curl -s http://upstream:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0
-  - name: recpt1
-    types: [GR]
-    command: >-
-      recpt1 --device /path/to/dev {{{channel}}} - -
-  - name: recdvb
-    types: [GR]
-    command: >-
-      recdvb --dev 1 {{{channel}}} - -
-  - name: dvbv5-zap
-    types: [GR]
-    command: >-
-      dvbv5-zap -a 0 -c /path/to/conf -r -P {{{channel}}} -o -
+      cat /dev/null
   - name: tracker
     types: [GR, BS]
     command: >-
-      true
+      cat /dev/null
 
 filters:
   decode-filter:
     command: >-
-      socat -,cool-write tcp-connect:tsd:40773
+      cat /dev/null
 
 recording:
   basedir: /tmp
