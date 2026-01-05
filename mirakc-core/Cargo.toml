@@ -47,7 +47,7 @@ shell-words = "1.1.1"
 smallstr = { version = "0.3.1", features = ["serde"] }
 thiserror = "2.0.17"
 tokio = { version = "1.49.0", features = ["full"] }
-tokio-stream = { version = "0.1.17", features = ["io-util", "time"] }
+tokio-stream = { version = "0.1.18", features = ["io-util", "time"] }
 tokio-util = { version = "0.7.17", features = ["codec", "io"] }
 toml = "0.9.10"
 tower = { version = "0.5.2", default-features = false, features = ["util", "make"] }
