@@ -18,6 +18,35 @@ use url::Url;
 use crate::models::*;
 use crate::tuner::TunerSubscriptionId;
 
+macro_rules! fail {
+    ($($args:expr),+) => {{
+        if cfg!(test) {
+            panic!($($args),+);
+        } else {
+            tracing::error!($($args),+);
+            std::process::exit(1);
+        }
+    }};
+    ($($args:expr,)+) => {
+        fail!($($args),+)
+    };
+}
+
+macro_rules! validate {
+    ($cond:expr, $($args:expr),+) => {
+        if cfg!(test) {
+            assert!($cond, $($args),+);
+        } else {
+            if !$cond {
+                fail!($($args),+);
+            }
+        }
+    };
+    ($cond:expr, $($args:expr,)+) => {
+        validate!($cond, $($args),+)
+    };
+}
+
 pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
     let config_path = config_path.as_ref();
     match config_path.extension() {
@@ -28,29 +57,29 @@ pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
             } else if ext == "toml" {
                 load_toml(config_path)
             } else {
-                panic!("Format unsupported: {config_path:?}");
+                fail!("Format unsupported: {config_path:?}");
             }
         }
-        None => panic!("No extension contained in the filename: {config_path:?}"),
+        None => fail!("No extension contained in the filename: {config_path:?}"),
     }
 }
 
 fn load_yaml(config_path: &Path) -> Arc<Config> {
     let reader = File::open(config_path).unwrap_or_else(|err| {
-        panic!("Failed to open {config_path:?}: {err}");
+        fail!("Failed to open {config_path:?}: {err}");
     });
     let config: Config = serde_norway::from_reader(reader).unwrap_or_else(|err| {
-        panic!("Failed to parse {config_path:?}: {err}");
+        fail!("Failed to parse {config_path:?}: {err}");
     });
     normalize(config_path, config)
 }
 
 fn load_toml(config_path: &Path) -> Arc<Config> {
     let toml = std::fs::read_to_string(config_path).unwrap_or_else(|err| {
-        panic!("Failed to open {config_path:?}: {err}");
+        fail!("Failed to open {config_path:?}: {err}");
     });
     let config: Config = toml::from_str(&toml).unwrap_or_else(|err| {
-        panic!("Failed to parse {config_path:?}: {err}");
+        fail!("Failed to parse {config_path:?}: {err}");
     });
     normalize(config_path, config)
 }
@@ -133,8 +162,7 @@ impl Config {
         //
         // Allow duplicate names in a practical point of view.
         //
-        // assert_eq!(self.channels.len(),
-        //            self.channels.iter()
+        // validate!(self.channels.len() == self.channels.iter()
         //            .map(|config| &config.name)
         //            .unique()
         //            .count(),
@@ -150,7 +178,7 @@ impl Config {
                             .iter()
                             .filter(|channel| channel.name == name)
                             .count();
-                        assert!(
+                        validate!(
                             n < 2,
                             "config.tuners[{i}].excluded-channels[{j}]: \
                              `name` must be a unique in config.channels"
@@ -160,13 +188,14 @@ impl Config {
                 }
             }
         }
-        assert_eq!(
-            self.tuners.len(),
-            self.tuners
-                .iter()
-                .map(|config| &config.name)
-                .unique()
-                .count(),
+        validate!(
+            self.tuners.len()
+                == self
+                    .tuners
+                    .iter()
+                    .map(|config| &config.name)
+                    .unique()
+                    .count(),
             "config.tuners: `name` must be a unique"
         );
         self.filters.validate();
@@ -194,7 +223,7 @@ impl Config {
             })
         {
             if let Some(ref user) = dedicated.get(&config.uses.tuner) {
-                panic!("config.tuners[{}]: dedicated for {user}", config.uses.tuner);
+                fail!("config.tuners[{}]: dedicated for {user}", config.uses.tuner);
             }
             if self
                 .tuners
@@ -202,7 +231,7 @@ impl Config {
                 .filter(|tuner| !tuner.disabled)
                 .all(|tuner| tuner.name != config.uses.tuner)
             {
-                panic!(
+                fail!(
                     "config.onair-program-trackers[{name}]: uses undefined tuner[{}]",
                     config.uses.tuner
                 );
@@ -214,15 +243,16 @@ impl Config {
         }
         for (name, config) in self.timeshift.recorders.iter() {
             if let Some(ref user) = dedicated.get(&config.uses.tuner) {
-                panic!("config.tuners[{}]: dedicated for {user}", config.uses.tuner);
+                fail!("config.tuners[{}]: dedicated for {user}", config.uses.tuner);
             }
             if !self.channels.iter().any(|channel| {
                 channel.channel_type == config.uses.channel_type
                     && channel.channel == config.uses.channel
             }) {
-                panic!(
+                fail!(
                     "config.timeshift.recorders[{name}]: uses undefined channel {}/{}",
-                    config.uses.channel_type, config.uses.channel
+                    config.uses.channel_type,
+                    config.uses.channel
                 );
             }
             if let Some(tuner) = self
@@ -231,14 +261,14 @@ impl Config {
                 .filter(|tuner| !tuner.disabled)
                 .find(|tuner| tuner.name == config.uses.tuner)
             {
-                assert!(
+                validate!(
                     tuner.channel_types.contains(&config.uses.channel_type),
                     "config.timeshift.recorders[{name}]: uses tuner[{}] which is not for {}",
                     config.uses.tuner,
                     config.uses.channel_type,
                 );
             } else {
-                panic!(
+                fail!(
                     "timeshift-recorder[{name}] uses non-existent tuner[{}]",
                     config.uses.tuner
                 );
@@ -258,7 +288,7 @@ pub struct EpgConfig {
 impl EpgConfig {
     fn validate(&self) {
         if let Some(cache_dir) = self.cache_dir.as_ref() {
-            assert!(
+            validate!(
                 cache_dir.is_dir(),
                 "config.epg: `cache_dir` must be a path to an existing directory"
             );
@@ -330,14 +360,14 @@ impl ServerConfig {
     fn validate(&self) {
         const SERVER_STREAM_TIME_LIMIT_MIN: u64 = 15_000;
 
-        assert!(
+        validate!(
             self.stream_time_limit >= SERVER_STREAM_TIME_LIMIT_MIN,
             "config.server.stream-time-limit: must be larger than or equal to \
              {SERVER_STREAM_TIME_LIMIT_MIN}"
         );
 
         if let Some(max_start_delay) = self.program_stream_max_start_delay {
-            assert!(
+            validate!(
                 max_start_delay < Duration::from_secs(24 * 3600),
                 "config.server.program-stream-max-start-delay: \
                  must not be less than 24h"
@@ -353,7 +383,7 @@ impl ServerConfig {
             .for_each(|(mp, config)| config.validate(mp));
 
         if let Some(ref path) = self.folder_view_template_path {
-            assert!(
+            validate!(
                 path.is_file(),
                 "config.server.folder-view-template-path: must be a path to an existing file"
             );
@@ -394,7 +424,7 @@ pub enum ServerAddr {
 impl ServerAddr {
     fn validate(&self, i: usize) {
         match self {
-            Self::Http(addr) => assert!(
+            Self::Http(addr) => validate!(
                 addr.to_socket_addrs().is_ok(),
                 "config.server.addrs[{i}]: invalid socket address: {addr}"
             ),
@@ -424,29 +454,29 @@ impl MountConfig {
     fn validate(&self, mount_point: &str) {
         const MOUNT_POINT_BLOCK_LIST: [&str; 3] = ["/", "/api", "/events"];
         for blocked in MOUNT_POINT_BLOCK_LIST {
-            assert!(
+            validate!(
                 mount_point != blocked,
                 r#"config.server.mounts[{blocked}]: cannot mount onto "{blocked}""#,
             );
         }
-        assert!(
+        validate!(
             mount_point.starts_with('/'),
             "config.server.mounts[{mount_point}]: \
              a mount point must starts with '/'"
         );
-        assert!(
+        validate!(
             !mount_point.ends_with('/'),
             "config.server.mounts[{mount_point}]: \
              a mount point must not ends with '/'"
         );
-        assert!(
+        validate!(
             self.path.exists(),
             "config.server.mounts[{mount_point}].path: \
              must be a path to an existing entry"
         );
         if let Some(index) = self.index.as_ref() {
             let path = self.path.join(index);
-            assert!(
+            validate!(
                 path.is_file(),
                 "config.server.mounts[{mount_point}].index: \
                  must be an existing file if it exists"
@@ -516,11 +546,11 @@ impl ChannelConfig {
 
     fn validate(&self, index: usize) {
         debug_assert!(!self.disabled);
-        assert!(
+        validate!(
             !self.name.is_empty(),
             "config.channels[{index}].name: must be a non-empty string"
         );
-        assert!(
+        validate!(
             !self.channel.is_empty(),
             "config.channels[{index}].channel: must be a non-empty string"
         );
@@ -561,19 +591,19 @@ impl TunerConfig {
         if self.disabled {
             return;
         }
-        assert!(
+        validate!(
             !self.name.is_empty(),
             "config.tuners[{index}].name: must be a non-empty string"
         );
-        assert!(
+        validate!(
             !self.channel_types.is_empty(),
             "config.tuners[{index}].types: must be a non-empty list"
         );
-        assert!(
+        validate!(
             !self.command.is_empty(),
             "config.tuners[{index}].command: must be a non-empty string"
         );
-        assert!(
+        validate!(
             is_valid_command(&self.command),
             "config.tuners[{index}].command: must be a valid command"
         );
@@ -614,14 +644,14 @@ impl ExcludedChannelConfig {
     fn validate(&self, tuner_index: usize, index: usize) {
         match self {
             Self::Name(name) => {
-                assert!(
+                validate!(
                     !name.is_empty(),
                     "config.tuners[{tuner_index}].excluded-channels[{index}].name: \
                      must be a non-empty string",
                 );
             }
             Self::Params { channel, .. } => {
-                assert!(
+                validate!(
                     !channel.is_empty(),
                     "config.tuners[{tuner_index}].excluded-channels[{index}].params.channel: \
                      must be a non-empty string",
@@ -710,12 +740,12 @@ pub struct FilterConfig {
 impl FilterConfig {
     fn validate(&self, group: &str, name: &str, required: bool) {
         if self.command.is_empty() {
-            assert!(
+            validate!(
                 !required,
                 "config.{group}.{name}.command: must be a non-empty string"
             );
         } else {
-            assert!(
+            validate!(
                 is_valid_command(&self.command),
                 "config.{group}.{name}.command: must be a valid command"
             );
@@ -735,11 +765,11 @@ pub struct PreFilterConfig {
 
 impl PreFilterConfig {
     fn validate(&self, name: &str) {
-        assert!(
+        validate!(
             !self.command.is_empty(),
             "config.pre-filters.{name}.command: must be a non-empty string"
         );
-        assert!(
+        validate!(
             is_valid_command(&self.command),
             "config.pre-filters.{name}.command: must be a valid command"
         );
@@ -760,16 +790,16 @@ pub struct PostFilterConfig {
 
 impl PostFilterConfig {
     fn validate(&self, name: &str) {
-        assert!(
+        validate!(
             !self.command.is_empty(),
             "config.post-filters.{name}.command: must be a non-empty string"
         );
-        assert!(
+        validate!(
             is_valid_command(&self.command),
             "config.post-filters.{name}.command: must be a valid command"
         );
         if let Some(content_type) = self.content_type.as_ref() {
-            assert!(
+            validate!(
                 !content_type.is_empty(),
                 "config.post-filters.{name}.content-type: must be a non-empty string"
             );
@@ -859,7 +889,7 @@ macro_rules! define_job_config {
                         tracing::warn!(config = concat!("config.jobs.", $label), "Disabled");
                     }
                 } else {
-                    assert!(
+                    validate!(
                         !self.command.is_empty(),
                         concat!(
                             "config.jobs.",
@@ -867,11 +897,11 @@ macro_rules! define_job_config {
                             ".command: must be a non-empty string"
                         ),
                     );
-                    assert!(
+                    validate!(
                         is_valid_command(&self.command),
                         concat!("config.jobs.", $label, ".command: must be a valid command"),
                     );
-                    assert!(
+                    validate!(
                         cron::Schedule::from_str(&self.schedule).is_ok(),
                         concat!("config.jobs.", $label, ".schedule: not valid"),
                     );
@@ -955,22 +985,22 @@ impl RecordingConfig {
 
     fn validate(&self) {
         if let Some(ref basedir) = self.basedir {
-            assert!(
+            validate!(
                 basedir.is_absolute(),
                 "config.recording.basedir: must be an absolute path"
             );
-            assert!(
+            validate!(
                 basedir.is_dir(),
                 "config.recording.basedir: must be a path to an existing directory"
             );
         }
 
         if let Some(ref records_dir) = self.records_dir {
-            assert!(
+            validate!(
                 records_dir.is_absolute(),
                 "config.recording.records-dir: must be an absolute path"
             );
-            assert!(
+            validate!(
                 records_dir.is_dir(),
                 "config.recording.records-dir: must be a path to an existing directory"
             );
@@ -1001,11 +1031,11 @@ impl TimeshiftConfig {
     }
 
     fn validate(&self) {
-        assert!(
+        validate!(
             !self.command.is_empty(),
             "config.timeshift.command: must be a non-empty string"
         );
-        assert!(
+        validate!(
             is_valid_command(&self.command),
             "config.timeshift.command: must be a valid command"
         );
@@ -1055,32 +1085,32 @@ impl TimeshiftRecorderConfig {
     }
 
     fn validate(&self, name: &str) {
-        assert!(
+        validate!(
             self.ts_file.is_absolute(),
             "config.timeshift.recorders[{name}]: \
              `ts-file` must be an absolute path"
         );
-        assert!(
+        validate!(
             self.ts_file.to_str().is_some(),
             "config.timeshift.recorders[{name}]: \
              `ts-file` path must consist only of UTF-8 compatible characters"
         );
-        assert!(
+        validate!(
             self.ts_file.is_file(),
             "config.timeshift.recorders[{name}]: \
              `ts-file` must be a path to a regular file"
         );
-        assert!(
+        validate!(
             self.data_file.is_absolute(),
             "config.timeshift.recorders[{name}]: \
              `data-file` must be an absolute path"
         );
-        assert!(
+        validate!(
             self.data_file.to_str().is_some(),
             "config.timeshift.recorders[{name}]: \
              `data-file` path must consist only of UTF-8 compatible characters"
         );
-        assert!(
+        validate!(
             self.data_file.is_file(),
             "config.timeshift.recorders[{name}]: \
              `data-file` must be a path to a regular file"
@@ -1095,33 +1125,33 @@ impl TimeshiftRecorderConfig {
         //
         // We may support a binary format in the future if there is a crate that works well with
         // our data formats.
-        assert!(
+        validate!(
             self.data_file.extension().is_some() && self.data_file.extension().unwrap() == "json",
             "config.timeshift.recorders[{name}]: \
              `data-file` must be a JSON file"
         );
-        assert!(
+        validate!(
             self.chunk_size > 0,
             "config.timeshift.recorders[{name}]: \
              `chunk-size` must be larger than 0"
         );
-        assert!(
+        validate!(
             self.chunk_size.is_multiple_of(Self::BUFSIZE),
             "config.timeshift.recorders[{name}]: \
              `chunk-size` must be a multiple of {}",
             Self::BUFSIZE,
         );
-        assert!(
+        validate!(
             self.num_chunks > 2,
             "config.timeshift.recorders[{name}]: \
              `num-chunks` must be larger than 2"
         );
-        assert!(
+        validate!(
             self.num_reserves > 0,
             "config.timeshift.recorders[{name}]: \
              `num-reserves` must be larger than 0"
         );
-        assert!(
+        validate!(
             self.num_chunks - self.num_reserves > 1,
             "config.timeshift.recorders[{name}]: \
              Maximum number of available chunks \
@@ -1137,9 +1167,8 @@ impl TimeshiftRecorderConfig {
                  Failed to get the size of `ts-file`: {err}"
             ),
         };
-        assert_eq!(
-            self.max_file_size(),
-            ts_file_size,
+        validate!(
+            self.max_file_size() == ts_file_size,
             "config.timeshift.recorders[{name}]: \
              `ts-file` must be allocated with {} in advance",
             self.max_file_size()
@@ -1170,12 +1199,12 @@ pub struct TimeshiftRecorderUses {
 
 impl TimeshiftRecorderUses {
     fn validate(&self, name: &str) {
-        assert!(
+        validate!(
             !self.tuner.is_empty(),
             "config.timeshift.recorders[{name}].uses.tuner: \
              must be a non-empty string"
         );
-        assert!(
+        validate!(
             !self.channel.is_empty(),
             "config.timeshift.recorders[{name}].uses.channel: \
              must be a non-empty string"
@@ -1229,17 +1258,17 @@ impl LocalOnairProgramTrackerConfig {
     }
 
     fn validate(&self, name: &str) {
-        assert!(
+        validate!(
             !self.channel_types.is_empty(),
             "config.onair-program-trackers.{name}.channel-types: \
              must be a non-empty list"
         );
-        assert!(
+        validate!(
             !self.command.is_empty(),
             "config.onair-program-trackers.{name}.command: \
              must be a non-empty string"
         );
-        assert!(
+        validate!(
             is_valid_command(&self.command),
             "config.onair-program-trackers.{name}.command: \
              must be a valid command"
@@ -1258,7 +1287,7 @@ pub struct LocalOnairProgramTrackerUses {
 
 impl LocalOnairProgramTrackerUses {
     fn validate(&self, name: &str) {
-        assert!(
+        validate!(
             !self.tuner.is_empty(),
             "config.onair-program-trackers.{name}.uses.tuner: \
              must be a non-empty string"
@@ -1355,12 +1384,12 @@ impl ResourceConfig {
     }
 
     fn validate(&self) {
-        assert!(
+        validate!(
             Path::new(&self.strings_yaml).is_file(),
             "config.resource.strings-yaml: must be a path to an existing YAML file"
         );
         for (service_id, image) in self.logos.iter() {
-            assert!(
+            validate!(
                 Path::new(image).is_file(),
                 "config.resource.logos[{service_id}]: must be a path to an existing file"
             );
