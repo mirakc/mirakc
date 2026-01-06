@@ -54,7 +54,7 @@ tower = { version = "0.5.2", default-features = false, features = ["util", "make
 tower-http = { version = "0.6.8", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
-url = { version = "2.5.7", features = ["serde"] }
+url = { version = "2.5.8", features = ["serde"] }
 utoipa = { version = "5.4.0", features = ["axum_extras", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 walkdir = "2.5.0"
