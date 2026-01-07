@@ -91,7 +91,7 @@ fn main() -> Result<(), Error> {
         LogFormat::Json => "json",
     });
 
-    let config = mirakc_core::config::load(&opt.config);
+    let config = mirakc_core::config::load_for_timeshift_fs(&opt.config);
 
     let fs_config = TimeshiftFilesystemConfig {
         uid: opt.uid,

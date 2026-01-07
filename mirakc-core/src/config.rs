@@ -48,14 +48,22 @@ macro_rules! validate {
 }
 
 pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
+    load_file(config_path, true)
+}
+
+pub fn load_for_timeshift_fs<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
+    load_file(config_path, false)
+}
+
+fn load_file<P: AsRef<Path>>(config_path: P, server: bool) -> Arc<Config> {
     let config_path = config_path.as_ref();
     match config_path.extension() {
         Some(ext) => {
             let ext = ext.to_ascii_lowercase();
             if ext == "yml" || ext == "yaml" {
-                load_yaml(config_path)
+                load_yaml(config_path, server)
             } else if ext == "toml" {
-                load_toml(config_path)
+                load_toml(config_path, server)
             } else {
                 fail!("Format unsupported: {config_path:?}");
             }
@@ -64,32 +72,32 @@ pub fn load<P: AsRef<Path>>(config_path: P) -> Arc<Config> {
     }
 }
 
-fn load_yaml(config_path: &Path) -> Arc<Config> {
+fn load_yaml(config_path: &Path, server: bool) -> Arc<Config> {
     let reader = File::open(config_path).unwrap_or_else(|err| {
         fail!("Failed to open {config_path:?}: {err}");
     });
     let config: Config = serde_norway::from_reader(reader).unwrap_or_else(|err| {
         fail!("Failed to parse {config_path:?}: {err}");
     });
-    normalize(config_path, config)
+    normalize(config_path, config, server)
 }
 
-fn load_toml(config_path: &Path) -> Arc<Config> {
+fn load_toml(config_path: &Path, server: bool) -> Arc<Config> {
     let toml = std::fs::read_to_string(config_path).unwrap_or_else(|err| {
         fail!("Failed to open {config_path:?}: {err}");
     });
     let config: Config = toml::from_str(&toml).unwrap_or_else(|err| {
         fail!("Failed to parse {config_path:?}: {err}");
     });
-    normalize(config_path, config)
+    normalize(config_path, config, server)
 }
 
-fn normalize(config_path: &Path, mut config: Config) -> Arc<Config> {
+fn normalize(config_path: &Path, mut config: Config, server: bool) -> Arc<Config> {
     config = config.normalize();
 
     match std::env::var_os("MIRAKC_CONFIG_SKIP_VALIDATION") {
         Some(v) if v == "1" => tracing::warn!("Skip validation"),
-        _ => config.validate(),
+        _ => config.validate(server),
     }
 
     tracing::info!(?config_path, "Loaded");
@@ -150,68 +158,12 @@ impl Config {
         !self.onair_program_trackers.is_empty()
     }
 
-    fn validate(&self) {
-        self.epg.validate();
-        self.server.validate();
-        self.channels
-            .iter()
-            .enumerate()
-            .for_each(|(i, config)| config.validate(i));
-        // The channels[].name property should be a unique, but some scripts generating a
-        // channels.yml use the same name in multiple channels.
-        //
-        // Allow duplicate names in a practical point of view.
-        //
-        // validate!(self.channels.len() == self.channels.iter()
-        //            .map(|config| &config.name)
-        //            .unique()
-        //            .count(),
-        //            "config.channels: `name` must be a unique");
-        for (i, config) in self.tuners.iter().enumerate() {
-            config.validate(i);
-            for (j, excluded) in config.excluded_channels.iter().enumerate() {
-                match excluded {
-                    ExcludedChannelConfig::Name(name) => {
-                        let name = name.as_str();
-                        let n = self
-                            .channels
-                            .iter()
-                            .filter(|channel| channel.name == name)
-                            .count();
-                        validate!(
-                            n < 2,
-                            "config.tuners[{i}].excluded-channels[{j}]: \
-                             `name` must be a unique in config.channels"
-                        );
-                    }
-                    ExcludedChannelConfig::Params { .. } => (),
-                }
-            }
+    fn validate(&self, server: bool) {
+        if server {
+            self.validate_only_for_server();
         }
-        validate!(
-            self.tuners.len()
-                == self
-                    .tuners
-                    .iter()
-                    .map(|config| &config.name)
-                    .unique()
-                    .count(),
-            "config.tuners: `name` must be a unique"
-        );
-        self.filters.validate();
-        self.pre_filters
-            .iter()
-            .for_each(|(name, config)| config.validate(name));
-        self.post_filters
-            .iter()
-            .for_each(|(name, config)| config.validate(name));
-        self.jobs.validate();
-        self.recording.validate();
-        self.timeshift.validate();
-        self.onair_program_trackers
-            .iter()
-            .for_each(|(name, config)| config.validate(name));
-        self.resource.validate();
+
+        self.timeshift.validate(server);
 
         let mut dedicated: HashMap<String, TunerUserInfo> = HashMap::new();
         for (name, config) in self
@@ -274,6 +226,69 @@ impl Config {
                 );
             }
         }
+    }
+
+    fn validate_only_for_server(&self) {
+        self.epg.validate();
+        self.server.validate();
+        self.channels
+            .iter()
+            .enumerate()
+            .for_each(|(i, config)| config.validate(i));
+        // The channels[].name property should be a unique, but some scripts generating a
+        // channels.yml use the same name in multiple channels.
+        //
+        // Allow duplicate names in a practical point of view.
+        //
+        // validate!(self.channels.len() == self.channels.iter()
+        //            .map(|config| &config.name)
+        //            .unique()
+        //            .count(),
+        //            "config.channels: `name` must be a unique");
+        for (i, config) in self.tuners.iter().enumerate() {
+            config.validate(i);
+            for (j, excluded) in config.excluded_channels.iter().enumerate() {
+                match excluded {
+                    ExcludedChannelConfig::Name(name) => {
+                        let name = name.as_str();
+                        let n = self
+                            .channels
+                            .iter()
+                            .filter(|channel| channel.name == name)
+                            .count();
+                        validate!(
+                            n < 2,
+                            "config.tuners[{i}].excluded-channels[{j}]: \
+                             `name` must be a unique in config.channels"
+                        );
+                    }
+                    ExcludedChannelConfig::Params { .. } => (),
+                }
+            }
+        }
+        validate!(
+            self.tuners.len()
+                == self
+                    .tuners
+                    .iter()
+                    .map(|config| &config.name)
+                    .unique()
+                    .count(),
+            "config.tuners: `name` must be a unique"
+        );
+        self.filters.validate();
+        self.pre_filters
+            .iter()
+            .for_each(|(name, config)| config.validate(name));
+        self.post_filters
+            .iter()
+            .for_each(|(name, config)| config.validate(name));
+        self.jobs.validate();
+        self.recording.validate();
+        self.onair_program_trackers
+            .iter()
+            .for_each(|(name, config)| config.validate(name));
+        self.resource.validate();
     }
 }
 
@@ -1030,15 +1045,17 @@ impl TimeshiftConfig {
             .to_string()
     }
 
-    fn validate(&self) {
-        validate!(
-            !self.command.is_empty(),
-            "config.timeshift.command: must be a non-empty string"
-        );
-        validate!(
-            is_valid_command(&self.command),
-            "config.timeshift.command: must be a valid command"
-        );
+    fn validate(&self, server: bool) {
+        if server {
+            validate!(
+                !self.command.is_empty(),
+                "config.timeshift.command: must be a non-empty string"
+            );
+            validate!(
+                is_valid_command(&self.command),
+                "config.timeshift.command: must be a valid command"
+            );
+        }
         self.recorders
             .iter()
             .for_each(|(name, config)| config.validate(name));
@@ -1516,7 +1533,7 @@ mod tests {
     fn test_config_validate() {
         let mut config = Config::default();
         config.resource.strings_yaml = "/bin/sh".to_string();
-        config.validate();
+        config.validate(true);
     }
 
     #[test]
@@ -1535,7 +1552,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        config.validate();
+        config.validate(true);
     }
 
     #[test]
@@ -1555,7 +1572,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        config.validate();
+        config.validate(true);
     }
 
     #[test]
@@ -1587,7 +1604,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        config.validate();
+        config.validate(true);
     }
 
     #[test]
@@ -1612,7 +1629,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        config.validate();
+        config.validate(true);
     }
 
     #[test]
@@ -1640,7 +1657,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        config.validate();
+        config.validate(true);
     }
 
     #[test]
@@ -1662,7 +1679,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        config.validate();
+        config.validate(true);
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1705,7 +1722,7 @@ mod tests {
             data_file.path().to_str().unwrap(),
         ))
         .unwrap();
-        config.validate();
+        config.validate(true);
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1749,7 +1766,7 @@ mod tests {
             data_file.path().to_str().unwrap()
         ))
         .unwrap();
-        config.validate();
+        config.validate(true);
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1795,7 +1812,7 @@ mod tests {
             data_file.path().to_str().unwrap(),
         ))
         .unwrap();
-        config.validate();
+        config.validate(true);
     }
 
     #[test]
@@ -3308,7 +3325,7 @@ mod tests {
     #[test]
     fn test_timeshift_config_validate() {
         let config = TimeshiftConfig::default();
-        config.validate();
+        config.validate(true);
     }
 
     #[test]
@@ -3316,7 +3333,7 @@ mod tests {
     fn test_timeshift_config_validate_empty_command() {
         let mut config = TimeshiftConfig::default();
         config.command = "".to_string();
-        config.validate();
+        config.validate(true);
     }
 
     #[test]
@@ -3324,7 +3341,7 @@ mod tests {
     fn test_timeshift_config_validate_command() {
         let mut config = TimeshiftConfig::default();
         config.command = "no-such-command".to_string();
-        config.validate();
+        config.validate(true);
     }
 
     fn timeshift_recorder_config() -> TimeshiftRecorderConfig {
