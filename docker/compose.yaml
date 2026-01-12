@@ -1,5 +1,5 @@
 services:
-  mirakc:
+  mirakc-sample:
     # In this sample, we build a image from source.
     #
     # Replace `mirakc-sample` with `docker.io/mirakc/mirakc` if you like to use

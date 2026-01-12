@@ -21,7 +21,7 @@ tuners:
   - name: mirakc
     types: [GR, BS]
     command: >-
-      curl -sG http://mirakc:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0
+      curl 'http://mirakc:40772/api/channels/{{{channel_type}}}/{{{channel}}}/stream?decode=0' -sG
   # Normally, you need to define a tuner for each device like below:
   #
   # - name: bs1
@@ -38,7 +38,7 @@ filters:
   # them to a client.
   #
   # The following command processes TS packets on a remote server listening on
-  # TCP port 40774.
+  # TCP port 40773.
   decode-filter:
     command: >-
-      socat -,cool-write tcp-connect:remote:40774
+      socat -,cool-write tcp-connect:b25:40773
