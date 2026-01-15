@@ -14,7 +14,7 @@ axum = { version = "0.8.8", features = ["http2"] }
 axum-extra = { version = "0.12.3", features = ["typed-header"] }
 axum-extract = { path = "../axum-extract" }
 bytes = "1.11.0"
-chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde"] }
+chrono = { version = "0.4.43", default-features = false, features = ["clock", "serde"] }
 chrono-jst = { path = "../chrono-jst" }
 cron = "0.15.0"
 futures = "0.3.31"
