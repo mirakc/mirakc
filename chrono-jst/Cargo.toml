@@ -10,7 +10,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde"] }
+chrono = { version = "0.4.43", default-features = false, features = ["clock", "serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
