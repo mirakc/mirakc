@@ -877,7 +877,10 @@ async fn test_filter_setting() {
     );
 
     assert_eq!(
-        do_test("decode=x", |_| async move {}).await,
+        do_test("decode=x", |_| async move {
+            unreachable!();
+        })
+        .await,
         StatusCode::BAD_REQUEST
     );
 
@@ -928,7 +931,23 @@ async fn test_filter_setting() {
     );
 
     assert_eq!(
-        do_test("pre-filters[1]=a", |Qs(v)| async move {
+        do_test("pre-filters[1]=a", |_| async {
+            unreachable!();
+        })
+        .await,
+        StatusCode::BAD_REQUEST
+    );
+
+    assert_eq!(
+        do_test("pre-filters[1]=a&pre-filters[2]=b", |_| async {
+            unreachable!();
+        })
+        .await,
+        StatusCode::BAD_REQUEST
+    );
+
+    assert_eq!(
+        do_test("pre-filters=a", |Qs(v)| async move {
             assert!(v.decode);
             assert_eq!(v.pre_filters.len(), 1);
             assert_eq!(v.pre_filters[0], "a".to_string());
@@ -939,30 +958,22 @@ async fn test_filter_setting() {
     );
 
     assert_eq!(
-        do_test("pre-filters[1]=a&pre-filters[2]=b", |Qs(v)| async move {
+        do_test("pre-filters[x]=a", |_| async {
+            unreachable!();
+        })
+        .await,
+        StatusCode::BAD_REQUEST
+    );
+
+    assert_eq!(
+        do_test("pre-filters[0]=a&pre-filters[0]=b", |Qs(v)| async move {
             assert!(v.decode);
-            assert_eq!(v.pre_filters.len(), 2);
-            assert_eq!(v.pre_filters[0], "a".to_string());
-            assert_eq!(v.pre_filters[1], "b".to_string());
+            assert_eq!(v.pre_filters.len(), 1);
+            assert_eq!(v.pre_filters[0], "b".to_string());
             assert!(v.post_filters.is_empty());
         })
         .await,
         StatusCode::OK
-    );
-
-    assert_eq!(
-        do_test("pre-filters=a", |_| async move {}).await,
-        StatusCode::BAD_REQUEST
-    );
-
-    assert_eq!(
-        do_test("pre-filters[x]=a", |_| async move {}).await,
-        StatusCode::BAD_REQUEST
-    );
-
-    assert_eq!(
-        do_test("pre-filters[0]=a&pre-filters[0]=b", |_| async move {}).await,
-        StatusCode::BAD_REQUEST
     );
 
     assert_eq!(

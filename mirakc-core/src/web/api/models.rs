@@ -364,10 +364,12 @@ pub(in crate::web) struct FilterSetting {
 
     /// A list of pre-filters to use.
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub pre_filters: Vec<String>, // default: empty
 
     /// A list of post-filters to use.
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub post_filters: Vec<String>, // default: empty
 }
 
