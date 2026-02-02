@@ -42,7 +42,7 @@ reqwest-eventsource = "0.6.0"
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = { version = "1.0.149", features = ["preserve_order"] }
 serde_norway = "0.9.42"
-serde_qs = "0.15.0"
+serde_qs = "1.0.0"
 shell-words = "1.1.1"
 smallstr = { version = "0.3.1", features = ["serde"] }
 thiserror = "2.0.18"
