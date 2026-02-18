@@ -1,13 +1,15 @@
 // Based-On: https://github.com/cberner/fuser/blob/v0.12.0/src/mnt/mount_options.rs
 // SPDX-License-Identifier: MIT
 
+use fuser::Config;
 use fuser::MountOption;
+use fuser::SessionACL;
 
 fn from_str(s: &str) -> MountOption {
     match s {
         "auto_unmount" => MountOption::AutoUnmount,
-        "allow_other" => MountOption::AllowOther,
-        "allow_root" => MountOption::AllowRoot,
+        "allow_other" => unreachable!(),
+        "allow_root" => unreachable!(),
         "default_permissions" => MountOption::DefaultPermissions,
         "dev" => MountOption::Dev,
         "nodev" => MountOption::NoDev,
@@ -36,10 +38,6 @@ fn option_to_string(option: &MountOption) -> String {
         MountOption::Subtype(subtype) => format!("subtype={subtype}"),
         MountOption::CUSTOM(value) => value.to_string(),
         MountOption::AutoUnmount => "auto_unmount".to_string(),
-        MountOption::AllowOther => "allow_other".to_string(),
-        // AllowRoot is implemented by allowing everyone access and then restricting to
-        // root + owner within fuser
-        MountOption::AllowRoot => "allow_other".to_string(),
         MountOption::DefaultPermissions => "default_permissions".to_string(),
         MountOption::Dev => "dev".to_string(),
         MountOption::NoDev => "nodev".to_string(),
@@ -61,19 +59,38 @@ fn option_to_string(option: &MountOption) -> String {
 ///
 /// Input: ["suid", "ro,nodev,noexec", "sync"]
 /// Output Ok([Suid, RO, NoDev, NoExec, Sync])
-pub(crate) fn parse_options_from_args(args: &[String]) -> Vec<MountOption> {
-    let mut out = vec![];
+pub(crate) fn parse_options_from_args(args: &[String]) -> Result<Config, &'static str> {
+    let mut config = Config::default();
+    let mut acl = None;
     for opt in args.iter() {
         for x in opt.split(',') {
-            out.push(from_str(x))
+            match x {
+                "allow_root" => {
+                    if acl.is_some() {
+                        return Err("allow_root option conflicts with previous ACL");
+                    }
+                    acl = Some(SessionACL::RootAndOwner);
+                }
+                "allow_other" => {
+                    if acl.is_some() {
+                        return Err("allow_other option conflicts with previous ACL");
+                    }
+                    acl = Some(SessionACL::All);
+                }
+                x => {
+                    config.mount_options.push(from_str(x));
+                }
+            }
         }
     }
-    out
+    config.acl = acl.unwrap_or(SessionACL::default());
+    Ok(config)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use assert_matches::assert_matches;
     use test_log::test;
 
     #[test]
@@ -83,7 +100,6 @@ mod test {
             FSName("Blah".to_owned()),
             Subtype("Bloo".to_owned()),
             CUSTOM("bongos".to_owned()),
-            AllowOther,
             AutoUnmount,
             DefaultPermissions,
             Dev,
@@ -110,14 +126,16 @@ mod test {
     fn test_parse_options() {
         use super::MountOption::*;
 
-        assert_eq!(parse_options_from_args(&[]), &[]);
+        assert_matches!(parse_options_from_args(&[]), Ok(_));
 
-        let out = parse_options_from_args(&[
+        let config = parse_options_from_args(&[
             "suid".to_string(),
             "ro,nodev,noexec".to_string(),
             "sync".to_string(),
         ]);
-        assert_eq!(out, [Suid, RO, NoDev, NoExec, Sync]);
+        assert_matches!(config, Ok(config) => {
+            assert_eq!(config.mount_options, &[Suid, RO, NoDev, NoExec, Sync]);
+        });
 
         //assert!(parse_options_from_args(&[OsStr::new("-o")]).is_err());
         //assert!(parse_options_from_args(&[OsStr::new("not o")]).is_err());
