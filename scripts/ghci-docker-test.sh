@@ -23,6 +23,7 @@ test_images() {
 
     echo "Testing $TIMESHIFT_FS_IMAGE for $PLATFORM..."
     docker run --rm --platform=$PLATFORM --entrypoint=mirakc-timeshift-fs $TIMESHIFT_FS_IMAGE --version
+    sh $PROJDIR/mirakc-timeshift-fs/tests/mount/test.sh $TIMESHIFT_FS_IMAGE $PLATFORM
   done
 }
 
