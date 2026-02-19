@@ -39,11 +39,11 @@ test -e /mnt/test/681EFAB6.Program2.m2ts
 echo '  PASS'
 
 echo 'size of /mnt/test/67D4DD8C.Program1.m2ts should be 770048000:'
-test $(stat --printf='%s' /mnt/test/67D4DD8C.Program1.m2ts) = 770048000
+test $(ls -l /mnt/test/67D4DD8C.Program1.m2ts | awk '{print $5}') = 770048000
 echo '  PASS'
 
 echo 'size of /mnt/test/681EFAB6.Program2.m2ts should be 462028800:'
-test $(stat --printf='%s' /mnt/test/681EFAB6.Program2.m2ts) = 462028800
+test $(ls -l /mnt/test/681EFAB6.Program2.m2ts | awk '{print $5}') = 462028800
 echo '  PASS'
 
 echo '/mnt/test/67D4DD8C.Program1.m2ts should be accessible:'
