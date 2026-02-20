@@ -9,7 +9,17 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::RwLock;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
+use fuser::Errno;
+use fuser::FileHandle;
+use fuser::FopenFlags;
+use fuser::Generation;
+use fuser::INodeNo;
+use fuser::LockOwner;
+use fuser::OpenFlags;
 use indexmap::IndexMap;
 
 use mirakc_core::config::*;
@@ -28,9 +38,9 @@ pub struct TimeshiftFilesystemConfig {
 pub struct TimeshiftFilesystem {
     config: Arc<Config>,
     fs_config: TimeshiftFilesystemConfig,
-    caches: HashMap<usize, Cache>,
-    open_contexts: HashMap<u64, OpenContext>,
-    next_handle: u64,
+    caches: RwLock<HashMap<usize, Cache>>,
+    open_contexts: RwLock<HashMap<FileHandle, OpenContext>>,
+    next_handle: AtomicU64,
 }
 
 impl TimeshiftFilesystem {
@@ -48,17 +58,21 @@ impl TimeshiftFilesystem {
         TimeshiftFilesystem {
             config,
             fs_config,
-            caches: HashMap::new(),
-            open_contexts: HashMap::new(),
-            next_handle: 1,
+            caches: RwLock::new(HashMap::new()),
+            open_contexts: RwLock::new(HashMap::new()),
+            next_handle: AtomicU64::new(1),
         }
     }
 
-    fn create_handle(&mut self, octx: OpenContext) -> u64 {
+    fn create_handle(&self, octx: OpenContext) -> FileHandle {
+        let mut open_contexts = self.open_contexts.write().unwrap();
         loop {
-            let handle = self.next_handle;
-            self.next_handle = if handle == u64::MAX { 1 } else { handle + 1 };
-            if let Entry::Vacant(entry) = self.open_contexts.entry(handle) {
+            let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
+            if handle == 0 {
+                continue;
+            }
+            let handle = FileHandle(handle);
+            if let Entry::Vacant(entry) = open_contexts.entry(handle) {
                 entry.insert(octx);
                 return handle;
             }
@@ -78,21 +92,20 @@ impl TimeshiftFilesystem {
     }
 
     fn make_recorder_attr(&self, ino: Ino) -> Option<fuser::FileAttr> {
+        let caches = self.caches.read().unwrap();
         self.config
             .timeshift
             .recorders
             .get_index(ino.recorder_index())
             .map(|_| {
-                let start_time = self
-                    .caches
+                let start_time = caches
                     .get(&ino.recorder_index())
                     .and_then(|cache| cache.records.first())
                     .map(|(_, record)| record.start.timestamp.timestamp())
                     .map(system_time_from_unix_time)
                     .unwrap_or(std::time::UNIX_EPOCH);
 
-                let end_time = self
-                    .caches
+                let end_time = caches
                     .get(&ino.recorder_index())
                     .and_then(|cache| cache.records.last())
                     .map(|(_, record)| record.end.timestamp.timestamp())
@@ -100,7 +113,7 @@ impl TimeshiftFilesystem {
                     .unwrap_or(std::time::UNIX_EPOCH);
 
                 fuser::FileAttr {
-                    ino: ino.0,
+                    ino: ino.into(),
                     size: 0,
                     blocks: 0,
                     atime: std::time::UNIX_EPOCH,
@@ -180,29 +193,29 @@ impl TimeshiftFilesystem {
             .nth(ino.recorder_index())
     }
 
-    fn open_root_dir(&mut self) -> u64 {
+    fn open_root_dir(&self) -> FileHandle {
         let mut entries = vec![
-            (1, fuser::FileType::Directory, ".".to_string()),
-            (1, fuser::FileType::Directory, "..".to_string()),
+            (INodeNo::ROOT, fuser::FileType::Directory, ".".to_string()),
+            (INodeNo::ROOT, fuser::FileType::Directory, "..".to_string()),
         ];
         for (index, name) in self.config.timeshift.recorders.keys().enumerate() {
             let ino = Ino::create_recorder_ino(index);
             let dirname = sanitize_filename::sanitize(name); // truncates within 255 bytes
-            entries.push((ino.0, fuser::FileType::Directory, dirname));
+            entries.push((ino.into(), fuser::FileType::Directory, dirname));
         }
         let octx = OpenContext::Dir(entries);
         self.create_handle(octx)
     }
 
-    fn open_recorder_dir(&mut self, ino: Ino) -> u64 {
-        let records = self
-            .caches
+    fn open_recorder_dir(&self, ino: Ino) -> FileHandle {
+        let caches = self.caches.read().unwrap();
+        let records = caches
             .get(&ino.recorder_index())
             .map(|cache| cache.records.clone())
             .unwrap_or_default();
         let mut entries = vec![
-            (ino.0, fuser::FileType::Directory, ".".to_string()),
-            (1, fuser::FileType::Directory, "..".to_string()),
+            (ino.into(), fuser::FileType::Directory, ".".to_string()),
+            (INodeNo::ROOT, fuser::FileType::Directory, "..".to_string()),
         ];
         for record in records.values() {
             let ino = Ino::create_record_ino(ino.recorder_index(), record.id);
@@ -225,16 +238,21 @@ impl TimeshiftFilesystem {
             };
             assert!(filename.len() <= Self::MAX_FILENAME_SIZE);
             assert!(filename.ends_with(".m2ts"));
-            entries.push((ino.0, fuser::FileType::RegularFile, filename));
+            entries.push((ino.into(), fuser::FileType::RegularFile, filename));
         }
         let octx = OpenContext::Dir(entries);
         self.create_handle(octx)
     }
 
-    fn get_record(&self, ino: Ino) -> Option<&TimeshiftRecord> {
-        self.caches
-            .get(&ino.recorder_index())
-            .and_then(|cache| cache.records.get(&ino.record_id()))
+    fn get_record(&self, ino: Ino) -> Option<TimeshiftRecord> {
+        let caches = self.caches.read().unwrap();
+        caches.get(&ino.recorder_index()).and_then(|cache| {
+            cache
+                .records
+                .get(&ino.record_id())
+                // TODO: inefficient... Arc<TimeshiftRecord>?
+                .cloned()
+        })
     }
 
     fn make_record_attr(&self, ino: Ino) -> Option<fuser::FileAttr> {
@@ -252,7 +270,7 @@ impl TimeshiftFilesystem {
             let size = record.get_size(file_size);
 
             fuser::FileAttr {
-                ino: ino.0,
+                ino: ino.into(),
                 size,
                 blocks: size.div_ceil(BLOCK_SIZE),
                 atime: std::time::UNIX_EPOCH,
@@ -271,7 +289,7 @@ impl TimeshiftFilesystem {
         })
     }
 
-    fn update_cache(&mut self, ino: Ino) {
+    fn update_cache(&self, ino: Ino) {
         let config = self
             .config
             .timeshift
@@ -284,10 +302,10 @@ impl TimeshiftFilesystem {
             .ok()
             .and_then(|metadata| metadata.modified().ok());
 
-        let cache_mtime = self
-            .caches
-            .get(&ino.recorder_index())
-            .map(|cache| cache.mtime);
+        let cache_mtime = {
+            let caches = self.caches.read().unwrap();
+            caches.get(&ino.recorder_index()).map(|cache| cache.mtime)
+        };
 
         let mtime = match (data_mtime, cache_mtime) {
             (Some(data_mtime), Some(cache_mtime)) if data_mtime > cache_mtime => data_mtime,
@@ -306,7 +324,10 @@ impl TimeshiftFilesystem {
 
         match cache {
             Ok(cache) => {
-                self.caches.insert(ino.recorder_index(), cache);
+                self.caches
+                    .write()
+                    .unwrap()
+                    .insert(ino.recorder_index(), cache);
             }
             Err(err) => {
                 tracing::error!(%err, %ino, "Failed to read timeshift data");
@@ -328,7 +349,7 @@ impl TimeshiftFilesystem {
         }
     }
 
-    fn open_record(&mut self, ino: Ino) -> Result<u64, Error> {
+    fn open_record(&self, ino: Ino) -> Result<FileHandle, Error> {
         debug_assert!(ino.is_record());
         match self.get_record(ino).zip(self.get_recorder_config(ino)) {
             Some((_, config)) => {
@@ -344,9 +365,9 @@ impl TimeshiftFilesystem {
 
 impl fuser::Filesystem for TimeshiftFilesystem {
     fn lookup(
-        &mut self,
+        &self,
         _req: &fuser::Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         reply: fuser::ReplyEntry,
     ) {
@@ -365,22 +386,22 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             unreachable!();
         };
         match found {
-            Some(attr) => reply.entry(&Self::TTL, &attr, 0),
-            None => reply.error(libc::ENOENT),
+            Some(attr) => reply.entry(&Self::TTL, &attr, Generation(0)),
+            None => reply.error(Errno::ENOENT),
         }
     }
 
     fn getattr(
-        &mut self,
+        &self,
         _req: &fuser::Request,
-        ino: u64,
-        _fh: Option<u64>,
+        ino: INodeNo,
+        _fh: Option<FileHandle>,
         reply: fuser::ReplyAttr,
     ) {
         let ino = Ino::from(ino);
         let found = if ino.is_root() {
             Some(fuser::FileAttr {
-                ino: 1,
+                ino: INodeNo::ROOT,
                 size: 0,
                 blocks: 0,
                 atime: std::time::UNIX_EPOCH,
@@ -407,37 +428,43 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         };
         match found {
             Some(attr) => reply.attr(&Self::TTL, &attr),
-            None => reply.error(libc::ENOENT),
+            None => reply.error(Errno::ENOENT),
         }
     }
 
-    fn opendir(&mut self, _req: &fuser::Request, ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
+    fn opendir(
+        &self,
+        _req: &fuser::Request,
+        ino: INodeNo,
+        _flags: OpenFlags,
+        reply: fuser::ReplyOpen,
+    ) {
         let ino = Ino::from(ino);
         if ino.is_root() {
             let handle = self.open_root_dir();
-            reply.opened(handle, 0);
+            reply.opened(handle, FopenFlags::empty());
         } else if ino.is_recorder() {
             self.update_cache(ino);
             let handle = self.open_recorder_dir(ino);
-            reply.opened(handle, 0);
+            reply.opened(handle, FopenFlags::empty());
         } else {
             unreachable!();
         }
     }
 
     fn releasedir(
-        &mut self,
+        &self,
         _req: &fuser::Request,
-        ino: u64,
-        fh: u64,
-        _flags: i32,
+        ino: INodeNo,
+        fh: FileHandle,
+        _flags: OpenFlags,
         reply: fuser::ReplyEmpty,
     ) {
         let ino = Ino::from(ino);
         if ino.is_root() || ino.is_recorder() {
-            match self.open_contexts.remove(&fh) {
+            match self.open_contexts.write().unwrap().remove(&fh) {
                 Some(_) => reply.ok(),
-                None => reply.error(libc::EBADF),
+                None => reply.error(Errno::EBADF),
             }
         } else {
             unreachable!();
@@ -445,41 +472,48 @@ impl fuser::Filesystem for TimeshiftFilesystem {
     }
 
     fn readdir(
-        &mut self,
+        &self,
         _req: &fuser::Request,
-        ino: u64,
-        fh: u64,
-        offset: i64,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
         mut reply: fuser::ReplyDirectory,
     ) {
         let ino = Ino::from(ino);
-        match self.open_contexts.get(&fh) {
+        let open_contexts = self.open_contexts.read().unwrap();
+        match open_contexts.get(&fh) {
             Some(OpenContext::Dir(entries)) => {
                 debug_assert!(ino.is_root() || ino.is_recorder());
                 for (i, entry) in entries.iter().enumerate().skip(offset as usize) {
                     // `i + 1` means the index of the next entry.
-                    if reply.add(entry.0, (i + 1) as i64, entry.1, &entry.2) {
+                    if reply.add(entry.0, (i + 1) as u64, entry.1, &entry.2) {
                         break;
                     }
                 }
                 reply.ok();
             }
             _ => {
-                tracing::error!(%ino, fh, "Invalid handle");
-                reply.error(libc::EBADF);
+                tracing::error!(%ino, %fh, "Invalid handle");
+                reply.error(Errno::EBADF);
             }
         }
     }
 
-    fn open(&mut self, _req: &fuser::Request, ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
+    fn open(
+        &self,
+        _req: &fuser::Request,
+        ino: INodeNo,
+        _flags: OpenFlags,
+        reply: fuser::ReplyOpen,
+    ) {
         let ino = Ino::from(ino);
         if ino.is_record() {
             self.update_cache(ino);
             match self.open_record(ino) {
-                Ok(handle) => reply.opened(handle, 0),
+                Ok(handle) => reply.opened(handle, FopenFlags::empty()),
                 Err(_) => {
                     tracing::debug!(%ino, "Record not found");
-                    reply.error(libc::ENOENT);
+                    reply.error(Errno::ENOENT);
                 }
             }
         } else {
@@ -488,22 +522,22 @@ impl fuser::Filesystem for TimeshiftFilesystem {
     }
 
     fn release(
-        &mut self,
+        &self,
         _req: &fuser::Request,
-        ino: u64,
-        fh: u64,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        ino: INodeNo,
+        fh: FileHandle,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         _flush: bool,
         reply: fuser::ReplyEmpty,
     ) {
         let ino = Ino::from(ino);
         if ino.is_record() {
-            match self.open_contexts.remove(&fh) {
+            match self.open_contexts.write().unwrap().remove(&fh) {
                 Some(_) => reply.ok(),
                 None => {
-                    tracing::error!(%ino, fh, "Invalid handle");
-                    reply.error(libc::EBADF);
+                    tracing::error!(%ino, %fh, "Invalid handle");
+                    reply.error(Errno::EBADF);
                 }
             }
         } else {
@@ -512,14 +546,14 @@ impl fuser::Filesystem for TimeshiftFilesystem {
     }
 
     fn read(
-        &mut self,
+        &self,
         _req: &fuser::Request,
-        ino: u64,
-        fh: u64,
-        offset: i64,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
         size: u32,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         reply: fuser::ReplyData,
     ) {
         let ino = Ino::from(ino);
@@ -530,7 +564,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 Some(tuple) => tuple,
                 None => {
                     tracing::error!(%ino, "Record not found");
-                    reply.error(libc::ENOENT);
+                    reply.error(Errno::ENOENT);
                     return;
                 }
             };
@@ -539,11 +573,12 @@ impl fuser::Filesystem for TimeshiftFilesystem {
             let record_size = record.get_size(file_size);
             let ranges = calc_read_ranges(file_size, record_size, record.start.pos, offset, size);
 
-            let buf = match self.open_contexts.get_mut(&fh) {
+            let mut open_contexts = self.open_contexts.write().unwrap();
+            let buf = match open_contexts.get_mut(&fh) {
                 Some(OpenContext::Record(buf)) => buf,
                 _ => {
-                    tracing::error!(%ino, fh, "Invalid handle");
-                    reply.error(libc::EBADF);
+                    tracing::error!(%ino, %fh, "Invalid handle");
+                    reply.error(Errno::EBADF);
                     return;
                 }
             };
@@ -552,7 +587,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
                 Ok(_) => reply.data(buf.data()),
                 Err(err) => {
                     tracing::error!(%err, %ino, "Faild to read data");
-                    reply.error(libc::EIO);
+                    reply.error(Errno::EIO);
                 }
             }
 
@@ -628,13 +663,25 @@ impl From<u64> for Ino {
     }
 }
 
+impl From<INodeNo> for Ino {
+    fn from(ino: INodeNo) -> Self {
+        ino.0.into()
+    }
+}
+
+impl From<Ino> for INodeNo {
+    fn from(ino: Ino) -> Self {
+        Self(ino.0)
+    }
+}
+
 struct Cache {
     mtime: std::time::SystemTime,
     records: IndexMap<TimeshiftRecordId, TimeshiftRecord>,
 }
 
 enum OpenContext {
-    Dir(Vec<(u64, fuser::FileType, String)>),
+    Dir(Vec<(INodeNo, fuser::FileType, String)>),
     Record(RecordBuffer),
 }
 
@@ -744,25 +791,24 @@ fn calc_read_ranges(
     file_size: u64,
     record_size: u64,
     record_pos: u64,
-    offset: i64,
+    offset: u64,
     size: u32,
 ) -> (Option<Range<u64>>, Option<Range<u64>>) {
-    assert!(offset >= 0);
     assert!(record_pos < file_size);
 
     if record_size == 0 {
         return (None, None);
     }
 
-    if (offset as u64) >= record_size {
+    if offset >= record_size {
         // out of range
         return (None, None);
     }
 
-    let remaining = record_size - (offset as u64);
+    let remaining = record_size - offset;
     let read_size = remaining.min(size as u64);
 
-    let start = (record_pos + (offset as u64)) % file_size;
+    let start = (record_pos + offset) % file_size;
     let end = (start + read_size) % file_size;
 
     if end == 0 {

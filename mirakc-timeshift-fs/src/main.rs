@@ -100,12 +100,15 @@ fn main() -> Result<(), Error> {
     };
     let fs = TimeshiftFilesystem::new(config, fs_config);
 
-    let mut options = parse_options_from_args(&opt.options);
-    options.push(fuser::MountOption::Subtype(
+    let mut config = match parse_options_from_args(&opt.options) {
+        Ok(config) => config,
+        Err(err) => panic!("{err}"),
+    };
+    config.mount_options.push(fuser::MountOption::Subtype(
         "mirakc-timeshift-fs".to_string(),
     ));
-    options.push(fuser::MountOption::RO);
-    options.push(fuser::MountOption::NoAtime);
+    config.mount_options.push(fuser::MountOption::RO);
+    config.mount_options.push(fuser::MountOption::NoAtime);
 
     // fuser::MountOption::AutoMount does NOT work properly when the process terminates by signals
     // like SIGTERM.  Because the process terminates before fuser::Session<FS>::drop() is called.
@@ -128,5 +131,5 @@ fn main() -> Result<(), Error> {
     // # Then mount it.
     // mirakc-timeshift-fs $MOUNT_POINT
     // ```
-    Ok(fuser::mount2(fs, &opt.mount_point, &options)?)
+    Ok(fuser::mount2(fs, &opt.mount_point, &config)?)
 }
