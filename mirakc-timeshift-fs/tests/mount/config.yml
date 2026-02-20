@@ -1,0 +1,26 @@
+server:
+  addrs:
+    - http: 'localhost:40772'
+
+channels:
+  - name: Test
+    type: GR
+    channel: Test
+
+tuners:
+  - name: tuner1
+    types: [GR,BS]
+    command: >-
+      /bin/true
+
+timeshift:
+  recorders:
+    test:
+      service-id: 987654
+      ts-file: /tmp/timeshift.m2ts
+      data-file: /timeshift.json
+      num-chunks: 10
+      uses:
+        tuner: tuner1
+        channel-type: GR
+        channel: Test

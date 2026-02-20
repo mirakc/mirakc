@@ -1,0 +1,57 @@
+#!/bin/sh
+
+set -eu
+
+MIRAKC_TIMESHIFT_FS_PID=
+
+cleanup() {
+  if [ -n "$MIRAKC_TIMESHIFT_FS_PID" ]
+  then
+    kill $MIRAKC_TIMESHIFT_FS_PID
+  fi
+}
+
+trap 'cleanup' EXIT INT TERM
+
+fallocate -l 1540096000 /tmp/timeshift.m2ts
+
+echo 'Mounting mirakc-timeshift-fs under /mnt...'
+/usr/local/bin/mirakc-timeshift-fs /mnt &
+MIRAKC_TIMESHIFT_FS_PID=$!
+
+while [ ! -e /mnt/test ]
+do
+  :  # busy loop with nop
+done
+
+echo 'Mounted'
+
+echo '/mnt/test/ should contains 2 files:'
+test $(ls -1 /mnt/test | wc -l) = 2
+echo '  PASS'
+
+echo '/mnt/test/67D4DD8C.Program1.m2ts should exist:'
+test -e /mnt/test/67D4DD8C.Program1.m2ts
+echo '  PASS'
+
+echo '/mnt/test/681EFAB6.Program2.m2ts should exist:'
+test -e /mnt/test/681EFAB6.Program2.m2ts
+echo '  PASS'
+
+echo 'size of /mnt/test/67D4DD8C.Program1.m2ts should be 770048000:'
+test $(ls -l /mnt/test/67D4DD8C.Program1.m2ts | awk '{print $5}') = 770048000
+echo '  PASS'
+
+echo 'size of /mnt/test/681EFAB6.Program2.m2ts should be 462028800:'
+test $(ls -l /mnt/test/681EFAB6.Program2.m2ts | awk '{print $5}') = 462028800
+echo '  PASS'
+
+echo '/mnt/test/67D4DD8C.Program1.m2ts should be accessible:'
+cat /mnt/test/67D4DD8C.Program1.m2ts >/dev/null
+echo '  PASS'
+
+echo '/mnt/test/681EFAB6.Program2.m2ts should be accessible:'
+cat /mnt/test/681EFAB6.Program2.m2ts >/dev/null
+echo '  PASS'
+
+echo 'All test passed'
