@@ -51,11 +51,13 @@ do
   do
     echo "Checking libraries for $PLATFORM..."
     EXPECTED=$(ld_debug $REGISTRY/mirakc/mirakc:$VERSION-debian \
-                        $REGISTRY/mirakc/timeshift-fs:$VERSION-debian 2>&1 1>/dev/null | \
+                        $REGISTRY/mirakc/timeshift-fs:$VERSION-debian \
+                        $PLATFORM 2>&1 1>/dev/null | \
                grep 'calling init:' | awk '{print $4}' | sort | uniq | tr '\n' ' ')
     echo "  EXPECTED: $EXPECTED"
     ACTUAL=$(ld_debug $REGISTRY/mirakc/mirakc:$VERSION-alpine \
-                      $REGISTRY/mirakc/timeshift-fs:$VERSION-alpine 2>&1 1>/dev/null | \
+                      $REGISTRY/mirakc/timeshift-fs:$VERSION-alpine \
+                      $PLATFORM 2>&1 1>/dev/null | \
              grep 'calling init:' | awk '{print $4}' | sort | uniq | tr '\n' ' ')
     echo "  ACTUAL: $ACTUAL"
     test "$ACTUAL" = "$EXPECTED"
