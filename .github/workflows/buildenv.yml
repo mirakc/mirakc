@@ -25,7 +25,7 @@ jobs:
     if: needs.check.outputs.needs-updating == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v3
       - name: Setup Docker Buildx
