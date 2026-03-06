@@ -5,6 +5,8 @@ on:
     - cron: '19 19 * * 5'  # every Friday
   workflow_dispatch:
 
+permissions: {}
+
 env:
   DENO_DIR: /tmp/deno
 

@@ -21,6 +21,8 @@ on:
           The number of commits made within 24 hours.
         value: ${{ jobs.update.outputs.num-commits }}
 
+permissions: {}
+
 env:
   DEBIAN_CODENAME: trixie
 

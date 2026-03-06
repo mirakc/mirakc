@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: '13 13 * * *' # UTC
 
+permissions: {}
+
 jobs:
   update:
     permissions:

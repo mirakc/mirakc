@@ -3,6 +3,8 @@ name: build
 on:
   workflow_call:
 
+permissions: {}
+
 jobs:
   build:
     strategy:

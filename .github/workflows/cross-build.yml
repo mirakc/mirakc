@@ -3,6 +3,8 @@ name: cross-build
 on:
   workflow_call:
 
+permissions: {}
+
 jobs:
   cross-build:
     strategy:

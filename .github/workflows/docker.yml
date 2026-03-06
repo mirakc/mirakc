@@ -40,6 +40,8 @@ on:
         default: false
         type: boolean
 
+permissions: {}
+
 env:
   DEBIAN_CODENAME: trixie
   REGISTRIES: >-

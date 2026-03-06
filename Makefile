@@ -22,7 +22,7 @@ check-rust:
 
 .PHONY: check-github-actions
 check-github-actions:
-	zizmor .
+	zizmor -p .
 
 .PHONY: pin
 pin: pin-github-actions

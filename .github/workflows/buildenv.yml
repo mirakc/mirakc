@@ -5,6 +5,8 @@ on:
     - cron: '12 12 * * *' # UTC
   workflow_dispatch:
 
+permissions: {}
+
 env:
   DEBIAN_CODENAME: trixie
 
