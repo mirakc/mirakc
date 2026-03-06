@@ -139,7 +139,7 @@ alpine-image:
 	$(MAKE) -s image PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=$(PLATFORM) TARGET=$(TARGET)
 
 .PHONY: update-deps
-update-deps: update-deps-crates update-deps-deno
+update-deps: update-deps-crates
 
 # Specify `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=git` if `make update-deps-crates` gets stuck.
 # Perform `cargo update` after `cargo upgrade` in order to update `Cargo.lock`.
