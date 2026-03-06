@@ -22,20 +22,21 @@ jobs:
         run: |
           ln -sf $(which true) /usr/local/bin/mirakc-arib
           test $(which mirakc-arib) = /usr/local/bin/mirakc-arib
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
       - name: Install gtimeout and macfuse (macos)
         if: matrix.runner == 'macos-latest'
         run: |
           brew install coreutils macfuse
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ matrix.rust }}
           components: 'clippy, rustfmt'
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@cargo-deny
-      - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - uses: taiki-e/install-action@385db9cc6bf65d19775b02084a4b698eaca9a4f2 # v2.68.19
+        with:
+          tool: cargo-deny nextest
       - name: Check
         run: make check
       - name: Build

@@ -29,19 +29,22 @@ jobs:
         run: |
           ln -sf $(which true) /usr/local/bin/mirakc-arib
           test $(which mirakc-arib) = /usr/local/bin/mirakc-arib
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@nextest
-      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@385db9cc6bf65d19775b02084a4b698eaca9a4f2 # v2.68.19
+        with:
+          tool: cargo-llvm-cov nextest
       - name: Generate code coverage
         run: >-
           cargo llvm-cov nextest --all-features --workspace
           --codecov --output-path=codecov.json
       - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
         with:
           files: codecov.json
           fail_ci_if_error: true

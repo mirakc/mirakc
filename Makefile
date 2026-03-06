@@ -24,6 +24,13 @@ check-rust:
 check-github-actions:
 	zizmor .
 
+.PHONY: pin
+pin: pin-github-actions
+
+.PHONY: pin-github-actions
+pin-github-actions:
+	pinact run
+
 .PHONY: build
 build: OPTIONS ?=
 build:
