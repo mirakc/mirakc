@@ -28,7 +28,7 @@ jobs:
       # Use `main` in order to use actions/github-script@v7 for avoiding a warning.
       - uses: raven-actions/bot-details@main
         id: bot-details
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref-name }}
       - name: git config
