@@ -13,8 +13,6 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
-    permissions:
-      contents: none
     outputs:
       needs-updating: ${{ steps.check.outputs.needs-updating }}
     steps:
@@ -60,7 +58,7 @@ jobs:
         run: |
           if [ -e ./scripts/update-buildenv-images.sh ]
           then
-            sh ./scripts/update-buildenv-images.sh --no-cache --push ${{ env.DEBIAN_CODENAME }}
+            sh ./scripts/update-buildenv-images.sh --no-cache --push "$DEBIAN_CODENAME"
           else
-            ./scripts/update-buildenv-images --no-cache --push ${{ env.DEBIAN_CODENAME }}
+            ./scripts/update-buildenv-images --no-cache --push "$DEBIAN_CODENAME"
           fi
