@@ -53,13 +53,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref-name }}
       - name: Setup QEMU user-mode emulation
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
           buildkitd-flags: --debug
           # See https://github.com/docker/build-push-action/issues/654#issuecomment-1285190151
@@ -67,13 +68,13 @@ jobs:
             [worker.oci]
               max-parallelism = 1
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -83,12 +84,15 @@ jobs:
         run: |
           if [ -e ./scripts/ghci-docker-tags.sh ]
           then
-            sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
+            sh ./scripts/ghci-docker-tags.sh "$REF_TYPE" "$REF_NAME" debian
           else
-            ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
+            ./scripts/ghci-docker-tags "$REF_TYPE" "$REF_NAME" debian
           fi
+        env:
+          REF_TYPE: ${{ inputs.ref-type }}
+          REF_NAME: ${{ inputs.ref-name }}
       - name: Build and push (mirakc/mirakc:debian*)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: docker/Dockerfile
@@ -105,7 +109,7 @@ jobs:
             type=local,dest=/tmp/.docker-cache
           push: ${{ inputs.push }}
       - name: Build and push (mirakc/timeshift-fs:debian*)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: docker/Dockerfile
@@ -126,12 +130,15 @@ jobs:
         run: |
           if [ -e ./scripts/ghci-docker-tags.sh ]
           then
-            sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
+            sh ./scripts/ghci-docker-tags.sh "$REF_TYPE" "$REF_NAME" alpine
           else
-            ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
+            ./scripts/ghci-docker-tags "$REF_TYPE" "$REF_NAME" alpine
           fi
+        env:
+          REF_TYPE: ${{ inputs.ref-type }}
+          REF_NAME: ${{ inputs.ref-name }}
       - name: Build and push (mirakc/mirakc:alpine*)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: docker/Dockerfile
@@ -148,7 +155,7 @@ jobs:
             type=local,dest=/tmp/.docker-cache
           push: ${{ inputs.push }}
       - name: Build and push (mirakc/timeshift-fs:alpine*)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: docker/Dockerfile
@@ -169,10 +176,12 @@ jobs:
         run: |
           if [ -e ./scripts/ghci-docker-test.sh ]
           then
-            sh ./scripts/ghci-docker-test.sh ${{ inputs.ref-name }} "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
+            sh ./scripts/ghci-docker-test.sh "$REF_NAME" "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
           else
-            ./scripts/ghci-docker-test ${{ inputs.ref-name }} "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
+            ./scripts/ghci-docker-test "$REF_NAME" "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
           fi
+        env:
+          REF_NAME: ${{ inputs.ref-name }}
 
   trigger:
     if: ${{ inputs.push }}
@@ -184,12 +193,22 @@ jobs:
     steps:
       # Use the `mirakc-ci` bot account in order to trigger the docker workflow
       # on mirakc/docker-timeshift-x.
-      - uses: tibdex/github-app-token@v2
-        id: generate-token
+      - uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        id: app-token
         with:
-          app_id: ${{ secrets.CI_BOT_APP_ID }}
-          private_key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+          repositories: mirakc/docker-timeshift-x
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        id: json-inputs
+        with:
+          script: |
+            return JSON.stringify({ version: process.env.REF_NAME });
+        env:
+          REF_NAME: ${{ inputs.ref-name }}
       - name: Trigger the docker workflow on mirakc/docker-timeshift-x
         run: |
-          echo '${{ steps.generate-token.outputs.token }}' | gh auth login --with-token
-          echo '{"version": "${{ inputs.ref-name }}"}' | gh workflow run docker.yml -R mirakc/docker-timeshift-x --json
+          echo "$JSON_INPUTS" | gh workflow run docker.yml -R mirakc/docker-timeshift-x --json
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JSON_INPUTS: ${{ steps.json-inputs.outputs.result }}

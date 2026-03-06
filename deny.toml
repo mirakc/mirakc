@@ -139,29 +139,24 @@ allow = [
 [[bans.build.bypass]]
 crate = "fuser"
 allow = [
-    { path = "mount_tests.sh" },
-    { path = "osx_mount_tests.sh" },
     { path = "pjdfs.sh" },
-    { path = "simplefs_tests.sh" },
+    { path = "tests/bsd_pjdfs.sh" },
+    { path = "tests/macos_pjdfs.sh" },
+    { path = "tests/test_passthrough.sh" },
     { path = "xfstests.sh" },
 ]
 
 [[bans.build.bypass]]
-crate = "regex"
+crate = "iri-string"
 allow = [
-    { path = "test" },
+    { path = ".woodpecker/scripts/check-msrv-consistency.sh" },
+    { path = ".woodpecker/scripts/prepare-toolchain.sh" },
 ]
 
 [[bans.build.bypass]]
-crate = "regex-automata:>0.1"
+crate = "mirakc-timeshift-fs"
 allow = [
-    { path = "test" },
-]
-
-[[bans.build.bypass]]
-crate = "regex-syntax"
-allow = [
-    { path = "test" },
+    { path = "tests/mount/run-tests" },
 ]
 
 [[bans.build.bypass]]
@@ -174,6 +169,12 @@ allow = [
 crate = "sharded-slab"
 allow = [
     { path = "bin/loom.sh" },
+]
+
+[[bans.build.bypass]]
+crate = "tracing"
+allow = [
+    { path = "test-macros/bin/macro-results.sh" },
 ]
 
 [[bans.build.bypass]]

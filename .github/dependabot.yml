@@ -8,11 +8,15 @@ updates:
     schedule:
       interval: daily
       time: '01:01'  # UTC
+    cooldown:
+      default-days: 7
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: daily
       time: '03:03'  # UTC
+    cooldown:
+      default-days: 7
   # release branch
   - package-ecosystem: github-actions
     target-branch: release
@@ -20,9 +24,13 @@ updates:
     schedule:
       interval: daily
       time: '05:05'  # UTC
+    cooldown:
+      default-days: 7
   - package-ecosystem: cargo
     target-branch: release
     directory: /
     schedule:
       interval: daily
       time: '07:07'  # UTC
+    cooldown:
+      default-days: 7
