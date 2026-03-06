@@ -10,7 +10,7 @@ list-targets:
 	@grep -E '^\.PHONY: ' $(MAKEFILE_LIST) | cut -d ' ' -f 2 | grep -v '^\$$' | sort
 
 .PHONY: check
-check: check-rust
+check: check-rust check-github-actions
 
 # `cargo deny check -s` will fail if a crate having a build script is added.
 .PHONY: check-rust
@@ -19,6 +19,10 @@ check-rust:
 	cargo check --workspace --all-targets --all-features
 	cargo clippy --workspace --all-targets --all-features -- -D warnings -A 'clippy::collapsible_if'
 	cargo deny check -s
+
+.PHONY: check-github-actions
+check-github-actions:
+	zizmor .
 
 .PHONY: build
 build: OPTIONS ?=
