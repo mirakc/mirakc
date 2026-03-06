@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Check if update available
         id: check
-        uses: lucacome/docker-image-update-checker@v2
+        uses: lucacome/docker-image-update-checker@v3
         with:
           base-image: rust:slim-${{ env.DEBIAN_CODENAME }}
           image: mirakc/buildenv:debian-${{ env.DEBIAN_CODENAME }}-linux-amd64
