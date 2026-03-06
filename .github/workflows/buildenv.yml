@@ -30,6 +30,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v3
       - name: Setup Docker Buildx

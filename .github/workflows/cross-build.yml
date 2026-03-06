@@ -33,6 +33,8 @@ jobs:
           ln -sf $(which true) /usr/local/bin/mirakc-arib
           test $(which mirakc-arib) = /usr/local/bin/mirakc-arib
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}

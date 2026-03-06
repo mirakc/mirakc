@@ -55,6 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref-name }}
       - name: Setup QEMU user-mode emulation
         uses: docker/setup-qemu-action@v3
@@ -83,10 +84,13 @@ jobs:
         run: |
           if [ -e ./scripts/ghci-docker-tags.sh ]
           then
-            sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
+            sh ./scripts/ghci-docker-tags.sh "$REF_TYPE" "$REF_NAME" debian
           else
-            ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} debian
+            ./scripts/ghci-docker-tags "$REF_TYPE" "$REF_NAME" debian
           fi
+        env:
+          REF_TYPE: ${{ inputs.ref-type }}
+          REF_NAME: ${{ inputs.ref-name }}
       - name: Build and push (mirakc/mirakc:debian*)
         uses: docker/build-push-action@v6
         with:
@@ -126,10 +130,13 @@ jobs:
         run: |
           if [ -e ./scripts/ghci-docker-tags.sh ]
           then
-            sh ./scripts/ghci-docker-tags.sh ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
+            sh ./scripts/ghci-docker-tags.sh "$REF_TYPE" "$REF_NAME" alpine
           else
-            ./scripts/ghci-docker-tags ${{ inputs.ref-type }} ${{ inputs.ref-name }} alpine
+            ./scripts/ghci-docker-tags "$REF_TYPE" "$REF_NAME" alpine
           fi
+        env:
+          REF_TYPE: ${{ inputs.ref-type }}
+          REF_NAME: ${{ inputs.ref-name }}
       - name: Build and push (mirakc/mirakc:alpine*)
         uses: docker/build-push-action@v6
         with:
@@ -169,10 +176,12 @@ jobs:
         run: |
           if [ -e ./scripts/ghci-docker-test.sh ]
           then
-            sh ./scripts/ghci-docker-test.sh ${{ inputs.ref-name }} "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
+            sh ./scripts/ghci-docker-test.sh "$REF_NAME" "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
           else
-            ./scripts/ghci-docker-test ${{ inputs.ref-name }} "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
+            ./scripts/ghci-docker-test "$REF_NAME" "$REGISTRIES" "$(echo $PLATFORMS | tr ',' ' ')"
           fi
+        env:
+          REF_NAME: ${{ inputs.ref-name }}
 
   trigger:
     if: ${{ inputs.push }}
@@ -184,12 +193,22 @@ jobs:
     steps:
       # Use the `mirakc-ci` bot account in order to trigger the docker workflow
       # on mirakc/docker-timeshift-x.
-      - uses: tibdex/github-app-token@v2
-        id: generate-token
+      - uses: actions/create-github-app-token@v2
+        id: app-token
         with:
-          app_id: ${{ secrets.CI_BOT_APP_ID }}
-          private_key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+          repositories: mirakc/docker-timeshift-x
+      - uses: actions/github-script@v8
+        id: json-inputs
+        with:
+          script: |
+            return JSON.stringify({ version: process.env.REF_NAME });
+        env:
+          REF_NAME: ${{ inputs.ref-name }}
       - name: Trigger the docker workflow on mirakc/docker-timeshift-x
         run: |
-          echo '${{ steps.generate-token.outputs.token }}' | gh auth login --with-token
-          echo '{"version": "${{ inputs.ref-name }}"}' | gh workflow run docker.yml -R mirakc/docker-timeshift-x --json
+          echo "$JSON_INPUTS" | gh workflow run docker.yml -R mirakc/docker-timeshift-x --json
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JSON_INPUTS: ${{ steps.json-inputs.outputs.result }}

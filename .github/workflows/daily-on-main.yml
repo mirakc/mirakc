@@ -12,6 +12,8 @@ jobs:
     with:
       ref-name: main
     secrets:
+      CI_BOT_APP_ID: ${{ secrets.CI_BOT_APP_ID }}
+      CI_BOT_PRIVATE_KEY: ${{ secrets.CI_BOT_PRIVATE_KEY }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
   docker:
