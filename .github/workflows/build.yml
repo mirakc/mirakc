@@ -36,7 +36,7 @@ jobs:
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
       - uses: taiki-e/install-action@385db9cc6bf65d19775b02084a4b698eaca9a4f2 # v2.68.19
         with:
-          tool: cargo-deny nextest
+          tool: cargo-deny nextest zizmor
       - name: Check
         run: make check
       - name: Build
