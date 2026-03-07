@@ -190,8 +190,6 @@ jobs:
     needs:
       - docker
     runs-on: ubuntu-latest
-    permissions:
-      actions: write
     steps:
       # Use the `mirakc-ci` bot account in order to trigger the docker workflow
       # on mirakc/docker-timeshift-x.
@@ -201,6 +199,7 @@ jobs:
           app-id: ${{ secrets.CI_BOT_APP_ID }}
           private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
           repositories: mirakc/docker-timeshift-x
+          permission-actions: write
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         id: json-inputs
         with:
