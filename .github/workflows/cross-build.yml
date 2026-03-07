@@ -44,7 +44,6 @@ jobs:
       - uses: taiki-e/setup-cross-toolchain-action@b8d1a322a6009a2b7220f53996695778eef89b41 # v1.38.0
         with:
           target: ${{ matrix.target }}
-      # TODO(ci): use cache
       - uses: taiki-e/install-action@385db9cc6bf65d19775b02084a4b698eaca9a4f2 # v2.68.19
         with:
           tool: nextest
