@@ -198,7 +198,8 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BOT_APP_ID }}
           private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
-          repositories: mirakc/docker-timeshift-x
+          owner: ${{ github.repository_owner }}
+          repositories: docker-timeshift-x
           permission-actions: write
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         id: json-inputs

@@ -23,7 +23,8 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BOT_APP_ID }}
           private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
-          repositories: mirakc/mirakc
+          owner: ${{ github.repository_owner }}
+          repositories: mirakc
           permission-contents: write
       - name: Get GitHub App User ID
         id: get-user-id
