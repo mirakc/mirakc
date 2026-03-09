@@ -23,8 +23,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BOT_APP_ID }}
           private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: mirakc
+          # The access will be scoped to only the current repository.
           permission-contents: write
       - name: Get GitHub App User ID
         id: get-user-id

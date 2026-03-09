@@ -198,7 +198,8 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BOT_APP_ID }}
           private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
+          # The access will be scoped to only the docker-timeshift-x of the current repository
+          # owner.
           repositories: docker-timeshift-x
           permission-actions: write
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
