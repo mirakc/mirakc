@@ -56,6 +56,12 @@ jobs:
         env:
           USER_NAME: ${{ steps.app-token.outputs.app-slug }}[bot]
           USER_EMAIL: ${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com
+      # See https://github.com/tschaub/gh-pages/issues/384#issuecomment-1236047843
+      - name: set origin url (workaround)
+        run: |
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}"
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
       - run: |
           TAG="$(git describe --tags --abbrev=0)"
           if git diff --quiet "$TAG"
