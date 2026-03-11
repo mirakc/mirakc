@@ -202,16 +202,11 @@ jobs:
           # owner.
           repositories: docker-timeshift-x
           permission-actions: write
-      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-        id: json-inputs
-        with:
-          script: |
-            return JSON.stringify({ version: process.env.REF_NAME });
-        env:
-          REF_NAME: ${{ inputs.ref-name }}
       - name: Trigger the docker workflow on mirakc/docker-timeshift-x
-        run: |
-          echo "$JSON_INPUTS" | gh workflow run docker.yml -R mirakc/docker-timeshift-x --json
+        run: >-
+          gh workflow run docker.yml
+          -R mirakc/docker-timeshift-x
+          -f value="$REF_NAME"
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          JSON_INPUTS: ${{ steps.json-inputs.outputs.result }}
+          REF_NAME: ${{ inputs.ref-name }}
