@@ -206,7 +206,7 @@ jobs:
         run: >-
           gh workflow run docker.yml
           -R mirakc/docker-timeshift-x
-          -f value="$REF_NAME"
+          -f version="$REF_NAME"
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           REF_NAME: ${{ inputs.ref-name }}
