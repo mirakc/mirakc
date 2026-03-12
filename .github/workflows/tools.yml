@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Setup QEMU user-mode emulation
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
