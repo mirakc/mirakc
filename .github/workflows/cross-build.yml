@@ -41,7 +41,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           components: 'clippy, rustfmt'
-      - uses: taiki-e/setup-cross-toolchain-action@b8d1a322a6009a2b7220f53996695778eef89b41 # v1.38.0
+      - uses: taiki-e/setup-cross-toolchain-action@20dbac418ca692fd1a9377acf2cec38161169a39 # v1.39.1
         with:
           target: ${{ matrix.target }}
       - uses: taiki-e/install-action@385db9cc6bf65d19775b02084a4b698eaca9a4f2 # v2.68.19
