@@ -94,7 +94,7 @@ jobs:
           REF_TYPE: ${{ inputs.ref-type }}
           REF_NAME: ${{ inputs.ref-name }}
       - name: Build and push (mirakc/mirakc:debian*)
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: .
           file: docker/Dockerfile
@@ -111,7 +111,7 @@ jobs:
             type=local,dest=/tmp/.docker-cache
           push: ${{ inputs.push }}
       - name: Build and push (mirakc/timeshift-fs:debian*)
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: .
           file: docker/Dockerfile
@@ -140,7 +140,7 @@ jobs:
           REF_TYPE: ${{ inputs.ref-type }}
           REF_NAME: ${{ inputs.ref-name }}
       - name: Build and push (mirakc/mirakc:alpine*)
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: .
           file: docker/Dockerfile
@@ -157,7 +157,7 @@ jobs:
             type=local,dest=/tmp/.docker-cache
           push: ${{ inputs.push }}
       - name: Build and push (mirakc/timeshift-fs:alpine*)
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: .
           file: docker/Dockerfile
