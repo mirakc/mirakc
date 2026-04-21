@@ -20,7 +20,7 @@ mirakc-core = { path = "../mirakc-core" }
 semver = "1.0.28"
 serde_json = { version = "1.0.149", features = ["preserve_order"] }
 tempfile = "3.27.0"
-tokio = { version = "1.51.0", features = ["full"] }
+tokio = { version = "1.51.1", features = ["full"] }
 tracing = "0.1.44"
 
 [build-dependencies]
