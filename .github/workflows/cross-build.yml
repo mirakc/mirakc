@@ -44,7 +44,7 @@ jobs:
       - uses: taiki-e/setup-cross-toolchain-action@3d9770ce98eb7dbcf378563182a5e8031165f75b # v1.41.0
         with:
           target: ${{ matrix.target }}
-      - uses: taiki-e/install-action@60ae4ce63c7aeb6e96d7f572c1ec7fafbb17ca80 # v2.79.10
+      - uses: taiki-e/install-action@6ed6112eb9893c58dd600eebccdf6e77ab7bfa9c # v2.79.12
         with:
           tool: nextest
       - name: Build
