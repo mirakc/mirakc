@@ -96,6 +96,7 @@ allow-build-scripts = [
     "num-traits",
     "parking_lot_core",
     "paste",
+    "prettyplease",
     "proc-macro2",
     "quote",
     "ref-cast",
