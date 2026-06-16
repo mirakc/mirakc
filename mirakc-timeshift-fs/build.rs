@@ -1,8 +1,7 @@
 pub fn main() {
-    let gitcl = vergen_gitcl::GitclBuilder::default()
+    let gitcl = vergen_gitcl::Gitcl::builder()
         .sha(false) // full SHA
-        .build()
-        .unwrap();
+        .build();
     vergen_gitcl::Emitter::default()
         .add_instructions(&gitcl)
         .unwrap()
