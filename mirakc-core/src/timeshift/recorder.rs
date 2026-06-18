@@ -707,11 +707,22 @@ impl<T> TimeshiftRecorder<T> {
         self.check_consistency();
     }
 
+    // Remove points whose timestamp is at or after the last record's
+    // `end.timestamp`.  Treat equal-timestamp points as garbage as well to avoid
+    // duplicate `pos` values when points are appended after a restart.
+    //
+    // Points are compared by timestamp, not `pos`, because `pos` is a ring-buffer
+    // position and doesn't increase monotonically.
+    //
+    // This only mutates the in-memory `points`.  The recording resume position
+    // (`start_pos` in `do_start_recording()`) is taken from the last point
+    // before this removal runs, so dropping garbage points here does not change
+    // where writing resumes.
     fn remove_garbage_points(&mut self) {
         if let Some(last_record) = self.records.values().last() {
             while let Some(last_point) = self.points.back() {
-                // Don't use `pos`.  It's a position in a "ring" buffer and
-                // doesn't increase monotonically.
+                // Stop at the first point older than the last record's end; this
+                // point and all earlier points are kept.
                 if last_record.end.timestamp > last_point.timestamp {
                     break;
                 }
@@ -727,22 +738,75 @@ impl<T> TimeshiftRecorder<T> {
     }
 
     fn check_consistency(&self) {
-        if let Some(last_record) = self.records.values().last() {
-            let broken = if let Some(last_point) = self.points.back() {
-                let pos = last_point.pos + self.config().chunk_size as u64;
-                last_record.end.pos != pos % self.config().max_file_size()
-            } else {
-                true
-            };
-            if broken {
-                tracing::error!(
-                    recorder.name = self.name,
-                    "INCONSISTENT: data-file may be broken, \
-                     rebuild timeshift files or remove the data file"
-                );
-                std::process::exit(libc::EXIT_FAILURE);
-            }
+        if !self.is_consistent() {
+            tracing::error!(
+                recorder.name = self.name,
+                "INCONSISTENT: data-file may be broken, \
+                 rebuild timeshift files or remove the data file"
+            );
+            std::process::exit(libc::EXIT_FAILURE);
         }
+    }
+
+    // Checks consistency between `records` and `points`.
+    //
+    // Only the last record and the last retained point are inspected; earlier
+    // records are not checked.  Here, "the last retained point" means the last
+    // point left after `remove_garbage_points()` removes points at or after the
+    // last record's end timestamp.
+    //
+    // In a consistent state, the offset from `last_point.pos` to
+    // `last_record.end.pos`, after accounting for wrap-around at
+    // `max_file_size`, must be within one chunk:
+    //
+    //     0 <= offset <= chunk_size
+    //
+    // The expected offset depends on whether the last record has received its
+    // `event-end` message:
+    //
+    // 1. If `event-end` has not been received yet, the program is still being
+    //    recorded.  In this state, `event-update` keeps advancing
+    //    `last_record.end.pos`, so it is exactly one chunk ahead of the last
+    //    retained point (`last_record.end.pos == last_point.pos + chunk_size`).
+    //
+    //    mirakc-arib sends an `event-update` with `end.pos` set to the next chunk
+    //    boundary immediately before the `chunk` message for that same boundary.
+    //    The two messages have the same timestamp.  `remove_garbage_points()`
+    //    removes the point at that boundary, leaving the previous boundary as the
+    //    last retained point.
+    //
+    // 2. If `event-end` has already been received, no further `event-update`
+    //    messages are sent for that program.  Therefore, `last_record.end.pos`
+    //    remains at the actual event-end position rather than advancing to the
+    //    next chunk boundary.  The offset can be less than `chunk_size`, and can
+    //    be `0` when the program ended exactly on a retained chunk boundary.
+    //
+    // Points appended after `event-end` are removed by `remove_garbage_points()`,
+    // because their timestamps are at or after the record's end timestamp.  As a
+    // result, the retained last point should never be more than one chunk behind
+    // `last_record.end.pos`.
+    //
+    // Any offset outside this range means `records` and `points` are out of sync.
+    fn is_consistent(&self) -> bool {
+        let last_record = match self.records.values().last() {
+            Some(last_record) => last_record,
+            None => return true,
+        };
+        let last_point = match self.points.back() {
+            Some(last_point) => last_point,
+            None => return false,
+        };
+        let chunk_size = self.config().chunk_size as u64;
+        let max_file_size = self.config().max_file_size();
+        if last_record.end.pos >= max_file_size || last_point.pos >= max_file_size {
+            return false;
+        }
+        // Add `max_file_size` before subtracting so that the expression never
+        // underflows when `last_record.end.pos` has wrapped around and is
+        // smaller than `last_point.pos`.  The modulo then cancels the extra
+        // `max_file_size`.
+        let offset = (last_record.end.pos + max_file_size - last_point.pos) % max_file_size;
+        offset <= chunk_size
     }
 
     async fn handle_stop_recording(&mut self, reset: bool) {
@@ -1080,6 +1144,163 @@ mod tests {
         recorder.purge_expired_records();
         assert_eq!(recorder.records.len(), 1);
         assert_eq!(recorder.records[0].program.id, (0, 1, 3).into());
+    }
+
+    #[test]
+    fn test_timeshift_recorder_is_consistent() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_config(temp_dir.path());
+        let chunk_size = config.timeshift.recorders["test"].chunk_size as u64;
+        let max_file_size = config.timeshift.recorders["test"].max_file_size();
+
+        // The last record ends exactly on the next chunk boundary, one chunk
+        // ahead of the last point, so the offset is exactly `chunk_size`.  This
+        // happens while a program is still being recorded and `event-update`
+        // keeps `last_record.end.pos` at the next boundary.
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:01:30+09:00", chunk_size)
+            },
+        };
+        recorder.points = vecdeque![point!("2021-01-01T00:00:00+09:00", 0)];
+        assert!(recorder.is_consistent());
+
+        // The last record ends in the middle of the last chunk.  This happens
+        // when a program ended and no new program started before the recording
+        // stopped.  Garbage points newer than the last record are removed first,
+        // just like on startup.
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:01:30+09:00", chunk_size - 1024)
+            },
+        };
+        recorder.points = vecdeque![
+            point!("2021-01-01T00:00:00+09:00", 0),
+            point!("2021-01-01T00:02:00+09:00", chunk_size),
+        ];
+        recorder.remove_garbage_points();
+        assert!(recorder.is_consistent());
+
+        // Same as above, but no new program started for several chunks after the
+        // last record ended.  The offset is still bounded by one chunk because
+        // all the points newer than the last record are removed, leaving the
+        // boundary right before the end of the last record.
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:01:30+09:00", chunk_size - 1024)
+            },
+        };
+        recorder.points = vecdeque![
+            point!("2021-01-01T00:00:00+09:00", 0),
+            point!("2021-01-01T00:02:00+09:00", chunk_size),
+            point!("2021-01-01T00:04:00+09:00", chunk_size * 2),
+            point!("2021-01-01T00:06:00+09:00", chunk_size * 3),
+        ];
+        recorder.remove_garbage_points();
+        assert!(recorder.is_consistent());
+
+        // The recorder stopped while a program was still being recorded.  The
+        // last `event-update` and the following `chunk` carry the same boundary
+        // position and the same timestamp, so `last_record.end` and the newest
+        // point share the timestamp.  `remove_garbage_points()` removes that
+        // point (it drops points whose timestamp is at or after `last_record.end`),
+        // leaving the previous boundary as the last point.  The offset is
+        // therefore exactly `chunk_size`.
+        //
+        // When a program has actually ended on a retained chunk boundary, the
+        // offset is `0` instead; see the next case.
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:01:30+09:00", chunk_size)
+            },
+        };
+        recorder.points = vecdeque![
+            point!("2021-01-01T00:00:00+09:00", 0),
+            point!("2021-01-01T00:01:30+09:00", chunk_size),
+        ];
+        recorder.remove_garbage_points();
+        assert_eq!(recorder.points.back().unwrap().pos, 0);
+        assert!(recorder.is_consistent());
+
+        // The program ended exactly on a chunk boundary, but the point at that
+        // boundary was created slightly before the program end time, so it
+        // survives `remove_garbage_points()` and becomes the last point.  Then
+        // `last_record.end.pos == last_point.pos` and the offset is exactly `0`,
+        // which is still a fully recorded, consistent state.
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:01:30+09:00", chunk_size)
+            },
+        };
+        recorder.points = vecdeque![
+            point!("2021-01-01T00:00:00+09:00", 0),
+            point!("2021-01-01T00:01:00+09:00", chunk_size),
+            point!("2021-01-01T00:02:00+09:00", chunk_size * 2),
+        ];
+        recorder.remove_garbage_points();
+        assert_eq!(recorder.points.back().unwrap().pos, chunk_size);
+        assert!(recorder.is_consistent());
+
+        // The last record is out of sync with the points by more than one chunk,
+        // so the offset exceeds `chunk_size` and the state is inconsistent.
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:01:30+09:00", chunk_size + 1024)
+            },
+        };
+        recorder.points = vecdeque![point!("2021-01-01T00:00:00+09:00", 0)];
+        assert!(!recorder.is_consistent());
+
+        // Raw positions outside the ring buffer are invalid even if the modulo
+        // offset would place them within the last chunk, so the state is
+        // inconsistent.
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:01:30+09:00", max_file_size + 1)
+            },
+        };
+        recorder.points = vecdeque![point!("2021-01-01T00:00:00+09:00", 0)];
+        assert!(!recorder.is_consistent());
+
+        let mut recorder = recorder!(config.clone());
+        recorder.records = indexmap::indexmap! {
+            1u32.into() => record! {
+                1u32,
+                program!((0, 1, 1)),
+                point!("2021-01-01T00:00:00+09:00", 0),
+                point!("2021-01-01T00:01:30+09:00", chunk_size)
+            },
+        };
+        recorder.points = vecdeque![point!("2021-01-01T00:00:00+09:00", max_file_size + 1)];
+        assert!(!recorder.is_consistent());
     }
 
     #[test(tokio::test)]
