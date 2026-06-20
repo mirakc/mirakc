@@ -196,7 +196,8 @@ jobs:
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         with:
-          app-id: ${{ secrets.CI_BOT_APP_ID }}
+          # app-id was deprecated in 3.1.0
+          client-id: ${{ secrets.CI_BOT_APP_ID }}
           private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
           # The access will be scoped to only the docker-timeshift-x of the current repository
           # owner.

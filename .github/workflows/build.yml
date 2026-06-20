@@ -30,6 +30,8 @@ jobs:
       - name: Install gtimeout and macfuse (macos)
         if: matrix.runner == 'macos-latest'
         run: |
+          # Remove pre-installed untrusted taps to suppress Homebrew warnings.
+          brew untap aws/tap azure/bicep 2>/dev/null || true
           brew install coreutils macfuse
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
