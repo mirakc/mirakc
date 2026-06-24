@@ -19,7 +19,7 @@ jobs:
           - aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
       # We cannot use Swatinem/rust-cache in this workflow.
       # A toolchain must be installed before Swatinem/rust-cache,
       # but it will be installed in the Build step.
