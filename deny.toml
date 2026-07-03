@@ -122,22 +122,6 @@ include-workspace= true
 interpreted = "warn"
 
 [[bans.build.bypass]]
-crate = "autocfg"
-allow = [
-    { path = "tests/wrap_ignored" },
-]
-
-[[bans.build.bypass]]
-crate = "bytes"
-allow-globs = ["ci/*.sh"]
-
-[[bans.build.bypass]]
-crate = "displaydoc"
-allow = [
-    { path = "update-readme.sh" },
-]
-
-[[bans.build.bypass]]
 crate = "fuser"
 allow = [
     { path = "pjdfs.sh" },
@@ -148,22 +132,9 @@ allow = [
 ]
 
 [[bans.build.bypass]]
-crate = "iri-string"
-allow = [
-    { path = ".woodpecker/scripts/check-msrv-consistency.sh" },
-    { path = ".woodpecker/scripts/prepare-toolchain.sh" },
-]
-
-[[bans.build.bypass]]
 crate = "mirakc-timeshift-fs"
 allow = [
     { path = "tests/mount/run-tests" },
-]
-
-[[bans.build.bypass]]
-crate = "smallvec"
-allow = [
-    { path = "scripts/run_miri.sh" },
 ]
 
 [[bans.build.bypass]]
@@ -182,7 +153,7 @@ allow = [
 crate = "zerocopy"
 allow-globs = ["ci/*.sh"]
 allow = [
-    { path = "githooks/pre-push" },
+    { path = "cargo.sh" },
 ]
 
 [licenses]
