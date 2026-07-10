@@ -761,7 +761,7 @@ impl RecordBuffer {
     }
 
     fn reset(&mut self) {
-        self.buf.truncate(0);
+        self.buf.clear();
     }
 }
 

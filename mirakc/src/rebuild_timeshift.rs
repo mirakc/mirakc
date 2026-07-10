@@ -204,7 +204,7 @@ fn create_tuner_script(opt: &Opt, tempdir: &Path, segment: &Segment) -> PathBuf 
         }
         let line = format!(
             "dd if={} bs={} skip={} count={}",
-            &opt.ts_file.display(),
+            opt.ts_file.display(),
             opt.chunk_size,
             range.start,
             range.end - range.start
