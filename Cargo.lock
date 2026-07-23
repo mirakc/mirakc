@@ -22,7 +22,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "static_assertions",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
