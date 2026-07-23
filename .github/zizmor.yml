@@ -4,10 +4,11 @@ rules:
     disable: true
   concurrency-limits:
     # https://docs.zizmor.sh/audits/#concurrency-limits
-    # The default cooldown period is 3 days.
-    # See https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#cooldown-
     disable: true
   dependabot-cooldown:
+    # https://docs.zizmor.sh/audits/#dependabot-cooldown
+    # The default cooldown period is 3 days.
+    # See https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#cooldown-
     disable: true
   secrets-outside-env:
     # https://docs.zizmor.sh/audits/#secrets-outside-env
