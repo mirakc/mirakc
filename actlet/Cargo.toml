@@ -15,8 +15,8 @@ derive = ["actlet-derive"]
 
 [dependencies]
 actlet-derive = { path = "../actlet-derive", optional = true }
-async-trait = "0.1.89"
-thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["full"] }
-tokio-util = "0.7.18"
+async-trait = "0.1.91"
+thiserror = "2.0.19"
+tokio = { version = "1.53.1", features = ["full"] }
+tokio-util = "0.7.19"
 tracing = "0.1.44"

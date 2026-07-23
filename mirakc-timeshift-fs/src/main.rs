@@ -131,5 +131,5 @@ fn main() -> Result<(), Error> {
     // # Then mount it.
     // mirakc-timeshift-fs $MOUNT_POINT
     // ```
-    Ok(fuser::mount2(fs, &opt.mount_point, &config)?)
+    Ok(fuser::mount(fs, &opt.mount_point, &config)?)
 }

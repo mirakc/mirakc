@@ -17,4 +17,4 @@ http = "1.4.2"
 [dev-dependencies]
 axum = { version = "0.8.9", features = ["__private"] }
 axum-macros = { version = "0.5.1", features = ["__private"] }
-tokio = { version = "1.52.3", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full"] }
