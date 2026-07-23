@@ -8,7 +8,7 @@ use chrono_jst::serde::ts_milliseconds_option;
 use indexmap::IndexMap;
 use serde::Deserialize;
 use serde::Serialize;
-use smallstr::SmallString;
+use smol_str::SmolStr;
 use utoipa::ToSchema;
 
 use crate::config::ResourceConfig;
@@ -803,7 +803,7 @@ impl MirakurunProgramRelatedItem {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-struct MirakurunLangCode(SmallString<[u8; 3]>); // ISO 639-3 language code
+struct MirakurunLangCode(SmolStr); // ISO 639-3 language code
 
 impl From<u32> for MirakurunLangCode {
     fn from(value: u32) -> Self {
@@ -811,11 +811,11 @@ impl From<u32> for MirakurunLangCode {
         let c0 = ((value >> 16) & 0xFF) as u8;
         let c1 = ((value >> 8) & 0xFF) as u8;
         let c2 = (value & 0xFF) as u8;
-        match SmallString::from_buf([c0, c1, c2]) {
-            Ok(lang) => MirakurunLangCode(lang),
+        match str::from_utf8(&[c0, c1, c2]) {
+            Ok(lang) => MirakurunLangCode(SmolStr::new(lang)),
             Err(_) => {
                 tracing::warn!(code = %format!("{:02X}{:02X}{:02X}", c0, c1, c2), "Invalid lang code, replace it with `und`");
-                MirakurunLangCode(SmallString::from_str("und"))
+                MirakurunLangCode(SmolStr::new_static("und"))
             }
         }
     }
