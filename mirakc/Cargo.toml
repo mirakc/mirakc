@@ -1,6 +1,6 @@
 [package]
 name = "mirakc"
-version = "3.4.78"
+version = "3.4.79"
 authors = ["Contributors of mirakc"]
 description = "A Mirakurun-compatible PVR backend written in Rust"
 edition = "2021"
