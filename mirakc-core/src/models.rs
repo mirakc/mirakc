@@ -769,7 +769,7 @@ impl From<SeriesDescriptor> for MirakurunProgramSeries {
             id: series.series_id,
             repeat: series.repeat_label,
             pattern: series.program_pattern,
-            expire_at: series.expire_date.map_or(-1, |unix_time_ms| unix_time_ms),
+            expire_at: series.expire_date.unwrap_or(-1),
             episode: series.episode_number,
             last_episode: series.last_episode_number,
             name: series.series_name.unwrap_or("".to_string()),
