@@ -1366,6 +1366,7 @@ dependencies = [
  "serde_json",
  "serde_norway",
  "serde_qs",
+ "sha2",
  "shell-words",
  "smol_str",
  "static_assertions",

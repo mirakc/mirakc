@@ -239,6 +239,7 @@ macro_rules! record {
             recording_duration: $end_time.map(|t| t - $start_time),
             content_path: format!("{}.m2ts", $id).into(),
             content_type: "video/MP2T".to_owned(),
+            content_sha256: None,
         }
     };
 }

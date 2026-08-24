@@ -20,6 +20,9 @@ use itertools::Itertools;
 use path_dedot::ParseDot;
 use serde::Deserialize;
 use serde::Serialize;
+use sha2::Digest;
+use sha2::Sha256;
+use tokio::io::AsyncReadExt;
 use tokio::io::BufWriter;
 use tokio_stream::Stream;
 use tokio_stream::StreamExt;
@@ -267,7 +270,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                         ) {
                             tracing::error!(?record_path, "inconsistent");
                         }
-                        record.update_by_schedule(schedule);
+                        record.update_by_schedule(&self.config, schedule).await;
                     }
                     None => {
                         // The schedule may have been removed before this method is called.
@@ -2542,6 +2545,8 @@ pub struct Record {
     pub recording_duration: Option<Duration>,
     pub content_path: PathBuf,
     pub content_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_sha256: Option<String>,
 }
 
 impl Record {
@@ -2566,10 +2571,11 @@ impl Record {
             recording_duration: None,
             content_path,
             content_type,
+            content_sha256: None,
         }
     }
 
-    fn update_by_schedule(&mut self, schedule: &RecordingSchedule) {
+    async fn update_by_schedule(&mut self, config: &Config, schedule: &RecordingSchedule) {
         let now = Jst::now();
 
         self.program = schedule.program.clone();
@@ -2593,11 +2599,15 @@ impl Record {
             }
             RecordingScheduleState::Finished => {
                 self.recording_status = RecordingStatus::Finished;
+                let content_path = make_content_path(config, self).unwrap();
+                self.content_sha256 = compute_content_sha256(&content_path).await.ok();
             }
             RecordingScheduleState::Failed => {
                 self.recording_status = RecordingStatus::Failed {
                     reason: schedule.failed_reason.clone().unwrap(),
                 };
+                let content_path = make_content_path(config, self).unwrap();
+                self.content_sha256 = compute_content_sha256(&content_path).await.ok();
             }
         }
     }
@@ -2722,6 +2732,26 @@ fn glob_records(records_dir: &Path) -> impl Iterator<Item = PathBuf> {
                 None
             }
         })
+}
+
+async fn compute_content_sha256(content_path: &Path) -> Result<String, Error> {
+    let mut file = tokio::fs::File::open(content_path).await?;
+
+    let mut hasher = Sha256::new();
+    let mut buf = [0; 4096];
+    loop {
+        let nread = file.read(&mut buf).await?;
+        if nread == 0 {
+            break;
+        }
+        hasher.update(&buf[..nread]);
+    }
+
+    Ok(hasher
+        .finalize()
+        .into_iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>())
 }
 
 #[cfg(test)]
@@ -3162,7 +3192,10 @@ mod tests {
                 assert_matches!(load_record(&config, &record_path).await, Ok((record, _)) => {
                     assert_eq!(record.program.id, program_id);
                     assert_matches!(record.recording_status, RecordingStatus::Recording);
-                })
+                    assert_eq!(record.content_path, Path::new("1.m2ts"));
+                    assert_eq!(record.content_type, "video/MP2T");
+                    assert!(record.content_sha256.is_none());
+                });
             });
         }
         system.shutdown().await;
@@ -3183,7 +3216,8 @@ mod tests {
                 assert_eq!(record.program.id, program_id);
                 // The recording stops when the system stops.
                 assert_matches!(record.recording_status, RecordingStatus::Finished);
-            })
+                assert!(record.content_sha256.is_some());
+            });
         });
     }
 
@@ -3252,7 +3286,8 @@ mod tests {
                     assert_eq!(record.program.id, program_id);
                     assert_matches!(record.recording_status, RecordingStatus::Recording);
                     assert!(record.content_path.to_str().unwrap().ends_with(".content"));
-                })
+                    assert!(record.content_sha256.is_none());
+                });
             });
         }
         system.shutdown().await;
@@ -3281,7 +3316,8 @@ mod tests {
                 assert_eq!(record.program.id, program_id);
                 // The recording stops when the system stops.
                 assert_matches!(record.recording_status, RecordingStatus::Finished);
-            })
+                assert!(record.content_sha256.is_some());
+            });
         });
     }
 
@@ -3370,7 +3406,8 @@ mod tests {
                 assert_matches!(load_record(&config, &record_path).await, Ok((record, _)) => {
                     assert_eq!(record.program.id, program_id);
                     assert_matches!(record.recording_status, RecordingStatus::Finished);
-                })
+                    assert!(record.content_sha256.is_some());
+                });
             });
         }
         system.shutdown().await;
