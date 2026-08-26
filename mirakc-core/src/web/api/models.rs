@@ -232,6 +232,7 @@ impl From<(Record, Option<u64>)> for WebRecord {
             content: WebContentInfo {
                 path: record.content_path,
                 r#type: record.content_type,
+                sha256: record.content_sha256,
                 length: content_length,
             },
         }
@@ -321,6 +322,15 @@ pub(in crate::web) struct WebContentInfo {
 
     /// The MIME type of the content.
     pub r#type: String,
+
+    /// The lowercase SHA-256 hex string of the content.
+    ///
+    /// Available once recording ends (succeeded or failed), only if the content file exists and is
+    /// accessible at that point.
+    ///
+    /// This value never changes even if the content file is modified after the SHA-256 calculation.
+    #[serde(default)]
+    pub sha256: Option<String>,
 
     /// The size of the content.
     ///
