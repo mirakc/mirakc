@@ -37,7 +37,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           components: 'clippy, rustfmt'
-      - uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
         with:
           tool: cargo-deny nextest zizmor
       - name: Check
