@@ -339,7 +339,6 @@ pub(in crate::web) struct WebContentInfo {
     ///
     /// `0` will be set if failed getting the size of the content file even though the file exists.
     #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub length: Option<u64>,
 }
 
