@@ -10,7 +10,7 @@ jobs:
   update:
     permissions:
       contents: write
-    uses: ./.github/workflows/update.yml
+    uses: $/.github/workflows/update.yml
     with:
       ref-name: release
     secrets:

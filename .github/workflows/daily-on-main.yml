@@ -10,7 +10,7 @@ jobs:
   update:
     permissions:
       contents: write
-    uses: ./.github/workflows/update.yml
+    uses: $/.github/workflows/update.yml
     with:
       ref-name: main
     secrets:
@@ -25,7 +25,7 @@ jobs:
     permissions:
       contents: read
       actions: write
-    uses: ./.github/workflows/docker.yml
+    uses: $/.github/workflows/docker.yml
     with:
       ref-name: main
       ref-type: branch
