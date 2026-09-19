@@ -1487,7 +1487,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             _ => return Err(Error::NoContent),
         };
 
-        let mut content_source = ContentSource::new(&self.config, &record, range, ctx)?;
+        let mut content_source = ContentSource::new(&self.config, &record, range, ctx).await?;
         let stream = content_source.create_stream(time_limit);
 
         let addr = ctx.spawn_actor(content_source).await;
@@ -2242,12 +2242,36 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 // content source actor
 
+enum ContentSourceKind {
+    Pipeline(CommandPipeline<RecordId>),
+    // `None` once `create_stream()` has taken the reader.
+    File(Option<tokio::io::Take<tokio::fs::File>>),
+}
+
+impl std::fmt::Debug for ContentSourceKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pipeline(_) => f.debug_tuple("Pipeline").finish(),
+            Self::File(reader) => f.debug_tuple("File").field(&reader.is_some()).finish(),
+        }
+    }
+}
+
+// The content can be removed between the existence check and opening or seeking it.
+fn content_file_error(err: std::io::Error) -> Error {
+    match err.kind() {
+        std::io::ErrorKind::NotFound => Error::NoContent,
+        _ => Error::IoError(err),
+    }
+}
+
 struct ContentSource {
-    pipeline: CommandPipeline<RecordId>,
+    id: RecordId,
+    kind: ContentSourceKind,
 }
 
 impl ContentSource {
-    fn new<C: Spawn>(
+    async fn new<C: Spawn>(
         config: &Config,
         record: &Record,
         range: Option<&ContentRange>,
@@ -2259,13 +2283,30 @@ impl ContentSource {
             return Err(Error::NoContent);
         }
 
+        let id = record.id.clone();
         let content_path_str = content_path.to_str().unwrap();
-        let cmd = match (range, &record.recording_status) {
+        let kind = match (range, &record.recording_status) {
             (Some(range), _) => {
                 debug_assert!(range.is_partial());
-                let skip = range.first();
-                let count = range.bytes();
-                format!("dd if='{content_path_str}' ibs=1 skip={skip} count={count}")
+                let mut file = tokio::fs::File::open(&content_path).await.map_err(|e| {
+                    tracing::warn!(?content_path, %e, "Failed to open content file");
+                    content_file_error(e)
+                })?;
+                // Seeking past the end of the file is not an error, and reading from there yields
+                // no bytes.  That matches what `dd ibs=1 skip=N` did.
+                //
+                // The HTTP layer normalizes ranges against the known content length before we get
+                // here, so a range past the end doesn't arrive through it.  We keep the `dd`
+                // behaviour anyway, for ranges built directly from `ContentRange::without_size`
+                // (which checks `first <= last` but holds no content length to check against) and
+                // for a file that shrinks after its length was read.
+                tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(range.first()))
+                    .await
+                    .map_err(|e| {
+                        tracing::warn!(?content_path, %e, "Failed to seek content file");
+                        content_file_error(e)
+                    })?;
+                ContentSourceKind::File(Some(tokio::io::AsyncReadExt::take(file, range.bytes())))
             }
             (None, RecordingStatus::Recording) => {
                 // We use `tail -f` for streaming during recording in order to send data to be
@@ -2274,49 +2315,66 @@ impl ContentSource {
                 //
                 // NOTE: `tail` in macOS doesn't support `-s` option.  The default value of the
                 // sleep interval of `tail` in GNU coreutils is 1.0 second.
-                format!("tail -f -c +0 '{content_path_str}'")
+                let cmd = format!("tail -f -c +0 '{content_path_str}'");
+                ContentSourceKind::Pipeline(spawn_pipeline(vec![cmd], id.clone(), "content", ctx)?)
             }
-            _ => format!("cat '{content_path_str}'"),
+            _ => {
+                let cmd = format!("cat '{content_path_str}'");
+                ContentSourceKind::Pipeline(spawn_pipeline(vec![cmd], id.clone(), "content", ctx)?)
+            }
         };
 
-        let pipeline = spawn_pipeline(vec![cmd], record.id.clone(), "content", ctx)?;
-
-        Ok(Self { pipeline })
+        Ok(Self { id, kind })
     }
 
     fn create_stream(&mut self, time_limit: u64) -> ContentStream {
         // 32 KiB, large enough for 10 ms buffering.
         const CHUNK_SIZE: usize = 4096 * 8;
 
-        let (_, output) = self.pipeline.take_endpoints();
-
-        let stream = ReaderStream::with_capacity(output, CHUNK_SIZE)
-            // We set a time limit in order to stop streaming when the stream reaches the *true*
-            // EOF.  Because `tail -f` doesn't terminate when the stream reaches an EOF at that
-            // point.
-            //
-            // We cannot use a RecordingStopped emitter for this purpose.  Because the streaming
-            // has to continue in order to send remaining data until the *true* EOF reaches.
-            .timeout(std::time::Duration::from_millis(time_limit))
-            .map_while(Result::ok);
-        // TODO(#2057): ranges
-        MpegTsStream::new(self.pipeline.id().clone(), Box::pin(stream))
+        match &mut self.kind {
+            ContentSourceKind::Pipeline(pipeline) => {
+                let (_, output) = pipeline.take_endpoints();
+                let stream = ReaderStream::with_capacity(output, CHUNK_SIZE)
+                    // We set a time limit in order to stop streaming when the stream reaches the
+                    // *true* EOF.  Because `tail -f` doesn't terminate when the stream reaches an
+                    // EOF at that point.
+                    //
+                    // We cannot use a RecordingStopped emitter for this purpose.  Because the
+                    // streaming has to continue in order to send remaining data until the *true*
+                    // EOF reaches.
+                    .timeout(std::time::Duration::from_millis(time_limit))
+                    .map_while(Result::ok);
+                MpegTsStream::new(self.id.clone(), Box::pin(stream))
+            }
+            ContentSourceKind::File(reader) => {
+                let reader = reader.take().expect("create_stream called twice");
+                // No time limit here, unlike the pipeline above.  The time limit exists solely
+                // because `tail -f` never terminates on its own; reading a regular file ends at
+                // EOF.  The previous implementation streamed every case through a pipeline and so
+                // applied the limit to `dd` as well, which meant a storage stall longer than the
+                // limit silently truncated the response instead of delaying it.
+                let stream = ReaderStream::with_capacity(reader, CHUNK_SIZE);
+                MpegTsStream::new(self.id.clone(), Box::pin(stream))
+            }
+        }
     }
 }
 
 #[async_trait]
 impl Actor for ContentSource {
     async fn started(&mut self, _ctx: &mut Context<Self>) {
-        tracing::debug!(content_source.pipeline.id = %self.pipeline.id(), "Started");
+        tracing::debug!(content_source.id = %self.id, "Started");
     }
 
     async fn stopping(&mut self, _ctx: &mut Context<Self>) {
-        tracing::debug!(content_source.pipeline.id = %self.pipeline.id(), "Stopping...");
-        self.pipeline.kill();
+        tracing::debug!(content_source.id = %self.id, "Stopping...");
+        if let ContentSourceKind::Pipeline(pipeline) = &mut self.kind {
+            pipeline.kill();
+        }
     }
 
     async fn stopped(&mut self, _ctx: &mut Context<Self>) {
-        tracing::debug!(content_source.pipeline.id = %self.pipeline.id(), "Stopped");
+        tracing::debug!(content_source.id = %self.id, "Stopped");
     }
 }
 
@@ -2770,6 +2828,17 @@ mod tests {
 
     const RECORDING_DIR: &str = "recording";
     const RECORDS_DIR: &str = ".records";
+
+    #[test]
+    fn test_content_file_error() {
+        let err = std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert_matches!(content_file_error(err), Error::NoContent);
+
+        let err = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert_matches!(content_file_error(err), Error::IoError(err) => {
+            assert_matches!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        });
+    }
 
     #[test]
     fn test_record_id() {
@@ -3645,8 +3714,6 @@ mod tests {
             drop(stop_trigger);
         }
         system.shutdown().await;
-
-        // TODO(#2057): range request
     }
 
     #[test(tokio::test)]
@@ -3694,8 +3761,6 @@ mod tests {
             drop(stop_trigger);
         }
         system.shutdown().await;
-
-        // TODO(#2057): range request
     }
 
     #[test(tokio::test)]
@@ -3737,8 +3802,6 @@ mod tests {
             });
         }
         system.shutdown().await;
-
-        // TODO(#2057): range request
     }
 
     #[test(tokio::test)]
@@ -4173,12 +4236,16 @@ mod tests {
             .unwrap();
 
         // recording, w/o range
-        let mut source = ContentSource::new(&config, &record, None, &ctx).unwrap();
-        let models = source.pipeline.get_model();
-        assert_eq!(models.len(), 1);
-        assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
-            assert_eq!(*command, format!("tail -f -c +0 '{content_path_str}'"));
-            assert!(pid.is_some());
+        let mut source = ContentSource::new(&config, &record, None, &ctx)
+            .await
+            .unwrap();
+        assert_matches!(&source.kind, ContentSourceKind::Pipeline(pipeline) => {
+            let models = pipeline.get_model();
+            assert_eq!(models.len(), 1);
+            assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
+                assert_eq!(*command, format!("tail -f -c +0 '{content_path_str}'"));
+                assert!(pid.is_some());
+            });
         });
         let stream = source.create_stream(1000);
         let mut reader = tokio_util::io::StreamReader::new(stream);
@@ -4188,15 +4255,12 @@ mod tests {
             assert_eq!(content, "0123456789");
         });
 
-        // recording, w/ range
+        // recording, w/ range: uses seek + take instead of `dd`
         let range = Some(ContentRange::without_size(1, 3).unwrap());
-        let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx).unwrap();
-        let models = source.pipeline.get_model();
-        assert_eq!(models.len(), 1);
-        assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
-            assert_eq!(*command, format!("dd if='{content_path_str}' ibs=1 skip=1 count=3"));
-            assert!(pid.is_some());
-        });
+        let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
+            .await
+            .unwrap();
+        assert_matches!(&source.kind, ContentSourceKind::File(Some(_)));
         let stream = source.create_stream(1000);
         let mut reader = tokio_util::io::StreamReader::new(stream);
         let mut content = String::new();
@@ -4208,12 +4272,16 @@ mod tests {
         let record = record!(finished: id.value());
 
         // finished, w/o range
-        let mut source = ContentSource::new(&config, &record, None, &ctx).unwrap();
-        let models = source.pipeline.get_model();
-        assert_eq!(models.len(), 1);
-        assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
-            assert_eq!(*command, format!("cat '{content_path_str}'"));
-            assert!(pid.is_some());
+        let mut source = ContentSource::new(&config, &record, None, &ctx)
+            .await
+            .unwrap();
+        assert_matches!(&source.kind, ContentSourceKind::Pipeline(pipeline) => {
+            let models = pipeline.get_model();
+            assert_eq!(models.len(), 1);
+            assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
+                assert_eq!(*command, format!("cat '{content_path_str}'"));
+                assert!(pid.is_some());
+            });
         });
         let stream = source.create_stream(1000);
         let mut reader = tokio_util::io::StreamReader::new(stream);
@@ -4223,15 +4291,12 @@ mod tests {
             assert_eq!(content, "0123456789");
         });
 
-        // finished, w/ range
+        // finished, w/ range: uses seek + take instead of `dd`
         let range = Some(ContentRange::with_size(1, 3, 10).unwrap());
-        let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx).unwrap();
-        let models = source.pipeline.get_model();
-        assert_eq!(models.len(), 1);
-        assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
-            assert_eq!(*command, format!("dd if='{content_path_str}' ibs=1 skip=1 count=3"));
-            assert!(pid.is_some());
-        });
+        let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
+            .await
+            .unwrap();
+        assert_matches!(&source.kind, ContentSourceKind::File(Some(_)));
         let stream = source.create_stream(1000);
         let mut reader = tokio_util::io::StreamReader::new(stream);
         let mut content = String::new();
@@ -4239,6 +4304,88 @@ mod tests {
             assert_eq!(size, 3);
             assert_eq!(content, "123");
         });
+    }
+
+    // The content used in `test_content_source_create_stream` is 10 bytes, far smaller than
+    // CHUNK_SIZE, so it never exercises a range that spans multiple chunks.
+    #[test(tokio::test)]
+    async fn test_content_source_create_stream_range_spanning_chunks() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let ctx = actlet::stubs::Context::default();
+
+        let id = RecordId("1".to_string());
+        let record = record!(finished: id.value());
+
+        // Deliberately not a multiple of CHUNK_SIZE so that the last chunk is partial.
+        const LEN: usize = 4096 * 8 * 2 + 1234;
+        let content: Vec<u8> = (0..LEN).map(|i| (i % 251) as u8).collect();
+
+        let content_path = make_content_path(&config, &record).unwrap();
+        tokio::fs::write(&content_path, &content).await.unwrap();
+
+        // A range spanning several chunks, starting at an offset that is not chunk-aligned.
+        let first = 4096 * 8 + 777;
+        let last = LEN - 999;
+        let range = Some(ContentRange::with_size(first as u64, last as u64, LEN as u64).unwrap());
+        let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
+            .await
+            .unwrap();
+        let stream = source.create_stream(1000);
+        let mut reader = tokio_util::io::StreamReader::new(stream);
+        let mut got = Vec::new();
+        assert_matches!(reader.read_to_end(&mut got).await, Ok(size) => {
+            assert_eq!(size, last - first + 1);
+        });
+        assert_eq!(got, content[first..=last]);
+    }
+
+    // HTTP ranges are normalized against the known content length before reaching
+    // `ContentSource`.  This covers ranges built directly with `ContentRange::without_size`, which
+    // checks `first <= last` but has no content length to check against, and the case where a file
+    // shrinks after its length is read.  Both have to keep the old `dd` behavior: return whatever
+    // is available and stop, rather than fail.
+    #[test(tokio::test)]
+    async fn test_content_source_create_stream_range_past_eof() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = config_for_test(temp_dir.path());
+
+        let ctx = actlet::stubs::Context::default();
+
+        let id = RecordId("1".to_string());
+        let record = record!(recording: id.value());
+
+        let content_path = make_content_path(&config, &record).unwrap();
+        tokio::fs::write(&content_path, b"0123456789")
+            .await
+            .unwrap();
+
+        // (first, last, expected content)
+        let cases: &[(u64, u64, &str)] = &[
+            // Ends exactly at the last byte.
+            (5, 9, "56789"),
+            // Straddles the end of the file; only the available bytes come back.
+            (5, 1000, "56789"),
+            // Starts exactly at the end of the file.
+            (10, 1000, ""),
+            // Starts past the end of the file.
+            (1000, 2000, ""),
+        ];
+
+        for &(first, last, expected) in cases {
+            let range = Some(ContentRange::without_size(first, last).unwrap());
+            let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
+                .await
+                .unwrap();
+            let stream = source.create_stream(1000);
+            let mut reader = tokio_util::io::StreamReader::new(stream);
+            let mut content = String::new();
+            assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
+                assert_eq!(size, expected.len(), "bytes=({first}, {last})");
+            });
+            assert_eq!(content, expected, "bytes=({first}, {last})");
+        }
     }
 
     #[test(tokio::test)]
