@@ -88,6 +88,7 @@ fn is_private_ipv4_addr(ip: Ipv4Addr) -> bool {
 
 fn is_private_ipv6_addr(ip: Ipv6Addr) -> bool {
     ip.is_loopback()
+        || ip.is_unique_local()
         || match ip.to_ipv4() {
             // TODO: Support only IPv4-compatible and IPv4-mapped addresses at this
             //       moment.
@@ -132,5 +133,7 @@ mod tests {
         assert!(!is_private_ip_addr("8.8.8.8".parse().unwrap()));
         assert!(!is_private_ip_addr("::ffff:808:808".parse().unwrap()));
         assert!(!is_private_ip_addr("::ffff:8.8.8.8".parse().unwrap()));
+
+        assert!(is_private_ip_addr("fc02::".parse().unwrap())); // IPv6 ULA
     }
 }
