@@ -2286,8 +2286,27 @@ impl ContentSource {
         let id = record.id.clone();
         let content_path_str = content_path.to_str().unwrap();
         let kind = match (range, &record.recording_status) {
-            (Some(range), _) => {
-                debug_assert!(range.is_partial());
+            (None, RecordingStatus::Recording) => {
+                // We use `tail -f` for streaming during recording in order to send data to be
+                // appended to the content file in the future after the stream reaches EOF at that
+                // point.
+                //
+                // NOTE: `tail` in macOS doesn't support `-s` option.  The default value of the
+                // sleep interval of `tail` in GNU coreutils is 1.0 second.
+                let cmd = format!("tail -f -c +0 '{content_path_str}'");
+                ContentSourceKind::Pipeline(spawn_pipeline(vec![cmd], id.clone(), "content", ctx)?)
+            }
+            // Both a range request and a whole-content request are a seek followed by a limited
+            // read.  A request without a range is simply the degenerate case of that: start at the
+            // beginning and take everything.
+            _ => {
+                let (first, count) = match range {
+                    Some(range) => {
+                        debug_assert!(range.is_partial());
+                        (range.first(), range.bytes())
+                    }
+                    None => (0, u64::MAX),
+                };
                 let mut file = tokio::fs::File::open(&content_path).await.map_err(|e| {
                     tracing::warn!(?content_path, %e, "Failed to open content file");
                     content_file_error(e)
@@ -2300,27 +2319,13 @@ impl ContentSource {
                 // behaviour anyway, for ranges built directly from `ContentRange::without_size`
                 // (which checks `first <= last` but holds no content length to check against) and
                 // for a file that shrinks after its length was read.
-                tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(range.first()))
+                tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(first))
                     .await
                     .map_err(|e| {
                         tracing::warn!(?content_path, %e, "Failed to seek content file");
                         content_file_error(e)
                     })?;
-                ContentSourceKind::File(Some(tokio::io::AsyncReadExt::take(file, range.bytes())))
-            }
-            (None, RecordingStatus::Recording) => {
-                // We use `tail -f` for streaming during recording in order to send data to be
-                // appended to the content file in the future after the stream reaches EOF at that
-                // point.
-                //
-                // NOTE: `tail` in macOS doesn't support `-s` option.  The default value of the
-                // sleep interval of `tail` in GNU coreutils is 1.0 second.
-                let cmd = format!("tail -f -c +0 '{content_path_str}'");
-                ContentSourceKind::Pipeline(spawn_pipeline(vec![cmd], id.clone(), "content", ctx)?)
-            }
-            _ => {
-                let cmd = format!("cat '{content_path_str}'");
-                ContentSourceKind::Pipeline(spawn_pipeline(vec![cmd], id.clone(), "content", ctx)?)
+                ContentSourceKind::File(Some(tokio::io::AsyncReadExt::take(file, count)))
             }
         };
 
@@ -2351,8 +2356,8 @@ impl ContentSource {
                 // No time limit here, unlike the pipeline above.  The time limit exists solely
                 // because `tail -f` never terminates on its own; reading a regular file ends at
                 // EOF.  The previous implementation streamed every case through a pipeline and so
-                // applied the limit to `dd` as well, which meant a storage stall longer than the
-                // limit silently truncated the response instead of delaying it.
+                // applied the limit to `cat` and `dd` as well, which meant a storage stall longer
+                // than the limit silently truncated the response instead of delaying it.
                 let stream = ReaderStream::with_capacity(reader, CHUNK_SIZE);
                 MpegTsStream::new(self.id.clone(), Box::pin(stream))
             }
@@ -4275,14 +4280,7 @@ mod tests {
         let mut source = ContentSource::new(&config, &record, None, &ctx)
             .await
             .unwrap();
-        assert_matches!(&source.kind, ContentSourceKind::Pipeline(pipeline) => {
-            let models = pipeline.get_model();
-            assert_eq!(models.len(), 1);
-            assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
-                assert_eq!(*command, format!("cat '{content_path_str}'"));
-                assert!(pid.is_some());
-            });
-        });
+        assert_matches!(&source.kind, ContentSourceKind::File(Some(_)));
         let stream = source.create_stream(1000);
         let mut reader = tokio_util::io::StreamReader::new(stream);
         let mut content = String::new();
@@ -4307,9 +4305,9 @@ mod tests {
     }
 
     // The content used in `test_content_source_create_stream` is 10 bytes, far smaller than
-    // CHUNK_SIZE, so it never exercises a range that spans multiple chunks.
+    // CHUNK_SIZE, so it never exercises a stream that spans multiple chunks.
     #[test(tokio::test)]
-    async fn test_content_source_create_stream_range_spanning_chunks() {
+    async fn test_content_source_create_stream_spanning_chunks() {
         let temp_dir = TempDir::new().unwrap();
         let config = config_for_test(temp_dir.path());
 
@@ -4324,6 +4322,18 @@ mod tests {
 
         let content_path = make_content_path(&config, &record).unwrap();
         tokio::fs::write(&content_path, &content).await.unwrap();
+
+        // The whole content, w/o range.
+        let mut source = ContentSource::new(&config, &record, None, &ctx)
+            .await
+            .unwrap();
+        let stream = source.create_stream(1000);
+        let mut reader = tokio_util::io::StreamReader::new(stream);
+        let mut got = Vec::new();
+        assert_matches!(reader.read_to_end(&mut got).await, Ok(size) => {
+            assert_eq!(size, LEN);
+        });
+        assert_eq!(got, content);
 
         // A range spanning several chunks, starting at an offset that is not chunk-aligned.
         let first = 4096 * 8 + 777;
