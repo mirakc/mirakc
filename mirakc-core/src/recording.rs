@@ -1187,17 +1187,25 @@ where
         let inner_fut = {
             let content_path = content_path.clone();
             let content_sha256 = content_sha256.clone();
+            // The hash is needed only for records.
+            let records_enabled = self.config.recording.records_dir.is_some();
             async move {
                 let record = tokio::fs::File::create(&content_path).await?;
                 let mut writer = BufWriter::new(record);
                 // Compute the hash while writing so that we don't need to
                 // read the whole content again after the recording stopped.
                 let mut hasher = Sha256::new();
-                let mut reader = InspectReader::new(output, |chunk| hasher.update(chunk));
+                let mut reader = InspectReader::new(output, |chunk| {
+                    if records_enabled {
+                        hasher.update(chunk);
+                    }
+                });
                 // TODO: use Stdio
                 tokio::io::copy(&mut reader, &mut writer).await?;
                 drop(reader);
-                let _ = content_sha256.set(format_sha256(hasher.finalize()));
+                if records_enabled {
+                    let _ = content_sha256.set(format_sha256(hasher.finalize()));
+                }
                 Ok::<_, std::io::Error>(())
             }
         };
