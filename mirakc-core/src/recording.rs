@@ -3286,8 +3286,13 @@ mod tests {
                 assert_eq!(record.program.id, program_id);
                 // The recording stops when the system stops.
                 assert_matches!(record.recording_status, RecordingStatus::Finished);
-                // The writing task is canceled before it reaches EOF.
-                assert!(record.content_sha256.is_none());
+                // Whether the writing task reaches EOF before the system stops
+                // depends on timing.  If computed, the hash must match the content.
+                if let Some(ref sha256) = record.content_sha256 {
+                    let content_path = make_content_path(&config, &record).unwrap();
+                    let content = std::fs::read(content_path).unwrap();
+                    assert_eq!(*sha256, format_sha256(Sha256::digest(content)));
+                }
             });
         });
     }
@@ -3387,8 +3392,13 @@ mod tests {
                 assert_eq!(record.program.id, program_id);
                 // The recording stops when the system stops.
                 assert_matches!(record.recording_status, RecordingStatus::Finished);
-                // The writing task is canceled before it reaches EOF.
-                assert!(record.content_sha256.is_none());
+                // Whether the writing task reaches EOF before the system stops
+                // depends on timing.  If computed, the hash must match the content.
+                if let Some(ref sha256) = record.content_sha256 {
+                    let content_path = make_content_path(&config, &record).unwrap();
+                    let content = std::fs::read(content_path).unwrap();
+                    assert_eq!(*sha256, format_sha256(Sha256::digest(content)));
+                }
             });
         });
     }
