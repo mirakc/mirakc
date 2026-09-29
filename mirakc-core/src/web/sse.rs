@@ -101,6 +101,8 @@ where
     let _record_broken_unregister_trigger = register_emitter_for_records!(RecordBroken);
     let _record_removed_unregister_trigger = register_emitter_for_records!(RecordRemoved);
     let _content_removed_unregister_trigger = register_emitter_for_records!(ContentRemoved);
+    let _content_sha256_calculated_unregister_trigger =
+        register_emitter_for_records!(ContentSha256Calculated);
 
     let _timeshift_event_unregister_trigger = register_emitter_if_enabled!(
         timeshift_manager,
@@ -131,6 +133,7 @@ where
         _record_broken_unregister_trigger,
         _record_removed_unregister_trigger,
         _content_removed_unregister_trigger,
+        _content_sha256_calculated_unregister_trigger,
         _timeshift_event_unregister_trigger,
         _onair_program_changed_unregister_trigger,
     });
@@ -300,6 +303,19 @@ impl From<crate::recording::ContentRemoved> for Event {
     }
 }
 
+impl_emit! {crate::recording::ContentSha256Calculated}
+
+impl From<crate::recording::ContentSha256Calculated> for Event {
+    fn from(val: crate::recording::ContentSha256Calculated) -> Self {
+        Self::default()
+            .event("recording.content-sha256-calculated")
+            .json_data(ContentSha256Calculated {
+                record_id: val.record_id,
+            })
+            .unwrap()
+    }
+}
+
 // timeshift events
 
 impl_emit! {crate::timeshift::TimeshiftEvent}
@@ -391,6 +407,8 @@ struct EventStreamWrapper<S> {
     _record_saved_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
     _record_removed_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
     _content_removed_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
+    _content_sha256_calculated_unregister_trigger:
+        Option<Trigger<crate::recording::UnregisterEmitter>>,
     _record_broken_unregister_trigger: Option<Trigger<crate::recording::UnregisterEmitter>>,
     _timeshift_event_unregister_trigger: Option<Trigger<crate::timeshift::UnregisterEmitter>>,
     _onair_program_changed_unregister_trigger: Option<Trigger<crate::onair::UnregisterEmitter>>,

@@ -78,6 +78,12 @@ pub struct ContentRemoved {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ContentSha256Calculated {
+    pub record_id: RecordId,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimeshiftTimeline {
     pub recorder: String,
     #[serde(with = "ts_milliseconds_option")]
