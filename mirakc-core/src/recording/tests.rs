@@ -1,3 +1,4 @@
+use super::content_source::ContentSourceKind;
 use super::*;
 use crate::epg::stub::EpgStub;
 use crate::onair::stub::OnairProgramManagerStub;
@@ -12,17 +13,6 @@ use tokio::sync::Notify;
 
 const RECORDING_DIR: &str = "recording";
 const RECORDS_DIR: &str = ".records";
-
-#[test]
-fn test_content_file_error() {
-    let err = std::io::Error::from(std::io::ErrorKind::NotFound);
-    assert_matches!(content_file_error(err), Error::NoContent);
-
-    let err = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
-    assert_matches!(content_file_error(err), Error::IoError(err) => {
-        assert_matches!(err.kind(), std::io::ErrorKind::PermissionDenied);
-    });
-}
 
 #[test]
 fn test_record_id() {
@@ -1423,7 +1413,7 @@ async fn test_content_source_create_stream() {
     let mut source = ContentSource::new(&config, &record, None, &ctx)
         .await
         .unwrap();
-    assert_matches!(&source.kind, ContentSourceKind::Pipeline(pipeline) => {
+    assert_matches!(source.kind(), ContentSourceKind::Pipeline(pipeline) => {
         let models = pipeline.get_model();
         assert_eq!(models.len(), 1);
         assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
@@ -1444,7 +1434,7 @@ async fn test_content_source_create_stream() {
     let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
         .await
         .unwrap();
-    assert_matches!(&source.kind, ContentSourceKind::File(Some(_)));
+    assert_matches!(source.kind(), ContentSourceKind::File(Some(_)));
     let stream = source.create_stream(1000);
     let mut reader = tokio_util::io::StreamReader::new(stream);
     let mut content = String::new();
@@ -1459,7 +1449,7 @@ async fn test_content_source_create_stream() {
     let mut source = ContentSource::new(&config, &record, None, &ctx)
         .await
         .unwrap();
-    assert_matches!(&source.kind, ContentSourceKind::File(Some(_)));
+    assert_matches!(source.kind(), ContentSourceKind::File(Some(_)));
     let stream = source.create_stream(1000);
     let mut reader = tokio_util::io::StreamReader::new(stream);
     let mut content = String::new();
@@ -1473,7 +1463,7 @@ async fn test_content_source_create_stream() {
     let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
         .await
         .unwrap();
-    assert_matches!(&source.kind, ContentSourceKind::File(Some(_)));
+    assert_matches!(source.kind(), ContentSourceKind::File(Some(_)));
     let stream = source.create_stream(1000);
     let mut reader = tokio_util::io::StreamReader::new(stream);
     let mut content = String::new();
