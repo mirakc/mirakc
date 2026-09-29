@@ -32,6 +32,8 @@ impl Sha256Calculator {
 
         let mut hasher = Sha256::new();
         loop {
+            self.buf.clear();
+
             let nread = file.read_buf(&mut self.buf).await?;
             if nread == 0 {
                 break;
