@@ -6,6 +6,8 @@ use crate::tuner::stub::TunerManagerStub;
 use assert_matches::assert_matches;
 use indexmap::indexmap;
 use maplit::hashset;
+use sha2::Digest;
+use sha2::Sha256;
 use tempfile::TempDir;
 use test_log::test;
 use tokio::io::AsyncReadExt;
@@ -380,8 +382,12 @@ async fn test_start_recording() {
     let content_filename = "1.m2ts";
     let log_filename = "1.m2ts.log";
 
+    let notify = Arc::new(Notify::new());
+    let notify2 = notify.clone();
+
     let mut seq = mockall::Sequence::new();
     let mut record_saved = MockRecordSavedValidator::new();
+    let mut content_sha256_calculated = MockContentSha256CalculatedValidator::new();
 
     record_saved
         .expect_emit()
@@ -405,12 +411,29 @@ async fn test_start_recording() {
         .once()
         .in_sequence(&mut seq);
 
+    content_sha256_calculated
+        .expect_emit()
+        .withf(move |msg| {
+            let program_id_part = format!("{:08X}", program_id.value());
+            msg.record_id.value().ends_with(&program_id_part)
+        })
+        .returning(move |_| notify2.notify_one())
+        .once()
+        .in_sequence(&mut seq);
+
     let system = System::new();
     {
         let manager = system.spawn_actor(recording_manager!(config.clone())).await;
 
         let result = manager
             .call(RegisterEmitter::RecordSaved(Emitter::new(record_saved)))
+            .await;
+        assert_matches!(result, Ok(_));
+
+        let result = manager
+            .call(RegisterEmitter::ContentSha256Calculated(Emitter::new(
+                content_sha256_calculated,
+            )))
             .await;
         assert_matches!(result, Ok(_));
 
@@ -440,6 +463,9 @@ async fn test_start_recording() {
                 assert!(record.content_sha256.is_none());
             });
         });
+
+        // Waiting for ContentSha256Calculated.
+        notify.notified().await;
     }
     system.shutdown().await;
 
@@ -459,7 +485,11 @@ async fn test_start_recording() {
             assert_eq!(record.program.id, program_id);
             // The recording stops when the system stops.
             assert_matches!(record.recording_status, RecordingStatus::Finished);
-            assert!(record.content_sha256.is_some());
+            assert_matches!(record.content_sha256.as_deref(), Some(sha256) => {
+                let content_path = make_content_path(&config, &record).unwrap();
+                let content = std::fs::read(content_path).unwrap();
+                assert_eq!(sha256, sha256::format(Sha256::digest(content)));
+            });
         });
     });
 }
@@ -473,8 +503,12 @@ async fn test_start_recording_without_content_path() {
 
     let program_id = ProgramId::from((0, 1, 1));
 
+    let notify = Arc::new(Notify::new());
+    let notify2 = notify.clone();
+
     let mut seq = mockall::Sequence::new();
     let mut record_saved = MockRecordSavedValidator::new();
+    let mut content_sha256_calculated = MockContentSha256CalculatedValidator::new();
 
     record_saved
         .expect_emit()
@@ -498,12 +532,29 @@ async fn test_start_recording_without_content_path() {
         .once()
         .in_sequence(&mut seq);
 
+    content_sha256_calculated
+        .expect_emit()
+        .withf(move |msg| {
+            let program_id_part = format!("{:08X}", program_id.value());
+            msg.record_id.value().ends_with(&program_id_part)
+        })
+        .returning(move |_| notify2.notify_one())
+        .once()
+        .in_sequence(&mut seq);
+
     let system = System::new();
     {
         let manager = system.spawn_actor(recording_manager!(config.clone())).await;
 
         let result = manager
             .call(RegisterEmitter::RecordSaved(Emitter::new(record_saved)))
+            .await;
+        assert_matches!(result, Ok(_));
+
+        let result = manager
+            .call(RegisterEmitter::ContentSha256Calculated(Emitter::new(
+                content_sha256_calculated,
+            )))
             .await;
         assert_matches!(result, Ok(_));
 
@@ -532,6 +583,9 @@ async fn test_start_recording_without_content_path() {
                 assert!(record.content_sha256.is_none());
             });
         });
+
+        // Waiting for ContentSha256Calculated.
+        notify.notified().await;
     }
     system.shutdown().await;
 
@@ -559,7 +613,11 @@ async fn test_start_recording_without_content_path() {
             assert_eq!(record.program.id, program_id);
             // The recording stops when the system stops.
             assert_matches!(record.recording_status, RecordingStatus::Finished);
-            assert!(record.content_sha256.is_some());
+            assert_matches!(record.content_sha256.as_deref(), Some(sha256) => {
+                let content_path = make_content_path(&config, &record).unwrap();
+                let content = std::fs::read(content_path).unwrap();
+                assert_eq!(sha256, sha256::format(Sha256::digest(content)));
+            });
         });
     });
 }
@@ -580,6 +638,7 @@ async fn test_stop_recording() {
     let mut seq = mockall::Sequence::new();
     let mut stopped = MockRecordingStoppedValidator::new();
     let mut record_saved = MockRecordSavedValidator::new();
+    let mut content_sha256_calculated = MockContentSha256CalculatedValidator::new();
 
     record_saved
         .expect_emit()
@@ -605,6 +664,16 @@ async fn test_stop_recording() {
 
     stopped
         .expect_emit()
+        .returning(|_| ())
+        .once()
+        .in_sequence(&mut seq);
+
+    content_sha256_calculated
+        .expect_emit()
+        .withf(move |msg| {
+            let program_id_part = format!("{:08X}", program_id.value());
+            msg.record_id.value().ends_with(&program_id_part)
+        })
         .returning(move |_| notify2.notify_one())
         .once()
         .in_sequence(&mut seq);
@@ -620,6 +689,13 @@ async fn test_stop_recording() {
 
         let result = manager
             .call(RegisterEmitter::RecordSaved(Emitter::new(record_saved)))
+            .await;
+        assert_matches!(result, Ok(_));
+
+        let result = manager
+            .call(RegisterEmitter::ContentSha256Calculated(Emitter::new(
+                content_sha256_calculated,
+            )))
             .await;
         assert_matches!(result, Ok(_));
 
@@ -649,7 +725,11 @@ async fn test_stop_recording() {
             assert_matches!(load_record(&config, &record_path).await, Ok((record, _)) => {
                 assert_eq!(record.program.id, program_id);
                 assert_matches!(record.recording_status, RecordingStatus::Finished);
-                assert!(record.content_sha256.is_some());
+                assert_matches!(record.content_sha256.as_deref(), Some(sha256) => {
+                    let content_path = make_content_path(&config, &record).unwrap();
+                    let content = std::fs::read(content_path).unwrap();
+                    assert_eq!(sha256, sha256::format(Sha256::digest(content)));
+                });
             });
         });
     }
@@ -1700,5 +1780,14 @@ mockall::mock! {
     #[async_trait]
     impl Emit<RecordBroken> for RecordBrokenValidator {
         async fn emit(&self, msg: RecordBroken);
+    }
+}
+
+mockall::mock! {
+    ContentSha256CalculatedValidator {}
+
+    #[async_trait]
+    impl Emit<ContentSha256Calculated> for ContentSha256CalculatedValidator {
+        async fn emit(&self, msg: ContentSha256Calculated);
     }
 }

@@ -1,4 +1,5 @@
 mod content_source;
+mod sha256;
 
 #[cfg(test)]
 mod tests;
@@ -28,9 +29,6 @@ use itertools::Itertools;
 use path_dedot::ParseDot;
 use serde::Deserialize;
 use serde::Serialize;
-use sha2::Digest;
-use sha2::Sha256;
-use tokio::io::AsyncReadExt;
 use tokio::io::BufWriter;
 use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
@@ -61,6 +59,8 @@ use crate::tuner::StopStreaming;
 use crate::tuner::TunerSubscriptionId;
 
 use content_source::ContentSource;
+use sha256::CalculateSha256;
+use sha256::Sha256Calculator;
 
 const EXIT_RETRY: i32 = 222;
 
@@ -74,6 +74,8 @@ pub struct RecordingManager<T, E, O> {
     tuner_manager: T,
     epg: E,
     onair_program_tracker: O,
+
+    sha256_calculator: Option<Address<Sha256Calculator>>,
 
     // We use two types for managing recording schedules.  `std` provides
     // `BTreeMap` for representing an ordered map, but it cannot provides the
@@ -95,6 +97,7 @@ pub struct RecordingManager<T, E, O> {
     record_removed: EmitterRegistry<RecordRemoved>,
     content_removed: EmitterRegistry<ContentRemoved>,
     record_broken: EmitterRegistry<RecordBroken>,
+    content_sha256_calculated: EmitterRegistry<ContentSha256Calculated>,
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
@@ -104,6 +107,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             tuner_manager,
             epg,
             onair_program_tracker,
+            sha256_calculator: None,
             queue: Default::default(),
             schedules: Default::default(),
             recorders: Default::default(),
@@ -116,6 +120,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             record_broken: Default::default(),
             record_removed: Default::default(),
             content_removed: Default::default(),
+            content_sha256_calculated: Default::default(),
         }
     }
 }
@@ -277,7 +282,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                         ) {
                             tracing::error!(?record_path, "inconsistent");
                         }
-                        record.update_by_schedule(&self.config, schedule).await;
+                        record.update_by_schedule(schedule).await;
                     }
                     None => {
                         // The schedule may have been removed before this method is called.
@@ -317,6 +322,17 @@ impl<T, E, O> RecordingManager<T, E, O> {
             },
         };
 
+        if record.is_done() {
+            if let Some(ref addr) = self.sha256_calculator {
+                let content_path = make_content_path(&self.config, &record).unwrap();
+                addr.emit(CalculateSha256 {
+                    record_id: record.id.clone(),
+                    content_path,
+                })
+                .await;
+            }
+        }
+
         if file_util::save_json(&record, &record_path) {
             tracing::info!(?record_path, "Updated successfully");
             self.emit_record_saved(record.id, record.recording_status)
@@ -351,6 +367,11 @@ where
         if !self.config.recording.is_enabled() {
             tracing::info!("Recording is disabled");
             return;
+        }
+
+        if self.config.recording.is_records_api_enabled() {
+            self.sha256_calculator =
+                Some(ctx.spawn_actor(Sha256Calculator::new(ctx.emitter())).await);
         }
 
         if let Err(err) = self
@@ -1517,6 +1538,7 @@ pub enum RegisterEmitter {
     RecordRemoved(Emitter<RecordRemoved>),
     ContentRemoved(Emitter<ContentRemoved>),
     RecordBroken(Emitter<RecordBroken>),
+    ContentSha256Calculated(Emitter<ContentSha256Calculated>),
 }
 
 #[async_trait]
@@ -1598,6 +1620,12 @@ where
                 tracing::debug!(msg.name = "RegisterEmitter::ContentRemoved", id);
                 id
             }
+            RegisterEmitter::ContentSha256Calculated(emitter) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
+                let id = self.content_sha256_calculated.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::ContentSha256Calculated", id);
+                id
+            }
         }
     }
 }
@@ -1658,6 +1686,7 @@ pub enum UnregisterEmitter {
     RecordRemoved(usize),
     ContentRemoved(usize),
     RecordBroken(usize),
+    ContentSha256Calculated(usize),
 }
 
 #[async_trait]
@@ -1712,6 +1741,11 @@ where
                 debug_assert!(self.config.recording.is_records_api_enabled());
                 tracing::debug!(msg.name = "UnregisterEmitter::ContentRemoved", id);
                 self.content_removed.unregister(id);
+            }
+            UnregisterEmitter::ContentSha256Calculated(id) => {
+                debug_assert!(self.config.recording.is_records_api_enabled());
+                tracing::debug!(msg.name = "UnregisterEmitter::ContentSha256Calculated", id);
+                self.content_sha256_calculated.unregister(id);
             }
         }
     }
@@ -2003,6 +2037,49 @@ impl<T, E, O> RecordingManager<T, E, O> {
     async fn emit_content_removed(&self, record_id: RecordId) {
         let msg = ContentRemoved { record_id };
         self.content_removed.emit(msg).await;
+    }
+}
+
+// content sha256 calculated
+
+#[derive(Clone, Message)]
+pub struct ContentSha256Calculated {
+    pub record_id: RecordId,
+    pub content_sha256: String,
+}
+
+#[async_trait]
+impl<T, E, O> Handler<ContentSha256Calculated> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(&mut self, msg: ContentSha256Calculated, _ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "ContentSha256Calculated", %msg.record_id, %msg.content_sha256);
+        debug_assert!(self.config.recording.is_records_api_enabled());
+        let record_path = make_record_path(&self.config, &msg.record_id).unwrap();
+        match load_record(&self.config, &record_path).await {
+            Ok((mut record, _)) => {
+                record.content_sha256 = Some(msg.content_sha256.clone());
+                if file_util::save_json(&record, &record_path) {
+                    tracing::info!(?record_path, "Updated successfully");
+                    self.content_sha256_calculated.emit(msg).await;
+                }
+            }
+            Err(err) => {
+                tracing::error!(?err, ?record_path, "Broken record, skip updating");
+                self.emit_record_broken(msg.record_id, "Broken record")
+                    .await;
+            }
+        }
     }
 }
 
@@ -2502,7 +2579,14 @@ impl Record {
         }
     }
 
-    async fn update_by_schedule(&mut self, config: &Config, schedule: &RecordingSchedule) {
+    fn is_done(&self) -> bool {
+        matches!(
+            self.recording_status,
+            RecordingStatus::Finished | RecordingStatus::Failed { .. }
+        )
+    }
+
+    async fn update_by_schedule(&mut self, schedule: &RecordingSchedule) {
         let now = Jst::now();
 
         self.program = schedule.program.clone();
@@ -2526,15 +2610,11 @@ impl Record {
             }
             RecordingScheduleState::Finished => {
                 self.recording_status = RecordingStatus::Finished;
-                let content_path = make_content_path(config, self).unwrap();
-                self.content_sha256 = compute_content_sha256(&content_path).await.ok();
             }
             RecordingScheduleState::Failed => {
                 self.recording_status = RecordingStatus::Failed {
                     reason: schedule.failed_reason.clone().unwrap(),
                 };
-                let content_path = make_content_path(config, self).unwrap();
-                self.content_sha256 = compute_content_sha256(&content_path).await.ok();
             }
         }
     }
@@ -2659,24 +2739,4 @@ fn glob_records(records_dir: &Path) -> impl Iterator<Item = PathBuf> {
                 None
             }
         })
-}
-
-async fn compute_content_sha256(content_path: &Path) -> Result<String, Error> {
-    let mut file = tokio::fs::File::open(content_path).await?;
-
-    let mut hasher = Sha256::new();
-    let mut buf = [0; 4096];
-    loop {
-        let nread = file.read(&mut buf).await?;
-        if nread == 0 {
-            break;
-        }
-        hasher.update(&buf[..nread]);
-    }
-
-    Ok(hasher
-        .finalize()
-        .into_iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<String>())
 }
