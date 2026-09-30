@@ -1,3 +1,4 @@
 [profile.default]
 status-level = "fail"
 fail-fast = false
+slow-timeout = { period = "5s", terminate-after = 2 }
