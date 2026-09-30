@@ -2072,6 +2072,8 @@ where
                 if file_util::save_json(&record, &record_path) {
                     tracing::info!(?record_path, "Updated successfully");
                     self.content_sha256_calculated.emit(msg).await;
+                    self.emit_record_saved(record.id.clone(), record.recording_status.clone())
+                        .await;
                 }
             }
             Err(err) => {

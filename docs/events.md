@@ -203,7 +203,8 @@ An event sent when a content is removed.
 
 ## recording.content-sha256-calculated
 
-An event sent when the SHA-256 hash of a content is calculated.
+An event sent when the SHA-256 hash of a content is calculated and the corresponding record is saved
+successfully.
 
 ```jsonc
 {
@@ -213,6 +214,8 @@ An event sent when the SHA-256 hash of a content is calculated.
   }
 }
 ```
+
+A `recording.content-sha256-calculated` event is also sent after this event.
 
 ## recording.record-broken
 

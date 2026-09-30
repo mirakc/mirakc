@@ -417,6 +417,17 @@ async fn test_start_recording() {
             let program_id_part = format!("{:08X}", program_id.value());
             msg.record_id.value().ends_with(&program_id_part)
         })
+        .returning(|_| ())
+        .once()
+        .in_sequence(&mut seq);
+
+    record_saved
+        .expect_emit()
+        .withf(move |msg| {
+            let program_id_part = format!("{:08X}", program_id.value());
+            msg.record_id.value().ends_with(&program_id_part)
+                && matches!(msg.recording_status, RecordingStatus::Finished)
+        })
         .returning(move |_| notify2.notify_one())
         .once()
         .in_sequence(&mut seq);
@@ -464,7 +475,7 @@ async fn test_start_recording() {
             });
         });
 
-        // Waiting for ContentSha256Calculated.
+        // Waiting for the last RecordSaved.
         notify.notified().await;
     }
     system.shutdown().await;
@@ -538,6 +549,17 @@ async fn test_start_recording_without_content_path() {
             let program_id_part = format!("{:08X}", program_id.value());
             msg.record_id.value().ends_with(&program_id_part)
         })
+        .returning(|_| ())
+        .once()
+        .in_sequence(&mut seq);
+
+    record_saved
+        .expect_emit()
+        .withf(move |msg| {
+            let program_id_part = format!("{:08X}", program_id.value());
+            msg.record_id.value().ends_with(&program_id_part)
+                && matches!(msg.recording_status, RecordingStatus::Finished)
+        })
         .returning(move |_| notify2.notify_one())
         .once()
         .in_sequence(&mut seq);
@@ -584,7 +606,7 @@ async fn test_start_recording_without_content_path() {
             });
         });
 
-        // Waiting for ContentSha256Calculated.
+        // Waiting for the last RecordSaved.
         notify.notified().await;
     }
     system.shutdown().await;
@@ -674,6 +696,17 @@ async fn test_stop_recording() {
             let program_id_part = format!("{:08X}", program_id.value());
             msg.record_id.value().ends_with(&program_id_part)
         })
+        .returning(|_| ())
+        .once()
+        .in_sequence(&mut seq);
+
+    record_saved
+        .expect_emit()
+        .withf(move |msg| {
+            let program_id_part = format!("{:08X}", program_id.value());
+            msg.record_id.value().ends_with(&program_id_part)
+                && matches!(msg.recording_status, RecordingStatus::Finished)
+        })
         .returning(move |_| notify2.notify_one())
         .once()
         .in_sequence(&mut seq);
@@ -714,6 +747,7 @@ async fn test_stop_recording() {
         let result = manager.call(StopRecording { program_id }).await;
         assert_matches!(result, Ok(Ok(())));
 
+        // Waiting for the last RecordSaved.
         notify.notified().await;
 
         let record_pattern = format!(
