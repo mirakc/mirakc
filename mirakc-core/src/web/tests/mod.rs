@@ -458,6 +458,12 @@ async fn test_get_recording_history() {
 }
 
 #[test(tokio::test)]
+async fn test_delete_recording_history() {
+    let res = delete("/api/recording/history").await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[test(tokio::test)]
 async fn test_get_recording_recorders() {
     let res = get("/api/recording/recorders").await;
     assert_eq!(res.status(), StatusCode::OK);

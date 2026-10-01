@@ -35,6 +35,7 @@ Web API endpoints listed below have been implemented at this moment:
 | [GET /api/recording/schedules/{program_id}]     |                            |
 | [DELETE /api/recording/schedules/{program_id}]  |                            |
 | [GET /api/recording/history]                    |                            |
+| [DELETE /api/recording/history]                 |                            |
 | [GET /api/recording/recorders]                  |                            |
 | [POST /api/recording/recorders]                 |                            |
 | [GET /api/recording/recorders/{program_id}]     |                            |
@@ -74,6 +75,7 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 * [GET /api/recording/schedules/{program_id}]
 * [DELETE /api/recording/schedules/{program_id}]
 * [GET /api/recording/history]
+* [DELETE /api/recording/history]
 * [GET /api/recording/recorders]
 * [POST /api/recording/recorders]
 * [GET /api/recording/recorders/{program_id}]
@@ -116,6 +118,7 @@ Web API endpoints listed below have been implemented as the mirakc extensions:
 [GET /api/recording/schedules/{program_id}]: #get-apirecordingschedulesprogram_id
 [DELETE /api/recording/schedules/{program_id}]: #deleteapirecordingschedulesprogram_id
 [GET /api/recording/history]: #get-apirecordinghistory
+[DELETE /api/recording/history]: #delete-apirecordinghistory
 [GET /api/recording/recorders]: #get-apirecordingrecorders
 [POST /api/recording/recorders]: #postapirecordingrecorders
 [GET /api/recording/recorders/{program_id}]: #get-apirecordingrecordersprogram_id
@@ -363,6 +366,10 @@ Deletes a recording schedule for a specified program.
 ### GET /api/recording/schedules
 
 Returns a list of recording history.
+
+### DELETE /api/recording/schedules
+
+Deletes the recording history.
 
 ### GET /api/recording/recorders
 

@@ -836,6 +836,43 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 }
 
+// delete recording history
+
+#[derive(Message)]
+#[reply()]
+pub struct DeleteRecordingHistory;
+
+#[async_trait]
+impl<T, E, O> Handler<DeleteRecordingHistory> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        _msg: DeleteRecordingHistory,
+        _ctx: &mut Context<Self>,
+    ) -> <DeleteRecordingHistory as Message>::Reply {
+        tracing::debug!(msg.name = "DeleteRecordingHistory");
+        self.delete_history();
+        self.save_schedules();
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn delete_history(&mut self) {
+        self.history.clear();
+    }
+}
+
 // query recording recorders
 
 #[derive(Message)]

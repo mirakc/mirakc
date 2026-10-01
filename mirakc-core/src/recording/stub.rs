@@ -19,6 +19,26 @@ impl Call<AddRecordingSchedule> for RecordingManagerStub {
 }
 
 #[async_trait]
+impl Call<DeleteRecordingHistory> for RecordingManagerStub {
+    async fn call(
+        &self,
+        _msg: DeleteRecordingHistory,
+    ) -> actlet::Result<<DeleteRecordingHistory as Message>::Reply> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Call<QueryRecordingHistory> for RecordingManagerStub {
+    async fn call(
+        &self,
+        _msg: QueryRecordingHistory,
+    ) -> actlet::Result<<QueryRecordingHistory as Message>::Reply> {
+        Ok(vec![])
+    }
+}
+
+#[async_trait]
 impl Call<QueryRecordingSchedule> for RecordingManagerStub {
     async fn call(
         &self,
@@ -45,16 +65,6 @@ impl Call<QueryRecordingSchedules> for RecordingManagerStub {
         &self,
         _msg: QueryRecordingSchedules,
     ) -> actlet::Result<<QueryRecordingSchedules as Message>::Reply> {
-        Ok(vec![])
-    }
-}
-
-#[async_trait]
-impl Call<QueryRecordingHistory> for RecordingManagerStub {
-    async fn call(
-        &self,
-        _msg: QueryRecordingHistory,
-    ) -> actlet::Result<<QueryRecordingHistory as Message>::Reply> {
         Ok(vec![])
     }
 }
