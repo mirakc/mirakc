@@ -452,6 +452,12 @@ async fn test_delete_recording_schedules() {
 }
 
 #[test(tokio::test)]
+async fn test_get_recording_history() {
+    let res = get("/api/recording/history").await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[test(tokio::test)]
 async fn test_get_recording_recorders() {
     let res = get("/api/recording/recorders").await;
     assert_eq!(res.status(), StatusCode::OK);

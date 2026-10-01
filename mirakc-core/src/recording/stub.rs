@@ -50,6 +50,16 @@ impl Call<QueryRecordingSchedules> for RecordingManagerStub {
 }
 
 #[async_trait]
+impl Call<QueryRecordingHistory> for RecordingManagerStub {
+    async fn call(
+        &self,
+        _msg: QueryRecordingHistory,
+    ) -> actlet::Result<<QueryRecordingHistory as Message>::Reply> {
+        Ok(vec![])
+    }
+}
+
+#[async_trait]
 impl Call<QueryRecords> for RecordingManagerStub {
     async fn call(&self, _msg: QueryRecords) -> actlet::Result<<QueryRecords as Message>::Reply> {
         Ok(Ok(vec![]))
