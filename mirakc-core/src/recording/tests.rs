@@ -1727,6 +1727,96 @@ async fn test_recorder_get_first_error() {
     assert_matches!(get_first_error(&results), Some(1));
 }
 
+#[test(tokio::test)]
+async fn test_check_records_has_content_sha256() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = config_for_test(temp_dir.path());
+
+    let id = RecordId("1".to_string());
+    let mut record = record!(recording: id.value());
+    record.content_sha256 = Some("dummy".to_string());
+    let record_path = make_record_path(&config, &id).unwrap();
+    assert!(file_util::save_json(&record, &record_path));
+
+    let content_path = make_content_path(&config, &record).unwrap();
+    assert!(file_util::save_data(b"0123456789", &content_path));
+
+    let mut emitter = MockCalculateSha256Validator::new();
+    emitter.expect_emit().never();
+
+    let mut broken = MockRecordBrokenValidator::new();
+    broken.expect_emit().never();
+
+    let mut manager = recording_manager!(config);
+    manager.record_broken.register(Emitter::new(broken));
+    manager.check_records(Emitter::new(emitter)).await;
+}
+
+#[test(tokio::test)]
+async fn test_check_records_not_has_content_sha256() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = config_for_test(temp_dir.path());
+
+    let id = RecordId("1".to_string());
+    let record = record!(recording: id.value());
+    let record_path = make_record_path(&config, &id).unwrap();
+    assert!(file_util::save_json(&record, &record_path));
+
+    let content_path = make_content_path(&config, &record).unwrap();
+    assert!(file_util::save_data(b"0123456789", &content_path));
+
+    let mut emitter = MockCalculateSha256Validator::new();
+    emitter.expect_emit().returning(|_| ()).once();
+
+    let mut broken = MockRecordBrokenValidator::new();
+    broken.expect_emit().never();
+
+    let mut manager = recording_manager!(config);
+    manager.record_broken.register(Emitter::new(broken));
+    manager.check_records(Emitter::new(emitter)).await;
+}
+
+#[test(tokio::test)]
+async fn test_check_records_no_content_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = config_for_test(temp_dir.path());
+
+    let id = RecordId("1".to_string());
+    let record = record!(recording: id.value());
+    let record_path = make_record_path(&config, &id).unwrap();
+    assert!(file_util::save_json(&record, &record_path));
+
+    let mut emitter = MockCalculateSha256Validator::new();
+    emitter.expect_emit().never();
+
+    let mut broken = MockRecordBrokenValidator::new();
+    broken.expect_emit().never();
+
+    let mut manager = recording_manager!(config);
+    manager.record_broken.register(Emitter::new(broken));
+    manager.check_records(Emitter::new(emitter)).await;
+}
+
+#[test(tokio::test)]
+async fn test_check_records_broken() {
+    let temp_dir = TempDir::new().unwrap();
+    let config = config_for_test(temp_dir.path());
+
+    let id = RecordId("1".to_string());
+    let record_path = make_record_path(&config, &id).unwrap();
+    assert!(file_util::save_data(b"0123456789", &record_path));
+
+    let mut emitter = MockCalculateSha256Validator::new();
+    emitter.expect_emit().never();
+
+    let mut broken = MockRecordBrokenValidator::new();
+    broken.expect_emit().returning(|_| ()).once();
+
+    let mut manager = recording_manager!(config);
+    manager.record_broken.register(Emitter::new(broken));
+    manager.check_records(Emitter::new(emitter)).await;
+}
+
 fn config_for_test<P: AsRef<Path>>(dir: P) -> Arc<Config> {
     let mut config = Config::default();
 
@@ -1833,5 +1923,14 @@ mockall::mock! {
     #[async_trait]
     impl Emit<ContentSha256Calculated> for ContentSha256CalculatedValidator {
         async fn emit(&self, msg: ContentSha256Calculated);
+    }
+}
+
+mockall::mock! {
+    CalculateSha256Validator {}
+
+    #[async_trait]
+    impl Emit<CalculateSha256> for CalculateSha256Validator {
+        async fn emit(&self, msg: CalculateSha256);
     }
 }
