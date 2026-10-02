@@ -354,6 +354,42 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 .await;
         }
     }
+
+    // For testing purposes, we pass an emitter instead of using self.sha256calculator directly in
+    // this method.
+    async fn check_records(&self, emitter: Emitter<CalculateSha256>) {
+        debug_assert!(self.config.recording.is_records_api_enabled());
+        let records_dir = self.config.recording.records_dir.as_ref().unwrap();
+
+        for record_path in glob_records(records_dir) {
+            match load_record(&self.config, &record_path).await {
+                Ok((record, _)) if record.content_sha256.is_some() => {
+                    // The content SHA-256 has already been calculated.
+                }
+                Ok((record, Some(_))) => {
+                    // The content file exists, but its SHA-256 has not yet been calculated.
+                    // Send a CalculateSha256 message to Sha256Calculator.
+                    let content_path = make_content_path(&self.config, &record).unwrap();
+                    emitter
+                        .emit(CalculateSha256 {
+                            record_id: record.id.clone(),
+                            content_path,
+                        })
+                        .await;
+                }
+                Ok((_record, None)) => {
+                    // No content file, nothing to do.
+                }
+                Err(err) => {
+                    // The record has been broken.
+                    const MSG: &str = "Failed to load, maybe broken";
+                    tracing::error!(?record_path, ?err, MSG);
+                    let record_id = RecordId::from_record_path(&record_path);
+                    self.emit_record_broken(record_id, MSG).await;
+                }
+            }
+        }
+    }
 }
 
 // actor
@@ -415,6 +451,12 @@ where
         self.load_schedules();
         self.rebuild_queue();
         self.set_timer(ctx);
+
+        if self.config.recording.is_records_api_enabled() {
+            debug_assert!(self.sha256_calculator.is_some());
+            let emitter = self.sha256_calculator.as_ref().unwrap().emitter();
+            self.check_records(emitter).await;
+        }
     }
 
     async fn stopping(&mut self, _ctx: &mut Context<Self>) {
@@ -2635,6 +2677,12 @@ impl RecordId {
 
     pub fn value(&self) -> &str {
         &self.0
+    }
+
+    fn from_record_path(record_path: &Path) -> Self {
+        debug_assert!(record_path.to_string_lossy().ends_with(".record.json"));
+        let id_str = record_path.file_prefix().unwrap();
+        Self::from(id_str.to_str().unwrap().to_owned())
     }
 }
 
