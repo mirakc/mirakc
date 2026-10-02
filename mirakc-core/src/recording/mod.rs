@@ -1131,38 +1131,43 @@ impl<T, E, O> RecordingManager<T, E, O> {
         let max_delay = Duration::try_hours(MAX_DELAY_HOURS).unwrap();
 
         let len = self.schedules.len();
-        let mut expired = vec![];
 
-        self.schedules.retain(|_, schedule| {
-            if schedule.is_recording() {
-                return true;
-            }
-            if schedule.program.start_at.unwrap() + max_delay > now {
-                return true;
-            }
-            match schedule.state {
-                Scheduled | Tracking | Rescheduling => {
-                    tracing::error!(
-                        %schedule.program.id,
-                        "Schedule expired",
-                    );
-                    expired.push(schedule.program.id);
+        let expired = self
+            .schedules
+            .extract_if(|_, schedule| {
+                if schedule.is_recording() {
+                    return false;
                 }
-                _ => {
-                    tracing::error!(
-                        %schedule.program.id,
-                        schedule.state = ?schedule.state,
-                        "INCONSNSTENT: Invalid schedule.state",
-                    );
-                    panic!();
+                if schedule.program.start_at.unwrap() + max_delay > now {
+                    return false;
                 }
-            }
-            false
-        });
+                match schedule.state {
+                    Recording => unreachable!(),
+                    Scheduled | Tracking | Rescheduling => {
+                        tracing::error!(
+                            %schedule.program.id,
+                            "Schedule expired",
+                        );
+                        schedule.state = Failed;
+                        schedule.failed_reason = Some(RecordingFailedReason::ScheduleExpired);
+                    }
+                    Finished | Failed => {
+                        tracing::error!(
+                            %schedule.program.id,
+                            schedule.state = ?schedule.state,
+                            "INCONSNSTENT: Invalid schedule.state",
+                        );
+                    }
+                }
+                true
+            })
+            .map(|(_, schedule)| schedule)
+            .collect_vec();
 
-        for &program_id in expired.iter() {
-            self.emit_recording_failed(program_id, RecordingFailedReason::ScheduleExpired)
+        for schedule in expired.into_iter() {
+            self.emit_recording_failed(schedule.program.id, RecordingFailedReason::ScheduleExpired)
                 .await;
+            self.history.push(schedule);
         }
 
         self.schedules.len() != len

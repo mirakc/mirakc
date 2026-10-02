@@ -794,6 +794,7 @@ async fn test_maintain_schedules() {
     let changed = manager.maintain_schedules(now + max_delay).await;
     assert!(!changed);
     assert_eq!(manager.schedules.len(), 1);
+    assert_eq!(manager.history.len(), 0);
     manager.schedules.clear();
 
     let mut manager = recording_manager!(config.clone());
@@ -808,6 +809,7 @@ async fn test_maintain_schedules() {
     let changed = manager.maintain_schedules(now + max_delay).await;
     assert!(!changed);
     assert_eq!(manager.schedules.len(), 1);
+    assert_eq!(manager.history.len(), 0);
     manager.schedules.clear();
 
     let states = [
@@ -832,7 +834,8 @@ async fn test_maintain_schedules() {
         assert_matches!(result, Ok(()));
         let changed = manager.maintain_schedules(now + max_delay).await;
         assert!(changed);
-        assert!(manager.schedules.is_empty());
+        assert_eq!(manager.schedules.len(), 0);
+        assert_eq!(manager.history.len(), 1);
     }
 }
 
