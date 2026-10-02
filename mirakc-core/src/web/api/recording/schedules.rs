@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use crate::recording::RecordingSchedule;
 
 /// Lists recording schedules.
+///
+/// The list contains only **active** recording schedules.  `Finished` and `Failed` schedules are
+/// moved to the recording history.
 #[utoipa::path(
     get,
     path = "/recording/schedules",

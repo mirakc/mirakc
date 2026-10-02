@@ -68,6 +68,7 @@ const EXIT_RETRY: i32 = 222;
 // compile-time constants.
 const PREP_SECS: i64 = 15;
 const MAX_DELAY_HOURS: i64 = 15;
+const MAX_HISTORY_RETAIN_HOURS: i64 = 72;
 
 pub struct RecordingManager<T, E, O> {
     config: Arc<Config>,
@@ -86,6 +87,7 @@ pub struct RecordingManager<T, E, O> {
     //   ID
     queue: BinaryHeap<QueueItem>,
     schedules: HashMap<ProgramId, RecordingSchedule>,
+    history: Vec<RecordingSchedule>,
     recorders: HashMap<ProgramId, Recorder>,
     timer_token: Option<CancellationToken>,
 
@@ -110,6 +112,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             sha256_calculator: None,
             queue: Default::default(),
             schedules: Default::default(),
+            history: Default::default(),
             recorders: Default::default(),
             timer_token: None,
             recording_started: Default::default(),
@@ -141,18 +144,22 @@ impl<T, E, O> RecordingManager<T, E, O> {
             Ok(schedules) => {
                 tracing::info!(?path, "Loaded");
                 for schedule in schedules.into_iter() {
-                    let program_id = schedule.program.id;
-                    // Some of schedules may be expired, but `add_schedule()` doesn't check
-                    // that.
-                    match self.add_schedule(schedule) {
-                        Ok(_) => (),
-                        Err(err @ Error::AlreadyExists) => {
-                            // This error may happen when user changes schedules.json by hand.
-                            // We just output the warning message, ignore the schedule and
-                            // don't emit a RecordingFailed message.
-                            tracing::warn!(%err, %program_id, "Already added, ignore");
+                    if schedule.is_done() {
+                        self.history.push(schedule);
+                    } else {
+                        let program_id = schedule.program.id;
+                        // Some of schedules may be expired, but `add_schedule()` doesn't check
+                        // that.
+                        match self.add_schedule(schedule) {
+                            Ok(_) => (),
+                            Err(err @ Error::AlreadyExists) => {
+                                // This error may happen when user changes schedules.json by hand.
+                                // We just output the warning message, ignore the schedule and
+                                // don't emit a RecordingFailed message.
+                                tracing::warn!(%err, %program_id, "Already added, ignore");
+                            }
+                            Err(_) => unreachable!(),
                         }
-                        Err(_) => unreachable!(),
                     }
                 }
             }
@@ -168,7 +175,11 @@ impl<T, E, O> RecordingManager<T, E, O> {
             None => return,
         };
 
-        let schedules = self.schedules.values().collect_vec();
+        let schedules = self
+            .schedules
+            .values()
+            .chain(self.history.iter())
+            .collect_vec();
         if file_util::save_json(&schedules, &path) {
             tracing::info!(schedules.len = schedules.len(), "Saved schedules");
         } else {
@@ -789,6 +800,79 @@ impl<T, E, O> RecordingManager<T, E, O> {
     }
 }
 
+// query recording history
+
+#[derive(Message)]
+#[reply(Vec<RecordingSchedule>)]
+pub struct QueryRecordingHistory;
+
+#[async_trait]
+impl<T, E, O> Handler<QueryRecordingHistory> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        _msg: QueryRecordingHistory,
+        _ctx: &mut Context<Self>,
+    ) -> <QueryRecordingSchedules as Message>::Reply {
+        tracing::debug!(msg.name = "QueryRecordingHistory");
+        self.query_history()
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn query_history(&self) -> Vec<RecordingSchedule> {
+        self.history.clone()
+    }
+}
+
+// delete recording history
+
+#[derive(Message)]
+#[reply()]
+pub struct DeleteRecordingHistory;
+
+#[async_trait]
+impl<T, E, O> Handler<DeleteRecordingHistory> for RecordingManager<T, E, O>
+where
+    T: Clone + Send + Sync + 'static,
+    T: Call<StartStreaming>,
+    T: TriggerFactory<StopStreaming>,
+    E: Send + Sync + 'static,
+    E: Call<QueryClock>,
+    E: Call<QueryPrograms>,
+    E: Call<QueryService>,
+    E: Call<epg::RegisterEmitter>,
+    O: Clone + Send + Sync + 'static,
+    O: Call<onair::RegisterEmitter>,
+{
+    async fn handle(
+        &mut self,
+        _msg: DeleteRecordingHistory,
+        _ctx: &mut Context<Self>,
+    ) -> <DeleteRecordingHistory as Message>::Reply {
+        tracing::debug!(msg.name = "DeleteRecordingHistory");
+        self.delete_history();
+        self.save_schedules();
+    }
+}
+
+impl<T, E, O> RecordingManager<T, E, O> {
+    fn delete_history(&mut self) {
+        self.history.clear();
+    }
+}
+
 // query recording recorders
 
 #[derive(Message)]
@@ -970,9 +1054,11 @@ where
         tracing::debug!(msg.name = "ProcessRecording");
         let now = Jst::now();
 
-        let mut changed = self.maintain_schedules(now).await;
-        if changed {
+        let mut changed = false;
+
+        if self.maintain_schedules(now).await {
             self.rebuild_queue();
+            changed = true;
         }
 
         let program_ids = self.dequeue_next_schedules(now);
@@ -983,6 +1069,10 @@ where
         for program_id in program_ids.into_iter() {
             self.start_recording(program_id, ctx.address().clone(), ctx)
                 .await;
+        }
+
+        if self.maintain_history(now) {
+            changed = true;
         }
 
         self.set_timer(ctx);
@@ -1017,10 +1107,12 @@ impl<T, E, O> RecordingManager<T, E, O> {
                     expired.push(schedule.program.id);
                 }
                 _ => {
-                    tracing::debug!(
+                    tracing::error!(
                         %schedule.program.id,
-                        "Removed old schedule for maintenance"
+                        schedule.state = ?schedule.state,
+                        "INCONSNSTENT: Invalid schedule.state",
                     );
+                    panic!();
                 }
             }
             false
@@ -1047,6 +1139,22 @@ impl<T, E, O> RecordingManager<T, E, O> {
             }
         }
         program_ids
+    }
+
+    fn maintain_history(&mut self, now: DateTime<Jst>) -> bool {
+        let max_delay = Duration::try_hours(MAX_HISTORY_RETAIN_HOURS).unwrap();
+
+        let len = self.history.len();
+
+        self.history.retain(|schedule| {
+            use RecordingScheduleState::*;
+            debug_assert!(matches!(schedule.state, Finished | Failed));
+            schedule.program.start_at.unwrap() + max_delay > now
+        });
+
+        // No SSE event is sent.
+
+        self.history.len() != len
     }
 }
 
@@ -1826,12 +1934,12 @@ impl<T, E, O> RecordingManager<T, E, O> {
         //
         // It will be removed in the `ProcessRecording` message handler.
 
+        // NOTE: `self.schedules.get_mut(&program_id)` may return `None`.
         // The schedule may have been removed before the recording stops.
-        // For example, `clear_schedules()` clears schedules before the
-        // recordings stop.
-        let maybe_schedule = self.schedules.get_mut(&program_id);
+        // For example, `clear_schedules()` clears schedules before the recordings stop.
 
         let mut changed = false;
+        let mut done = false;
 
         let recorder = match self.recorders.get_mut(&program_id) {
             Some(recorder) => recorder,
@@ -1858,7 +1966,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 schedule.program.id = %program_id,
                 "Recording stopped before the TV program starts",
             );
-            if let Some(schedule) = maybe_schedule {
+            if let Some(schedule) = self.schedules.get_mut(&program_id) {
                 tracing::warn!(
                     %schedule.program.id,
                     "Need rescheduling",
@@ -1875,10 +1983,11 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 "The recording pipeline terminated abnormally",
             );
             let reason = RecordingFailedReason::PipelineError { exit_code };
-            if let Some(schedule) = maybe_schedule {
+            if let Some(schedule) = self.schedules.get_mut(&program_id) {
                 schedule.state = RecordingScheduleState::Failed;
                 schedule.failed_reason = Some(reason.clone());
                 changed = true;
+                done = true;
             }
             self.emit_recording_failed(program_id, reason).await;
         } else {
@@ -1886,11 +1995,15 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 schedule.program.id = %program_id,
                 "The recording finished successfully",
             );
-            if let Some(schedule) = maybe_schedule {
+            if let Some(schedule) = self.schedules.get_mut(&program_id) {
                 schedule.state = RecordingScheduleState::Finished;
                 changed = true;
+                done = true;
             }
         }
+
+        // Don't move the schedule from `schedules` to `history` at this point.
+        // The schedule may be used in `update_record()`.
 
         self.update_record(program_id).await;
 
@@ -1901,6 +2014,12 @@ impl<T, E, O> RecordingManager<T, E, O> {
         // TODO: Save recording logs to a file.
         let msg = RecordingStopped { program_id };
         self.recording_stopped.emit(msg).await;
+
+        if done {
+            if let Some(schedule) = self.schedules.remove(&program_id) {
+                self.history.push(schedule);
+            }
+        }
 
         changed
     }
@@ -2398,6 +2517,11 @@ impl RecordingSchedule {
     fn is_recording(&self) -> bool {
         use RecordingScheduleState::*;
         matches!(self.state, Recording)
+    }
+
+    fn is_done(&self) -> bool {
+        use RecordingScheduleState::*;
+        matches!(self.state, Finished | Failed)
     }
 }
 

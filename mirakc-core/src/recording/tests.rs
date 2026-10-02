@@ -834,28 +834,34 @@ async fn test_maintain_schedules() {
         assert!(changed);
         assert!(manager.schedules.is_empty());
     }
+}
 
-    let states = [
+#[test(tokio::test)]
+async fn test_maintain_history() {
+    let now = Jst::now();
+
+    let temp_dir = TempDir::new().unwrap();
+    let config = config_for_test(temp_dir.path());
+
+    let max_delay = Duration::try_hours(MAX_HISTORY_RETAIN_HOURS).unwrap();
+
+    let mut manager = recording_manager!(config.clone());
+    let schedule = recording_schedule!(
         RecordingScheduleState::Finished,
-        RecordingScheduleState::Failed,
-    ];
-    for state in states {
-        let mut manager = recording_manager!(config.clone());
-        let mut failed = MockRecordingFailedValidator::new();
-        failed.expect_emit().never();
-        manager.recording_failed.register(Emitter::new(failed));
-        let schedule = recording_schedule!(
-            state,
-            program!((0, 1, 1), now, "1h"),
-            service!((0, 1), "sv", channel_gr!("ch", "ch")),
-            recording_options!("1.m2ts", 0)
-        );
-        let result = manager.add_schedule(schedule);
-        assert_matches!(result, Ok(()));
-        let changed = manager.maintain_schedules(now + max_delay).await;
-        assert!(changed);
-        assert!(manager.schedules.is_empty());
-    }
+        program!((0, 1, 1), now, "1h"),
+        service!((0, 1), "sv", channel_gr!("ch", "ch")),
+        recording_options!("1.m2ts", 0)
+    );
+    manager.history.push(schedule);
+    assert!(!manager.history.is_empty());
+
+    let changed = manager.maintain_history(now);
+    assert!(!changed);
+    assert!(!manager.history.is_empty());
+
+    let changed = manager.maintain_history(now + max_delay);
+    assert!(changed);
+    assert!(manager.history.is_empty());
 }
 
 #[test(tokio::test)]
@@ -1254,7 +1260,9 @@ async fn test_handle_recording_stopped() {
     let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
     assert!(changed);
     assert!(!manager.recorders.contains_key(&(0, 1, 1).into()));
-    assert_matches!(manager.schedules.get(&(0, 1, 1).into()), Some(schedule) => {
+    // The schedule has been moved from `schedules` to `history`.
+    assert_matches!(manager.schedules.get(&(0, 1, 1).into()), None);
+    assert_matches!(manager.history.first(), Some(schedule) => {
         assert_matches!(schedule.state, RecordingScheduleState::Finished);
     });
 }
@@ -1345,7 +1353,9 @@ async fn test_handle_recording_stopped_pipeline_error() {
     let changed = manager.handle_recording_stopped((0, 1, 1).into()).await;
     assert!(changed);
     assert!(!manager.recorders.contains_key(&(0, 1, 1).into()));
-    assert_matches!(manager.schedules.get(&(0, 1, 1).into()), Some(schedule) => {
+    // The schedule has been moved from `schedules` to `history`.
+    assert_matches!(manager.schedules.get(&(0, 1, 1).into()), None);
+    assert_matches!(manager.history.first(), Some(schedule) => {
         assert_matches!(schedule.state, RecordingScheduleState::Failed);
     });
 }

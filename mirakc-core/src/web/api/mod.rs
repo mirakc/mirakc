@@ -62,8 +62,10 @@ where
     E: Call<crate::epg::QueryServices>,
     R: Clone + Send + Sync + 'static,
     R: Call<crate::recording::AddRecordingSchedule>,
+    R: Call<crate::recording::DeleteRecordingHistory>,
     R: Call<crate::recording::OpenContent>,
     R: Call<crate::recording::QueryRecord>,
+    R: Call<crate::recording::QueryRecordingHistory>,
     R: Call<crate::recording::QueryRecordingRecorder>,
     R: Call<crate::recording::QueryRecordingRecorders>,
     R: Call<crate::recording::QueryRecordingSchedule>,
@@ -153,6 +155,11 @@ where
             .route(
                 "/recording/schedules/{id}",
                 routing::delete(recording::schedules::delete),
+            )
+            .route("/recording/history", routing::get(recording::history::list))
+            .route(
+                "/recording/history",
+                routing::delete(recording::history::delete),
             )
             .route(
                 "/recording/recorders",
@@ -256,6 +263,7 @@ where
         recording::schedules::create,
         recording::schedules::delete,
         recording::schedules::clear,
+        recording::history::list,
         recording::recorders::list,
         recording::recorders::get,
         recording::recorders::create,

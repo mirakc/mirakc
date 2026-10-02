@@ -53,3 +53,19 @@ impl FormatTime for Rfc3339Micros {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[ctor::ctor(unsafe)]
+    fn init_logging() {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_file(true)
+            .with_line_number(true)
+            .with_test_writer()
+            .with_timer(Rfc3339Micros)
+            .init();
+    }
+}
