@@ -1,4 +1,6 @@
-use super::content_source::ContentSourceKind;
+use super::content_source::ProgressWriter;
+use super::content_source::content_stream;
+use super::content_source::write_content;
 use super::*;
 use crate::epg::stub::EpgStub;
 use crate::onair::stub::OnairProgramManagerStub;
@@ -991,8 +993,8 @@ async fn test_open_content() {
         let manager = system.spawn_actor(recording_manager!(config.clone())).await;
 
         let result = manager.call(OpenContent::new(id.clone(), None)).await;
-        let (stream, stop_trigger) = match result {
-            Ok(Ok(tuple)) => tuple,
+        let stream = match result {
+            Ok(Ok(stream)) => stream,
             _ => panic!(),
         };
 
@@ -1007,8 +1009,6 @@ async fn test_open_content() {
         assert_matches!(reader.read_exact(&mut buf).await, Err(err) => {
             assert_matches!(err.kind(), std::io::ErrorKind::UnexpectedEof);
         });
-
-        drop(stop_trigger);
     }
     system.shutdown().await;
 }
@@ -1018,8 +1018,9 @@ async fn test_open_content_during_recording() {
     let temp_dir = TempDir::new().unwrap();
     let config = config_for_test(temp_dir.path());
 
-    let id = RecordId("1".to_string());
-    let record = record!(recording: id.clone());
+    let started_at = Jst::now();
+    let id = RecordId::from((started_at, ProgramId::from((0, 1, 2))));
+    let record = record!(recording: id.value());
     let record_path = make_record_path(&config, &id).unwrap();
     assert!(file_util::save_json(&record, &record_path));
 
@@ -1028,45 +1029,45 @@ async fn test_open_content_during_recording() {
         .await
         .unwrap();
 
-    let system = System::new();
-    {
-        let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+    let mut manager = recording_manager!(config.clone());
+    let (progress_tx, progress) = watch::channel(false);
+    let mut recorder = recorder!(started_at, pipeline!["true"]);
+    recorder.progress = progress;
+    manager.recorders.insert(record.program.id, recorder);
 
-        let result = manager.call(OpenContent::new(id.clone(), None)).await;
-        let (stream, stop_trigger) = match result {
-            Ok(Ok(tuple)) => tuple,
-            _ => panic!(),
-        };
+    let stream = manager.open_content(&id, None).await.unwrap();
+    let mut reader = tokio_util::io::StreamReader::new(stream);
 
-        let mut reader = tokio_util::io::StreamReader::new(stream);
+    let mut buf = [0; 10];
+    timeout(reader.read_exact(&mut buf)).await.unwrap(); // EOF reaches.
+    assert_eq!(&buf, b"0123456789");
 
-        let mut buf = [0; 10];
-        reader.read_exact(&mut buf).await.unwrap(); // EOF reaches.
-        assert_eq!(&buf, b"0123456789");
+    append(&content_path, b"abc").await;
+    progress_tx.send_replace(false);
 
-        append(&content_path, b"abc").await;
+    let mut buf = [0; 3];
+    timeout(reader.read_exact(&mut buf)).await.unwrap(); // EOF reaches again.
+    assert_eq!(&buf, b"abc");
 
-        let mut buf = [0; 3];
-        reader.read_exact(&mut buf).await.unwrap(); // EOF reaches again.
-        assert_eq!(&buf, b"abc");
+    append(&content_path, b"def").await;
+    progress_tx.send_replace(true);
 
-        // The streaming will stop within 100ms without explicit `drop(stop_trigger)`.
-        assert_matches!(reader.read_exact(&mut buf).await, Err(err) => {
-            assert_matches!(err.kind(), std::io::ErrorKind::UnexpectedEof);
-        });
-
-        drop(stop_trigger);
-    }
-    system.shutdown().await;
+    // The remaining data is sent and then the stream ends.
+    let mut content = String::new();
+    assert_matches!(timeout(reader.read_to_string(&mut content)).await, Ok(3));
+    assert_eq!(content, "def");
 }
 
+// Only a recording written by a recorder in this process is followed.  Otherwise, the stream
+// ends at the current EOF even if the record says it's being recorded.
 #[test(tokio::test)]
-async fn test_open_content_stop_trigger() {
+async fn test_open_content_during_recording_without_recorder() {
     let temp_dir = TempDir::new().unwrap();
     let config = config_for_test(temp_dir.path());
 
-    let id = RecordId("1".to_string());
-    let record = record!(recording: id.clone());
+    let started_at = Jst::now();
+    let id = RecordId::from((started_at, ProgramId::from((0, 1, 2))));
+    let record = record!(recording: id.value());
     let record_path = make_record_path(&config, &id).unwrap();
     assert!(file_util::save_json(&record, &record_path));
 
@@ -1075,30 +1076,114 @@ async fn test_open_content_stop_trigger() {
         .await
         .unwrap();
 
-    let system = System::new();
-    {
-        let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+    let mut manager = recording_manager!(config.clone());
 
-        let result = manager.call(OpenContent::new(id.clone(), None)).await;
-        let (stream, stop_trigger) = match result {
-            Ok(Ok(tuple)) => tuple,
-            _ => panic!(),
-        };
+    // No recorder.
+    let stream = manager.open_content(&id, None).await.unwrap();
+    let mut reader = tokio_util::io::StreamReader::new(stream);
+    let mut content = String::new();
+    assert_matches!(timeout(reader.read_to_string(&mut content)).await, Ok(10));
 
-        let mut reader = tokio_util::io::StreamReader::new(stream);
+    // A recorder re-recording the same program.
+    let (_progress_tx, progress) = watch::channel(false);
+    let mut recorder = recorder!(
+        started_at + Duration::try_minutes(1).unwrap(),
+        pipeline!["true"]
+    );
+    recorder.progress = progress;
+    manager.recorders.insert(record.program.id, recorder);
+    let stream = manager.open_content(&id, None).await.unwrap();
+    let mut reader = tokio_util::io::StreamReader::new(stream);
+    let mut content = String::new();
+    assert_matches!(timeout(reader.read_to_string(&mut content)).await, Ok(10));
+}
 
-        let mut buf = [0; 10];
-        reader.read_exact(&mut buf).await.unwrap();
-        assert_eq!(&buf, b"0123456789");
+#[test(tokio::test)]
+async fn test_progress_writer() {
+    use tokio::io::AsyncWriteExt;
 
-        drop(stop_trigger);
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().join("1.m2ts");
+    let (progress_tx, mut progress) = watch::channel(false);
+    let mut writer = ProgressWriter {
+        writer: tokio::fs::File::create(&path).await.unwrap(),
+        progress: &progress_tx,
+    };
 
-        // The streaming will stop soon before the timeout.
-        assert_matches!(reader.read_exact(&mut buf).await, Err(err) => {
-            assert_matches!(err.kind(), std::io::ErrorKind::UnexpectedEof);
-        });
-    }
-    system.shutdown().await;
+    writer.write_all(b"abc").await.unwrap();
+    assert!(progress.has_changed().unwrap());
+    progress.mark_unchanged();
+
+    // The data is in the file when the followers are woken by a flush.
+    writer.flush().await.unwrap();
+    assert!(progress.has_changed().unwrap());
+    assert_eq!(tokio::fs::read(&path).await.unwrap(), b"abc");
+}
+
+#[test(tokio::test)]
+async fn test_content_stream_recorder_gone() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().join("1.m2ts");
+    tokio::fs::write(&path, b"abc").await.unwrap();
+
+    let (progress_tx, progress) = watch::channel(false);
+    let file = tokio::fs::File::open(&path).await.unwrap();
+    let mut reader =
+        tokio_util::io::StreamReader::new(Box::pin(content_stream(file, Some(progress))));
+
+    let mut buf = [0; 3];
+    timeout(reader.read_exact(&mut buf)).await.unwrap(); // EOF reaches.
+    assert_eq!(&buf, b"abc");
+
+    // The recorder fails without reporting the end, after writing some more data.
+    let wait = tokio::spawn(async move {
+        let mut content = String::new();
+        reader.read_to_string(&mut content).await.map(|_| content)
+    });
+    tokio::task::yield_now().await;
+    append(&path, b"def").await;
+    drop(progress_tx);
+
+    // The data on disk is still sent, and then the stream ends.
+    assert_eq!(timeout(wait).await.unwrap().unwrap(), "def");
+}
+
+// Followers get the data written by the recorder as soon as the input pauses, because
+// `tokio::io::copy()` flushes whenever the input has nothing to read.
+#[test(tokio::test)]
+async fn test_content_stream_follows_write_content() {
+    use tokio::io::AsyncWriteExt;
+
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().join("1.m2ts");
+    // Created in advance so that the follower can open it before `write_content()` does.
+    tokio::fs::write(&path, b"").await.unwrap();
+
+    let (progress_tx, progress) = watch::channel(false);
+    let (mut input, output) = tokio::io::duplex(4096);
+    let recorder = {
+        let path = path.clone();
+        tokio::spawn(async move { write_content(output, &path, progress_tx).await })
+    };
+
+    let file = tokio::fs::File::open(&path).await.unwrap();
+    let mut reader =
+        tokio_util::io::StreamReader::new(Box::pin(content_stream(file, Some(progress))));
+
+    // Far smaller than the capacity of `BufWriter`, so it reaches the file only by a flush.
+    input.write_all(b"abc").await.unwrap();
+    let mut buf = [0; 3];
+    timeout(reader.read_exact(&mut buf)).await.unwrap();
+    assert_eq!(&buf, b"abc");
+
+    // The recording ends.
+    input.write_all(b"def").await.unwrap();
+    drop(input);
+    assert_matches!(timeout(recorder).await.unwrap(), Ok(6));
+
+    let mut content = String::new();
+    assert_matches!(timeout(reader.read_to_string(&mut content)).await, Ok(3));
+    assert_eq!(content, "def");
 }
 
 #[test(tokio::test)]
@@ -1521,34 +1606,22 @@ async fn test_update_schedules_by_epg_programs_rescheduled() {
 }
 
 #[test(tokio::test)]
-async fn test_content_source_create_stream() {
+async fn test_open_content_stream() {
     let temp_dir = TempDir::new().unwrap();
     let config = config_for_test(temp_dir.path());
-
-    let ctx = actlet::stubs::Context::default();
 
     let id = RecordId("1".to_string());
     let record = record!(recording: id.value());
 
     let content_path = make_content_path(&config, &record).unwrap();
-    let content_path_str = content_path.to_str().unwrap();
     tokio::fs::write(&content_path, b"0123456789")
         .await
         .unwrap();
 
-    // recording, w/o range
-    let mut source = ContentSource::new(&config, &record, None, &ctx)
+    // recording, w/o range, w/o recorder
+    let stream = open_content_stream(&config, &record, None, None)
         .await
         .unwrap();
-    assert_matches!(source.kind(), ContentSourceKind::Pipeline(pipeline) => {
-        let models = pipeline.get_model();
-        assert_eq!(models.len(), 1);
-        assert_matches!(models[0], CommandPipelineProcessModel { ref command, pid } => {
-            assert_eq!(*command, format!("tail -f -c +0 '{content_path_str}'"));
-            assert!(pid.is_some());
-        });
-    });
-    let stream = source.create_stream(1000);
     let mut reader = tokio_util::io::StreamReader::new(stream);
     let mut content = String::new();
     assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
@@ -1558,11 +1631,9 @@ async fn test_content_source_create_stream() {
 
     // recording, w/ range: uses seek + take instead of `dd`
     let range = Some(ContentRange::without_size(1, 3).unwrap());
-    let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
+    let stream = open_content_stream(&config, &record, range.as_ref(), None)
         .await
         .unwrap();
-    assert_matches!(source.kind(), ContentSourceKind::File(Some(_)));
-    let stream = source.create_stream(1000);
     let mut reader = tokio_util::io::StreamReader::new(stream);
     let mut content = String::new();
     assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
@@ -1573,11 +1644,9 @@ async fn test_content_source_create_stream() {
     let record = record!(finished: id.value());
 
     // finished, w/o range
-    let mut source = ContentSource::new(&config, &record, None, &ctx)
+    let stream = open_content_stream(&config, &record, None, None)
         .await
         .unwrap();
-    assert_matches!(source.kind(), ContentSourceKind::File(Some(_)));
-    let stream = source.create_stream(1000);
     let mut reader = tokio_util::io::StreamReader::new(stream);
     let mut content = String::new();
     assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
@@ -1587,11 +1656,9 @@ async fn test_content_source_create_stream() {
 
     // finished, w/ range: uses seek + take instead of `dd`
     let range = Some(ContentRange::with_size(1, 3, 10).unwrap());
-    let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
+    let stream = open_content_stream(&config, &record, range.as_ref(), None)
         .await
         .unwrap();
-    assert_matches!(source.kind(), ContentSourceKind::File(Some(_)));
-    let stream = source.create_stream(1000);
     let mut reader = tokio_util::io::StreamReader::new(stream);
     let mut content = String::new();
     assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
@@ -1600,14 +1667,12 @@ async fn test_content_source_create_stream() {
     });
 }
 
-// The content used in `test_content_source_create_stream` is 10 bytes, far smaller than
+// The content used in `test_open_content_stream` is 10 bytes, far smaller than
 // CHUNK_SIZE, so it never exercises a stream that spans multiple chunks.
 #[test(tokio::test)]
-async fn test_content_source_create_stream_spanning_chunks() {
+async fn test_open_content_stream_spanning_chunks() {
     let temp_dir = TempDir::new().unwrap();
     let config = config_for_test(temp_dir.path());
-
-    let ctx = actlet::stubs::Context::default();
 
     let id = RecordId("1".to_string());
     let record = record!(finished: id.value());
@@ -1620,10 +1685,9 @@ async fn test_content_source_create_stream_spanning_chunks() {
     tokio::fs::write(&content_path, &content).await.unwrap();
 
     // The whole content, w/o range.
-    let mut source = ContentSource::new(&config, &record, None, &ctx)
+    let stream = open_content_stream(&config, &record, None, None)
         .await
         .unwrap();
-    let stream = source.create_stream(1000);
     let mut reader = tokio_util::io::StreamReader::new(stream);
     let mut got = Vec::new();
     assert_matches!(reader.read_to_end(&mut got).await, Ok(size) => {
@@ -1635,10 +1699,9 @@ async fn test_content_source_create_stream_spanning_chunks() {
     let first = 4096 * 8 + 777;
     let last = LEN - 999;
     let range = Some(ContentRange::with_size(first as u64, last as u64, LEN as u64).unwrap());
-    let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
+    let stream = open_content_stream(&config, &record, range.as_ref(), None)
         .await
         .unwrap();
-    let stream = source.create_stream(1000);
     let mut reader = tokio_util::io::StreamReader::new(stream);
     let mut got = Vec::new();
     assert_matches!(reader.read_to_end(&mut got).await, Ok(size) => {
@@ -1648,16 +1711,14 @@ async fn test_content_source_create_stream_spanning_chunks() {
 }
 
 // HTTP ranges are normalized against the known content length before reaching
-// `ContentSource`.  This covers ranges built directly with `ContentRange::without_size`, which
+// `open_content_stream()`.  This covers ranges built directly with `ContentRange::without_size`, which
 // checks `first <= last` but has no content length to check against, and the case where a file
 // shrinks after its length is read.  Both have to keep the old `dd` behavior: return whatever
 // is available and stop, rather than fail.
 #[test(tokio::test)]
-async fn test_content_source_create_stream_range_past_eof() {
+async fn test_open_content_stream_range_past_eof() {
     let temp_dir = TempDir::new().unwrap();
     let config = config_for_test(temp_dir.path());
-
-    let ctx = actlet::stubs::Context::default();
 
     let id = RecordId("1".to_string());
     let record = record!(recording: id.value());
@@ -1681,10 +1742,9 @@ async fn test_content_source_create_stream_range_past_eof() {
 
     for &(first, last, expected) in cases {
         let range = Some(ContentRange::without_size(first, last).unwrap());
-        let mut source = ContentSource::new(&config, &record, range.as_ref(), &ctx)
+        let stream = open_content_stream(&config, &record, range.as_ref(), None)
             .await
             .unwrap();
-        let stream = source.create_stream(1000);
         let mut reader = tokio_util::io::StreamReader::new(stream);
         let mut content = String::new();
         assert_matches!(reader.read_to_string(&mut content).await, Ok(size) => {
@@ -1836,16 +1896,23 @@ fn config_for_test<P: AsRef<Path>>(dir: P) -> Arc<Config> {
     Arc::new(config)
 }
 
+// Fails a test following a recording instead of letting it hang.
+async fn timeout<F: std::future::Future>(fut: F) -> F::Output {
+    tokio::time::timeout(std::time::Duration::from_secs(10), fut)
+        .await
+        .expect("timed out")
+}
+
 async fn append(path: &Path, data: &[u8]) {
     use tokio::io::AsyncWriteExt;
-    tokio::fs::OpenOptions::new()
+    let mut file = tokio::fs::OpenOptions::new()
         .append(true)
         .open(path)
         .await
-        .unwrap()
-        .write_all(data)
-        .await
         .unwrap();
+    file.write_all(data).await.unwrap();
+    // `write_all()` may return before the data is written to the file.
+    file.flush().await.unwrap();
 }
 
 mockall::mock! {

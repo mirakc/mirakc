@@ -30,6 +30,7 @@ use path_dedot::ParseDot;
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::io::BufWriter;
+use tokio::sync::watch;
 use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
@@ -58,7 +59,8 @@ use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
 use crate::tuner::TunerSubscriptionId;
 
-use content_source::ContentSource;
+use content_source::open_content_stream;
+use content_source::write_content;
 use sha256::CalculateSha256;
 use sha256::Sha256Calculator;
 
@@ -1356,22 +1358,21 @@ where
             }
         }
         let mut pipeline = builder.build(ctx)?;
-        let (input, mut output) = pipeline.take_endpoints();
+        let (input, output) = pipeline.take_endpoints();
 
         let fut = async move {
             let _ = stream.pipe(input).await;
         };
         ctx.spawn_task(fut);
 
+        // `true` once everything has been flushed to the content file.  Streams opened during the
+        // recording follow the file through this channel, see `content_stream()`.
+        let (progress_tx, progress) = watch::channel(false);
+
         // Inner future in order to capture the result in an outer future.
         let inner_fut = {
             let content_path = content_path.clone();
-            async move {
-                let record = tokio::fs::File::create(&content_path).await?;
-                let mut writer = BufWriter::new(record);
-                // TODO: use Stdio
-                tokio::io::copy(&mut output, &mut writer).await
-            }
+            async move { write_content(output, &content_path, progress_tx).await }
         };
         // Outer future emits messages to observers.
         let fut = {
@@ -1393,6 +1394,7 @@ where
         };
 
         let recorder = Recorder {
+            progress,
             started_at: now,
             pipeline,
             stop_trigger: Some(stop_trigger),
@@ -1602,27 +1604,17 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
 type BoxedStream = Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send>>;
 type ContentStream = MpegTsStream<RecordId, BoxedStream>;
-type StopTrigger = Trigger<actlet::Stop>;
 
 #[derive(Message)]
-#[reply(Result<(ContentStream, Option<StopTrigger>), Error>)]
+#[reply(Result<ContentStream, Error>)]
 pub struct OpenContent {
     pub id: RecordId,
     pub range: Option<ContentRange>,
-    pub time_limit: u64,
 }
 
 impl OpenContent {
-    // See the `tail` command used in `ContentSource::new()` for the reason why the time limit is
-    // 1500ms.
-    const DEFAULT_TIME_LIMIT: u64 = 1500;
-
     pub fn new(id: RecordId, range: Option<ContentRange>) -> Self {
-        Self {
-            id,
-            range,
-            time_limit: Self::DEFAULT_TIME_LIMIT,
-        }
+        Self { id, range }
     }
 }
 
@@ -1643,11 +1635,10 @@ where
     async fn handle(
         &mut self,
         msg: OpenContent,
-        ctx: &mut Context<Self>,
+        _ctx: &mut Context<Self>,
     ) -> <OpenContent as Message>::Reply {
         tracing::debug!(msg.name = "OpenContent", %msg.id);
-        self.open_content(&msg.id, msg.range.as_ref(), msg.time_limit, ctx)
-            .await
+        self.open_content(&msg.id, msg.range.as_ref()).await
     }
 }
 
@@ -1656,9 +1647,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         &self,
         id: &RecordId,
         range: Option<&ContentRange>,
-        time_limit: u64,
-        ctx: &Context<Self>,
-    ) -> Result<(ContentStream, Option<StopTrigger>), Error> {
+    ) -> Result<ContentStream, Error> {
         let record_path = match make_record_path(&self.config, id) {
             Some(record_path) => record_path,
             None => return Err(Error::WrongConfig("config.recording.records-dir")),
@@ -1670,13 +1659,19 @@ impl<T, E, O> RecordingManager<T, E, O> {
             _ => return Err(Error::NoContent),
         };
 
-        let mut content_source = ContentSource::new(&self.config, &record, range, ctx).await?;
-        let stream = content_source.create_stream(time_limit);
+        // Follow only a recording this process is writing.  A range stops at the current end, as
+        // `dd` did.  The record ID check keeps a re-recording of the same program from being
+        // followed by mistake.
+        let progress = self
+            .recorders
+            .get(&record.program.id)
+            .filter(|recorder| {
+                range.is_none()
+                    && RecordId::from((recorder.started_at, record.program.id)) == record.id
+            })
+            .map(|recorder| recorder.progress.clone());
 
-        let addr = ctx.spawn_actor(content_source).await;
-        let stop_trigger = Some(addr.trigger(actlet::Stop));
-
-        Ok((stream, stop_trigger))
+        open_content_stream(&self.config, &record, range, progress).await
     }
 }
 
@@ -2650,6 +2645,7 @@ pub struct RecordingOptions {
 }
 
 struct Recorder {
+    progress: watch::Receiver<bool>,
     started_at: DateTime<Jst>,
     pipeline: CommandPipeline<TunerSubscriptionId>,
     stop_trigger: Option<Trigger<StopStreaming>>,
