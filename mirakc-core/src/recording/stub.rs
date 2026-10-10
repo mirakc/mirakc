@@ -108,7 +108,7 @@ impl Call<OpenContent> for RecordingManagerStub {
                 let range = msg.range.as_ref().map(ContentRange::range).unwrap_or(0..10);
                 let chunk = Bytes::from_static(b"0123456789".get(range).unwrap());
                 let stream: BoxedStream = Box::pin(tokio_stream::once(Ok(chunk)));
-                Ok(Ok((MpegTsStream::new(msg.id.clone(), stream), None)))
+                Ok(Ok(MpegTsStream::new(msg.id.clone(), stream)))
             }
             "no-content" => Ok(Err(Error::NoContent)),
             _ => Ok(Err(Error::RecordNotFound)),

@@ -206,6 +206,7 @@ macro_rules! recording_manager {
 macro_rules! recorder {
     ($started_at:expr, $pipeline:expr) => {
         Recorder {
+            progress: tokio::sync::watch::channel(false).1,
             started_at: $started_at,
             pipeline: $pipeline,
             stop_trigger: None,
