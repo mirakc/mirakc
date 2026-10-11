@@ -10,8 +10,10 @@ use crate::web::api::stream::streaming;
 /// Gets a media stream of the content of a record.
 ///
 /// It's possible to get a media stream of the record even while it's recording.  In this case, data
-/// will be sent when data is appended to the content file event if the stream reaches EOF at that
-/// point.  The streaming will stop within 2 seconds after the stream reaches the *true* EOF.
+/// will be sent when data is appended to the content file even if the stream reaches EOF at that
+/// point.  The streaming will stop once the recording ends and the remaining data has been sent.
+/// Only a recording made by this process is followed in this way; otherwise, and for a range
+/// request, the streaming stops at the current end of the content file.
 ///
 /// A request for a record without content file always returns status code 204.
 ///
@@ -69,14 +71,15 @@ where
         user,
     };
 
-    let (stream, stop_trigger) = recording_manager
+    let stream = recording_manager
         .call(recording::OpenContent::new(
             id.clone(),
             params.range.clone(),
         ))
         .await??;
 
-    streaming(&config, &spawner, stream, filters, &params, stop_trigger).await
+    // The stream ends by itself, so there is nothing to stop.
+    streaming(&config, &spawner, stream, filters, &params, ()).await
 }
 
 #[utoipa::path(
