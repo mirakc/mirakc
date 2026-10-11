@@ -3,6 +3,9 @@ use tokio::sync::watch;
 
 use super::*;
 
+// 32 KiB, large enough for 10 ms buffering.
+const CHUNK_SIZE: usize = 4096 * 8;
+
 // Wakes the followers each time data may have reached the file.
 //
 // `tokio::fs::File::poll_write()` returns before the data is written to the file, so notifying only
@@ -61,10 +64,15 @@ where
     R: tokio::io::AsyncRead + Unpin,
 {
     let file = tokio::fs::File::create(content_path).await?;
-    let mut writer = BufWriter::new(ProgressWriter {
-        writer: file,
-        progress: &progress,
-    });
+    // The followers are woken each time the buffer is written to the file, so the buffer is as
+    // large as the chunks they read rather than the default 8 KiB.
+    let mut writer = BufWriter::with_capacity(
+        CHUNK_SIZE,
+        ProgressWriter {
+            writer: file,
+            progress: &progress,
+        },
+    );
     // TODO: use Stdio
     let n = tokio::io::copy(&mut output, &mut writer).await?;
     // `copy()` flushes the writer before returning.  `progress` is dropped without this on an
@@ -121,9 +129,6 @@ pub fn content_stream<R>(
 where
     R: tokio::io::AsyncRead + Unpin,
 {
-    // 32 KiB, large enough for 10 ms buffering.
-    const CHUNK_SIZE: usize = 4096 * 8;
-
     futures::stream::try_unfold(
         (reader, progress, BytesMut::new()),
         |(mut reader, mut progress, mut buf)| async move {
