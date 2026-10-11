@@ -7,8 +7,8 @@ use super::*;
 //
 // `tokio::fs::File::poll_write()` returns before the data is written to the file, so notifying only
 // on writes, as `tokio_util::io::InspectWriter` would, delays the latest data until the next write.
-// `poll_flush()` returns after the data is written, and `tokio::io::copy()` flushes whenever the
-// input has nothing to read.
+// `poll_flush()` and `poll_shutdown()` return after the data is written, and `tokio::io::copy()`
+// flushes whenever the input has nothing to read.
 pub struct ProgressWriter<'a, W> {
     pub writer: W,
     pub progress: &'a watch::Sender<bool>,
@@ -41,7 +41,12 @@ where
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        Pin::new(&mut self.writer).poll_shutdown(cx)
+        // `BufWriter::poll_shutdown()` writes the buffered data and shuts down the inner writer
+        // without flushing it, and `tokio::fs::File::poll_shutdown()` returns after the data is
+        // written like `poll_flush()`.
+        let result = std::task::ready!(Pin::new(&mut self.writer).poll_shutdown(cx));
+        self.progress.send_replace(false);
+        std::task::Poll::Ready(result)
     }
 }
 

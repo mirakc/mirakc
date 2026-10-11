@@ -1118,6 +1118,14 @@ async fn test_progress_writer() {
     writer.flush().await.unwrap();
     assert!(progress.has_changed().unwrap());
     assert_eq!(tokio::fs::read(&path).await.unwrap(), b"abc");
+
+    writer.write_all(b"def").await.unwrap();
+    progress.mark_unchanged();
+
+    // The same applies to a shutdown, which `BufWriter` performs without flushing the inner writer.
+    writer.shutdown().await.unwrap();
+    assert!(progress.has_changed().unwrap());
+    assert_eq!(tokio::fs::read(&path).await.unwrap(), b"abcdef");
 }
 
 #[test(tokio::test)]
