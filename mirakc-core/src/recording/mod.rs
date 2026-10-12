@@ -92,7 +92,7 @@ pub struct RecordingManager<T, E, O> {
     // Schedules waiting for a tuner released by one of `recorders`.
     // ponytail: only own recorders wake them up, subscribe
     // tuner::Event::StatusChanged if tuners held by others should be waited.
-    parked: Vec<ProgramId>,
+    parked: HashSet<ProgramId>,
     timer_token: Option<CancellationToken>,
 
     recording_started: EmitterRegistry<RecordingStarted>,
@@ -1242,9 +1242,7 @@ where
                     schedule.program.id = %program_id,
                     "No tuner available, wait for a recording to stop",
                 );
-                if !self.parked.contains(&program_id) {
-                    self.parked.push(program_id);
-                }
+                self.parked.insert(program_id);
             }
             Err(err) => {
                 tracing::error!(
@@ -1281,18 +1279,20 @@ where
     async fn retry_parked<C: Spawn>(&mut self, addr: Address<Self>, ctx: &C) -> bool {
         let now = Jst::now();
         let prep_secs = Duration::try_seconds(PREP_SECS).unwrap();
-        let mut program_ids = std::mem::take(&mut self.parked);
         // Schedules may have been removed or changed while parked.  Schedules
         // whose start time has been postponed go back to the queue.
-        program_ids.retain(|program_id| {
-            self.schedules.get(program_id).is_some_and(|schedule| {
-                schedule.is_ready_for_recording()
-                    && schedule
-                        .program
-                        .start_at
-                        .is_some_and(|start_at| start_at - now <= prep_secs)
+        let mut program_ids = std::mem::take(&mut self.parked)
+            .into_iter()
+            .filter(|program_id| {
+                self.schedules.get(program_id).is_some_and(|schedule| {
+                    schedule.is_ready_for_recording()
+                        && schedule
+                            .program
+                            .start_at
+                            .is_some_and(|start_at| start_at - now <= prep_secs)
+                })
             })
-        });
+            .collect_vec();
         if program_ids.is_empty() {
             return false;
         }
