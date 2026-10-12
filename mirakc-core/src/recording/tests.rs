@@ -1594,6 +1594,80 @@ async fn test_start_recording_parked_requeued_if_not_started_yet() {
 }
 
 #[test(tokio::test)]
+async fn test_start_recording_parked_removed_and_added_again() {
+    let now = Jst::now();
+
+    let temp_dir = TempDir::new().unwrap();
+    let config = config_for_test(temp_dir.path());
+
+    let running_id = ProgramId::from((0, 1, 1));
+    let parked_id = ProgramId::from((0, 1, 2));
+
+    let mut manager = recording_manager!(config.clone());
+    let schedule = recording_schedule!(
+        RecordingScheduleState::Recording,
+        program!(running_id, now, "1h"),
+        service!((0, 1), "sv", channel_gr!("ch", "ch")),
+        recording_options!("1.m2ts", 0)
+    );
+    manager.schedules.insert(running_id, schedule);
+    manager
+        .recorders
+        .insert(running_id, recorder!(now, pipeline!["true"]));
+
+    let system = System::new();
+    {
+        let manager = system.spawn_actor(manager).await;
+
+        // Parked.
+        let result = manager
+            .call(StartRecording {
+                schedule: recording_schedule!(
+                    RecordingScheduleState::Scheduled,
+                    program!(parked_id, now + Duration::try_hours(1).unwrap(), "1h"),
+                    service!((0, 2), "sv", channel_gr!("ch", "unavailable-once")),
+                    recording_options!("2.m2ts", 0)
+                ),
+            })
+            .await;
+        assert_matches!(result, Ok(Ok(())));
+
+        let result = manager
+            .call(RemoveRecordingSchedule {
+                program_id: parked_id,
+            })
+            .await;
+        assert_matches!(result, Ok(Ok(_)));
+
+        let result = manager
+            .call(AddRecordingSchedule {
+                schedule: recording_schedule!(
+                    RecordingScheduleState::Scheduled,
+                    program!(parked_id, now + Duration::try_hours(1).unwrap(), "1h"),
+                    service!((0, 2), "sv", channel_gr!("ch", "unavailable-once")),
+                    recording_options!("2.m2ts", 0)
+                ),
+            })
+            .await;
+        assert_matches!(result, Ok(Ok(_)));
+
+        let result = manager
+            .inspect(move |manager| {
+                assert!(manager.parked.is_empty());
+                assert!(
+                    manager
+                        .queue
+                        .iter()
+                        .any(|item| item.program_id == parked_id)
+                );
+            })
+            .await;
+        assert_matches!(result, Ok(()));
+    }
+    system.shutdown().await;
+}
+
+#[test(tokio::test)]
 async fn test_start_recording_tuner_unavailable_without_recorders() {
     let now = Jst::now();
 

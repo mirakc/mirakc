@@ -90,8 +90,9 @@ pub struct RecordingManager<T, E, O> {
     history: Vec<RecordingSchedule>,
     recorders: HashMap<ProgramId, Recorder>,
     // Schedules waiting for a tuner released by one of `recorders`.
-    // ponytail: only own recorders wake them up, subscribe
-    // tuner::Event::StatusChanged if tuners held by others should be waited.
+    //
+    // NOTE: Only `recorders` wake them up.  Subscribe tuner::Event::StatusChanged
+    // if tuners used by other users should be waited.
     parked: HashSet<ProgramId>,
     timer_token: Option<CancellationToken>,
 
@@ -664,6 +665,8 @@ impl<T, E, O> RecordingManager<T, E, O> {
         // simply add a schedule for it.  Additional checks will be performed
         // in later stages.
         self.schedules.insert(program_id, schedule);
+        // A stale ID may remain if the schedule was removed while parked.
+        self.parked.remove(&program_id);
         tracing::info!(
             schedule.program.id = %program_id,
             "Added",
@@ -1305,7 +1308,8 @@ where
         });
         for program_id in program_ids.into_iter() {
             let end_at = self.schedules[&program_id].program.end_at();
-            if end_at.is_none_or(|end_at| end_at <= now) {
+            // The duration may become undefined while parked.
+            if end_at.is_some_and(|end_at| end_at <= now) {
                 tracing::error!(
                     schedule.program.id = %program_id,
                     "No tuner available until the program ended",
@@ -2038,7 +2042,8 @@ where
     async fn handle(&mut self, msg: RecordingStopped, ctx: &mut Context<Self>) {
         tracing::debug!(msg.name = "RecordingStopped", %msg.program_id);
         let mut changed = self.handle_recording_stopped(msg.program_id).await;
-        // The tuner used by the stopped recorder has been released.
+        // The stopped recorder has sent StopStreaming to the tuner manager.
+        // It will be processed before StartStreaming sent in retry_parked().
         changed |= self.retry_parked(ctx.address().clone(), ctx).await;
         self.rebuild_queue();
         self.set_timer(ctx);
@@ -2479,6 +2484,8 @@ where
         }
 
         for &program_id in rescheduled.iter() {
+            // Go back to the queue.
+            self.parked.remove(&program_id);
             self.emit_recording_rescheduled(program_id).await;
         }
 
@@ -2559,6 +2566,8 @@ impl<T, E, O> RecordingManager<T, E, O> {
         }
 
         if rescheduled {
+            // Go back to the queue.
+            self.parked.remove(&program.id);
             self.emit_recording_rescheduled(program.id).await;
         }
 
