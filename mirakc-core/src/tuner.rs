@@ -1814,6 +1814,8 @@ pub(crate) mod stub {
                     TunerSubscriptionId::default(),
                     stream,
                 )))
+            } else if msg.channel.channel == "unavailable" {
+                Ok(Err(Error::TunerUnavailable))
             } else {
                 let (_, stream) = BroadcasterStream::new_for_test();
                 Ok(Ok(MpegTsStream::new(
