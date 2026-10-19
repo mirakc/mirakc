@@ -30,3 +30,8 @@ panic = "abort"
 inherits = "release"
 debug = true
 strip = false
+
+# TODO: Remove once a new version of utoipa-swagger-ui with zip v9 is released.
+# Ref: https://github.com/juhaku/utoipa/pull/1645
+[patch.crates-io]
+utoipa-swagger-ui = { git = "https://github.com/mirakc/utoipa", branch = "fix-zip-v9.0" }

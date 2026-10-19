@@ -169,3 +169,11 @@ unused-allowed-license = "deny"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+
+# Allow the forked utoipa repository used for the zip dependency patch.
+#
+# TODO: Remove once a new version of utoipa-swagger-ui with zip v9 is released.
+# Ref: https://github.com/juhaku/utoipa/pull/1645
+allow-git = [
+    "https://github.com/mirakc/utoipa",
+]
