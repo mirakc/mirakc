@@ -33,7 +33,7 @@ jobs:
           # Remove pre-installed untrusted taps to suppress Homebrew warnings.
           brew untap aws/tap azure/bicep 2>/dev/null || true
           brew install coreutils macfuse
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: ${{ matrix.rust }}
           components: 'clippy, rustfmt'
