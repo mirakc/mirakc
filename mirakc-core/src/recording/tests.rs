@@ -692,10 +692,30 @@ async fn test_start_recording_tuner_unavailable() {
     let notify = Arc::new(Notify::new());
     let notify2 = notify.clone();
 
+    let mut seq = mockall::Sequence::new();
+    let mut recording_started = MockRecordingStartedValidator::new();
+    let mut recording_stopped = MockRecordingStoppedValidator::new();
     let mut recording_failed = MockRecordingFailedValidator::new();
     let mut record_saved = MockRecordSavedValidator::new();
 
-    recording_failed.expect_emit().never();
+    // A recording.failed event will be sent, but the recording schedule continues waiting for a
+    // tuner to become available.
+    recording_failed
+        .expect_emit()
+        .returning(|_| ())
+        .once()
+        .in_sequence(&mut seq);
+    recording_started
+        .expect_emit()
+        .returning(|_| ())
+        .once()
+        .in_sequence(&mut seq);
+    recording_stopped
+        .expect_emit()
+        .returning(|_| ())
+        .once()
+        .in_sequence(&mut seq);
+
     record_saved
         .expect_emit()
         .returning(move |_| notify2.notify_one());
@@ -703,6 +723,20 @@ async fn test_start_recording_tuner_unavailable() {
     let system = System::new();
     {
         let manager = system.spawn_actor(recording_manager!(config.clone())).await;
+
+        let result = manager
+            .call(RegisterEmitter::RecordingStarted(Emitter::new(
+                recording_started,
+            )))
+            .await;
+        assert_matches!(result, Ok(_));
+
+        let result = manager
+            .call(RegisterEmitter::RecordingStopped(Emitter::new(
+                recording_stopped,
+            )))
+            .await;
+        assert_matches!(result, Ok(_));
 
         let result = manager
             .call(RegisterEmitter::RecordingFailed(Emitter::new(
@@ -947,27 +981,46 @@ async fn test_maintain_schedules() {
     for state in states {
         let mut manager = recording_manager!(config.clone());
         let mut failed = MockRecordingFailedValidator::new();
-        failed.expect_emit().never();
+        failed
+            .expect_emit()
+            .returning(|msg| {
+                assert_eq!(msg.program_id, (0, 1, 1).into());
+                assert_matches!(msg.reason, RecordingFailedReason::ProgramEnded);
+            })
+            .once();
         manager.recording_failed.register(Emitter::new(failed));
-        let schedule = recording_schedule!(
+        let mut schedule = recording_schedule!(
             state,
             program!((0, 1, 1), now, "1h"),
             service!((0, 1), "sv", channel_gr!("ch", "ch")),
             recording_options!("1.m2ts", 0)
         );
-        let program_id = schedule.program.id;
+        if state == RecordingScheduleState::Waiting {
+            schedule.failed_reason = Some(RecordingFailedReason::StartRecordingFailed {
+                message: "".to_string(),
+            })
+        }
         let result = manager.add_schedule(schedule);
         assert_matches!(result, Ok(()));
         let changed = manager
             .maintain_schedules(now + Duration::try_hours(1).unwrap())
             .await;
         assert!(changed);
-        assert_eq!(manager.schedules.len(), 1);
-        assert_matches!(manager.schedules.get(&program_id), Some(schedule) => {
-            assert_matches!(schedule.state, RecordingScheduleState::Rescheduling);
-            assert_matches!(schedule.failed_reason, Some(RecordingFailedReason::ProgramEnded));
-        });
-        assert_eq!(manager.history.len(), 0);
+        if state == RecordingScheduleState::Waiting {
+            assert_eq!(manager.schedules.len(), 0);
+            assert_eq!(manager.history.len(), 1);
+            assert_matches!(manager.history.first(), Some(schedule) => {
+                assert_matches!(schedule.state, RecordingScheduleState::Failed);
+                assert_matches!(schedule.failed_reason, Some(RecordingFailedReason::StartRecordingFailed { .. }));
+            });
+        } else {
+            assert_eq!(manager.schedules.len(), 1);
+            assert_matches!(manager.schedules.values().next(), Some(schedule) => {
+                assert_matches!(schedule.state, RecordingScheduleState::Rescheduling);
+                assert_matches!(schedule.failed_reason, Some(RecordingFailedReason::ProgramEnded));
+            });
+            assert_eq!(manager.history.len(), 0);
+        }
     }
 
     // RecordingFailedReason::ScheduleExpired
@@ -980,10 +1033,13 @@ async fn test_maintain_schedules() {
     for state in states {
         let mut manager = recording_manager!(config.clone());
         let mut failed = MockRecordingFailedValidator::new();
-        failed.expect_emit().times(1).returning(|msg| {
-            assert_eq!(msg.program_id, (0, 1, 1).into());
-            assert_matches!(msg.reason, RecordingFailedReason::ScheduleExpired);
-        });
+        failed
+            .expect_emit()
+            .returning(|msg| {
+                assert_eq!(msg.program_id, (0, 1, 1).into());
+                assert_matches!(msg.reason, RecordingFailedReason::ScheduleExpired);
+            })
+            .once();
         manager.recording_failed.register(Emitter::new(failed));
         let schedule = recording_schedule!(
             state,
@@ -997,6 +1053,10 @@ async fn test_maintain_schedules() {
         assert!(changed);
         assert_eq!(manager.schedules.len(), 0);
         assert_eq!(manager.history.len(), 1);
+        assert_matches!(manager.history.first(), Some(schedule) => {
+            assert_matches!(schedule.state, RecordingScheduleState::Failed);
+            assert_matches!(schedule.failed_reason, Some(RecordingFailedReason::ScheduleExpired));
+        });
     }
 }
 

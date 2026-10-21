@@ -638,13 +638,13 @@ where
                 if let Some(program) = onair_program.current {
                     // The start time in EIT[p/f] may be undefined.
                     if program.start_at.is_some() {
-                        self.update_schedule_by_onair_program(program, false).await;
+                        self.update_schedule_by_onair_program(program).await;
                     }
                 }
                 if let Some(program) = onair_program.next {
                     // The start time in EIT[p/f] may be undefined.
                     if program.start_at.is_some() {
-                        self.update_schedule_by_onair_program(program, true).await;
+                        self.update_schedule_by_onair_program(program).await;
                     }
                 }
             }
@@ -1157,60 +1157,60 @@ impl<T, E, O> RecordingManager<T, E, O> {
 
         let max_delay = Duration::try_hours(MAX_DELAY_HOURS).unwrap();
 
-        let mut changed = false;
+        let mut expired = vec![];
+        let mut ended = vec![];
 
-        let expired = self
-            .schedules
-            .extract_if(|_, schedule| {
-                if schedule.is_recording() {
-                    return false;
-                }
+        for schedule in self.schedules.values() {
+            if schedule.is_recording() {
+                continue;
+            }
 
-                if schedule.program.start_at.unwrap() + max_delay <= now {
-                    tracing::error!(
-                        %schedule.program.id,
-                        "Schedule has expired",
-                    );
-                    schedule.state = Failed;
-                    schedule.failed_reason = Some(RecordingFailedReason::ScheduleExpired);
-                    changed = true;
-                    return true;
-                }
+            if matches!(schedule.state, Finished | Failed) {
+                tracing::error!(%schedule.program.id, ?schedule.state, "INCONSISTENT: Invalid state");
+                continue;
+            }
 
-                match schedule.state {
-                    Scheduled | Tracking | Waiting => match schedule.program.end_at() {
-                        Some(end_at) if end_at <= now => {
-                            tracing::error!(
-                                %schedule.program.id,
-                                "TV program has alraedy ended",
-                            );
-                            schedule.state = Rescheduling;
-                            schedule.failed_reason = Some(RecordingFailedReason::ProgramEnded);
-                            changed = true;
-                            false
-                        }
-                        _ => false,
-                    },
-                    Recording => unreachable!(),
-                    Rescheduling => false,
-                    Finished | Failed => {
-                        tracing::error!(
-                            %schedule.program.id,
-                            ?schedule.state,
-                            "INCONSISTENT: Invalid schedule.state",
-                        );
-                        changed = true;
-                        true
+            if schedule.program.start_at.unwrap() + max_delay <= now {
+                expired.push(schedule.program.id);
+                continue;
+            }
+
+            if matches!(schedule.state, Scheduled | Tracking | Waiting) {
+                if let Some(end_at) = schedule.program.end_at() {
+                    if end_at <= now {
+                        ended.push((schedule.program.id, schedule.state != Waiting));
                     }
                 }
-            })
-            .map(|(_, schedule)| schedule)
-            .collect_vec();
+            }
+        }
 
-        for schedule in expired.into_iter() {
-            self.emit_recording_failed(schedule.program.id, RecordingFailedReason::ScheduleExpired)
-                .await;
+        let changed = !expired.is_empty() || !ended.is_empty();
+
+        for program_id in expired.into_iter() {
+            tracing::error!(schedule.program.id = %program_id, "Schedule has expired");
+            let mut schedule = self.schedules.remove(&program_id).unwrap();
+            schedule.state = Failed;
+            schedule.failed_reason = Some(RecordingFailedReason::ScheduleExpired);
             self.history.push(schedule);
+            self.emit_recording_failed(program_id, RecordingFailedReason::ScheduleExpired)
+                .await;
+        }
+
+        for (program_id, rescheduling) in ended.into_iter() {
+            tracing::error!(schedule.program.id = %program_id, "TV program has alraedy ended");
+            if rescheduling {
+                tracing::warn!(schedule.program.id = %program_id, "Need rescheduling");
+                let schedule = self.schedules.get_mut(&program_id).unwrap();
+                schedule.state = Rescheduling;
+                schedule.failed_reason = Some(RecordingFailedReason::ProgramEnded);
+            } else {
+                let mut schedule = self.schedules.remove(&program_id).unwrap();
+                schedule.state = Failed;
+                debug_assert!(schedule.failed_reason.is_some());
+                self.history.push(schedule);
+            }
+            self.emit_recording_failed(program_id, RecordingFailedReason::ProgramEnded)
+                .await;
         }
 
         changed
@@ -1281,22 +1281,24 @@ where
                 );
             }
             Err(err) => {
-                let schedule = self.schedules.get_mut(&program_id).unwrap();
-                tracing::error!(%err, %schedule.program.id, "Failed to start recording");
+                tracing::error!(%err, schedule.program.id = %program_id, "Failed to start recording");
                 let reason = RecordingFailedReason::StartRecordingFailed {
                     message: format!("{err}"),
                 };
-                schedule.failed_reason = Some(reason.clone());
-                match err {
-                    Error::TunerUnavailable => {
-                        tracing::warn!(%schedule.program.id, "Wait for tuner to become available");
-                        schedule.state = RecordingScheduleState::Waiting;
-                    }
-                    _ => {
-                        schedule.state = RecordingScheduleState::Failed;
-                        self.emit_recording_failed(program_id, reason).await;
-                    }
+                if matches!(err, Error::TunerUnavailable) {
+                    // A recording.failed event will be sent, but the recording schedule continues
+                    // waiting for a tuner to become available.
+                    tracing::warn!(schedule.program.id = %program_id, "Wait for tuner to become available");
+                    let schedule = self.schedules.get_mut(&program_id).unwrap();
+                    schedule.state = RecordingScheduleState::Waiting;
+                    schedule.failed_reason = Some(reason.clone());
+                } else {
+                    let mut schedule = self.schedules.remove(&program_id).unwrap();
+                    schedule.state = RecordingScheduleState::Failed;
+                    schedule.failed_reason = Some(reason.clone());
+                    self.history.push(schedule);
                 }
+                self.emit_recording_failed(program_id, reason).await;
             }
         }
     }
@@ -2390,7 +2392,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
         let mut changed = false;
         let mut removed = vec![];
         self.schedules.retain(|&program_id, schedule| {
-            if !schedule.can_be_updated_by_epg() {
+            if schedule.is_recording() {
                 return true;
             }
             let service_id = ServiceId::from(program_id);
@@ -2475,20 +2477,20 @@ where
         let mut changed = false;
         let mut removed = vec![];
         let mut rescheduled = vec![];
-        self.schedules.retain(|&program_id, schedule| {
+
+        for (&program_id, schedule) in self.schedules.iter_mut() {
             if ServiceId::from(program_id) != service_id {
-                return true;
+                continue;
             }
-            if !schedule.can_be_updated_by_epg() {
-                return true;
+            if schedule.is_recording() {
+                continue;
             }
             let program = match programs.get(&program_id.eid()) {
                 Some(program) => program,
                 None => {
-                    tracing::warn!(%schedule.program.id, "Removed from EPG");
                     removed.push(program_id);
                     changed = true;
-                    return false;
+                    continue;
                 }
             };
             if let Some(end_time) = program.end_at() {
@@ -2502,16 +2504,20 @@ where
                     changed = true;
                 }
             }
-            true
-        });
-
-        // TODO: add removed schedule to the history.
-        for &program_id in removed.iter() {
-            let reason = RecordingFailedReason::RemovedFromEpg;
-            self.emit_recording_failed(program_id, reason).await;
         }
 
-        for &program_id in rescheduled.iter() {
+        for program_id in removed.into_iter() {
+            tracing::warn!(schedule.program.id = %program_id, "Removed from EPG");
+            let mut schedule = self.schedules.remove(&program_id).unwrap();
+            schedule.state = RecordingScheduleState::Failed;
+            schedule.failed_reason = Some(RecordingFailedReason::RemovedFromEpg);
+            self.history.push(schedule);
+            self.emit_recording_failed(program_id, RecordingFailedReason::RemovedFromEpg)
+                .await;
+        }
+
+        for program_id in rescheduled.into_iter() {
+            tracing::info!(schedule.program.id = %program_id, "Start time changed");
             self.emit_recording_rescheduled(program_id).await;
         }
 
@@ -2544,12 +2550,12 @@ where
         // The start time in EIT[p/f] may be undefined.
         if let Some(program) = msg.current {
             if program.start_at.is_some() {
-                changed = self.update_schedule_by_onair_program(program, false).await;
+                changed = self.update_schedule_by_onair_program(program).await;
             }
         }
         if let Some(program) = msg.next {
             if program.start_at.is_some() {
-                changed = self.update_schedule_by_onair_program(program, true).await;
+                changed = self.update_schedule_by_onair_program(program).await;
             }
         }
 
@@ -2562,18 +2568,14 @@ where
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn update_schedule_by_onair_program(
-        &mut self,
-        program: Arc<EpgProgram>,
-        next: bool,
-    ) -> bool {
+    async fn update_schedule_by_onair_program(&mut self, program: Arc<EpgProgram>) -> bool {
         use RecordingScheduleState::*;
 
         let mut rescheduled = false;
 
         if let Some(schedule) = self.schedules.get_mut(&program.id) {
             match schedule.state {
-                Scheduled | Rescheduling => {
+                Scheduled | Waiting | Rescheduling => {
                     rescheduled = schedule.program.start_at != program.start_at;
                     schedule.program = (*program).clone();
                     schedule.state = Tracking;
@@ -2586,36 +2588,18 @@ impl<T, E, O> RecordingManager<T, E, O> {
                     rescheduled = schedule.program.start_at != program.start_at;
                     schedule.program = (*program).clone();
                 }
-                Waiting => {
-                    rescheduled = schedule.program.start_at != program.start_at;
-                    schedule.program = (*program).clone();
-                    if next {
-                        schedule.state = Tracking;
-                        tracing::info!(
-                            %schedule.program.id,
-                            "Start tracking changes of the schedule",
-                        );
-                    } else {
-                        // Waiting for a tuber to become available.
-                    }
-                }
                 Recording => {
-                    if next {
-                        tracing::error!(
-                            %schedule.program.id,
-                            "INCONSISTENT: Now recording the next TV program..."
-                        );
-                    }
                     schedule.program = (*program).clone();
                     self.update_record(program.id).await;
                 }
                 Finished | Failed => {
-                    // Nothing to do.
+                    tracing::error!("INCONSISTENT: Invalid state");
                 }
             }
         }
 
         if rescheduled {
+            tracing::info!(schedule.program.id = %program.id, "Start time changed");
             self.emit_recording_rescheduled(program.id).await;
         }
 
@@ -2682,11 +2666,6 @@ impl RecordingSchedule {
         }
     }
 
-    fn can_be_updated_by_epg(&self) -> bool {
-        use RecordingScheduleState::*;
-        matches!(self.state, Scheduled | Waiting | Rescheduling)
-    }
-
     fn is_ready_for_recording(&self) -> bool {
         use RecordingScheduleState::*;
         matches!(self.state, Scheduled | Tracking)
@@ -2705,98 +2684,116 @@ impl RecordingSchedule {
 
 /// The state of a recording schedule.
 ///
-/// This represents the lifecycle of a scheduled recording, transitioning through various
-/// states such as `Scheduled`, `Waiting`, `Tracking`, `Recording`, and `Rescheduling`
-/// before reaching a final state (`Finished` or `Failed`).
+/// This represents the lifecycle of a scheduled recording as it transitions through various
+/// states during execution until it reaches a final state.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[derive(ToSchema)]
 #[schema(title = "RecordingScheduleState")]
 pub enum RecordingScheduleState {
-    /// The recording is scheduled.  (the initial state)
+    /// The recording is scheduled (the initial state).
     ///
     /// ### Transitions
     ///
-    /// - No available tuner [start_recording]
-    ///   => Waiting
-    /// - The TV program has started or is about to start [update_schedule_by_onair_program]
-    ///   => Tracking.  (on-air program trackers are required)
-    /// - Recording has started successfully [do_start_recording]
-    ///   => Recording
-    /// - The TV program has already ended [maintain_schedules]
-    ///   => Rescheduling
-    /// - Failed to start recording [start_recording]
-    ///   => Failed
-    /// - The schedule has expired [maintain_schedules]
-    ///   => Failed
+    /// - No available tuner ([`RecordingManager::start_recording`])
+    ///   => [`Waiting`]
+    /// - The TV program has started or is about to start
+    ///   ([`RecordingManager::update_schedule_by_onair_program`])
+    ///   => [`Tracking`] (on-air program trackers are required)
+    /// - Recording has started successfully ([`RecordingManager::do_start_recording`])
+    ///   => [`Recording`]
+    /// - The TV program has already ended ([`RecordingManager::maintain_schedules`])
+    ///   => [`Rescheduling`]
+    /// - Failed to start recording ([`RecordingManager::start_recording`])
+    ///   => [`Failed`]
+    /// - Removed from EPG ([`RecordingManager::update_schedules_by_epg_program`])
+    ///   => [`Failed`]
+    /// - The schedule has expired ([`RecordingManager::maintain_schedules`])
+    ///   => [`Failed`]
     Scheduled,
 
-    /// Used only when the on-air program manager is available for the service of the target TV
-    /// program.  In this case, the state of the schedule always transitions to `Recording` via
-    /// `Tracking`.
+    /// Used only when the on-air program manager is available for the target TV program's service.
+    /// In this case, the schedule state always transitions to `Recording` via `Tracking`.
     ///
     /// ### Transitions
     ///
-    /// - No available tuner [start_recording]
-    ///   => Waiting
-    /// - Recording has started successfully [do_start_recording]
-    ///   => Recording
-    /// - The TV program has already ended [maintain_schedules]
-    ///   => Rescheduling
-    /// - Failed to start recording [start_recording]
-    ///   => Failed
-    /// - The schedule has expired [maintain_schedules]
-    ///   => Failed
+    /// - The start time of the TV program has changed via EPG
+    ///   ([`RecordingManager::update_schedules_by_epg_programs`])
+    ///   => [`Scheduled`]
+    /// - No available tuner ([`RecordingManager::start_recording`])
+    ///   => [`Waiting`]
+    /// - Recording has started successfully ([`RecordingManager::do_start_recording`])
+    ///   => [`Recording`]
+    /// - The TV program has already ended ([`RecordingManager::maintain_schedules`])
+    ///   => [`Rescheduling`]
+    /// - Failed to start recording ([`RecordingManager::start_recording`])
+    ///   => [`Failed`]
+    /// - Removed from EPG ([`RecordingManager::update_schedules_by_epg_program`])
+    ///   => [`Failed`]
+    /// - The schedule has expired ([`RecordingManager::maintain_schedules`])
+    ///   => [`Failed`]
     Tracking,
 
-    /// Waiting for a tuner to become available.  When the status of any tuner changes, the schedule
+    /// Waiting for a tuner to become available. When the status of any tuner changes, the schedule
     /// transitions to `Scheduled` and the recording process is retried.
     ///
     /// ### Transitions
     ///
-    /// - A tuner has become available [handle_tuner_available]
-    ///   => Scheduled
-    /// - The TV program is about to start [update_schedule_by_onair_program]
-    ///   => Tracking.  (on-air program trackers are required)
-    /// - The TV program has already ended [maintain_schedules]
-    ///   => Rescheduling
-    /// - The schedule has expired [maintain_schedules]
-    ///   => Failed
+    /// - A tuner has become available ([`RecordingManager::handle_tuner_available`])
+    ///   => [`Scheduled`]
+    /// - The start time of the TV program has changed via EPG
+    ///   ([`RecordingManager::update_schedules_by_epg_programs`])
+    ///   => [`Scheduled`]
+    /// - The TV program has started or is about to start
+    ///   ([`RecordingManager::update_schedule_by_onair_program`])
+    ///   => [`Tracking`] (on-air program trackers are required)
+    /// - Removed from EPG ([`RecordingManager::update_schedules_by_epg_program`])
+    ///   => [`Failed`]
+    /// - The schedule has expired ([`RecordingManager::maintain_schedules`])
+    ///   => [`Failed`]
+    /// - The TV program has already ended ([`RecordingManager::maintain_schedules`])
+    ///   => [`Failed`]
     Waiting,
 
     /// Recording the TV program.
     ///
     /// ### Transitions
     ///
-    /// - Recording stopped before the TV program started [handle_recording_stopped]
-    ///   => Rescheduling
-    /// - Recording finished successfully [handle_recording_stopped]
-    ///   => Finished
-    /// - Recording pipeline terminated abnormally [handle_recording_stopped]
-    ///   => Failed
+    /// - Recording stopped before the TV program started
+    ///   ([`RecordingManager::handle_recording_stopped`])
+    ///   => [`Rescheduling`]
+    /// - Recording finished successfully ([`RecordingManager::handle_recording_stopped`])
+    ///   => [`Finished`]
+    /// - Recording pipeline terminated abnormally
+    ///   ([`RecordingManager::handle_recording_stopped`])
+    ///   => [`Failed`]
     Recording,
 
-    /// When the recording fails, the schedule transitions to this state.  If the on-air program
+    /// The schedule transitions to this state when recording fails. If the on-air program
     /// tracker is available, the schedule may be rescheduled when an EIT section ([schedule] or
-    /// [p/f]) for the target TV program is emitted.  Otherwise, it will eventually expire.
+    /// [p/f]) for the target TV program is emitted. Otherwise, it will eventually expire.
     ///
     /// ### Transitions
     ///
-    /// - The start time of the TV program has changed via EPG [update_schedules_by_epg_programs]
-    ///   => Scheduled
-    /// - The TV program has started or is about to start [update_schedule_by_onair_program]
-    ///   => Tracking.  (on-air program trackers are required)
-    /// - The schedule has expired [maintain_schedules]
-    ///   => Failed
+    /// - The start time of the TV program has changed via EPG
+    ///   ([`RecordingManager::update_schedules_by_epg_programs`])
+    ///   => [`Scheduled`]
+    /// - The TV program has started or is about to start
+    ///   ([`RecordingManager::update_schedule_by_onair_program`])
+    ///   => [`Tracking`] (on-air program trackers are required)
+    /// - Removed from EPG ([`RecordingManager::update_schedules_by_epg_program`])
+    ///   => [`Failed`]
+    /// - The schedule has expired ([`RecordingManager::maintain_schedules`])
+    ///   => [`Failed`]
     Rescheduling,
 
-    // Final states
     /// The recording finished successfully.
     Finished,
 
     /// The recording failed for some reason.
     Failed,
 }
+
 /// Recording options.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
