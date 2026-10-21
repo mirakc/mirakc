@@ -1190,9 +1190,9 @@ impl<T, E, O> RecordingManager<T, E, O> {
             tracing::error!(schedule.program.id = %program_id, "Schedule has expired");
             let mut schedule = self.schedules.remove(&program_id).unwrap();
             schedule.state = Failed;
-            schedule.failed_reason = Some(RecordingFailedReason::ScheduleExpired);
+            schedule.failure_reason = Some(RecordingFailureReason::ScheduleExpired);
             self.history.push(schedule);
-            self.emit_recording_failed(program_id, RecordingFailedReason::ScheduleExpired)
+            self.emit_recording_failed(program_id, RecordingFailureReason::ScheduleExpired)
                 .await;
         }
 
@@ -1202,14 +1202,14 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 tracing::warn!(schedule.program.id = %program_id, "Need rescheduling");
                 let schedule = self.schedules.get_mut(&program_id).unwrap();
                 schedule.state = Rescheduling;
-                schedule.failed_reason = Some(RecordingFailedReason::ProgramEnded);
+                schedule.failure_reason = Some(RecordingFailureReason::ProgramEnded);
             } else {
                 let mut schedule = self.schedules.remove(&program_id).unwrap();
                 schedule.state = Failed;
-                debug_assert!(schedule.failed_reason.is_some());
+                debug_assert!(schedule.failure_reason.is_some());
                 self.history.push(schedule);
             }
-            self.emit_recording_failed(program_id, RecordingFailedReason::ProgramEnded)
+            self.emit_recording_failed(program_id, RecordingFailureReason::ProgramEnded)
                 .await;
         }
 
@@ -1282,7 +1282,7 @@ where
             }
             Err(err) => {
                 tracing::error!(%err, schedule.program.id = %program_id, "Failed to start recording");
-                let reason = RecordingFailedReason::StartRecordingFailed {
+                let reason = RecordingFailureReason::StartRecordingFailed {
                     message: format!("{err}"),
                 };
                 if matches!(err, Error::TunerUnavailable) {
@@ -1291,11 +1291,11 @@ where
                     tracing::warn!(schedule.program.id = %program_id, "Wait for tuner to become available");
                     let schedule = self.schedules.get_mut(&program_id).unwrap();
                     schedule.state = RecordingScheduleState::Waiting;
-                    schedule.failed_reason = Some(reason.clone());
+                    schedule.failure_reason = Some(reason.clone());
                 } else {
                     let mut schedule = self.schedules.remove(&program_id).unwrap();
                     schedule.state = RecordingScheduleState::Failed;
-                    schedule.failed_reason = Some(reason.clone());
+                    schedule.failure_reason = Some(reason.clone());
                     self.history.push(schedule);
                 }
                 self.emit_recording_failed(program_id, reason).await;
@@ -1435,7 +1435,7 @@ where
                 if let Err(err) = result {
                     addr.emit(RecordingFailed {
                         program_id,
-                        reason: RecordingFailedReason::IoError {
+                        reason: RecordingFailureReason::IoError {
                             message: format!("{err}"),
                             os_error: err.raw_os_error(),
                         },
@@ -2075,9 +2075,9 @@ impl<T, E, O> RecordingManager<T, E, O> {
                     "Need rescheduling",
                 );
                 schedule.state = RecordingScheduleState::Rescheduling;
-                schedule.failed_reason = Some(RecordingFailedReason::NeedRescheduling);
+                schedule.failure_reason = Some(RecordingFailureReason::NeedRescheduling);
                 changed = true;
-                self.emit_recording_failed(program_id, RecordingFailedReason::NeedRescheduling)
+                self.emit_recording_failed(program_id, RecordingFailureReason::NeedRescheduling)
                     .await;
             }
         } else if let Some(exit_code) = get_first_error(&results) {
@@ -2086,10 +2086,10 @@ impl<T, E, O> RecordingManager<T, E, O> {
                 schedule.program.id = %program_id,
                 "The recording pipeline terminated abnormally",
             );
-            let reason = RecordingFailedReason::PipelineError { exit_code };
+            let reason = RecordingFailureReason::PipelineError { exit_code };
             if let Some(schedule) = self.schedules.get_mut(&program_id) {
                 schedule.state = RecordingScheduleState::Failed;
-                schedule.failed_reason = Some(reason.clone());
+                schedule.failure_reason = Some(reason.clone());
                 changed = true;
                 done = true;
             }
@@ -2134,12 +2134,12 @@ impl<T, E, O> RecordingManager<T, E, O> {
 #[derive(Clone, Message)]
 pub struct RecordingFailed {
     pub program_id: ProgramId,
-    pub reason: RecordingFailedReason,
+    pub reason: RecordingFailureReason,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum RecordingFailedReason {
+pub enum RecordingFailureReason {
     #[serde(rename_all = "camelCase")]
     StartRecordingFailed {
         message: String,
@@ -2181,7 +2181,7 @@ where
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    async fn emit_recording_failed(&self, program_id: ProgramId, reason: RecordingFailedReason) {
+    async fn emit_recording_failed(&self, program_id: ProgramId, reason: RecordingFailureReason) {
         let msg = RecordingFailed {
             program_id,
             reason: reason.clone(),
@@ -2418,7 +2418,7 @@ impl<T, E, O> RecordingManager<T, E, O> {
             if self.recorders.contains_key(&program_id) {
                 let _ = self.stop_recorder(program_id);
             }
-            self.emit_recording_failed(program_id, RecordingFailedReason::RemovedFromEpg)
+            self.emit_recording_failed(program_id, RecordingFailureReason::RemovedFromEpg)
                 .await;
         }
 
@@ -2510,9 +2510,9 @@ where
             tracing::warn!(schedule.program.id = %program_id, "Removed from EPG");
             let mut schedule = self.schedules.remove(&program_id).unwrap();
             schedule.state = RecordingScheduleState::Failed;
-            schedule.failed_reason = Some(RecordingFailedReason::RemovedFromEpg);
+            schedule.failure_reason = Some(RecordingFailureReason::RemovedFromEpg);
             self.history.push(schedule);
-            self.emit_recording_failed(program_id, RecordingFailedReason::RemovedFromEpg)
+            self.emit_recording_failed(program_id, RecordingFailureReason::RemovedFromEpg)
                 .await;
         }
 
@@ -2646,7 +2646,7 @@ pub struct RecordingSchedule {
     #[serde(default)]
     pub tags: HashSet<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failed_reason: Option<RecordingFailedReason>,
+    pub failure_reason: Option<RecordingFailureReason>,
 }
 
 impl RecordingSchedule {
@@ -2662,7 +2662,7 @@ impl RecordingSchedule {
             service,
             options,
             tags,
-            failed_reason: None,
+            failure_reason: None,
         }
     }
 
@@ -2987,7 +2987,7 @@ impl Record {
             }
             RecordingScheduleState::Rescheduling => {
                 self.recording_status = RecordingStatus::Failed {
-                    reason: RecordingFailedReason::NeedRescheduling,
+                    reason: RecordingFailureReason::NeedRescheduling,
                 };
             }
             RecordingScheduleState::Finished => {
@@ -2995,7 +2995,7 @@ impl Record {
             }
             RecordingScheduleState::Failed => {
                 self.recording_status = RecordingStatus::Failed {
-                    reason: schedule.failed_reason.clone().unwrap(),
+                    reason: schedule.failure_reason.clone().unwrap(),
                 };
             }
         }
@@ -3008,7 +3008,7 @@ pub enum RecordingStatus {
     Recording,
     Finished,
     Canceled,
-    Failed { reason: RecordingFailedReason },
+    Failed { reason: RecordingFailureReason },
 }
 
 // helpers
