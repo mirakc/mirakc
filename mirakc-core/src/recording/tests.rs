@@ -778,7 +778,12 @@ async fn test_start_recording_tuner_unavailable() {
             })
             .await;
 
-        manager.emit(tuner::Event::StatusChanged(0)).await;
+        manager
+            .emit(TunerAvailable {
+                index: 0,
+                channel_types: vec![ChannelType::GR],
+            })
+            .await;
 
         notify.notified().await;
     }

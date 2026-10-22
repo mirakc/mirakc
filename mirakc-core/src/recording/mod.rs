@@ -48,6 +48,7 @@ use crate::epg::QueryService;
 use crate::error::Error;
 use crate::file_util;
 use crate::filter::FilterPipelineBuilder;
+use crate::models::ChannelType;
 use crate::models::ContentRange;
 use crate::models::ProgramId;
 use crate::models::ServiceId;
@@ -58,6 +59,7 @@ use crate::onair;
 use crate::tuner;
 use crate::tuner::StartStreaming;
 use crate::tuner::StopStreaming;
+use crate::tuner::TunerAvailable;
 use crate::tuner::TunerSubscriptionId;
 
 use content_source::open_content_stream;
@@ -429,10 +431,10 @@ where
 
         if let Err(err) = self
             .tuner_manager
-            .call(tuner::RegisterEmitter(ctx.emitter()))
+            .call(tuner::RegisterEmitter::TunerAvailable(ctx.emitter()))
             .await
         {
-            tracing::error!(?err, "Failed to register emitter for tuner::Event");
+            tracing::error!(?err, "Failed to register emitter for tuner::TunerAvailable");
             return;
         }
 
@@ -2311,10 +2313,10 @@ where
     }
 }
 
-// tuner::Event
+// TunerAvailable
 
 #[async_trait]
-impl<T, E, O> Handler<tuner::Event> for RecordingManager<T, E, O>
+impl<T, E, O> Handler<TunerAvailable> for RecordingManager<T, E, O>
 where
     T: Clone + Send + Sync + 'static,
     T: Call<tuner::RegisterEmitter>,
@@ -2328,9 +2330,9 @@ where
     O: Clone + Send + Sync + 'static,
     O: Call<onair::RegisterEmitter>,
 {
-    async fn handle(&mut self, _msg: tuner::Event, ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "tuner::Event");
-        let changed = self.handle_tuner_available();
+    async fn handle(&mut self, msg: TunerAvailable, ctx: &mut Context<Self>) {
+        tracing::debug!(msg.name = "TunerAvailable");
+        let changed = self.handle_tuner_available(&msg.channel_types);
         if changed {
             self.save_schedules();
             self.rebuild_queue();
@@ -2340,12 +2342,16 @@ where
 }
 
 impl<T, E, O> RecordingManager<T, E, O> {
-    fn handle_tuner_available(&mut self) -> bool {
+    fn handle_tuner_available(&mut self, channel_types: &[ChannelType]) -> bool {
         let mut changed = false;
+        // Change the state of all recording schedules waiting for a tuner with the same channel
+        // type.  However, only the first schedule in the queue matching that channel type will be
+        // allocated a tuner; the others will return to waiting.
         for schedule in self
             .schedules
             .values_mut()
             .filter(|schedule| matches!(schedule.state, RecordingScheduleState::Waiting))
+            .filter(|schedule| channel_types.contains(&schedule.service.channel.channel_type))
         {
             tracing::info!(%schedule.program.id, "Tuner available, retry recording");
             schedule.state = RecordingScheduleState::Scheduled;
