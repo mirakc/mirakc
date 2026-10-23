@@ -2651,7 +2651,11 @@ pub struct RecordingSchedule {
     pub options: RecordingOptions,
     #[serde(default)]
     pub tags: HashSet<String>,
-    #[serde(default, alias = "failed_reason", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "failed_reason",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub failure_reason: Option<RecordingFailureReason>,
 }
 
