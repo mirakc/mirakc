@@ -27,6 +27,46 @@ fn test_record_id() {
 }
 
 #[test]
+fn deserialize_legacy_failed_reason_field() {
+    let json = r#"[
+        {
+            "state": "failed",
+            "program": {
+                "id": 1,
+                "start_at": 0,
+                "end_at": 1,
+                "duration": 0,
+                "scrambled": false,
+                "name": "",
+                "audios": {}
+            },
+            "service": {
+                "id": 1,
+                "type": 1,
+                "name": "",
+                "channel": {
+                    "name": "test",
+                    "type": "BS",
+                    "channel": "1",
+                    "services": [],
+                    "excluded_services": []
+                }
+            },
+            "options": {},
+            "failed_reason": {
+                "type": "schedule-expired"
+            }
+        }
+    ]"#;
+
+    let schedules: Vec<RecordingSchedule> = serde_json::from_str(json).unwrap();
+    assert!(matches!(
+        schedules[0].failure_reason,
+        Some(RecordingFailureReason::ScheduleExpired)
+    ));
+}
+
+#[test]
 fn test_save_and_load() {
     let now = Jst::now();
 
