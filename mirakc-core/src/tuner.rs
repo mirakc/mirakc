@@ -1035,6 +1035,7 @@ mod tests {
     use crate::command_util::Error as CommandUtilError;
     use assert_matches::assert_matches;
     use test_log::test;
+    use tokio::sync::Notify;
     use tokio_stream::StreamExt;
 
     #[test]
@@ -1536,6 +1537,60 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    async fn test_tuner_available() {
+        let config: Arc<Config> = Arc::new(
+            serde_norway::from_str(
+                r#"
+                tuners:
+                  - name: gr
+                    types: [GR]
+                    command: >-
+                      sleep 1
+                "#,
+            )
+            .unwrap(),
+        );
+
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+
+        let mut tuner_available = MockTunerAvailableValidator::new();
+
+        tuner_available
+            .expect_emit()
+            .returning(move |_| notify2.notify_one())
+            .once();
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::TunerAvailable(Emitter::new(tuner_available)))
+                .await;
+            assert_matches!(result, Ok(_));
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+
+            let id = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+                stream.id()
+            });
+
+            manager.emit(StopStreaming { id }).await;
+
+            notify.notified().await;
+        }
+        system.shutdown().await;
+    }
+
+    #[test(tokio::test)]
     async fn test_tuner_is_subscribed() {
         let system = System::new();
         {
@@ -1806,6 +1861,24 @@ mod tests {
 
     fn create_user(priority: TunerUserPriority) -> TunerUser {
         tuner_user!(priority, job; "test")
+    }
+
+    mockall::mock! {
+        EventValidator {}
+
+        #[async_trait]
+        impl Emit<Event> for EventValidator {
+            async fn emit(&self, msg: Event);
+        }
+    }
+
+    mockall::mock! {
+        TunerAvailableValidator {}
+
+        #[async_trait]
+        impl Emit<TunerAvailable> for TunerAvailableValidator {
+            async fn emit(&self, msg: TunerAvailable);
+        }
     }
 }
 
