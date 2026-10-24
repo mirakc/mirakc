@@ -1566,7 +1566,9 @@ mod tests {
             let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
 
             let result = manager
-                .call(RegisterEmitter::TunerAvailable(Emitter::new(tuner_available)))
+                .call(RegisterEmitter::TunerAvailable(Emitter::new(
+                    tuner_available,
+                )))
                 .await;
             assert_matches!(result, Ok(_));
 
