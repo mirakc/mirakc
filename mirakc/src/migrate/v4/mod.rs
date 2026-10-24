@@ -76,6 +76,22 @@ pub fn migrate_recording_schedules(config: &config::Config, cl: &CommandLine) ->
         tracing::debug!(?program_id, "Updated the recording schedule");
     }
 
+    tracing::info!(
+        file = ?old_path,
+        reason = "fix(recording)!: wait for a tuner to become available (#3193)",
+        commit = "3ea0d5975edb16b2688ad8b8de8393223969c381",
+        "Migrating...",
+    );
+    for sched in schedules.as_array_mut().unwrap().iter_mut() {
+        let sched = sched.as_object_mut().unwrap();
+        if let Some(value) = sched.remove("failed_reason") {
+            sched.insert("failure_reason".to_string(), value);
+            let program_id = sched["program"]["id"].clone();
+            let program_id: models::ProgramId = serde_json::from_value(program_id).unwrap();
+            tracing::debug!(?program_id, "failed_reason -> failure_reason");
+        }
+    }
+
     if file_util::save_json(&schedules, &new_path) {
         tracing::info!(?old_path, ?new_path, "Migrated successfully");
         true
