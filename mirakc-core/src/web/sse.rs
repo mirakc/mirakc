@@ -49,8 +49,8 @@ where
 
     let _tuner_event_unregister_trigger = register_emitter!(
         tuner_manager,
-        crate::tuner::RegisterEmitter,
-        crate::tuner::UnregisterEmitter
+        crate::tuner::RegisterEmitter::TunerStatusChanged,
+        crate::tuner::UnregisterEmitter::TunerStatusChanged
     );
 
     let _epg_programs_updated_unregister_trigger = register_emitter!(

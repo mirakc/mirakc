@@ -36,7 +36,7 @@ use crate::onair::OnairProgram;
 use crate::recording;
 use crate::recording::Record;
 use crate::recording::RecordId;
-use crate::recording::RecordingFailedReason;
+use crate::recording::RecordingFailureReason;
 use crate::recording::RecordingOptions;
 use crate::recording::RecordingScheduleState;
 use crate::recording::RecordingStatus;
@@ -71,11 +71,14 @@ pub(in crate::web) struct WebRecordingSchedule {
     /// A list of tags.
     #[schema(value_type = Vec<String>)]
     pub tags: HashSet<String>,
-    /// Reason of the recording failure.
+    /// The reason for the recording failure.
     ///
     /// This property exists only when the recording failed.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub failed_reason: Option<RecordingFailedReason>,
+    pub failure_reason: Option<RecordingFailureReason>,
+    /// An alias for failure_reason to maintain backward compatibility.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_reason: Option<RecordingFailureReason>,
 }
 
 impl From<recording::RecordingSchedule> for WebRecordingSchedule {
@@ -85,7 +88,8 @@ impl From<recording::RecordingSchedule> for WebRecordingSchedule {
             program: value.program.clone().into(),
             options: value.options,
             tags: value.tags,
-            failed_reason: value.failed_reason,
+            failure_reason: value.failure_reason.clone(),
+            failed_reason: value.failure_reason,
         }
     }
 }
@@ -210,7 +214,7 @@ pub(in crate::web) struct WebRecord {
 
 impl From<(Record, Option<u64>)> for WebRecord {
     fn from((record, content_length): (Record, Option<u64>)) -> Self {
-        let (status, failed_reason) = match record.recording_status {
+        let (status, failure_reason) = match record.recording_status {
             RecordingStatus::Recording => (WebRecordingStatus::Recording, None),
             RecordingStatus::Finished => (WebRecordingStatus::Finished, None),
             RecordingStatus::Canceled => (WebRecordingStatus::Canceled, None),
@@ -227,7 +231,8 @@ impl From<(Record, Option<u64>)> for WebRecord {
                 start_time: record.recording_start_time,
                 end_time: record.recording_end_time,
                 duration: record.recording_duration,
-                failed_reason,
+                failed_reason: failure_reason.clone(),
+                failure_reason,
             },
             content: WebContentInfo {
                 path: record.content_path,
@@ -282,10 +287,15 @@ pub(in crate::web) struct WebRecordingInfo {
 
     /// The reason for the recording failure.
     ///
-    /// This property is available only when the `status` is `failed`.
+    /// This property exists only when the recording failed.
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub failed_reason: Option<RecordingFailedReason>,
+    pub failure_reason: Option<RecordingFailureReason>,
+
+    /// An alias for failure_reason to maintain backward compatibility.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_reason: Option<RecordingFailureReason>,
 }
 
 /// A recording status.

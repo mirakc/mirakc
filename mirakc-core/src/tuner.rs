@@ -75,6 +75,7 @@ pub struct TunerManager {
     config: Arc<Config>,
     tuners: Vec<Tuner>,
     event_emitters: EmitterRegistry<Event>,
+    tuner_available: EmitterRegistry<TunerAvailable>,
     stopping: bool,
 }
 
@@ -106,6 +107,7 @@ impl TunerManager {
             config,
             tuners: Vec::new(),
             event_emitters: Default::default(),
+            tuner_available: Default::default(),
             stopping: false,
         }
     }
@@ -250,7 +252,18 @@ impl TunerManager {
             self.event_emitters
                 .emit(Event::StatusChanged(tuner.index))
                 .await;
-            tuner.activate(channel, filters, ctx).await?;
+            if let Err(err) = tuner.activate(channel, filters, ctx).await {
+                debug_assert!(tuner.is_available());
+                let index = tuner.index;
+                let channel_types = tuner.channel_types.clone();
+                self.tuner_available
+                    .emit(TunerAvailable {
+                        index,
+                        channel_types,
+                    })
+                    .await;
+                return Err(err);
+            }
             return Ok(tuner.subscribe(user));
         }
 
@@ -258,19 +271,37 @@ impl TunerManager {
         Err(Error::TunerUnavailable)
     }
 
-    fn deactivate_tuner(&mut self, id: TunerSubscriptionId) {
-        self.tuners[id.session_id.tuner_index].deactivate();
+    async fn deactivate_tuner(&mut self, id: TunerSubscriptionId) {
+        let index = id.session_id.tuner_index;
+        self.tuners[index].deactivate();
+        debug_assert!(self.tuners[index].is_available());
+        let channel_types = self.tuners[index].channel_types.clone();
+        self.event_emitters.emit(Event::StatusChanged(index)).await;
+        self.tuner_available
+            .emit(TunerAvailable {
+                index,
+                channel_types,
+            })
+            .await;
     }
 
     async fn stop_streaming(
         &mut self,
         id: TunerSubscriptionId,
     ) -> Result<Option<TunerUser>, Error> {
-        let tuner = &mut self.tuners[id.session_id.tuner_index];
-        self.event_emitters
-            .emit(Event::StatusChanged(tuner.index))
-            .await;
-        tuner.stop_streaming(id).await
+        let index = id.session_id.tuner_index;
+        let user = self.tuners[index].stop_streaming(id).await?;
+        self.event_emitters.emit(Event::StatusChanged(index)).await;
+        if self.tuners[index].is_available() {
+            let channel_types = self.tuners[index].channel_types.clone();
+            self.tuner_available
+                .emit(TunerAvailable {
+                    index,
+                    channel_types,
+                })
+                .await;
+        }
+        Ok(user)
     }
 
     fn make_filter_commands(
@@ -345,7 +376,10 @@ impl Actor for TunerManager {
 
 #[derive(Message)]
 #[reply(usize)]
-pub struct RegisterEmitter(pub Emitter<Event>);
+pub enum RegisterEmitter {
+    TunerStatusChanged(Emitter<Event>),
+    TunerAvailable(Emitter<TunerAvailable>),
+}
 
 #[async_trait]
 impl Handler<RegisterEmitter> for TunerManager {
@@ -354,15 +388,24 @@ impl Handler<RegisterEmitter> for TunerManager {
         msg: RegisterEmitter,
         ctx: &mut Context<Self>,
     ) -> <RegisterEmitter as Message>::Reply {
-        let id = self.event_emitters.register(msg.0.clone());
-        tracing::debug!(msg.name = "RegisterEmitter", id);
-        if id != 0 {
-            // Sending many messages in the message handler may cause a deadlock
-            // when the number of messages to be sent is larger than the capacity
-            // of the emitter's channel.  See the issue #705 for example.
-            ctx.set_post_process(RegisterEmitterPostProcess(msg.0));
+        match msg {
+            RegisterEmitter::TunerStatusChanged(emitter) => {
+                let id = self.event_emitters.register(emitter.clone());
+                tracing::debug!(msg.name = "RegisterEmitter::TunerStatusChanged", id);
+                if id != 0 {
+                    // Sending many messages in the message handler may cause a deadlock
+                    // when the number of messages to be sent is larger than the capacity
+                    // of the emitter's channel.  See the issue #705 for example.
+                    ctx.set_post_process(RegisterEmitterPostProcess(emitter));
+                }
+                id
+            }
+            RegisterEmitter::TunerAvailable(emitter) => {
+                let id = self.tuner_available.register(emitter);
+                tracing::debug!(msg.name = "RegisterEmitter::TunerAvailable", id);
+                id
+            }
         }
-        id
     }
 }
 
@@ -382,13 +425,24 @@ impl Handler<RegisterEmitterPostProcess> for TunerManager {
 // unregister emitter
 
 #[derive(Message)]
-pub struct UnregisterEmitter(pub usize);
+pub enum UnregisterEmitter {
+    TunerStatusChanged(usize),
+    TunerAvailable(usize),
+}
 
 #[async_trait]
 impl Handler<UnregisterEmitter> for TunerManager {
     async fn handle(&mut self, msg: UnregisterEmitter, _ctx: &mut Context<Self>) {
-        tracing::debug!(msg.name = "UnregisterEmitter", id = msg.0);
-        self.event_emitters.unregister(msg.0);
+        match msg {
+            UnregisterEmitter::TunerStatusChanged(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::TunerStatusChanged", id);
+                self.event_emitters.unregister(id);
+            }
+            UnregisterEmitter::TunerAvailable(id) => {
+                tracing::debug!(msg.name = "UnregisterEmitter::TunerUnavailable", id);
+                self.tuner_available.unregister(id);
+            }
+        }
     }
 }
 
@@ -487,7 +541,7 @@ impl Handler<StartStreaming> for TunerManager {
             }
             Err(err) => {
                 tracing::error!(%err, %subscription.id, "Broadcaster may have stopped");
-                self.deactivate_tuner(subscription.id);
+                self.deactivate_tuner(subscription.id).await;
                 Err(err.into())
             }
         }
@@ -522,11 +576,17 @@ impl Handler<StopStreaming> for TunerManager {
     }
 }
 
-// event
+// events
 
 #[derive(Clone, Message)]
 pub enum Event {
     StatusChanged(usize),
+}
+
+#[derive(Clone, Message)]
+pub struct TunerAvailable {
+    pub index: usize,
+    pub channel_types: Vec<ChannelType>,
 }
 
 // tuner
@@ -975,6 +1035,7 @@ mod tests {
     use crate::command_util::Error as CommandUtilError;
     use assert_matches::assert_matches;
     use test_log::test;
+    use tokio::sync::Notify;
     use tokio_stream::StreamExt;
 
     #[test]
@@ -1476,6 +1537,62 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    async fn test_tuner_available() {
+        let config: Arc<Config> = Arc::new(
+            serde_norway::from_str(
+                r#"
+                tuners:
+                  - name: gr
+                    types: [GR]
+                    command: >-
+                      sleep 1
+                "#,
+            )
+            .unwrap(),
+        );
+
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+
+        let mut tuner_available = MockTunerAvailableValidator::new();
+
+        tuner_available
+            .expect_emit()
+            .returning(move |_| notify2.notify_one())
+            .once();
+
+        let system = System::new();
+        {
+            let manager = system.spawn_actor(TunerManager::new(config.clone())).await;
+
+            let result = manager
+                .call(RegisterEmitter::TunerAvailable(Emitter::new(
+                    tuner_available,
+                )))
+                .await;
+            assert_matches!(result, Ok(_));
+
+            let result = manager
+                .call(StartStreaming {
+                    channel: create_channel("0"),
+                    user: create_user(0.into()),
+                    stream_id: None,
+                })
+                .await;
+
+            let id = assert_matches!(result, Ok(Ok(stream)) => {
+                assert_eq!(stream.id().session_id.tuner_index, 0);
+                stream.id()
+            });
+
+            manager.emit(StopStreaming { id }).await;
+
+            notify.notified().await;
+        }
+        system.shutdown().await;
+    }
+
+    #[test(tokio::test)]
     async fn test_tuner_is_subscribed() {
         let system = System::new();
         {
@@ -1747,6 +1864,24 @@ mod tests {
     fn create_user(priority: TunerUserPriority) -> TunerUser {
         tuner_user!(priority, job; "test")
     }
+
+    mockall::mock! {
+        EventValidator {}
+
+        #[async_trait]
+        impl Emit<Event> for EventValidator {
+            async fn emit(&self, msg: Event);
+        }
+    }
+
+    mockall::mock! {
+        TunerAvailableValidator {}
+
+        #[async_trait]
+        impl Emit<TunerAvailable> for TunerAvailableValidator {
+            async fn emit(&self, msg: TunerAvailable);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1814,6 +1949,8 @@ pub(crate) mod stub {
                     TunerSubscriptionId::default(),
                     stream,
                 )))
+            } else if msg.channel.channel == "unavailable" {
+                Ok(Err(Error::TunerUnavailable))
             } else {
                 let (_, stream) = BroadcasterStream::new_for_test();
                 Ok(Ok(MpegTsStream::new(

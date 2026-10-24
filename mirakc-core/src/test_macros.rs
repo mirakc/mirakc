@@ -174,7 +174,7 @@ macro_rules! recording_schedule {
             service: $service,
             options: $options,
             tags: Default::default(),
-            failed_reason: None,
+            failure_reason: None,
         }
     };
     ($state:expr, $program:expr, $service:expr, $options:expr, $tags:expr) => {
@@ -184,7 +184,7 @@ macro_rules! recording_schedule {
             service: $service,
             options: $options,
             tags: $tags,
-            failed_reason: None,
+            failure_reason: None,
         }
     };
 }
