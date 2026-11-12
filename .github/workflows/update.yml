@@ -7,6 +7,10 @@ on:
         required: true
         type: string
     secrets:
+      CI_BOT_APP_ID:
+        required: true
+      CI_BOT_PRIVATE_KEY:
+        required: true
       DOCKERHUB_TOKEN:
         required: true
       DOCKERHUB_USER:
@@ -17,6 +21,11 @@ on:
           The number of commits made within 24 hours.
         value: ${{ jobs.update.outputs.num-commits }}
 
+permissions: {}
+
+env:
+  DEBIAN_CODENAME: trixie
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -24,60 +33,107 @@ jobs:
       num-commits: ${{ steps.count.outputs.num-commits }}
     # Use the default GitHub bot account because we don't need to invoke any
     # other workflows triggered by a push event.
+    permissions:
+      contents: write
     steps:
-      # Use `main` in order to use actions/github-script@v7 for avoiding a warning.
-      - uses: raven-actions/bot-details@main
-        id: bot-details
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
         with:
+          # app-id was deprecated in 3.1.0
+          client-id: ${{ secrets.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+          # The access will be scoped to only the current repository.
+          permission-contents: write
+      - name: Get GitHub App User ID
+        id: get-user-id
+        run: |
+          USER_ID=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          echo "user-id=$USER_ID" >>"$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
           ref: ${{ inputs.ref-name }}
+      # See https://github.com/actions/create-github-app-token?tab=readme-ov-file#configure-git-cli-for-an-apps-bot-user
       - name: git config
         run: |
-          git config user.name "${{ steps.bot-details.outputs.name }}"
-          git config user.email "${{ steps.bot-details.outputs.email }}"
+          git config --global user.name "$USER_NAME"
+          git config --global user.email "$USER_EMAIL"
+        env:
+          USER_NAME: ${{ steps.app-token.outputs.app-slug }}[bot]
+          USER_EMAIL: ${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com
+      # See https://github.com/tschaub/gh-pages/issues/384#issuecomment-1236047843
+      - name: set origin url (workaround)
+        run: |
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}"
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
       - name: Setup QEMU user-mode emulation
-        uses: docker/setup-qemu-action@v4.4.0
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v4.4.1
+        uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
         with:
           buildkitd-flags: --debug
       - name: Login to Docker Hub
-        uses: docker/login-action@v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Update .devcontainer/Dockerfile
         run: |
-          ./scripts/update-devcontainer-dockerfile
+          if [ -e ./scripts/update-devcontainer-dockerfile.sh ]
+          then
+            sh ./scripts/update-devcontainer-dockerfile.sh
+          else
+            ./scripts/update-devcontainer-dockerfile
+          fi
       - name: Update mirakc-arib
         if: inputs.ref-name == 'main'
         run: |
           LAST_COMMIT=$(git rev-parse HEAD)
-          ./scripts/update-mirakc-arib
+          if [ -e ./scripts/update-mirakc-arib.sh ]
+          then
+            sh ./scripts/update-mirakc-arib.sh
+          else
+            ./scripts/update-mirakc-arib
+          fi
           if [ "$(git rev-parse HEAD)" != "$LAST_COMMIT" ]
           then
-            ./scripts/update-tools-images --push
+            if [ -e ./scripts/update-tools-images.sh ]
+            then
+              sh ./scripts/update-tools-images.sh --no-cache --push "$DEBIAN_CODENAME"
+            else
+              ./scripts/update-tools-images --no-cache --push "$DEBIAN_CODENAME"
+            fi
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GH_TOKEN is used by `gh api` command in update-mirakc-arib.sh.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Push if changed
         run: |
-          if git diff --quiet origin/${{ inputs.ref-name }}..HEAD
+          if git diff --quiet origin/${REF_NAME}..HEAD
           then
             echo "No commit to push"
           else
             git push
           fi
+        env:
+          REF_NAME: ${{ inputs.ref-name }}
       - name: Count commits made within 24 hours
         id: count
         run: |
-          NUM_COMMITS=$(git rev-list --count --since '24 hours' ${{ inputs.ref-name }})
+          NUM_COMMITS=$(git rev-list --count --since '24 hours' "$REF_NAME")
           echo "NUM_COMMITS=$NUM_COMMITS"
           echo "num-commits=$NUM_COMMITS" >>$GITHUB_OUTPUT
+        env:
+          REF_NAME: ${{ inputs.ref-name }}

@@ -26,3 +26,9 @@ updates:
     schedule:
       interval: daily
       time: '07:07'  # UTC
+    groups:
+      # utoipa and utoipa-swagger-ui must be updated in the same pull request
+      utoipa:
+        patterns:
+          - 'utoipa'
+          - 'utoipa-swagger-ui'

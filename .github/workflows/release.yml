@@ -5,9 +5,14 @@ on:
     tags:
       - '*'
 
+permissions: {}
+
 jobs:
   docker:
-    uses: ./.github/workflows/docker.yml
+    permissions:
+      contents: read
+      actions: write
+    uses: $/.github/workflows/docker.yml
     with:
       ref-name: ${{ github.ref_name }}  # tag name
       ref-type: ${{ github.ref_type }}  # tag
