@@ -1331,9 +1331,9 @@ mod tests {
         assert_eq!(sched.start_index, 0);
 
         let mut date = Jst::today();
-        for i in 0..EpgSchedule::MAX_DAYS {
-            sched.units[i].segments[0].basic_sections[0] = Some(create_epg_section(date));
-            assert_matches!(sched.units[i].date(), Some(v) => assert_eq!(v, date));
+        for unit in sched.units.iter_mut().take(EpgSchedule::MAX_DAYS) {
+            unit.segments[0].basic_sections[0] = Some(create_epg_section(date));
+            assert_matches!(unit.date(), Some(v) => assert_eq!(v, date));
             date = date.succ_opt().unwrap();
         }
 
