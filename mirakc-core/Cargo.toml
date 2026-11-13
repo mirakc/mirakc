@@ -29,6 +29,7 @@ humantime-serde = "1.1.1"
 hyper = { version = "1.11.0", features = ["full"] }
 hyper-util = "0.1"
 indexmap = { version = "2.14.0", features = ["serde"] }
+ipnet = { version = "2.12.2", features = ["serde"] }
 is_executable = "1.0.6"
 is-terminal = "0.4.17"
 itertools = "0.15.0"

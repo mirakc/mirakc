@@ -15,6 +15,7 @@ use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum_extract::Host;
+use ipnet::IpNet;
 
 use super::Config;
 use super::Error;
@@ -49,8 +50,13 @@ pub async fn access_control(
 
     match info {
         PeerInfo::Tcp { addr } => {
-            if !is_private_ip_addr(addr.ip()) {
-                tracing::error!(tcp.addr = ?addr, "Non-private IP addr, disconnect");
+            let ip = addr.ip();
+            if is_private_ip_addr(ip) {
+                // Allowed
+            } else if let Some(net) = is_allowed_ip_addr(ip, &config.server.allowed_networks) {
+                tracing::debug!(tcp.addr = ?addr, %net, "IP addr allowed");
+            } else {
+                tracing::error!(tcp.addr = ?addr, "IP addr not allowed, disconnect");
                 return Error::AccessDenied.into_response();
             }
             if let Some(allowed_hosts) = config.server.allowed_hosts.as_ref() {
@@ -72,6 +78,10 @@ pub async fn access_control(
     }
 
     next.run(request).await
+}
+
+fn is_allowed_ip_addr(ip: IpAddr, allowed_networks: &[IpNet]) -> Option<&IpNet> {
+    allowed_networks.iter().find(|net| net.contains(&ip))
 }
 
 fn is_private_ip_addr(ip: IpAddr) -> bool {
@@ -109,6 +119,7 @@ fn is_allowed_host(host: &str, allowed_hosts: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
     use test_log::test;
 
     #[test]
@@ -135,5 +146,27 @@ mod tests {
         assert!(!is_private_ip_addr("::ffff:8.8.8.8".parse().unwrap()));
 
         assert!(is_private_ip_addr("fc02::".parse().unwrap())); // IPv6 ULA
+    }
+
+    #[test]
+    fn test_is_allowed_ip_addr() {
+        assert_matches!(
+            is_allowed_ip_addr("100.127.30.37".parse().unwrap(), &[]),
+            None
+        );
+        assert_matches!(
+            is_allowed_ip_addr(
+                "100.127.30.37".parse().unwrap(),
+                &["100.64.0.0/10".parse().unwrap()]
+            ),
+            Some(_)
+        );
+        assert_matches!(
+            is_allowed_ip_addr(
+                "100.127.30.37".parse().unwrap(),
+                &["172.17.0.1/16".parse().unwrap()]
+            ),
+            None
+        );
     }
 }
