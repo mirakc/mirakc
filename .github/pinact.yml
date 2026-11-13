@@ -1,0 +1,3 @@
+version: 3
+files:
+  - pattern: .github/workflows/*.yml

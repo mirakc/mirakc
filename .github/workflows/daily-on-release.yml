@@ -4,11 +4,17 @@ on:
   schedule:
     - cron: '16 16 * * *' # UTC
 
+permissions: {}
+
 jobs:
   update:
-    uses: ./.github/workflows/update.yml
+    permissions:
+      contents: write
+    uses: $/.github/workflows/update.yml
     with:
       ref-name: release
     secrets:
+      CI_BOT_APP_ID: ${{ secrets.CI_BOT_APP_ID }}
+      CI_BOT_PRIVATE_KEY: ${{ secrets.CI_BOT_PRIVATE_KEY }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}

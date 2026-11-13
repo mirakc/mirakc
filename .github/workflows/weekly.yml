@@ -5,6 +5,8 @@ on:
     - cron: '19 19 * * 5'  # every Friday
   workflow_dispatch:
 
+permissions: {}
+
 env:
   DENO_DIR: /tmp/deno
 
@@ -13,40 +15,66 @@ jobs:
     runs-on: ubuntu-latest
     # Use the `mirakc-ci` bot account in order to invoke the release workflow
     # triggered by a push event for a release tag.
+    permissions:
+      contents: read
     steps:
-      - uses: tibdex/github-app-token@v2
-        id: generate-token
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
         with:
-          app_id: ${{ secrets.CI_BOT_APP_ID }}
-          private_key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
-      # Use `main` in order to use actions/github-script@v7 for avoiding a warning.
-      - uses: raven-actions/bot-details@main
-        id: bot-details
+          # app-id was deprecated in 3.1.0
+          client-id: ${{ secrets.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_PRIVATE_KEY }}
+          # The access will be scoped to only the current repository.
+          permission-contents: write
+      - name: Get GitHub App User ID
+        id: get-user-id
+        run: |
+          USER_ID=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          echo "user-id=$USER_ID" >>"$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          bot-slug-name: mirakc-ci
-      - uses: actions/checkout@v7.0.1
-        with:
-          token: ${{ steps.generate-token.outputs.token }}
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
           # Always checkout the release branch.
           ref: release
           # Fetch all history for all tags and branches so that `git describe`
           # works properly.
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable  # required for scripts/bump-version
-      - uses: denoland/setup-deno@v2.0.5  # required for scripts/release
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          deno-version: v1.x
+          toolchain: stable
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      # See https://github.com/actions/create-github-app-token?tab=readme-ov-file#configure-git-cli-for-an-apps-bot-user
       - name: git config
         run: |
-          git config user.name "${{ steps.bot-details.outputs.name }}"
-          git config user.email "${{ steps.bot-details.outputs.email }}"
+          git config --global user.name "$USER_NAME"
+          git config --global user.email "$USER_EMAIL"
+        env:
+          USER_NAME: ${{ steps.app-token.outputs.app-slug }}[bot]
+          USER_EMAIL: ${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com
+      # See https://github.com/tschaub/gh-pages/issues/384#issuecomment-1236047843
+      - name: set origin url (workaround)
+        run: |
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}"
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
       - run: |
           TAG="$(git describe --tags --abbrev=0)"
           if git diff --quiet "$TAG"
           then
             echo "Not changed, skip to create new release"
           else
-            ./scripts/release patch
+            if [ -e ./scripts/release.sh ]
+            then
+              sh ./scripts/release.sh patch
+            else
+              ./scripts/release patch
+            fi
             git push
             git push --tags
           fi

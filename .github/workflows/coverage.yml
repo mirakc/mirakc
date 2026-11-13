@@ -8,14 +8,14 @@ on:
       - trial-*
     paths-ignore:
       - '**.md'
-  # Don't run this workflow on pull_request.
-  # This workflow uses secrets.
-  pull_request_target:
+  pull_request:
     branches:
       - main
       - release
     paths-ignore:
       - '**.md'
+
+permissions: {}
 
 jobs:
   coverage:
@@ -23,24 +23,32 @@ jobs:
     if: ${{ github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: mirakc-arib is required for tests
+        run: |
+          ln -sf $(which true) /usr/local/bin/mirakc-arib
+          test $(which mirakc-arib) = /usr/local/bin/mirakc-arib
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
           submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@nextest
-      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-llvm-cov nextest
       - name: Generate code coverage
         run: >-
           cargo llvm-cov nextest --all-features --workspace
           --codecov --output-path=codecov.json
-      - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v7.1.1
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        if: env.CODECOV_TOKEN != ''
         with:
           files: codecov.json
+          fail_ci_if_error: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

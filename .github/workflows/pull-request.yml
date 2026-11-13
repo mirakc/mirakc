@@ -8,9 +8,19 @@ on:
     paths-ignore:
       - '**.md'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
 # Don't run jobs which use secrets.
 jobs:
   build:
-    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+    uses: $/.github/workflows/build.yml
   cross-build:
-    uses: ./.github/workflows/cross-build.yml
+    permissions:
+      contents: read
+    uses: $/.github/workflows/cross-build.yml
