@@ -209,7 +209,6 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "axum-core",
- "axum-extra",
  "axum-macros",
  "http",
  "tokio",
