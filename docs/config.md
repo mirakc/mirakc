@@ -17,6 +17,7 @@ suitable for your environment.
 | [server.mounts]                          | `{}`                              |
 | [server.folder-view-template-path]       | `None`                            |
 | [server.allowed-hosts]                   | `None`                            |
+| [server.allowed-networks]                | `[]`                              |
 | [channels\[\].name]                      |                                   |
 | [channels\[\].type]                      |                                   |
 | [channels\[\].channel]                   |                                   |
@@ -79,6 +80,7 @@ suitable for your environment.
 [server.mounts]: #servermounts
 [server.folder-view-template-path]: #serverfolder-view-template-path
 [server.allowed-hosts]: #serverallowed-hosts
+[server.allowed-networks]: #serverallowed-networks
 [channels\[\].name]: #channels
 [channels\[\].type]: #channels
 [channels\[\].channel]: #channels
@@ -415,6 +417,29 @@ The following host names are always allowed regardless of this setting:
 * `localhost`
 * `127.0.0.1`
 * `::1` (and `[::1]`)
+
+## server.allowed-networks
+
+Specifies a list of CIDR networks allowed to connect to the server.
+
+You can specify multiple networks.  If a client's IP address matches any of the networks in this
+list, the connection is allowed even if it is outside the private IP ranges.  Note: Private IP
+ranges are always allowed regardless of this list's contents.
+
+Empty (`[]`) by default, only private IP address ranges are allowed.
+
+```yaml
+# YAML
+server:
+  allowed-networks:
+    - 100.64.0.0/10
+```
+
+```toml
+# TOML
+[server]
+allowed-networks = ["100.64.0.0/10"]
+```
 
 ## channels
 

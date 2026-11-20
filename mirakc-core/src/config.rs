@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use indexmap::IndexMap;
+use ipnet::IpNet;
 use is_executable::IsExecutable;
 use itertools::Itertools;
 use serde::Deserialize;
@@ -334,6 +335,8 @@ pub struct ServerConfig {
     pub folder_view_template_path: Option<PathBuf>,
     #[serde(default)]
     pub allowed_hosts: Option<Vec<String>>,
+    #[serde(default)]
+    pub allowed_networks: Vec<IpNet>,
 }
 
 impl ServerConfig {
@@ -425,6 +428,7 @@ impl Default for ServerConfig {
             mounts: Default::default(),
             folder_view_template_path: None,
             allowed_hosts: None,
+            allowed_networks: vec![],
         }
     }
 }
@@ -2010,6 +2014,21 @@ mod tests {
                 r#"
                 allowed-hosts:
                   - mirakc:40772
+            "#
+            )
+            .unwrap(),
+            config
+        );
+
+        let mut config = ServerConfig::default();
+        config
+            .allowed_networks
+            .push("100.64.0.0/10".parse().unwrap());
+        assert_eq!(
+            serde_norway::from_str::<ServerConfig>(
+                r#"
+                allowed-networks:
+                  - 100.64.0.0/10
             "#
             )
             .unwrap(),
