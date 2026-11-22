@@ -504,6 +504,7 @@ impl fuser::Filesystem for TimeshiftFilesystem {
         _req: &fuser::Request,
         ino: INodeNo,
         _flags: OpenFlags,
+        _kill_suid_gid: bool,
         reply: fuser::ReplyOpen,
     ) {
         let ino = Ino::from(ino);

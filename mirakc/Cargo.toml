@@ -10,17 +10,17 @@ build = "build.rs"
 
 [dependencies]
 actlet = { path = "../actlet" }
-clap = { version = "4.6.4", features = ["derive", "env"] }
+clap = { version = "4.6.9", features = ["derive", "env"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
 humantime = "2.4.0"
 mirakc-core = { path = "../mirakc-core" }
-serde_json = { version = "1.0.151", features = ["preserve_order"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
 tempfile = "3.27.0"
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1.44"
 
 [build-dependencies]
-vergen-gitcl = { version = "10.0.1", features = ["build"] }
+vergen-gitcl = { version = "10.0.4", features = ["build"] }
 
 [dev-dependencies]
 assert_matches = "1.5.0"
