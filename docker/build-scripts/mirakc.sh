@@ -19,10 +19,10 @@ export CARGO_TARGET_${TRIPLE}_LINKER="$GCC"
 
 export PKG_CONFIG_ALLOW_CROSS=1
 
-cargo build -v --profile=$PROFILE --target $RUST_TARGET_TRIPLE --bin mirakc
+cargo build -v --locked --profile=$PROFILE --target $RUST_TARGET_TRIPLE --bin mirakc
 cp ./target/$RUST_TARGET_TRIPLE/$PROFILE/mirakc /usr/local/bin/
 
-cargo build -v --profile=$PROFILE --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs
+cargo build -v --locked --profile=$PROFILE --target $RUST_TARGET_TRIPLE --bin mirakc-timeshift-fs
 cp ./target/$RUST_TARGET_TRIPLE/$PROFILE/mirakc-timeshift-fs /usr/local/bin/
 cat <<EOF >/usr/local/bin/run-mirakc-timeshift-fs
 #!/bin/sh

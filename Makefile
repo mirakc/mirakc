@@ -16,8 +16,8 @@ check: check-rust check-github-actions
 .PHONY: check-rust
 check-rust:
 	cargo fmt --all --check
-	cargo check --workspace --all-targets --all-features
-	cargo clippy --workspace --all-targets --all-features -- -D warnings -A 'clippy::collapsible_if'
+	cargo check --locked --workspace --all-targets --all-features
+	cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -A 'clippy::collapsible_if'
 	cargo deny check -s
 
 .PHONY: check-github-actions
@@ -34,7 +34,7 @@ pin-github-actions:
 .PHONY: build
 build: OPTIONS ?=
 build:
-	cargo build $(OPTIONS)
+	cargo build --locked $(OPTIONS)
 
 # Always run w/ --all-features.
 #
@@ -45,7 +45,7 @@ build:
 test: OPTIONS ?=
 test: TESTNAME ?=
 test:
-	cargo nextest run --all-features $(OPTIONS) $(TESTNAME)
+	cargo nextest run --locked --all-features $(OPTIONS) $(TESTNAME)
 
 .PHONY: format
 format: format-rust
@@ -55,7 +55,7 @@ format-rust:
 	@echo 'Formatting *.rs...'
 	@cargo fmt --all
 
-.PHONE: images
+.PHONY: images
 images: PREFIX ?= dev
 images: DISTRO ?= debian
 images: PLATFORM ?= linux/amd64
@@ -63,7 +63,7 @@ images:
 	$(MAKE) -s image PREFIX=$(PREFIX) DISTRO=$(DISTRO) PLATFORM=$(PLATFORM) TARGET=mirakc
 	$(MAKE) -s image PREFIX=$(PREFIX) DISTRO=$(DISTRO) PLATFORM=$(PLATFORM) TARGET=timeshift-fs
 
-.PHONE: image
+.PHONY: image
 image: PREFIX ?= dev
 image: DISTRO ?= debian
 image: PLATFORM ?= linux/amd64
@@ -72,7 +72,7 @@ image:
 	docker build -t mirakc/$(TARGET):$(PREFIX)-$(DISTRO) -f docker/Dockerfile --load \
 	  --target $(TARGET)-$(DISTRO) --platform=$(PLATFORM) --build-arg DEBIAN_CODENAME=$(DEBIAN) .
 
-.PHONE: check-all-images
+.PHONY: check-all-images
 check-all-images: PREFIX ?= dev
 check-all-images:
 	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=debian PLATFORM=linux/386
@@ -85,7 +85,7 @@ check-all-images:
 	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=linux/arm/v7
 	$(MAKE) -s check-images PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=linux/arm64
 
-.PHONE: check-images
+.PHONY: check-images
 check-images: PREFIX ?= dev
 check-images: DISTRO ?= debian
 check-images: PLATFORM ?= linux/amd64
@@ -94,9 +94,9 @@ check-images:
 	$(MAKE) -s check-mirakc-image PREFIX=$(PREFIX) DISTRO=$(DISTRO) PLATFORM=$(PLATFORM)
 	$(MAKE) -s check-timeshift-fs-image PREFIX=$(PREFIX) DISTRO=$(DISTRO) PLATFORM=$(PLATFORM)
 
-.PHONE: check-mirakc-image
+.PHONY: check-mirakc-image
 check-mirakc-image: PREFIX ?= dev
-check-mirakc-iamge: DISTRO ?= debian
+check-mirakc-image: DISTRO ?= debian
 check-mirakc-image: PLATFORM ?= linux/amd64
 check-mirakc-image:
 	docker run --rm --platform=$(PLATFORM) mirakc/mirakc:$(PREFIX)-$(DISTRO) --version
@@ -105,33 +105,33 @@ check-mirakc-image:
 	docker run --rm --platform=$(PLATFORM) --entrypoint=mirakc-arib mirakc/mirakc:$(PREFIX)-$(DISTRO) --version
 	docker run --rm --platform=$(PLATFORM) --entrypoint=dvbv5-zap mirakc/mirakc:$(PREFIX)-$(DISTRO) --version
 
-.PHONE: check-timeshift-fs-image
+.PHONY: check-timeshift-fs-image
 check-timeshift-fs-image: PREFIX ?= dev
 check-timeshift-fs-image: DISTRO ?= debian
 check-timeshift-fs-image: PLATFORM ?= linux/amd64
 check-timeshift-fs-image:
 	docker run --rm --platform=$(PLATFORM) --entrypoint=mirakc-timeshift-fs mirakc/timeshift-fs:$(PREFIX)-$(DISTRO) --version
 
-.PHONE: debian-images
+.PHONY: debian-images
 debian-images: PREFIX ?= dev
 debian-images: PLATFORM ?= linux/amd64
 debian-images:
 	$(MAKE) -s images PREFIX=$(PREFIX) DISTRO=debian PLATFORM=$(PLATFORM)
 
-.PHONE: alpine-images
+.PHONY: alpine-images
 alpine-images: PREFIX ?= dev
 alpine-images: PLATFORM ?= linux/amd64
 alpine-images:
 	$(MAKE) -s images PREFIX=$(PREFIX) DISTRO=alpine PLATFORM=$(PLATFORM)
 
-.PHONE: debian-image
+.PHONY: debian-image
 debian-image: PREFIX ?= dev
 debian-image: PLATFORM ?= linux/amd64
 debian-image: TARGET ?= mirakc
 debian-image:
 	$(MAKE) -s image PREFIX=$(PREFIX) DISTRO=debian PLATFORM=$(PLATFORM) TARGET=$(TARGET)
 
-.PHONE: alpine-image
+.PHONY: alpine-image
 alpine-image: PREFIX ?= dev
 alpine-image: PLATFORM ?= linux/amd64
 alpine-image: TARGET ?= mirakc
