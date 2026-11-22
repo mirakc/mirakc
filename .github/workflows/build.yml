@@ -44,10 +44,10 @@ jobs:
         run: make check
       - name: Build
         run: |
-          cargo build -v --release
+          cargo build -v --locked --release
       - name: Run tests
         run: |
-          cargo nextest run --release --all-features
+          cargo nextest run --locked --release --all-features
         env:
           RUST_LOG: debug
       - name: Tests for OpenAPI document
@@ -57,7 +57,7 @@ jobs:
           resource:
             strings-yaml: resources/strings.yml
           EOF
-          cargo run -r --bin=mirakc -- -c config.yml openapi openapi.json
+          cargo run --locked -r --bin=mirakc -- -c config.yml openapi openapi.json
           # openapi-generator-cli
           npx @openapitools/openapi-generator-cli generate -i openapi.json \
             -g rust -o mirakc-client --package-name mirakc-client

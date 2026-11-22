@@ -18,7 +18,7 @@ jobs:
           # glibc
           - i686-unknown-linux-gnu         # linux/386
           - arm-unknown-linux-gnueabi      # linux/arm/v5
-          - armv7-unknown-linux-gnueabihf  # linux/arv/v7
+          - armv7-unknown-linux-gnueabihf  # linux/arm/v7
           - aarch64-unknown-linux-gnu      # linux/arm64/v8
           # musl
           - i686-unknown-linux-musl         # linux/386
@@ -49,10 +49,10 @@ jobs:
           tool: nextest
       - name: Build
         run: |
-          cargo build -v --release
+          cargo build -v --locked --release
       - name: Run tests
         run: |
-          cargo nextest run --release --all-features
+          cargo nextest run --locked --release --all-features
         env:
           RUST_LOG: debug
           # FIXME(ci): The following test randomly fails in the `cross-build` workflow for an
