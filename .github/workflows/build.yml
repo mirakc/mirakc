@@ -44,9 +44,9 @@ jobs:
         run: make check
       - name: Build
         run: |
-          cargo build -v --release
+          cargo build -v --locked --release
       - name: Run tests
         run: |
-          cargo nextest run --release --all-features
+          cargo nextest run --locked --release --all-features
         env:
           RUST_LOG: debug

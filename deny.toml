@@ -48,3 +48,13 @@ unknown-git = "deny"
 allow-git = [
     "https://github.com/mirakc/utoipa",
 ]
+
+# TODO: Remove these entries once `humantime` and `chrono` are replaced with
+# maintained crates in the separate migration workstream.
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0542"
+reason = "humantime is temporarily retained while migrating away from unmaintained crates"
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0543"
+reason = "chrono is temporarily retained while migrating to a maintained alternative"
